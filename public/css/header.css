@@ -10,26 +10,57 @@ header {
   border-bottom: 1px solid #444;
 }
 
-header h1 {
-  margin: 0;
-  flex: 0 0 auto;
+.header-logo {
+  width: 200px;
+  height: auto;
+  border-radius: 5px; /* Rounded edges */
+  box-shadow: 0 0 8px #0C93E1FF; /* Blue glow */
 }
 
 header nav {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap; /* optional, for narrow viewports */
 }
 
 header nav a {
-  margin: 0 0.5rem;
   color: #eee;
   text-decoration: none;
   background: #414040;
   padding: 6px 10px;
   border-radius: 10px;
   transition: background 0.2s ease, color 0.2s ease;
+  display: inline-block;
 }
+
+header nav a:hover,
+header nav a:focus {
+  background: #5a5a5a;
+  color: #fff;
+}
+
+.nav-menu-dev,
+.nav-menu-test {
+  display: flex;
+  gap: 0.5rem;
+  border-radius: 12px;
+  padding: 4px 6px;
+}
+
+.nav-menu-dev {
+  padding: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.nav-menu-test {
+  padding: 5px;
+  border: 2px solid rgba(150, 255, 150, 0.4);
+}
+
 
 header nav a:hover,
 header nav a:focus {

@@ -64,3 +64,10 @@
       box-sizing: border-box;
       border-top: 1px solid #444;
     }
+
+    #graph {
+      width: 90%;
+      height: auto; /* preserves aspect ratio */
+      display: block;
+      margin: 1rem auto; /* optional centering */
+    }
