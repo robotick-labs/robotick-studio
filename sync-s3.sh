@@ -1,0 +1,1 @@
+source ./deploy/s3-deploy.sh

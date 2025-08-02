@@ -1,0 +1,66 @@
+
+    svg {
+      width: 98vw;
+      height: 90vh;
+      display: block;
+    }
+
+    .swimlane {
+      fill: #1a1a1a;
+      stroke: #333;
+    }
+
+    .workload {
+      fill: #2266aa;
+      stroke: #88ccff;
+      stroke-width: 2;
+      rx: 6;
+      cursor: move;
+    }
+
+    .workload-node text {
+      fill: #bbe0fc;
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .connection {
+      fill: none;
+      stroke: #ffaa00;
+      stroke-width: 2;
+      stroke-dasharray: 4 4;
+      animation: pulse 2s infinite linear;
+    }
+
+    @keyframes pulse {
+      to {
+        stroke-dashoffset: -8;
+      }
+    }
+
+    .label {
+      fill: white;
+      font-size: 10px;
+    }
+
+    .group {
+      fill: none;
+      stroke: #33cc66;
+      stroke-width: 2;
+      stroke-dasharray: 6 4;
+    }
+
+    #info-box {
+      display: block;
+      background-color: #222;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 10px;
+      padding: 6px 12px;
+      white-space: pre-wrap;
+      overflow-y: auto;
+      height: 80px;
+      width: 95vw;
+      box-sizing: border-box;
+      border-top: 1px solid #444;
+    }

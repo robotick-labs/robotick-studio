@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hub | Robotick</title>
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <link rel="stylesheet" href="css/common.css">
+    <link rel="stylesheet" href="css/composer.css">
+    <link rel="stylesheet" href="css/footer.css">
+    <link rel="stylesheet" href="css/header.css">
+    <link rel="stylesheet" href="css/remote-control.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="images/icon.png" type="image/png">
+    <meta name="theme-color" content="#222222">
+</head>
+
+<body>
+  <header>
+    <h1>Robotick Hub</h1>
+    <nav>
+      <a href="#/">Home</a>
+      <a href="#/remote-control">Remote Control</a>
+      <a href="#/composer">Composer</a>
+    </nav>
+  </header>
+
+  <main ><div id="app" class="page-container"><em>Loading...</em></div></main>
+
+  <footer>
+    <small>© Robotick Labs</small>
+  </footer>
+
+  <script>
+
+    const routes = {
+    '/':                { title: 'Home',            html: 'pages/home.html' },
+    '/remote-control':  { title: 'Remote Control',  html: 'pages/remote-control.html',    js: 'js/remote-control.js' },
+    '/composer':        { title: 'Composer',        html: 'pages/composer.html',          js: 'js/composer.js' },
+    };
+
+    async function render() {
+        const hash = window.location.hash || '#/';
+        const path = hash.slice(1);
+        const route = routes[path];
+
+        const app = document.getElementById('app');
+
+        if (!route) {
+            app.innerHTML = `<h2>404</h2><p>Page not found: ${path}</p>`;
+            return;
+        }
+
+        try {
+            const res = await fetch(route.html);
+            const html = await res.text();
+            app.innerHTML = html;
+            document.title = route.title ? `${route.title} | Hub | Robotick` : 'Hub | Robotick';
+
+            if (route.js) {
+                try {
+                    console.log(`🧠 Loading JS module for route: ${path} → ${route.js}`);
+                    const module = await import(`./${route.js}`);
+                    console.log("🔍 Loaded module:", module);
+                    
+                    if (typeof module.init === 'function') {
+                    console.log(`✅ Found init() in ${route.js}, executing...`);
+                    module.init();
+                    } else {
+                    console.warn(`⚠️ Module '${route.js}' does not export an init() function`);
+                    }
+
+                } catch (err) {
+                    console.error(`❌ Failed to load or execute module '${route.js}':`, err);
+                }
+            }
+
+        } catch (err) {
+            app.innerHTML = `<h2>Error</h2><p>${err.message}</p>`;
+            console.error(err);
+        }
+        }
+
+    window.addEventListener('hashchange', render);
+    window.addEventListener('DOMContentLoaded', render);
+  </script>
+</body>
