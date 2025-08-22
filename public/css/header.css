@@ -8,6 +8,9 @@ header {
   color: white;
 
   border-bottom: 1px solid #444;
+
+  /* shadow underneath only */
+  
 }
 
 .header-logo {

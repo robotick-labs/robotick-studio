@@ -1,15 +1,5 @@
 /* === Layout Styles === */
 
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  font-family: sans-serif;
-  background: #121212;
-  color: #ccc;
-}
-
 #layout {
   display: flex;
   height: calc(100vh - 100px); /* leave room for info-box */

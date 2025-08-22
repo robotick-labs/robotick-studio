@@ -1,44 +1,12 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hub | Robotick</title>
-    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
-    <link rel="stylesheet" href="css/common.css">
-    <link rel="stylesheet" href="css/composer.css">
-    <link rel="stylesheet" href="css/footer.css">
-    <link rel="stylesheet" href="css/header.css">
-    <link rel="stylesheet" href="css/remote-control.css">
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="images/icon.png" type="image/png">
-    <meta name="theme-color" content="#222222">
+  <title>Hub | Robotick</title>
 </head>
-
-<body>
-  <header>
-    <img class="header-logo" src="images/logo.png">
-    <nav>
-      <a href="#/">Home</a>
-      <div class="nav-menu-dev">
-        <a href="#/composer">Composer</a>
-        <a href="#/launcher">Launcher</a>
-      </div>
-      <div class="nav-menu-test">
-        <a href="#/remote-control">Remote Control</a>
-        <a href="#/telemetry">Telemetry</a>
-      </div>
-      <a href="#/help">Help</a>
-    </nav>
-  </header>
-
-  <main ><div id="app" class="page-container"><em>Loading...</em></div></main>
-
-  <footer>
-    <small>© Robotick Labs</small>
-  </footer>
-
-  <script type="module" src="js/router.js"></script>
-  
+<body style="background:#222;margin:0">
+  <script type="module">
+    const url = "/js/entry.js";
+    import(url).then(m => m.init?.({ host: location.origin }));
+  </script>
 </body>
+</html>

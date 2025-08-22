@@ -39,7 +39,7 @@
   justify-content: space-between;
   gap: 1rem;
   width: 90vw;
-  max-width: 80%;
+  max-width: 88%;
   z-index: 2;
 }
 
@@ -48,7 +48,6 @@
   width: 150px;
   height: 150px;
   background: #555;
-  border: 2px solid rgba(192, 192, 192, 0.2);
   border-radius: 10px;
 }
 
