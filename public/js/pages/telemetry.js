@@ -1,4 +1,4 @@
-const workloads = [];
+let workloads = [];
 let workloadIndex = 0;
 
 async function fetchJSON(url) {
@@ -116,6 +116,9 @@ async function loadInitialData() {
 }
 
 export function init() {
+
+    workloads = [];
+    workloadIndex = 0;
 
     // Periodically fetch live stats + I/O
     setInterval(() => {
