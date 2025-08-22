@@ -1,4 +1,6 @@
+import { setProjectPath } from "./core/project.js";
 
+setProjectPath("robotick-knitware/robots/barr-e/barr-e.project.yaml");
 
 const routes = {
 '/':                { title: 'Home',            html: 'pages/home.html',              js: 'pages/home.js' },

@@ -1,6 +1,9 @@
 const nodeSize = { width: 140, height: 40 };
 let svg, swimlaneLayer, groupLayer, connectionsLayer, nodeLayer;
-let currentConnections = [];
+let currentLocalConns = [];
+let currentRemoteConns = [];
+
+import { getProjectPath } from "../core/project.js";
 
 export function init() {
   svg = document.getElementById('graph');
@@ -24,42 +27,110 @@ function createSvgLayer(id) {
   return g;
 }
 
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${url}`);
+  return await res.json();
+}
+
 async function loadAndRenderModel() {
   try {
-    const model = await loadModel("robotick-knitware/robots/barr-e/barr-e.project.yaml", "models/barr-e-brain.model.yaml");
-    const root = model.workloads.find(w => w.name === model.root);
-    if (!root || !root.children) throw new Error('Root with children not found');
+    const projectPath = getProjectPath();
+    if (!projectPath) throw new Error("No project path set");
 
-    const lanes = root.children.length;
-    const laneHeight = 400 / lanes;
-    drawSwimlanes(lanes, laneHeight);
+    const models = await fetchJSON(
+      `http://0.0.0.0:7081/query/list-project-models?project=${encodeURIComponent(projectPath)}`
+    );
 
-    const startX = 100;
-    const spacing = 180;
-    const offsetY = (laneHeight - nodeSize.height) / 2;
+    // --- helpers for this render pass ---
+    let maxBottom = 0;
+    const bumpSvgSize = (bottomY) => {
+      maxBottom = Math.max(maxBottom, bottomY);
+      const extra = 60; // padding
+      svg.setAttribute('viewBox', `0 0 1000 ${maxBottom + extra}`);
+      svg.setAttribute('height', maxBottom + extra);
+    };
+    const idFor = (modelPath, id) =>
+      `${modelPath.split('/').pop().replace(/\.model\.yaml$/, '')}:${id}`;
 
-    root.children.forEach((childId, idx) => {
-      const workload = model.workloads.find(w => w.name === childId);
-      const y = idx * laneHeight + offsetY;
-      if (workload.children) {
-        workload.children.forEach((subId, j) => {
-          createNode(subId, startX + j * spacing, y);
-        });
-        const boxWidth = workload.children.length * spacing + 20;
-        createGroupBox(workload.id, startX - 10, y - 10, boxWidth, nodeSize.height + 20);
-      } else {
-        createNode(childId, startX, y);
+    let yOffset = 80;
+
+    const allLocalConns = [];
+    const allRemoteConns = [];
+
+    for (const modelPath of models) {
+      const model = await loadModel(projectPath, modelPath);
+      const root = model.workloads.find(w => w.name === model.root);
+      if (!root || !root.children) continue;
+
+      const lanes = root.children.length;
+      const laneHeight = 100;
+      const sectionHeight = lanes * laneHeight;
+
+      console.log("Drawing model:", modelPath);
+
+      drawSectionLabel(modelPath, yOffset - 10);
+      drawSwimlanes(lanes, laneHeight, yOffset);
+
+      const startX = 100;
+      const spacing = 180;
+      const offsetY = (laneHeight - nodeSize.height) / 2;
+
+      root.children.forEach((childId, idx) => {
+        const workload = model.workloads.find(w => w.name === childId);
+        const y = yOffset + idx * laneHeight + offsetY;
+
+        if (workload?.children?.length) {
+          workload.children.forEach((subId, j) => {
+            createNode(idFor(modelPath, subId), subId, startX + j * spacing, y);
+          });
+          const boxWidth = workload.children.length * spacing + 20;
+          createGroupBox(idFor(modelPath, workload.id), startX - 10, y - 10, boxWidth, nodeSize.height + 20);
+        } else {
+          createNode(idFor(modelPath, childId), childId, startX, y);
+        }
+      });
+
+      // 1. Local connections
+      const localConns = (model.connections || []).map(dc => ({
+        from: idFor(modelPath, dc.from.split('.')[0]),
+        to:   idFor(modelPath, dc.to.split('.')[0]),
+      }));
+
+      // 2. Remote connections (to other models)
+      const remoteConns = [];
+
+      for (const remote of model.remote_models || []) {
+        const remoteModelId = remote.name; // e.g. "spine"
+        for (const dc of remote.connections || []) {
+          const fromId = idFor(modelPath, dc.from.split('.')[0]);          // local side
+          const toId   = `${remoteModelId}:${dc.to_remote.split('.')[0]}`; // remote side
+          remoteConns.push({ from: fromId, to: toId, isRemote: true });
+        }
       }
-    });
 
-   const conns = (model.connections || []).map(dc => ({
-      from: dc.from.split('.')[0],
-      to: dc.to.split('.')[0],
-    }));
-    updateConnections(conns);
+      allLocalConns.push(...localConns);
+      allRemoteConns.push(...remoteConns);
+
+      // Grow the SVG and move down for the next model
+      bumpSvgSize(yOffset + sectionHeight);
+      yOffset += sectionHeight + 80;
+    }
+
+    updateConnections(allLocalConns, allRemoteConns);
   } catch (err) {
     console.error('Error loading or rendering model:', err);
   }
+}
+
+
+function drawSectionLabel(name, y) {
+  const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  text.setAttribute('x', '10');
+  text.setAttribute('y', y);
+  text.classList.add('model-label');
+  text.textContent = name;
+  svg.appendChild(text);
 }
 
 async function loadModel(project_path, model_path) {
@@ -68,9 +139,9 @@ async function loadModel(project_path, model_path) {
   return await res.json();   // built-in JSON parser
 }
 
-function drawSwimlanes(count, height) {
+function drawSwimlanes(count, height, yStart = 0) {
   for (let i = 0; i < count; i++) {
-    const y = i * height;
+    const y = yStart + i * height;
 
     const lane = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     lane.classList.add('swimlane');
@@ -89,7 +160,7 @@ function drawSwimlanes(count, height) {
   }
 }
 
-function createNode(id, x, y) {
+function createNode(id, name, x, y) {
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   g.classList.add('workload-node');
   g.setAttribute('id', id);
@@ -103,7 +174,7 @@ function createNode(id, x, y) {
   const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
   text.setAttribute('x', '10');
   text.setAttribute('y', '25');
-  text.textContent = id;
+  text.textContent = name;
 
   g.appendChild(rect);
   g.appendChild(text);
@@ -141,7 +212,7 @@ function makeDraggable(node) {
     const onMouseMove = ev => {
       const { x, y } = toSvgCoords(ev);
       node.setAttribute('transform', `translate(${x - offsetX},${y - offsetY})`);
-      updateConnections(currentConnections);
+      updateConnections(currentLocalConns, currentRemoteConns);
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -151,14 +222,15 @@ function makeDraggable(node) {
   });
 }
 
-function updateConnections(conns) {
-  currentConnections = conns;
+function updateConnections(localConns, remoteConns) {
+  currentLocalConns = localConns;
+  currentRemoteConns = remoteConns;
 
   while (connectionsLayer.firstChild) {
     connectionsLayer.removeChild(connectionsLayer.firstChild);
   }
 
-  conns.forEach(c => {
+  const drawConnection = (c, styleClass) => {
     const from = document.getElementById(c.from);
     const to = document.getElementById(c.to);
     if (!from || !to) return;
@@ -172,8 +244,11 @@ function updateConnections(conns) {
     const y2 = tm.f + nodeSize.height / 2;
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.classList.add('connection');
+    path.classList.add('connection', styleClass);
     path.setAttribute('d', `M${x1},${y1} C${x1 + 40},${y1} ${x2 - 40},${y2} ${x2},${y2}`);
     connectionsLayer.appendChild(path);
-  });
+  };
+
+  localConns.forEach(c => drawConnection(c, 'local-connection'));
+  remoteConns.forEach(c => drawConnection(c, 'remote-connection'));
 }
