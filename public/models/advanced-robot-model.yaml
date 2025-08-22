@@ -57,14 +57,6 @@ model:
         type: SceneGraphBuilder
         tick_rate_hz: 1.0
 
-      # 📡 Communications
-      - id: telemetry
-        type: MqttTelemetryWorkload
-        tick_rate_hz: 2.0
-      - id: file_downlink
-        type: DataLoggerUploader
-        tick_rate_hz: 0.2
-
       # ❤️ Human/Mission Interface
       - id: emotion_display
         type: EyeFaceDisplayWorkload

@@ -21,6 +21,6 @@ body {
 
 main {
     flex: 1; /* fill available space between header and footer */
-    padding: 1rem;
+    padding: 0rem;
     overflow-y: auto;
 }

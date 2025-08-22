@@ -1,7 +1,27 @@
-  <svg id="graph" viewBox="0 0 1000 400">
-    <defs></defs>
-  </svg>
+<svg id="graph" viewBox="0 0 1000 400">
+  <defs></defs>
+</svg>
 
-  <div id="info-box">Swimlane graph loaded. No errors.
-    cd ~/dev/robotick/robotick-knitware/robotick-engine/data/remote_control_interface_web
-    python3 -m http.server 8000</div>
+<div id="info-box">Swimlane graph loaded. No errors.
+  cd ~/dev/robotick/robotick-knitware/robotick-engine/data/remote_control_interface_web
+  python3 -m http.server 8000
+</div>
+
+<div id="property-panel">
+  <h3>
+    Properties
+    <span style="font-weight: normal;"> | RemoteControlWorkload</span>
+  </h3>
+
+  <div class="prop-section">
+    <label>Unique Id <input type="text" value="remote_control"></label>
+    <label>Tick Rate <input type="number" value="60"></label>
+    <label>Active <input type="checkbox" checked></label>
+  </div>
+
+  <div class="prop-section">
+    <label>Position X <input type="number" value="100"></label>
+    <label>Position Y <input type="number" value="240"></label>
+    <label>Rotation <input type="number" value="0"></label>
+  </div>
+</div>

@@ -71,3 +71,67 @@
       display: block;
       margin: 1rem auto; /* optional centering */
     }
+
+#property-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 25%;
+  height: 100%;
+  background: #1e1e1e;
+  color: #eee;
+  padding: 16px;
+  box-shadow: -2px 0 4px rgba(0, 0, 0, 0.4);
+  font-family: sans-serif;
+  font-size: 14px;
+  overflow-y: auto;
+  border-radius: 5px;
+}
+
+#property-panel h3 {
+  margin-top: 0;
+  font-size: 16px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 4px;
+}
+
+.prop-section {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prop-section label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.prop-section input[type="text"],
+.prop-section input[type="number"] {
+  flex: 1;
+  padding: 4px 6px;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  color: #fff;
+}
+
+.prop-section input[type="checkbox"] {
+  transform: scale(1.2);
+}
+
+.prop-section button {
+  padding: 6px 12px;
+  background: #3a88f7;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.prop-section button.secondary {
+  background: #444;
+}

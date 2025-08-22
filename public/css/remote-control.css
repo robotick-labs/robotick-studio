@@ -1,120 +1,124 @@
-
-.stick-area {
-    position: relative;
-    width: 150px;
-    height: 150px;
-    background: #555;
-    border-radius: 10px;
-}
+/* ====== Camera fills the page-container ====== */
 
 .rc-ui {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 40rem;
-}
-
-.joystick-row {
-  display: flex;
-  justify-content: space-between;
-  width: 90vw;
-  max-width: 600px;
-  margin-top: 1rem;
-}
-
-@media screen and (max-width: 480px) {
-  .joystick-row {
-    flex-direction: column;
-    align-items: center;
-    gap: 1rem;
-  }
-}
-
-.knob {
-    position: absolute;
-    width: 40px;
-    height: 40px;
-    background: silver;
-    border-radius: 50%;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-}
-
-.controls {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    color: white;
-    font-family: sans-serif;
-    text-align: center;
-    width: 100vw;
-}
-
-.toggle-button {
-    padding: 10px 20px;
-    font-size: 1.1em;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-bottom: 1em;
-    transition: background 0.2s;
-}
-
-.toggle-button.active {
-    background: #3c3;
-    color: #000;
-}
-
-.toggle-button.inactive {
-    background: silver;
-    color: #000;
-}
-
-.slider-group {
-    margin: 10px 0;
-}
-
-.slider-group label {
-    margin-right: 5px;
+  position: absolute;   /* fill the .page-container */
+  inset: 0;             /* top/right/bottom/left: 0 */
 }
 
 .camera-container {
-    position: absolute;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90vw;
-    max-width: 600px;
-    max-height: 40vh;
-    overflow: hidden;
-    border-radius: 8px;
-    background: black;
+  position: absolute;   /* fill the rc-ui area */
+  inset: 0;
+  overflow: hidden;
+  background: #00000000;
+  border-radius: 10px;
 }
 
 #camera-stream {
-    width: 640px;
-    height: 480px;
-    object-fit: contain;
-    display: block;
-    background: #000; 
-    object-fit: contain;
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;      /* fill page-container, crop as needed */
+  display: block;
+  background: #00000000;
 }
 
 #camera-stream:empty,
 #camera-stream[src=""] {
-  background: #000;
+  background: #00000000;
 }
 
-@media screen and (max-height: 480px) and (orientation: landscape) {
-    .camera-container {
+/* ====== Overlays on top of the camera ====== */
 
-        width: 25vw;
-        max-width: 300px;
-    }
+.joystick-row {
+  position: absolute;
+  left: 50%;
+  bottom: 7rem;           /* sits above controls */
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 90vw;
+  max-width: 80%;
+  z-index: 2;
+}
 
-    .controls {
-        bottom: 10px;
-    }
+.stick-area {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  background: #555;
+  border: 2px solid rgba(192, 192, 192, 0.2);
+  border-radius: 10px;
+}
+
+.knob {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background: silver;
+  border-radius: 50%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Centered bottom control bar */
+.controls {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+  width: 100%;
+  z-index: 2;
+}
+
+.toggle-button {
+  padding: 10px 20px;
+  font-size: 1.1em;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1em;
+  transition: background 0.2s;
+}
+
+.toggle-button.active {
+  background: #3c3;
+  color: #000;
+}
+
+.toggle-button.inactive {
+  background: silver;
+  color: #000;
+}
+
+.slider-group {
+  margin: 10px 0;
+}
+
+.slider-group label {
+  margin-right: 5px;
+}
+
+/* ====== Responsive tweaks ====== */
+
+@media (max-width: 480px) {
+  .joystick-row {
+    flex-direction: column;
+    align-items: center;
+    bottom: 8.5rem;   /* give a bit more room above buttons */
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .joystick-row {
+    bottom: 5rem;
+  }
+  .controls {
+    bottom: 0.5rem;
+  }
 }
