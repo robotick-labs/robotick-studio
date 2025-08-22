@@ -3,6 +3,8 @@ let svg, swimlaneLayer, groupLayer, connectionsLayer, nodeLayer;
 let currentLocalConns = [];
 let currentRemoteConns = [];
 
+const marginX = 20;
+
 import { getProjectPath } from "../core/project.js";
 
 export function init() {
@@ -39,7 +41,7 @@ async function loadAndRenderModel() {
     if (!projectPath) throw new Error("No project path set");
 
     const models = await fetchJSON(
-      `http://0.0.0.0:7081/query/list-project-models?project=${encodeURIComponent(projectPath)}`
+      `http://localhost:7081/query/list-project-models?project=${encodeURIComponent(projectPath)}`
     );
 
     // --- helpers for this render pass ---
@@ -53,7 +55,7 @@ async function loadAndRenderModel() {
     const idFor = (modelPath, id) =>
       `${modelPath.split('/').pop().replace(/\.model\.yaml$/, '')}:${id}`;
 
-    let yOffset = 80;
+    let yOffset = 40;
 
     const allLocalConns = [];
     const allRemoteConns = [];
@@ -114,7 +116,7 @@ async function loadAndRenderModel() {
 
       // Grow the SVG and move down for the next model
       bumpSvgSize(yOffset + sectionHeight);
-      yOffset += sectionHeight + 80;
+      yOffset += sectionHeight + 60;
     }
 
     updateConnections(allLocalConns, allRemoteConns);
@@ -126,7 +128,7 @@ async function loadAndRenderModel() {
 
 function drawSectionLabel(name, y) {
   const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  text.setAttribute('x', '10');
+  text.setAttribute('x', marginX + 10);
   text.setAttribute('y', y);
   text.classList.add('model-label');
   text.textContent = name;
@@ -134,7 +136,7 @@ function drawSectionLabel(name, y) {
 }
 
 async function loadModel(project_path, model_path) {
-  const res = await fetch(`http://0.0.0.0:7081/query/get-model?project_path=${project_path}&model_path=${model_path}`);
+  const res = await fetch(`http://localhost:7081/query/get-model?project_path=${project_path}&model_path=${model_path}`);
   if (!res.ok) throw new Error("Failed to fetch model");
   return await res.json();   // built-in JSON parser
 }
@@ -145,15 +147,17 @@ function drawSwimlanes(count, height, yStart = 0) {
 
     const lane = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     lane.classList.add('swimlane');
-    lane.setAttribute('x', '0');
+    lane.setAttribute('x', marginX);
     lane.setAttribute('y', y);
-    lane.setAttribute('width', '1000');
+    lane.setAttribute('rx', '6');
+    lane.setAttribute('ry', '6');
+    lane.setAttribute('width', 1000 - 2 * marginX);
     lane.setAttribute('height', height);
     swimlaneLayer.appendChild(lane);
 
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.classList.add('label');
-    label.setAttribute('x', '10');
+    label.setAttribute('x', marginX + 10);
     label.setAttribute('y', y + 20);
     label.textContent = `Thread ${i + 1}`;
     swimlaneLayer.appendChild(label);
