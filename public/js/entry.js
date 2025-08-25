@@ -3,7 +3,7 @@
 import { initRouter } from './router.js';
 
 export function init({ host }) {
-  console.log(`[Robotick Hub] Booting from ${host}`);
+  console.log(`[Robotick Hub] Starting from host: '${host}'`);
 
   // Attach styles and metadata
   const stylesheets = [

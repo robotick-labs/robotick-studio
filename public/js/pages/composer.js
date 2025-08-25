@@ -69,8 +69,6 @@ async function loadAndRenderModel() {
       const laneHeight = 100;
       const sectionHeight = lanes * laneHeight;
 
-      console.log("Drawing model:", modelPath);
-
       drawSectionLabel(modelPath, yOffset - 10);
       drawSwimlanes(lanes, laneHeight, yOffset);
 
