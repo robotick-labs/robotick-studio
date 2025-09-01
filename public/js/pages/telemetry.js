@@ -3,6 +3,7 @@ let workloadIndex = 0;
 let workloadRows = new Map(); // Map: workload.name → <tr>
 let isFetchingLive = false;
 let hasInitialWorkloads = false;
+let canLivePoll = false;
 
 // Fetch and parse JSON from the telemetry server
 async function fetchJSON(url) {
@@ -137,6 +138,8 @@ async function pollWorkloadsForever() {
         const names = new Set();
 
         if (data?.workloads) {
+            canLivePoll = true; // Heartbeat restored
+
             for (const w of data.workloads) {
                 names.add(w.name);
 
@@ -167,6 +170,8 @@ async function pollWorkloadsForever() {
             });
 
             hasInitialWorkloads = workloads.length > 0;
+        } else {
+            canLivePoll = false; // Heartbeat lost
         }
 
         // Retry every 1s until we get data, then every 3s for updates
@@ -177,7 +182,7 @@ async function pollWorkloadsForever() {
 // Live polling loop — fetches stats + I/O from one workload per tick
 async function startLivePolling() {
     while (true) {
-        if (workloads.length > 0) {
+        if (canLivePoll && workloads.length > 0) {
             const w = workloads[workloadIndex++ % workloads.length];
             await fetchWorkloadLiveData(w.name);
         }
