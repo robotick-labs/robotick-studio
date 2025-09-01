@@ -1,16 +1,21 @@
 let workloads = [];
 let workloadIndex = 0;
+let workloadRows = new Map(); // Map: workload.name → <tr>
+let isFetchingLive = false;
+let hasInitialWorkloads = false;
 
+// Fetch and parse JSON from the telemetry server
 async function fetchJSON(url) {
     try {
         const res = await fetch(`http://localhost:7090${url}`);
         return await res.json();
     } catch (err) {
-        console.warn("Failed to fetch:", url, err);
+        console.warn("Fetch failed:", url, err);
         return null;
     }
 }
 
+// Fetch static config + field layout for a given workload
 async function fetchWorkloadDetails(name) {
     const [config, inputs, outputs] = await Promise.all([
         fetchJSON(`/api/telemetry/workload/config?name=${name}`),
@@ -20,114 +25,174 @@ async function fetchWorkloadDetails(name) {
 
     const wl = workloads.find(w => w.name === name);
     if (!wl) return;
+
     wl.config = config;
     wl.inputs = inputs;
     wl.outputs = outputs;
-}
-
-async function fetchWorkloadLiveData(name) {
-    const stats = await fetchJSON(`/api/telemetry/workload/stats?name=${name}`);
-    const inputs = await fetchJSON(`/api/telemetry/workload/inputs?name=${name}`);
-    const outputs = await fetchJSON(`/api/telemetry/workload/outputs?name=${name}`);
-
-    const wl = workloads.find(w => w.name === name);
-    if (!wl) return;
-
-    if (stats) {
-        wl.self_ms = stats.self_ms;
-        wl.dt_ms = stats.dt_ms;
-        wl.goal_ms = stats.goal_ms;
-    }
-    if (inputs) wl.inputs = inputs;
-    if (outputs) wl.outputs = outputs;
 
     renderTelemetryTable();
 }
 
-function formatKeyValue(obj) {
-    if (!obj || typeof obj !== "object") return "–";
-    return Object.entries(obj).map(([k, v]) => `${k}: ${v}`).join("<br>");
+// Fetch live values (timing + I/O) for a single workload
+async function fetchWorkloadLiveData(name) {
+    if (isFetchingLive) return;
+    isFetchingLive = true;
+
+    const [stats, inputs, outputs] = await Promise.all([
+        fetchJSON(`/api/telemetry/workload/stats?name=${name}`),
+        fetchJSON(`/api/telemetry/workload/inputs?name=${name}`),
+        fetchJSON(`/api/telemetry/workload/outputs?name=${name}`),
+    ]);
+
+    const wl = workloads.find(w => w.name === name);
+    if (wl) {
+        if (stats) {
+            wl.self_ms = stats.self_ms;
+            wl.dt_ms = stats.dt_ms;
+            wl.goal_ms = stats.goal_ms;
+        }
+        if (inputs) wl.inputs = inputs;
+        if (outputs) wl.outputs = outputs;
+    }
+
+    renderTelemetryTable();
+    isFetchingLive = false;
 }
 
-function renderTelemetryTable() {
-    const tbody = document.querySelector("#telemetry tbody");
-    tbody.innerHTML = "";
+// Format key-value object into a multiline HTML string
+function formatKeyValue(obj) {
+    if (!obj || typeof obj !== "object") return "–";
+    return Object.entries(obj)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("<br>");
+}
 
+// Create and cache a <tr> element for a new workload
+function createRowForWorkload(w) {
+    const row = document.createElement("tr");
+
+    // Create 9 <td> cells and optionally wrap in <div> for multiline
+    for (let i = 0; i < 9; i++) {
+        const td = document.createElement("td");
+
+        // Multiline wrapping for config / inputs / outputs
+        if (i >= 2 && i <= 4) {
+            const div = document.createElement("div");
+            div.className = "multiline";
+            td.appendChild(div);
+        }
+
+        row.appendChild(td);
+    }
+
+    workloadRows.set(w.name, row);
+    document.querySelector("#telemetry tbody").appendChild(row);
+}
+
+// Render or update telemetry table content in-place (preserves DOM)
+function renderTelemetryTable() {
     for (const w of workloads) {
-        const row = document.createElement("tr");
+        let row = workloadRows.get(w.name);
+
+        if (!row) {
+            createRowForWorkload(w);
+            row = workloadRows.get(w.name);
+        }
 
         const raw_self = typeof w.self_ms === "number" ? w.self_ms : null;
         const raw_goal = typeof w.goal_ms === "number" ? w.goal_ms : null;
 
-        const self_ms = typeof w.self_ms === "number" ? w.self_ms.toFixed(1) : "–";
+        const self_ms = raw_self?.toFixed(1) ?? "–";
         const dt_ms = typeof w.dt_ms === "number" ? w.dt_ms.toFixed(1) : "–";
-        const goal_ms = typeof w.goal_ms === "number" ? w.goal_ms.toFixed(1) : "–";
-
+        const goal_ms = raw_goal?.toFixed(1) ?? "–";
         const load_pct = (raw_self !== null && raw_goal > 0)
             ? ((raw_self / raw_goal) * 100).toFixed(1)
             : "–";
 
-        const config = formatKeyValue(w.config);
-        const inputs = formatKeyValue(w.inputs);
-        const outputs = formatKeyValue(w.outputs);
-
-        // decide class based on load_pct
         let usageClass = "";
-        if (typeof raw_self === "number" && raw_goal > 0) {
+        if (raw_self !== null && raw_goal > 0) {
             const pct = (raw_self / raw_goal) * 100;
             if (pct < 105) usageClass = "usage-blue";
             else if (pct <= 110) usageClass = "usage-yellow";
             else usageClass = "usage-red";
         }
 
-        row.innerHTML = `
-            <td>${w.name}</td>
-            <td>${w.type}</td>
-            <td><div class="multiline">${config}</div></td>
-            <td><div class="multiline">${inputs}</div></td>
-            <td><div class="multiline">${outputs}</div></td>
-            <td>${self_ms}</td>
-            <td>${dt_ms}</td>
-            <td>${goal_ms}</td>
-            <td class="usage ${usageClass}">${load_pct}</td>
-        `;
-
-        tbody.appendChild(row);
+        row.children[0].textContent = w.name;
+        row.children[1].textContent = w.type;
+        row.children[2].firstChild.innerHTML = formatKeyValue(w.config);
+        row.children[3].firstChild.innerHTML = formatKeyValue(w.inputs);
+        row.children[4].firstChild.innerHTML = formatKeyValue(w.outputs);
+        row.children[5].textContent = self_ms;
+        row.children[6].textContent = dt_ms;
+        row.children[7].textContent = goal_ms;
+        row.children[8].textContent = load_pct;
+        row.children[8].className = `usage ${usageClass}`;
     }
 }
 
-async function loadInitialData() {
-    const data = await fetchJSON('/api/telemetry/workloads');
-    if (!data || !Array.isArray(data.workloads)) return;
+// Poll the list of workloads repeatedly, and update if changed
+async function pollWorkloadsForever() {
+    while (true) {
+        const data = await fetchJSON('/api/telemetry/workloads');
+        const names = new Set();
 
-    for (const w of data.workloads) {
-        workloads.push({
-            name: w.name ?? "–",
-            type: w.type ?? "–",
-            dt_ms: null,
-            goal_ms: null,
-            load_pct: null,
-            config: null,
-            inputs: null,
-            outputs: null
-        });
-        fetchWorkloadDetails(w.name);
+        if (data?.workloads) {
+            for (const w of data.workloads) {
+                names.add(w.name);
+
+                // Add any new workload not yet seen
+                if (!workloads.find(existing => existing.name === w.name)) {
+                    const newWl = {
+                        name: w.name ?? "–",
+                        type: w.type ?? "–",
+                        dt_ms: null,
+                        goal_ms: null,
+                        self_ms: null,
+                        config: null,
+                        inputs: null,
+                        outputs: null
+                    };
+                    workloads.push(newWl);
+                    fetchWorkloadDetails(w.name);
+                }
+            }
+
+            // Remove workloads that disappeared
+            workloads = workloads.filter(w => names.has(w.name));
+            workloadRows.forEach((row, name) => {
+                if (!names.has(name)) {
+                    row.remove();
+                    workloadRows.delete(name);
+                }
+            });
+
+            hasInitialWorkloads = workloads.length > 0;
+        }
+
+        // Retry every 1s until we get data, then every 3s for updates
+        await new Promise(r => setTimeout(r, hasInitialWorkloads ? 3000 : 1000));
     }
 }
 
+// Live polling loop — fetches stats + I/O from one workload per tick
+async function startLivePolling() {
+    while (true) {
+        if (workloads.length > 0) {
+            const w = workloads[workloadIndex++ % workloads.length];
+            await fetchWorkloadLiveData(w.name);
+        }
+
+        await new Promise(r => setTimeout(r, 50)); // One workload every 50ms
+    }
+}
+
+// Initialize telemetry system
 export function init() {
-
     workloads = [];
     workloadIndex = 0;
+    workloadRows.clear();
+    hasInitialWorkloads = false;
 
-    // Periodically fetch live stats + I/O
-    setInterval(() => {
-        if (workloads.length === 0) return;
-        const w = workloads[workloadIndex % workloads.length];
-        workloadIndex++;
-        fetchWorkloadLiveData(w.name);
-    }, 100);
-
-    loadInitialData();
-
+    pollWorkloadsForever();  // Dynamic discovery
+    startLivePolling();      // Live stats polling
 }
