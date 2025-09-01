@@ -1,0 +1,11 @@
+Model Information:
+* title:	JAXA Epsilon rocket
+* source:	https://sketchfab.com/3d-models/jaxa-epsilon-rocket-2de4cbccbeae4e1581aea946f6f0302a
+* author:	rocket0314 (https://sketchfab.com/rocket0314)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "JAXA Epsilon rocket" (https://sketchfab.com/3d-models/jaxa-epsilon-rocket-2de4cbccbeae4e1581aea946f6f0302a) by rocket0314 (https://sketchfab.com/rocket0314) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

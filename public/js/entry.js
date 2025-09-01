@@ -12,7 +12,8 @@ export function init({ host }) {
     'css/footer.css',
     'css/header.css',
     'css/remote-control.css',
-    'css/telemetry.css'
+    'css/telemetry.css',
+    'css/visualizer.css'
   ];
 
   stylesheets.forEach(href => {
@@ -49,6 +50,7 @@ export function init({ host }) {
         </div>
         <div class="nav-menu-test">
           <a href="#/remote-control">Remote Control</a>
+          <a href="#/visualizer">Visualizer</a>
           <a href="#/telemetry">Telemetry</a>
         </div>
         <a href="#/help">Help</a>

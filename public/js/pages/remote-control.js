@@ -283,6 +283,8 @@ function sendFullState() {
     }).catch(err => console.error('POST error:', err));
 }
 
+let videoInterval = null;
+
 function setupVideoFeed() {
     const cameraImg = document.getElementById("camera-stream");
     let lastFrameBlobUrl = null;
@@ -313,5 +315,28 @@ function setupVideoFeed() {
     }
 
     const intervalMs = 1000 / 15;
-    setInterval(refreshCameraFrame, intervalMs);
+    videoInterval = setInterval(refreshCameraFrame, intervalMs);
+}
+
+export function uninit() {
+    console.log("Remote Control page uninitializing");
+
+    // cancel video feed
+    if (videoInterval) {
+        clearInterval(videoInterval);
+        videoInterval = null;
+    }
+
+    // cancel tick loop
+    ticking = false;
+
+    // Optional: reset joystick state
+    localState.left = { x: 0, y: 0 };
+    localState.right = { x: 0, y: 0 };
+    joystickState.left = { x: 0, y: 0 };
+    joystickState.right = { x: 0, y: 0 };
+    dirtyKeys.clear();
+
+    // Optional: remove global event listeners if you added any (e.g. for touch/mouse)
+    // For now we're relying on page unload clearing those
 }

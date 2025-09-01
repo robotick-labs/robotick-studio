@@ -1,5 +1,7 @@
 import { setProjectPath } from "./core/project.js";
 
+let currentModule = null; // Track the currently active JS module
+
 setProjectPath("robotick-knitware/robots/barr-e/barr-e.project.yaml");
 
 const routes = {
@@ -7,6 +9,7 @@ const routes = {
 '/composer':        { title: 'Composer',        html: 'pages/composer.html',          js: 'pages/composer.js' },
 '/launcher':        { title: 'Launcher',        html: 'pages/launcher.html',          js: 'pages/launcher.js' },
 '/remote-control':  { title: 'Remote Control',  html: 'pages/remote-control.html',    js: 'pages/remote-control.js' },
+'/visualizer':      { title: 'Visualizer',      html: 'pages/visualizer.html',        js: 'pages/visualizer.js' },
 '/telemetry':       { title: 'Telemetry',       html: 'pages/telemetry.html',         js: 'pages/telemetry.js' },
 '/help':            { title: 'Help',            html: 'pages/help.html',              js: 'pages/help.js' },
 };
@@ -23,20 +26,29 @@ async function render() {
         return;
     }
 
+    // 👉 Call uninit() on the current module before navigating away
+    if (currentModule && typeof currentModule.uninit === 'function') {
+        try {
+            currentModule.uninit();
+        } catch (err) {
+            console.warn(`⚠️ Error during uninit():`, err);
+        }
+    }
+
     try {
         const htmlPromise = fetch(route.html).then(res => res.text());
         const jsPromise = route.js ? import(`./${route.js}`) : null;
 
-        // Wait for the HTML first
         const html = await htmlPromise;
-        const app = document.getElementById('app');
         app.innerHTML = html;
         document.title = route.title ? `${route.title} | Hub | Robotick` : 'Hub | Robotick';
 
-        // Now wait for the JS if needed
         if (jsPromise) {
             try {
                 const module = await jsPromise;
+
+                // Save as the current module for future uninit
+                currentModule = module;
 
                 if (typeof module.init === 'function') {
                     module.init();
@@ -46,13 +58,14 @@ async function render() {
             } catch (err) {
                 console.error(`❌ Failed to load or execute module '${route.js}':`, err);
             }
+        } else {
+            currentModule = null;
         }
 
     } catch (err) {
         app.innerHTML = `<h2>Error</h2><p>${err.message}</p>`;
         console.error(err);
     }
-
 }
 
 window.addEventListener('hashchange', render);
