@@ -119,7 +119,7 @@ function renderTelemetryTable() {
         }
 
         row.children[0].textContent = w.name;
-        row.children[1].textContent = w.type;
+        row.children[1].textContent = w.type.replace("Workload", "");
         row.children[2].firstChild.innerHTML = formatKeyValue(w.config);
         row.children[3].firstChild.innerHTML = formatKeyValue(w.inputs);
         row.children[4].firstChild.innerHTML = formatKeyValue(w.outputs);
