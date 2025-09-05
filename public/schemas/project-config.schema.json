@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Robotick Project Config",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Project readable name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description"
+    },
+    "robotick_engine_root": {
+      "type": "string",
+      "description": "Relative path to the Robotick engine"
+    },
+    "workload_roots": {
+      "type": "array",
+      "description": "List of workload search paths",
+      "items": { "type": "string" },
+      "minItems": 1
+    }
+  },
+  "required": ["name", "robotick_engine_root", "workload_roots"],
+  "additionalProperties": false
+}

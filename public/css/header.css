@@ -162,9 +162,14 @@ header nav a:focus {
   border-radius: 10px;
 }
 
-.launcher-combo option.separator {
+.project-combo {
+  min-width: 160px;
+  font-size: 18px;
+  padding: 4px 4px;
   color: white;
-  background: rgb(85, 146, 85);
-  font-style: normal;
-  pointer-events: none;
+  background: #404040;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  text-align: center;
+  text-align-last: center; /* key to centering selected item */
 }

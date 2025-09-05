@@ -13,6 +13,7 @@ export async function init({ host }) {
     "css/footer.css",
     "css/header.css",
     "css/home.css",
+    "css/project.css",
     "css/remote-control.css",
     "css/telemetry.css",
     "css/visualizer.css",

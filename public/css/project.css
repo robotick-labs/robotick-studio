@@ -1,0 +1,111 @@
+.project-container {
+  margin: 2rem auto;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  color: #eee;
+  max-width: 40%;
+  overflow-x: auto;
+}
+
+.project-table {
+  display: table;
+  width: 100%;
+  color: #ddd;
+  font-family: sans-serif;
+  border-collapse: collapse;
+}
+
+.project-table-row {
+  display: table-row;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.project-key,
+.project-value {
+  display: table-cell;
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.project-key {
+  font-weight: bold;
+  width: 160px;
+  white-space: nowrap;
+}
+
+.project-value input[type="text"] {
+  width: 100%;
+  background: #222;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 18px;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+}
+
+.array-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.array-input-wrapper input[type="text"] {
+  flex: 1;
+  margin: 0;
+}
+
+.btn-add-item {
+  font-size: 18px;
+  padding: 4px 8px;
+  background: #666666;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  font-weight: bold;
+}
+
+.btn-remove {
+  font-size: 18px;
+  height: 30px;
+  width: 30px;
+  background: #662222;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  font-size: 14px;
+  font-weight: bold;
+  padding: 6px 12px;
+  background: #44aa66;
+  color: black;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.save-button-wrapper {
+  display: flex;
+  justify-content: left;
+  margin-bottom: 24px;
+}
+
+.btn-save-project {
+  font-size: 14px;
+  padding: 8px 14px;
+  margin: 20px;
+  color: white;
+  background: #0c93e1;
+}
