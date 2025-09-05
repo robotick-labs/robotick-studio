@@ -92,6 +92,14 @@ function setupGamepadPolling(leftStick, rightStick) {
     ({ x: lx, y: ly } = expandCircularToSquare(lx, ly));
     ({ x: rx, y: ry } = expandCircularToSquare(rx, ry));
 
+    const dz_left = joystickState["dead_zone_left"];
+    const dz_right = joystickState["dead_zone_left"];
+
+    lx = applyDeadZone(lx, dz_left.x);
+    ly = applyDeadZone(ly, dz_left.y);
+    rx = applyDeadZone(rx, dz_right.x);
+    ry = applyDeadZone(ry, dz_right.y);
+
     if (
       lx_last_gamepad == lx &&
       ly_last_gamepad == ly &&
