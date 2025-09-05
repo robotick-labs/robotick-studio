@@ -3,15 +3,21 @@
   <head>
     <title>Hub | Robotick</title>
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
+    <link rel="icon" type="image/png" href="/images/icon.png" />
     <link
       href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css"
       rel="stylesheet"
     />
   </head>
+  <header></header>
   <body style="background: #222; margin: 0">
-    <script type="module">
-      const host = location.origin;
-      import("/js/entry.js").then((m) => m.init?.({ host }));
-    </script>
+    <main>
+      <div id="app" class="page-container"><em>Loading...</em></div>
+    </main>
   </body>
+
+  <script type="module">
+    const host = location.origin;
+    import("/js/entry.js").then((m) => m.init?.({ host }));
+  </script>
 </html>

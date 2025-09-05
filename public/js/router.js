@@ -1,8 +1,4 @@
-import { setProjectPath } from "./core/project.js";
-
 let currentModule = null; // Track the currently active JS module
-
-setProjectPath("tests/test_data/test-project/test-project.project.yaml");
 
 const routes = {
   "/": { title: "Home", html: "pages/home.html", js: "pages/home.js" },
@@ -56,7 +52,7 @@ async function render() {
   }
 
   try {
-    const htmlPromise = fetch(route.html).then((res) => res.text());
+    const htmlPromise = fetch("/html/" + route.html).then((res) => res.text());
     const jsPromise = route.js ? import(`./${route.js}`) : null;
 
     const html = await htmlPromise;

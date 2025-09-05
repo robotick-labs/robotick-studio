@@ -1,4 +1,5 @@
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -9,8 +10,12 @@ html, body {
 }
 
 body {
-    display: flex;
-    flex-direction: column;
+  display: flex;
+  flex-direction: column;
+}
+
+.template {
+  display: none;
 }
 
 .page-container {
@@ -20,9 +25,9 @@ body {
 }
 
 main {
-    flex: 1; /* fill available space between header and footer */
-    padding: 0rem;
-    overflow-y: auto;
+  flex: 1; /* fill available space between header and footer */
+  padding: 0rem;
+  overflow-y: auto;
 }
 
 /* GLOBAL: WebKit scrollbar style */
@@ -44,4 +49,3 @@ main {
 ::-webkit-scrollbar-thumb:hover {
   background-color: #666;
 }
-

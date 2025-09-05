@@ -1,7 +1,7 @@
 // entry.js
 
-import { initRouter } from "./router.js";
-import { initControls } from "./launcher-controls.js";
+import { initRouter } from "/js/router.js";
+import { initControls } from "/js/elements/header.js";
 
 export async function init({ host }) {
   console.log(`[Robotick Hub] Starting from host: '${host}'`);
@@ -12,6 +12,7 @@ export async function init({ host }) {
     "css/composer.css",
     "css/footer.css",
     "css/header.css",
+    "css/home.css",
     "css/remote-control.css",
     "css/telemetry.css",
     "css/visualizer.css",
@@ -37,9 +38,9 @@ export async function init({ host }) {
   document.title = "Hub | Robotick";
 
   // Load external layout HTML
-  const res = await fetch("layout.html");
+  const res = await fetch("/html/elements/header.html");
   const html = await res.text();
-  document.body.innerHTML = html;
+  document.querySelector("header").innerHTML = html;
 
   // Init router and controls after DOM is in place
   initRouter();

@@ -1,10 +1,15 @@
 // core/project.js
 const KEY = "robotick-hub.projectPath";
 
-export function setProjectPath(path) {
+function setProjectPath(path) {
   localStorage.setItem(KEY, path);
 }
 
-export function getProjectPath() {
+function getProjectPath() {
   return localStorage.getItem(KEY);
 }
+
+export default {
+  setProjectPath,
+  getProjectPath,
+};

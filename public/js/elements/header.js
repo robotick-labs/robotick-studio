@@ -1,7 +1,7 @@
-// launcher-controls.js
+// header.js
 
-export function initControls({ host }) {
-  console.log(`[Robotick Hub] Launcher Controls init from: '${host}'`);
+export function initControls(host) {
+  console.log(`[Robotick Hub] Header Controls init from: '${host}'`);
 
   let isPlaying = false;
 
