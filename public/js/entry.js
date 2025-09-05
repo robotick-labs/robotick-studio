@@ -1,6 +1,7 @@
 // entry.js
 
 import { initRouter } from "./router.js";
+import { initControls } from "./launcher-controls.js";
 
 export async function init({ host }) {
   console.log(`[Robotick Hub] Starting from host: '${host}'`);
@@ -40,6 +41,7 @@ export async function init({ host }) {
   const html = await res.text();
   document.body.innerHTML = html;
 
-  // Init router after DOM is in place
+  // Init router and controls after DOM is in place
   initRouter();
+  initControls(host);
 }

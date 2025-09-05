@@ -14,14 +14,14 @@ header {
   width: 150px;
   height: auto;
   border-radius: 5px;
-  box-shadow: 0 0 8px #0C93E1FF;
+  box-shadow: 0 0 8px #0c93e1ff;
   z-index: 1; /* nav can paint over if needed */
 }
 
 /* center lane */
 header nav {
   grid-column: 2;
-  justify-self: center;     /* center inside the center lane */
+  justify-self: center; /* center inside the center lane */
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -71,8 +71,14 @@ header nav a:focus {
   padding: 4px 6px;
   align-items: center;
 }
-.nav-menu-dev { padding: 5px; border: 2px solid rgba(255,255,255,0.2); }
-.nav-menu-test { padding: 0; border: 2px solid rgba(150,255,150,0.4); }
+.nav-menu-dev {
+  padding: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+.nav-menu-test {
+  padding: 0;
+  border: 2px solid rgba(150, 255, 150, 0.4);
+}
 
 .nav-submenu-pages {
   display: flex;
@@ -86,10 +92,12 @@ header nav a:focus {
   gap: 8px;
   padding: 8px;
   border-radius: 10px;
-  background: rgba(150,255,150,0.4);
+  background: rgba(150, 255, 150, 0.4);
 }
 
 .launcher-control {
+  cursor: pointer;
+  user-select: none; /* optional: prevents accidental text selection */
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -99,10 +107,10 @@ header nav a:focus {
   border-radius: 10px;
 
   /* use background-color so transition is reliable */
-  background-color: rgba(150,255,150,0.25);
+  background-color: rgba(150, 255, 150, 0.25);
   color: white;
   font-size: 14px;
-  line-height: 0;            /* kill baseline padding */
+  line-height: 0; /* kill baseline padding */
   text-decoration: none;
 
   /* ease back after release */
@@ -113,43 +121,43 @@ header nav a:focus {
 
 .launcher-control:hover,
 .launcher-control:focus {
-  background-color: rgba(150,255,150,0.40);
+  background-color: rgba(150, 255, 150, 0.4);
 }
 
 /* press state: snap brighter immediately */
 .launcher-control:active {
-  background-color: rgba(150,255,150,0.50);
+  background-color: rgba(150, 255, 150, 0.5);
   transition: none; /* snap INTO active */
 }
 
 .launcher-control .icon-play {
   display: block;
-  line-height: 1;            /* normal metrics for the glyph itself */
-  font-size: 16px;           /* tweak as needed */
+  line-height: 1; /* normal metrics for the glyph itself */
+  font-size: 16px; /* tweak as needed */
 }
 
 .launcher-control .icon-pause {
   display: block;
-  line-height: 1;            /* normal metrics for the glyph itself */
-  font-size: 18px;           /* tweak as needed */
+  line-height: 1; /* normal metrics for the glyph itself */
+  font-size: 18px; /* tweak as needed */
 }
 
 .launcher-control .icon-stop {
   display: block;
-  line-height: 1;            /* normal metrics for the glyph itself */
-  font-size: 20px;           /* tweak as needed */
+  line-height: 1; /* normal metrics for the glyph itself */
+  font-size: 20px; /* tweak as needed */
 }
 
 .launcher-control .icon-restart {
   display: block;
-  line-height: 1;            /* normal metrics for the glyph itself */
-  font-size: 22px;           /* tweak as needed */
+  line-height: 1; /* normal metrics for the glyph itself */
+  font-size: 22px; /* tweak as needed */
 }
 
 .launcher-combo {
-  padding: 6px 12px; 
+  padding: 6px 12px;
   background: rgb(85, 146, 85);
-  color: white; 
+  color: white;
   border: 1px solid rgb(85, 146, 85);
   border-radius: 10px;
 }
@@ -160,4 +168,3 @@ header nav a:focus {
   font-style: normal;
   pointer-events: none;
 }
-
