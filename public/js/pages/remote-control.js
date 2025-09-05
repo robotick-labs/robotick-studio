@@ -93,7 +93,7 @@ function setupGamepadPolling(leftStick, rightStick) {
     ({ x: rx, y: ry } = expandCircularToSquare(rx, ry));
 
     const dz_left = joystickState["dead_zone_left"];
-    const dz_right = joystickState["dead_zone_left"];
+    const dz_right = joystickState["dead_zone_right"];
 
     lx = applyDeadZone(lx, dz_left.x);
     ly = applyDeadZone(ly, dz_left.y);
