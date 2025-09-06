@@ -16,6 +16,7 @@ export async function init({ host }) {
     "css/project.css",
     "css/remote-control.css",
     "css/telemetry.css",
+    "css/terminal.css",
     "css/visualizer.css",
   ];
   stylesheets.forEach((href) => {

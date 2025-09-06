@@ -1,0 +1,11 @@
+/* Container */
+.terminal-container {
+  margin: 2rem auto;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  color: #eee;
+  background: black;
+  max-width: 90%;
+  height: 92%;
+  overflow-x: auto;
+}

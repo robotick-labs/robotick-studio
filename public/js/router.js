@@ -31,9 +31,22 @@ const routes = {
 };
 
 async function render() {
-  const hash = window.location.hash || "#/";
-  const path = hash.slice(1);
-  const route = routes[path];
+  const path = (window.location.hash || "#/").slice(2) || "home";
+
+  // Format title nicely
+  const title = path
+    .replace(/[-_]/g, " ") // dashes and underscores → space
+    .replace(/\b\w/g, (char) => char.toUpperCase()); // Capitalise each word
+
+  const route = {
+    title: title,
+    html: `pages/${path}.html`,
+    js: `pages/${path}.js`,
+  };
+
+  console.log(route.title);
+  console.log(route.html);
+  console.log(route.js);
 
   const app = document.getElementById("app");
 
