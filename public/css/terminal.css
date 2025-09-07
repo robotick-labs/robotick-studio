@@ -8,6 +8,6 @@
   max-width: 95%;
   height: 93%;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   font-size: large;
 }
