@@ -119,6 +119,31 @@ header nav a:focus {
   touch-action: manipulation;
 }
 
+.launcher-control-dots {
+  cursor: default;
+  pointer-events: none;
+  user-select: none; /* optional: prevents accidental text selection */
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 25px;
+  border-radius: 10px;
+
+  /* use background-color so transition is reliable */
+  background-color: rgba(150, 255, 150, 0.1);
+  color: white;
+  font-size: 14px;
+  line-height: 0; /* kill baseline padding */
+  text-decoration: none;
+
+  /* ease back after release */
+  transition: background-color 180ms ease-out, transform 120ms ease-out;
+  -webkit-tap-highlight-color: transparent; /* nicer on mobile */
+  touch-action: manipulation;
+}
+
 .launcher-control:hover,
 .launcher-control:focus {
   background-color: rgba(150, 255, 150, 0.4);
@@ -181,6 +206,39 @@ header nav a:focus {
 .dot.active {
   transform: scale(1.8);
   opacity: 1;
+}
+
+@keyframes heartbeat {
+  0%,
+  100% {
+    transform: scale(1.8);
+    opacity: 0.6;
+  }
+  15% {
+    transform: scale(3);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(2.4);
+    opacity: 0.85;
+  }
+  45% {
+    transform: scale(2.8);
+    opacity: 0.95;
+  }
+  60% {
+    transform: scale(2.2);
+    opacity: 0.95;
+  }
+}
+
+/* Heartbeat mode (cyclic) */
+.dot.heartbeat-on {
+  animation: heartbeat 1.1s infinite ease-in-out;
+}
+
+.dot.heartbeat-off {
+  opacity: 0;
 }
 
 .project-combo {

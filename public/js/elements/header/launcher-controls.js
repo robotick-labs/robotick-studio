@@ -71,7 +71,7 @@ async function requestPlay() {
     `[Launcher] Starting '${launcherProfile}' from '${projectPath}'...`
   );
 
-  dots.start();
+  dots.setModeEllipses();
 
   // call our API endpoint:
   {
@@ -99,7 +99,7 @@ async function requestPlay() {
   }
 
   console.log("[Launcher] Started");
-  dots.stop();
+  dots.setModeHeartbeat();
   console.log("[Launcher] Launch complete");
 }
 
@@ -110,7 +110,7 @@ async function requestStop(stopDotsWhenDone = true) {
   updateUI();
   console.log("[Launcher] Stopping...");
 
-  dots.start();
+  dots.setModeEllipses();
 
   // call our API endpoint:
   {
@@ -132,7 +132,7 @@ async function requestStop(stopDotsWhenDone = true) {
   }
 
   console.log("[Launcher] Stopped");
-  if (stopDotsWhenDone) dots.stop();
+  if (stopDotsWhenDone) dots.setModeStopped();
 }
 
 async function requestRestart() {
