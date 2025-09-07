@@ -41,7 +41,7 @@ async function loadAndRenderModel() {
     if (!projectPath) throw new Error("No project path set");
 
     const models = await fetchJSON(
-      `http://localhost:7081/query/list-project-models?project=${encodeURIComponent(
+      `http://localhost:7081/query/list-project-models?project_path=${encodeURIComponent(
         projectPath
       )}`
     );
