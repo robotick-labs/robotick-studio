@@ -18,30 +18,15 @@ export async function init() {
 
   ws = new WebSocket("ws://localhost:7081/launcher/ws/log");
   const log = document.getElementById("log");
-
-  // Restore accumulated content
-  log.innerHTML = accumulatedMessages;
-  log.scrollTop = log.scrollHeight;
+  const container = document.querySelector(".terminal-container");
 
   ws.onmessage = (event) => {
     const html = ansiUp.ansi_to_html(event.data);
+    log.insertAdjacentHTML("beforeend", html + "<br>");
 
-    // Keep it in memory
-    accumulatedMessages += html + "<br>";
-
-    // Add to DOM
-    const div = document.createElement("div");
-    div.innerHTML = html;
-    log.appendChild(div);
-
-    // Always scroll to bottom
-    log.scrollTo = log.scrollHeight;
-  };
-
-  ws.onopen = () => console.log("WebSocket connected");
-  ws.onclose = () => {
-    console.log("WebSocket closed");
-    ws = null;
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
   };
 }
 
