@@ -1,69 +1,34 @@
-let workloads = [];
-let workloadIndex = 0;
-let workloadRows = new Map(); // Map: workload.name → <tr>
-let isFetchingLive = false;
-let hasInitialWorkloads = false;
-let canLivePoll = false;
+function getEngineModels() {
+  return [
+    {
+      modelName: "Barr.e™ Brain",
+      modelPath: "models/barr-e-brain.model.yaml",
+      instanceURL: "http://localhost:7090",
+    },
+    {
+      modelName: "Barr.e™ Spine",
+      modelPath: "models/barr-e-spine.model.yaml",
+      instanceURL: "http://localhost:7091",
+    },
+  ];
+}
 
-let pollingController = null;
-let livePollingController = null;
+const engineStates = new Map(); // url → { workloads, workloadIndex, rows, etc. }
 
-// Fetch and parse JSON from the telemetry server
-async function fetchJSON(url) {
+function urlToId(url) {
+  return url.replace(/[:/.]/g, "_");
+}
+
+async function fetchJSON(urlBase, path) {
   try {
-    const res = await fetch(`http://localhost:7090${url}`);
+    const res = await fetch(`${urlBase}${path}`);
     return await res.json();
   } catch (err) {
-    console.warn("Fetch failed:", url, err);
+    console.warn("Fetch failed:", urlBase + path, err);
     return null;
   }
 }
 
-// Fetch static config + field layout for a given workload
-async function fetchWorkloadDetails(name) {
-  const [config, inputs, outputs] = await Promise.all([
-    fetchJSON(`/api/telemetry/workload/config?name=${name}`),
-    fetchJSON(`/api/telemetry/workload/inputs?name=${name}`),
-    fetchJSON(`/api/telemetry/workload/outputs?name=${name}`),
-  ]);
-
-  const wl = workloads.find((w) => w.name === name);
-  if (!wl) return;
-
-  wl.config = config;
-  wl.inputs = inputs;
-  wl.outputs = outputs;
-
-  renderTelemetryTable();
-}
-
-// Fetch live values (timing + I/O) for a single workload
-async function fetchWorkloadLiveData(name) {
-  if (isFetchingLive) return;
-  isFetchingLive = true;
-
-  const [stats, inputs, outputs] = await Promise.all([
-    fetchJSON(`/api/telemetry/workload/stats?name=${name}`),
-    fetchJSON(`/api/telemetry/workload/inputs?name=${name}`),
-    fetchJSON(`/api/telemetry/workload/outputs?name=${name}`),
-  ]);
-
-  const wl = workloads.find((w) => w.name === name);
-  if (wl) {
-    if (stats) {
-      wl.self_ms = stats.self_ms;
-      wl.dt_ms = stats.dt_ms;
-      wl.goal_ms = stats.goal_ms;
-    }
-    if (inputs) wl.inputs = inputs;
-    if (outputs) wl.outputs = outputs;
-  }
-
-  renderTelemetryTable();
-  isFetchingLive = false;
-}
-
-// Format key-value object into a multiline HTML string
 function formatKeyValue(obj) {
   if (!obj || typeof obj !== "object") return "–";
   return Object.entries(obj)
@@ -71,36 +36,71 @@ function formatKeyValue(obj) {
     .join("<br>");
 }
 
-// Create and cache a <tr> element for a new workload
-function createRowForWorkload(w) {
+function createTableForModel(modelInfo) {
+  const url = modelInfo.instanceURL;
+  const id = urlToId(url);
+
+  const container = document.createElement("div");
+  container.className = "telemetry-instance";
+
+  const h3 = document.createElement("h3");
+  h3.textContent = modelInfo.modelName;
+  container.appendChild(h3);
+
+  const modelLabel = document.createElement("text");
+  modelLabel.textContent = modelInfo.modelPath + " | " + url;
+  modelLabel.className = "telemetry-model-label";
+  container.appendChild(modelLabel);
+
+  const table = document.createElement("table");
+  table.id = `table-${id}`;
+  table.className = "telemetry";
+
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Unique Name</th>
+        <th>Workload Type</th>
+        <th>Config</th>
+        <th>Inputs</th>
+        <th>Outputs</th>
+        <th>Self Duration (ms)</th>
+        <th>Time Delta (ms)</th>
+        <th>Goal Period (ms)</th>
+        <th>Usage %</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+
+  container.appendChild(table);
+  document.querySelector(".telemetry-table-container").appendChild(container);
+}
+
+function createRowForWorkload(w, url, state) {
   const row = document.createElement("tr");
 
-  // Create 9 <td> cells and optionally wrap in <div> for multiline
   for (let i = 0; i < 9; i++) {
     const td = document.createElement("td");
-
-    // Multiline wrapping for config / inputs / outputs
     if (i >= 2 && i <= 4) {
       const div = document.createElement("div");
       div.className = "multiline";
       td.appendChild(div);
     }
-
     row.appendChild(td);
   }
 
-  workloadRows.set(w.name, row);
-  document.querySelector("#telemetry tbody").appendChild(row);
+  state.workloadRows.set(w.name, row);
+  const tbody = document.querySelector(`#table-${urlToId(url)} tbody`);
+  tbody.appendChild(row);
 }
 
-// Render or update telemetry table content in-place (preserves DOM)
-function renderTelemetryTable() {
-  for (const w of workloads) {
-    let row = workloadRows.get(w.name);
-
+function renderTelemetryTable(url, state) {
+  for (const w of state.workloads) {
+    let row = state.workloadRows.get(w.name);
     if (!row) {
-      createRowForWorkload(w);
-      row = workloadRows.get(w.name);
+      createRowForWorkload(w, url, state);
+      row = state.workloadRows.get(w.name);
     }
 
     const raw_self = typeof w.self_ms === "number" ? w.self_ms : null;
@@ -135,22 +135,59 @@ function renderTelemetryTable() {
   }
 }
 
-// Poll the list of workloads repeatedly, and update if changed
-async function pollWorkloadsForever(controller) {
+async function fetchWorkloadDetails(url, name, state) {
+  const [config, inputs, outputs] = await Promise.all([
+    fetchJSON(url, `/api/telemetry/workload/config?name=${name}`),
+    fetchJSON(url, `/api/telemetry/workload/inputs?name=${name}`),
+    fetchJSON(url, `/api/telemetry/workload/outputs?name=${name}`),
+  ]);
+
+  const wl = state.workloads.find((w) => w.name === name);
+  if (!wl) return;
+
+  wl.config = config;
+  wl.inputs = inputs;
+  wl.outputs = outputs;
+
+  renderTelemetryTable(url, state);
+}
+
+async function fetchWorkloadLiveData(url, name, state) {
+  const [stats, inputs, outputs] = await Promise.all([
+    fetchJSON(url, `/api/telemetry/workload/stats?name=${name}`),
+    fetchJSON(url, `/api/telemetry/workload/inputs?name=${name}`),
+    fetchJSON(url, `/api/telemetry/workload/outputs?name=${name}`),
+  ]);
+
+  const wl = state.workloads.find((w) => w.name === name);
+  if (wl) {
+    if (stats) {
+      wl.self_ms = stats.self_ms;
+      wl.dt_ms = stats.dt_ms;
+      wl.goal_ms = stats.goal_ms;
+    }
+    if (inputs) wl.inputs = inputs;
+    if (outputs) wl.outputs = outputs;
+  }
+
+  renderTelemetryTable(url, state);
+}
+
+async function pollWorkloadsForever(url, state) {
   try {
     while (true) {
-      if (controller.signal.aborted) return;
+      if (state.pollingController.signal.aborted) return;
 
-      const data = await fetchJSON("/api/telemetry/workloads");
+      const data = await fetchJSON(url, "/api/telemetry/workloads");
       const names = new Set();
 
       if (data?.workloads) {
-        canLivePoll = true;
+        state.canLivePoll = true;
 
         for (const w of data.workloads) {
           names.add(w.name);
 
-          if (!workloads.find((existing) => existing.name === w.name)) {
+          if (!state.workloads.find((existing) => existing.name === w.name)) {
             const newWl = {
               name: w.name ?? "–",
               type: w.type ?? "–",
@@ -161,26 +198,26 @@ async function pollWorkloadsForever(controller) {
               inputs: null,
               outputs: null,
             };
-            workloads.push(newWl);
-            fetchWorkloadDetails(w.name);
+            state.workloads.push(newWl);
+            fetchWorkloadDetails(url, w.name, state);
           }
         }
 
-        workloads = workloads.filter((w) => names.has(w.name));
-        workloadRows.forEach((row, name) => {
+        state.workloads = state.workloads.filter((w) => names.has(w.name));
+        state.workloadRows.forEach((row, name) => {
           if (!names.has(name)) {
             row.remove();
-            workloadRows.delete(name);
+            state.workloadRows.delete(name);
           }
         });
 
-        hasInitialWorkloads = workloads.length > 0;
+        state.hasInitialWorkloads = state.workloads.length > 0;
       } else {
-        canLivePoll = false;
+        state.canLivePoll = false;
       }
 
       await new Promise((r) =>
-        setTimeout(r, hasInitialWorkloads ? 3000 : 1000)
+        setTimeout(r, state.hasInitialWorkloads ? 3000 : 1000)
       );
     }
   } catch (e) {
@@ -188,15 +225,15 @@ async function pollWorkloadsForever(controller) {
   }
 }
 
-// Live polling loop — fetches stats + I/O from one workload per tick
-async function startLivePolling(controller) {
+async function startLivePolling(url, state) {
   try {
     while (true) {
-      if (controller.signal.aborted) return;
+      if (state.livePollingController.signal.aborted) return;
 
-      if (canLivePoll && workloads.length > 0) {
-        const w = workloads[workloadIndex++ % workloads.length];
-        await fetchWorkloadLiveData(w.name);
+      if (state.canLivePoll && state.workloads.length > 0) {
+        const w =
+          state.workloads[state.workloadIndex++ % state.workloads.length];
+        await fetchWorkloadLiveData(url, w.name, state);
       }
 
       await new Promise((r) => setTimeout(r, 50));
@@ -206,36 +243,47 @@ async function startLivePolling(controller) {
   }
 }
 
-// Initialize telemetry system
 export function init() {
-  workloads = [];
-  workloadIndex = 0;
-  workloadRows.clear();
-  hasInitialWorkloads = false;
-  canLivePoll = false;
+  engineStates.clear();
 
-  pollingController = new AbortController();
-  livePollingController = new AbortController();
+  const engineModels = getEngineModels();
 
-  pollWorkloadsForever(pollingController);
-  startLivePolling(livePollingController);
+  for (const engineModel of engineModels) {
+    const url = engineModel.instanceURL;
+
+    const state = {
+      workloads: [],
+      workloadIndex: 0,
+      workloadRows: new Map(),
+      pollingController: new AbortController(),
+      livePollingController: new AbortController(),
+      hasInitialWorkloads: false,
+      canLivePoll: false,
+    };
+
+    engineStates.set(url, state);
+
+    createTableForModel(engineModel);
+
+    pollWorkloadsForever(url, state);
+    startLivePolling(url, state);
+  }
 }
 
-// Uninitialize telemetry system
 export function uninit() {
-  // Abort polling loops
-  pollingController?.abort();
-  livePollingController?.abort();
+  for (const [url, state] of engineStates.entries()) {
+    state.pollingController?.abort();
+    state.livePollingController?.abort();
 
-  // Reset state
-  workloads = [];
-  workloadIndex = 0;
-  workloadRows.forEach((row) => row.remove());
-  workloadRows.clear();
-  hasInitialWorkloads = false;
-  canLivePoll = false;
-  isFetchingLive = false;
+    for (const row of state.workloadRows.values()) {
+      row.remove();
+    }
 
-  pollingController = null;
-  livePollingController = null;
+    document
+      .getElementById(`table-${urlToId(url)}`)
+      ?.closest(".telemetry-instance")
+      ?.remove();
+  }
+
+  engineStates.clear();
 }
