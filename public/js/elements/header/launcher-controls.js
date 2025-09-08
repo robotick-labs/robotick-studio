@@ -1,31 +1,94 @@
-// header/launcher-controls.js
-
 import currentProject from "/js/core/current-project.js";
 import dots from "./launcher-dots.js";
 
-let isPlaying = false;
 let playStopButton = null;
 let restartButton = null;
 
+let currentStatus = "stopped"; // 'stopped' | 'starting' | 'running'
+let pollIntervalMs = 1000;
+let stableCount = 0;
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function checkLauncherActive() {
+  try {
+    const res = await fetch("http://localhost:7081/launcher/status");
+    if (!res.ok) return false;
+
+    const data = await res.json();
+    return data.status === "running";
+  } catch (err) {
+    return false;
+  }
+}
+
+async function checkRobotAlive() {
+  try {
+    const res = await fetch("http://localhost:7090/api/telemetry/workloads");
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
+}
+
+function wakePolling() {
+  pollIntervalMs = 200;
+  stableCount = 0;
+}
+
+async function pollStatusLoop() {
+  while (true) {
+    const launcherActive = await checkLauncherActive();
+    const robotAlive = launcherActive ? await checkRobotAlive() : false;
+
+    let newStatus = "stopped";
+    if (robotAlive) newStatus = "running";
+    else if (launcherActive) newStatus = "starting";
+
+    if (newStatus !== currentStatus) {
+      currentStatus = newStatus;
+      updateUI();
+      stableCount = 0;
+    } else {
+      stableCount += 1;
+    }
+
+    // After ~1s of stability at fast rate, backoff to 1s polling
+    if (pollIntervalMs < 1000 && stableCount >= 5) {
+      pollIntervalMs = 1000;
+    }
+
+    await sleep(pollIntervalMs);
+  }
 }
 
 function updateUI() {
   if (!playStopButton || !restartButton) return;
 
   const playIcon = playStopButton.querySelector("span");
-  playIcon.textContent = isPlaying ? "⏹" : "▶";
-  playIcon.className = isPlaying ? "icon-stop" : "icon-play";
 
-  if (isPlaying) {
-    restartButton.classList.remove("disabled");
-    restartButton.style.pointerEvents = "auto";
-    restartButton.style.opacity = "1.0";
+  const isRunning = currentStatus === "running";
+  const isStarting = currentStatus === "starting";
+  const isStopped = currentStatus === "stopped";
+
+  // Update play/stop icon
+  playIcon.textContent = isStopped ? "▶" : "⏹";
+  playIcon.className = isStopped ? "icon-play" : "icon-stop";
+
+  // Enable restart only if running
+  restartButton.classList.toggle("disabled", !isRunning);
+  restartButton.style.pointerEvents = isRunning ? "auto" : "none";
+  restartButton.style.opacity = isRunning ? "1.0" : "0.4";
+
+  // Update dot indicator
+  if (isRunning) {
+    dots.setModeHeartbeat();
+  } else if (isStarting) {
+    dots.setModeEllipses();
   } else {
-    restartButton.classList.add("disabled");
-    restartButton.style.pointerEvents = "none";
-    restartButton.style.opacity = "0.4";
+    dots.setModeStopped();
   }
 }
 
@@ -33,110 +96,81 @@ function initLauncherControls({ playButton, restartButton: restartBtn }) {
   playStopButton = playButton;
   restartButton = restartBtn;
 
-  if (!playStopButton) {
-    console.warn("Launcher play/stop button not found");
-    return;
-  }
-
-  if (!restartButton) {
-    console.warn("Launcher restart button not found");
+  if (!playStopButton || !restartButton) {
+    console.warn("Launcher controls not found");
     return;
   }
 
   playStopButton.addEventListener("click", async () => {
-    if (isPlaying) await requestStop();
-    else await requestPlay();
+    wakePolling();
+    if (currentStatus === "stopped") {
+      await requestPlay();
+    } else {
+      await requestStop();
+    }
   });
 
   restartButton.addEventListener("click", async () => {
-    if (!isPlaying) return;
-    await requestRestart();
+    if (currentStatus === "running") {
+      wakePolling();
+      await requestRestart();
+    }
   });
 
   updateUI();
+  pollStatusLoop(); // fire and forget
 }
 
 async function requestPlay() {
-  if (isPlaying) return;
-
   const projectPath = currentProject.getProjectPath();
   const launcherProfile = currentProject.getLauncherProfile();
+
   if (!projectPath || !launcherProfile) {
+    console.warn("[Launcher] Missing project or profile");
     return;
   }
 
-  isPlaying = true;
-  updateUI();
-  console.log(
-    `[Launcher] Starting '${launcherProfile}' from '${projectPath}'...`
-  );
+  try {
+    const res = await fetch(
+      `http://localhost:7081/launcher/run?project_path=${encodeURIComponent(
+        projectPath
+      )}&profile=${encodeURIComponent(launcherProfile)}`,
+      { method: "POST" }
+    );
 
-  dots.setModeEllipses();
-
-  // call our API endpoint:
-  {
-    try {
-      const res = await fetch(
-        `http://localhost:7081/launcher/run?project_path=${encodeURIComponent(
-          projectPath
-        )}&profile=${encodeURIComponent(launcherProfile)}`,
-        { method: "POST" }
-      );
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Launcher failed to start: ${err}`);
-      }
-
-      const result = await res.json();
-      console.log("[Launcher] Backend run status:", result);
-    } catch (err) {
-      console.error("[Launcher] Failed to start:", err);
-      isPlaying = false;
-      updateUI();
-      return;
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Launcher failed to start: ${err}`);
     }
-  }
 
-  console.log("[Launcher] Started");
-  dots.setModeHeartbeat();
-  console.log("[Launcher] Launch complete");
+    const result = await res.json();
+    console.log("[Launcher] Backend run status:", result);
+  } catch (err) {
+    console.error("[Launcher] Failed to start:", err);
+  }
 }
 
-async function requestStop(stopDotsWhenDone = true) {
-  if (!isPlaying) return;
+async function requestStop() {
+  try {
+    const res = await fetch("http://localhost:7081/launcher/stop", {
+      method: "POST",
+    });
 
-  isPlaying = false;
-  updateUI();
-  console.log("[Launcher] Stopping...");
-
-  dots.setModeEllipses();
-
-  // call our API endpoint:
-  {
-    try {
-      const res = await fetch("http://localhost:7081/launcher/stop", {
-        method: "POST",
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Launcher failed to stop: ${err}`);
-      }
-
-      const result = await res.json();
-      console.log("[Launcher] Backend stop status:", result);
-    } catch (err) {
-      console.error("[Launcher] Failed to stop:", err);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Launcher failed to stop: ${err}`);
     }
-  }
 
-  console.log("[Launcher] Stopped");
-  if (stopDotsWhenDone) dots.setModeStopped();
+    const result = await res.json();
+    console.log("[Launcher] Backend stop status:", result);
+  } catch (err) {
+    console.error("[Launcher] Failed to stop:", err);
+  }
 }
 
 async function requestRestart() {
-  await requestStop(false);
+  await requestStop();
+  await sleep(500); // slight pause for clean stop
   await requestPlay();
 }
 
