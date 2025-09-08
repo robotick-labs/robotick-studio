@@ -1,16 +1,55 @@
-function getEngineModels() {
-  return [
-    {
-      modelName: "Barr.e™ Brain",
-      modelPath: "models/barr-e-brain.model.yaml",
-      instanceURL: "http://localhost:7090",
-    },
-    {
-      modelName: "Barr.e™ Spine",
-      modelPath: "models/barr-e-spine.model.yaml",
-      instanceURL: "http://localhost:7091",
-    },
-  ];
+import currentProject from "/js/core/current-project.js";
+
+async function fetchAllModelJSONs() {
+  const projectPath = currentProject.getProjectPath();
+  if (!projectPath) throw new Error("No project path set");
+
+  const modelPaths = await fetchJSON(
+    "http://localhost:7081",
+    `/query/list-project-models?project_path=${encodeURIComponent(projectPath)}`
+  );
+
+  const results = [];
+
+  for (const modelPath of modelPaths) {
+    const json = await fetchJSON(
+      "http://localhost:7081",
+      `/query/get-model?project_path=${encodeURIComponent(
+        projectPath
+      )}&model_path=${encodeURIComponent(modelPath)}`
+    );
+
+    const modelName = json.name
+      ? json.name
+      : modelPath
+          .split("/")
+          .pop()
+          .replace(/\.model\.yaml$/, "");
+
+    const telemetryPort =
+      json.telemetry && json.telemetry.port ? json.telemetry.port : "7090";
+
+    results.push({
+      modelName: modelName,
+      engineURL: `http://localhost:${telemetryPort}`, // or customize this per model if needed
+      modelPath,
+      json,
+    });
+  }
+
+  return results;
+}
+
+async function getEngineModels() {
+  const models = await fetchAllModelJSONs();
+
+  console.log(models);
+
+  return models.map((m) => ({
+    modelName: m.modelName,
+    modelPath: m.modelPath,
+    instanceURL: m.engineURL, // replace with real URL logic if needed
+  }));
 }
 
 const engineStates = new Map(); // url → { workloads, workloadIndex, rows, etc. }
@@ -243,10 +282,10 @@ async function startLivePolling(url, state) {
   }
 }
 
-export function init() {
+export async function init() {
   engineStates.clear();
 
-  const engineModels = getEngineModels();
+  const engineModels = await getEngineModels();
 
   for (const engineModel of engineModels) {
     const url = engineModel.instanceURL;
