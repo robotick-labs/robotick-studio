@@ -429,8 +429,6 @@ function sendFullState() {
 let videoInterval = null;
 
 function setupVideoFeed() {
-  if (true) return;
-
   const cameraImg = document.getElementById("camera-stream");
   let lastFrameBlobUrl = null;
 
