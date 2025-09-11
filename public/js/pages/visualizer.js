@@ -100,7 +100,7 @@ export function init() {
       name: "Rocket",
       position: rocketPosition,
       model: {
-        uri: "glb/jaxa_epsilon_rocket.glb",
+        uri: "glb/robotick_simple_rocket.glb",
         scale: 1.0,
         minimumPixelSize: 64,
       },
