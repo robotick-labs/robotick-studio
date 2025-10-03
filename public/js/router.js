@@ -7,10 +7,10 @@ const routes = {
     html: "pages/project.html",
     js: "pages/project.js",
   },
-  "/modules": {
-    title: "Modules",
-    html: "pages/modules.html",
-    js: "pages/modules.js",
+  "/models": {
+    title: "Models",
+    html: "pages/models.html",
+    js: "pages/models.js",
   },
   "/remote-control": {
     title: "Remote Control",
