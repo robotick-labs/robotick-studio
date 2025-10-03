@@ -71,7 +71,7 @@ async function fetchJSON(urlBase, path) {
 function formatKeyValue(obj) {
   if (!obj || typeof obj !== "object") return "–";
   return Object.entries(obj)
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${k}: ${v.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`)
     .join("<br>");
 }
 
