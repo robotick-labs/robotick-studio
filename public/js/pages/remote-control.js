@@ -7,6 +7,8 @@ const joystickState = {
   use_web_inputs: true,
   left: { x: 0.0, y: 0.0 },
   right: { x: 0.0, y: 0.0 },
+  left_trigger: 0.0,
+  right_trigger: 0.0,
   dead_zone_left: { x: 0.1, y: 0.1 },
   dead_zone_right: { x: 0.1, y: 0.1 },
 };
@@ -40,7 +42,6 @@ export function init() {
   setupTouchEvents(leftStick, rightStick);
   setupMouseEvents(leftStick, rightStick);
   setupUIControls();
-  setupVideoFeed();
   setupGamepadPolling(leftStick, rightStick);
 }
 
@@ -100,11 +101,27 @@ function setupGamepadPolling(leftStick, rightStick) {
     rx = applyDeadZone(rx, dz_right.x);
     ry = applyDeadZone(ry, dz_right.y);
 
+    // Read triggers (typically axes[4] and axes[5])
+    const lt = gp.buttons[6]?.value || 0.0;
+    const rt = gp.buttons[7]?.value || 0.0;
+
+    const gpSnapshot = {
+      id: gp.id,
+      axes: [...gp.axes],
+      buttons: gp.buttons.map((b) => ({
+        pressed: b.pressed,
+        value: b.value,
+      })),
+      timestamp: gp.timestamp,
+    };
+
     if (
-      lx_last_gamepad == lx &&
-      ly_last_gamepad == ly &&
-      rx_last_gamepad == rx &&
-      ry_last_gamepad == ry
+      lx_last_gamepad === lx &&
+      ly_last_gamepad === ly &&
+      rx_last_gamepad === rx &&
+      ry_last_gamepad === ry &&
+      joystickState.left_trigger === lt &&
+      joystickState.right_trigger === rt
     ) {
       requestAnimationFrame(pollGamepad);
       return;
@@ -115,6 +132,12 @@ function setupGamepadPolling(leftStick, rightStick) {
 
     rx_last_gamepad = rx;
     ry_last_gamepad = ry;
+
+    joystickState.left_trigger = lt;
+    joystickState.right_trigger = rt;
+
+    dirtyKeys.add("left_trigger");
+    dirtyKeys.add("right_trigger");
 
     // Send normalized input (values are already -1 to 1)
     sendJoystickInput("left_stick", lx, ly);
@@ -193,13 +216,23 @@ function startTickLoop() {
     for (const key of dirtyKeys) {
       const current = joystickState[key];
       const last = lastSentState[key];
-      if (
-        Math.abs(current.x - last.x) > 0.001 ||
-        Math.abs(current.y - last.y) > 0.001
-      ) {
-        payload[key] = { x: current.x, y: current.y };
-        last.x = current.x;
-        last.y = current.y;
+
+      if (typeof current === "object" && current !== null && "x" in current) {
+        // For stick objects
+        if (
+          Math.abs(current.x - last.x) > 0.001 ||
+          Math.abs(current.y - last.y) > 0.001
+        ) {
+          payload[key] = { x: current.x, y: current.y };
+          last.x = current.x;
+          last.y = current.y;
+        }
+      } else if (typeof current === "number") {
+        // For triggers
+        if (Math.abs(current - last) > 0.001) {
+          payload[key] = current;
+          lastSentState[key] = current;
+        }
       }
     }
 
@@ -426,49 +459,8 @@ function sendFullState() {
   }).catch((err) => console.error("POST error:", err));
 }
 
-let videoInterval = null;
-
-function setupVideoFeed() {
-  const cameraImg = document.getElementById("camera-stream");
-  let lastFrameBlobUrl = null;
-
-  function refreshCameraFrame() {
-    const loaderImg = new Image();
-    loaderImg.onload = () => {
-      cameraImg.src = loaderImg.src;
-      if (lastFrameBlobUrl) URL.revokeObjectURL(lastFrameBlobUrl);
-      lastFrameBlobUrl = loaderImg.src;
-    };
-    loaderImg.onerror = () => {
-      console.warn("Camera frame failed to load");
-    };
-
-    fetch(`${remoteControlServer}/api/jpeg_data?t=${Date.now()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("HTTP error");
-        return res.blob();
-      })
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        loaderImg.src = blobUrl;
-      })
-      .catch((err) => {
-        console.warn("Camera fetch failed:", err);
-      });
-  }
-
-  const intervalMs = 1000 / 15;
-  videoInterval = setInterval(refreshCameraFrame, intervalMs);
-}
-
 export function uninit() {
   console.log("Remote Control page uninitializing");
-
-  // cancel video feed
-  if (videoInterval) {
-    clearInterval(videoInterval);
-    videoInterval = null;
-  }
 
   // cancel tick loop
   ticking = false;
