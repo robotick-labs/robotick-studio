@@ -1,3 +1,5 @@
+// remote_control.js — Full version: preserves original functionality, adds Xbox 360 buttons
+
 const localState = {
   left: { x: 0.0, y: 0.0 },
   right: { x: 0.0, y: 0.0 },
@@ -11,6 +13,23 @@ const joystickState = {
   right_trigger: 0.0,
   dead_zone_left: { x: 0.1, y: 0.1 },
   dead_zone_right: { x: 0.1, y: 0.1 },
+
+  // Added: Xbox 360 button booleans
+  a: false,
+  b: false,
+  x: false,
+  y: false,
+  left_bumper: false,
+  right_bumper: false,
+  back: false,
+  start: false,
+  guide: false,
+  left_stick_button: false,
+  right_stick_button: false,
+  dpad_up: false,
+  dpad_down: false,
+  dpad_left: false,
+  dpad_right: false,
 };
 
 let allowReadGamePad = true;
@@ -71,6 +90,7 @@ function setupGamepadPolling(leftStick, rightStick) {
   let ly_last_gamepad = 0.0;
   let rx_last_gamepad = 0.0;
   let ry_last_gamepad = 0.0;
+  let last_button_snapshot = ""; // simple change detector for buttons
 
   function pollGamepad() {
     if (activeGamepadIndex === null) return;
@@ -101,51 +121,88 @@ function setupGamepadPolling(leftStick, rightStick) {
     rx = applyDeadZone(rx, dz_right.x);
     ry = applyDeadZone(ry, dz_right.y);
 
-    // Read triggers (typically axes[4] and axes[5])
+    // Read triggers (buttons 6 and 7 values run 0..1)
     const lt = gp.buttons[6]?.value || 0.0;
     const rt = gp.buttons[7]?.value || 0.0;
 
-    const gpSnapshot = {
-      id: gp.id,
-      axes: [...gp.axes],
-      buttons: gp.buttons.map((b) => ({
-        pressed: b.pressed,
-        value: b.value,
-      })),
-      timestamp: gp.timestamp,
-    };
+    // Read buttons
+    const buttonMap = [
+      ["a", 0],
+      ["b", 1],
+      ["x", 2],
+      ["y", 3],
+      ["left_bumper", 4],
+      ["right_bumper", 5],
+      ["back", 8],
+      ["start", 9],
+      ["left_stick_button", 10],
+      ["right_stick_button", 11],
+      ["dpad_up", 12],
+      ["dpad_down", 13],
+      ["dpad_left", 14],
+      ["dpad_right", 15],
+      ["guide", 16],
+    ];
 
-    if (
+    // Make a compact pressed-state snapshot for cheap equality check
+    let button_snapshot = "";
+    for (const [name, index] of buttonMap) {
+      const pressed = !!gp.buttons[index]?.pressed;
+      button_snapshot += pressed ? "1" : "0";
+    }
+
+    // If truly nothing moved/changed since last frame, skip work
+    const noAxesChange =
       lx_last_gamepad === lx &&
       ly_last_gamepad === ly &&
       rx_last_gamepad === rx &&
-      ry_last_gamepad === ry &&
-      joystickState.left_trigger === lt &&
-      joystickState.right_trigger === rt
-    ) {
+      ry_last_gamepad === ry;
+
+    const noTriggerChange =
+      joystickState.left_trigger === lt && joystickState.right_trigger === rt;
+
+    const noButtonChange = last_button_snapshot === button_snapshot;
+
+    if (noAxesChange && noTriggerChange && noButtonChange) {
       requestAnimationFrame(pollGamepad);
       return;
     }
 
+    // Update cached comparisons
     lx_last_gamepad = lx;
     ly_last_gamepad = ly;
-
     rx_last_gamepad = rx;
     ry_last_gamepad = ry;
+    last_button_snapshot = button_snapshot;
 
-    joystickState.left_trigger = lt;
-    joystickState.right_trigger = rt;
+    // Update triggers
+    if (joystickState.left_trigger !== lt) {
+      joystickState.left_trigger = lt;
+      dirtyKeys.add("left_trigger");
+    }
+    if (joystickState.right_trigger !== rt) {
+      joystickState.right_trigger = rt;
+      dirtyKeys.add("right_trigger");
+    }
 
-    dirtyKeys.add("left_trigger");
-    dirtyKeys.add("right_trigger");
-
-    // Send normalized input (values are already -1 to 1)
+    // Update sticks
     sendJoystickInput("left_stick", lx, ly);
     sendJoystickInput("right_stick", rx, ry);
+
+    // Update buttons -> booleans + mark dirty when changed
+    for (const [name, index] of buttonMap) {
+      const pressed = !!gp.buttons[index]?.pressed;
+      if (joystickState[name] !== pressed) {
+        joystickState[name] = pressed;
+        dirtyKeys.add(name);
+      }
+    }
 
     // Move knobs visually
     moveStickVisual(leftStick, lx, ly);
     moveStickVisual(rightStick, rx, ry);
+
+    if (!ticking) startTickLoop();
 
     // request next update
     requestAnimationFrame(pollGamepad);
@@ -230,6 +287,12 @@ function startTickLoop() {
       } else if (typeof current === "number") {
         // For triggers
         if (Math.abs(current - last) > 0.001) {
+          payload[key] = current;
+          lastSentState[key] = current;
+        }
+      } else if (typeof current === "boolean") {
+        // NEW: send button booleans
+        if (current !== last) {
           payload[key] = current;
           lastSentState[key] = current;
         }
