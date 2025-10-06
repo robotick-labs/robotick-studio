@@ -9,8 +9,7 @@
 }
 
 .page-container:has(.telemetry-container) {
-  /* Your overrides here */
-  overflow: auto; /* Example */
+  overflow: auto;
 }
 
 /* Header */
