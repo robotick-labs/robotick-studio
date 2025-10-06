@@ -70,9 +70,60 @@ async function fetchJSON(urlBase, path) {
 
 function formatKeyValue(obj) {
   if (!obj || typeof obj !== "object") return "–";
-  return Object.entries(obj)
-    .map(([k, v]) => `${k}: ${v.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`)
-    .join("<br>");
+
+  const lines = [];
+  const seen = new WeakSet();
+
+  const escapeHtml = (s) =>
+    String(s).replace(
+      /[&<>"']/g,
+      (m) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[m])
+    );
+
+  const walk = (val, path) => {
+    if (val === null) {
+      lines.push(`${path}: null`);
+      return;
+    }
+
+    const t = typeof val;
+
+    if (t === "object") {
+      if (seen.has(val)) {
+        lines.push(`${path}: [Circular]`);
+        return;
+      }
+      seen.add(val);
+
+      if (Array.isArray(val)) {
+        if (val.length === 0) {
+          lines.push(`${path}: []`);
+        } else {
+          val.forEach((item, i) => walk(item, `${path}[${i}]`));
+        }
+      } else {
+        const keys = Object.keys(val);
+        if (keys.length === 0) {
+          lines.push(`${path}: {}`);
+        } else {
+          keys.forEach((k) => walk(val[k], path ? `${path}.${k}` : k));
+        }
+      }
+    } else {
+      // primitives (string/number/boolean/bigint/symbol) + functions (stringified)
+      lines.push(`${path}: ${escapeHtml(val)}`);
+    }
+  };
+
+  Object.keys(obj).forEach((k) => walk(obj[k], k));
+  return lines.join("<br>");
 }
 
 function createTableForModel(modelInfo) {
