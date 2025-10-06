@@ -8,6 +8,11 @@
   overflow-x: auto;
 }
 
+.page-container:has(.telemetry-container) {
+  /* Your overrides here */
+  overflow: auto; /* Example */
+}
+
 /* Header */
 .telemetry-container h2 {
   margin: 0 0 1rem 0;
