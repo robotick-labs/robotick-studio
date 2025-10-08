@@ -49,14 +49,14 @@
   margin: 20px;
 }
 
-#telemetry th,
-#telemetry td {
+.telemetry th,
+.telemetry td {
   padding: 0.6rem 0.8rem;
   text-align: left;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #444;
 }
 
-#telemetry th {
+.telemetry th {
   font-weight: 600;
   color: #aaa;
   text-transform: uppercase;
@@ -65,7 +65,7 @@
 }
 
 /* Hover highlight */
-#telemetry tbody tr:hover {
+.telemetry tbody tr:hover {
   background: #262626;
 }
 
