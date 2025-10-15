@@ -49,7 +49,7 @@
   position: relative;
   width: 150px;
   height: 150px;
-  background: rgba(161, 161, 161, 0.35); /* soft background tint */
+  background: rgba(161, 161, 161, 0.25); /* soft background tint */
   border-radius: 10px;
   backdrop-filter: blur(8px); /* foggy glass effect */
   -webkit-backdrop-filter: blur(8px); /* Safari support */
