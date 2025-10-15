@@ -17,11 +17,6 @@ const routes = {
     html: "pages/remote-control.html",
     js: "pages/remote-control.js",
   },
-  "/visualizer": {
-    title: "Visualizer",
-    html: "pages/visualizer.html",
-    js: "pages/visualizer.js",
-  },
   "/telemetry": {
     title: "Telemetry",
     html: "pages/telemetry.html",

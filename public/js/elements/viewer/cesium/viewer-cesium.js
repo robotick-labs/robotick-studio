@@ -7,11 +7,13 @@ let cameraOffset = null;
 // Load token immediately (once, at module load time)
 const secretsPromise = (async () => {
   try {
-    const { CESIUM_TOKEN: LOCAL } = await import("./secrets_LOCAL.js");
+    const { CESIUM_TOKEN: LOCAL } = await import(
+      "../../../pages/secrets_LOCAL.js"
+    );
     CESIUM_TOKEN = LOCAL;
     console.log("✅ Loaded CESIUM_TOKEN from secrets_LOCAL.js");
   } catch {
-    const { CESIUM_TOKEN: DEFAULT } = await import("./secrets.js");
+    const { CESIUM_TOKEN: DEFAULT } = await import("../../../pages/secrets.js");
     CESIUM_TOKEN = DEFAULT;
     console.log("ℹ️ Loaded CESIUM_TOKEN from secrets.js");
   }
@@ -46,7 +48,7 @@ export async function loadCesium() {
 }
 
 // Safe init wrapper
-export function init() {
+function init() {
   if (viewer) {
     console.warn("Visualizer already initialized.");
     return;
@@ -57,7 +59,7 @@ export function init() {
   Promise.all([loadCesium(), secretsPromise]).then(() => {
     Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
 
-    viewer = new Cesium.Viewer("cesiumContainer", {
+    viewer = new Cesium.Viewer("viewer-container", {
       terrain: Cesium.Terrain.fromWorldTerrain({
         requestVertexNormals: true,
         requestWaterMask: true,
@@ -195,7 +197,7 @@ async function updateRocketFromTelemetry() {
   }
 }
 
-export function uninit() {
+function uninit() {
   if (!viewer) return;
 
   console.log("Visualizer uninitializing");
@@ -213,6 +215,8 @@ export function uninit() {
   cameraOffset = null;
 
   // Optional: clear container
-  const container = document.getElementById("cesiumContainer");
+  const container = document.getElementById("viewer-container");
   if (container) container.innerHTML = "";
 }
+
+export default { init, uninit };

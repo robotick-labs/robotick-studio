@@ -1,0 +1,669 @@
+// viewer_world.ts
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+const TONE_MAPS = {
+    None: THREE.NoToneMapping,
+    Linear: THREE.LinearToneMapping,
+    ACESFilmic: THREE.ACESFilmicToneMapping,
+    Cineon: THREE.CineonToneMapping,
+    Reinhard: THREE.ReinhardToneMapping,
+};
+class IntervalPoller {
+    cb;
+    intervalMs;
+    timer = null;
+    constructor(cb, intervalMs) {
+        this.cb = cb;
+        this.intervalMs = intervalMs;
+    }
+    start() {
+        if (this.timer !== null)
+            return;
+        const tick = async () => {
+            const t0 = performance.now();
+            try {
+                await this.cb();
+            }
+            catch (e) {
+                console.warn(e);
+            }
+            const elapsed = performance.now() - t0;
+            const wait = Math.max(0, this.intervalMs - elapsed);
+            this.timer = window.setTimeout(tick, wait);
+        };
+        this.timer = window.setTimeout(tick, this.intervalMs);
+    }
+    stop() {
+        if (this.timer !== null) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+    }
+}
+export class ViewerWorld {
+    // temp scratch
+    __TMP = {
+        v3: new THREE.Vector3(),
+        v3b: new THREE.Vector3(),
+        qWorld: new THREE.Quaternion(),
+        qParent: new THREE.Quaternion(),
+        qLocal: new THREE.Quaternion(),
+    };
+    worldConfig;
+    // three bits
+    scene = new THREE.Scene();
+    camera;
+    renderer;
+    controls;
+    pmrem;
+    neutralEnvTex;
+    containerElement;
+    // lighting
+    ambient;
+    dir;
+    lightTracker;
+    // loaders
+    gltfLoader;
+    // content
+    models = new Map();
+    nodeIndex = new Map(); // per model id
+    // telemetry
+    telemetryAnimators = new Map();
+    // render loop
+    animReq = null;
+    // ===== MuJoCo (Z-up, +X fwd, +Y right) -> Three.js (Y-up, +X right, -Z fwd) =====
+    // Step1: Rx(-90°) to make Z-up -> Y-up
+    // Step2: Ry(180°) so +X (MJ fwd) -> -Z (Three "forward")
+    MJ_TO_THREE = new THREE.Quaternion()
+        .setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2) // Z-up → Y-up
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)); // +X → –Z
+    MJ_TO_THREE_INV = this.MJ_TO_THREE.clone().invert();
+    constructor(config) {
+        this.worldConfig = config;
+    }
+    // ---------- world/local helpers ----------
+    getParentWorldQuat(obj, out = new THREE.Quaternion()) {
+        if (!obj.parent)
+            return out.identity();
+        obj.parent.getWorldQuaternion(out);
+        return out;
+    }
+    worldToLocalPosition(obj, worldPos, out = new THREE.Vector3()) {
+        out.copy(worldPos);
+        if (obj.parent)
+            obj.parent.worldToLocal(out);
+        return out;
+    }
+    worldToLocalQuat(obj, worldQuat, out = new THREE.Quaternion()) {
+        const qParent = this.getParentWorldQuat(obj, this.__TMP.qParent);
+        out.copy(qParent).invert().multiply(worldQuat);
+        return out;
+    }
+    // Apply to world-space vectors/quats coming from a Z-up (MuJoCo) source:
+    convertWorldPosFromSource(v, sourceUp) {
+        if (sourceUp === "Z") {
+            v.set(-v.x, v.z, -v.y);
+        }
+        return v;
+    }
+    // change-of-basis for rotations: q' = C * q * C^{-1}
+    convertWorldQuatFromSource(q, sourceUp) {
+        if (sourceUp !== "Z")
+            return q;
+        q.premultiply(this.MJ_TO_THREE);
+        q.multiply(this.MJ_TO_THREE_INV);
+        q.set(-q.x, q.y, -q.z, q.w);
+        return q;
+    }
+    // ---------- lifecycle ----------
+    async start() {
+        this.containerElement = this.worldConfig.container ?? document.body;
+        // renderer
+        const rCfg = this.worldConfig.renderer ?? {};
+        this.renderer = new THREE.WebGLRenderer({ antialias: !!rCfg.antialias });
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.autoUpdate = true;
+        const pxMax = rCfg.pixelRatioMax ?? 2;
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pxMax));
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        if (typeof rCfg.clearColor === "number")
+            this.renderer.setClearColor(rCfg.clearColor);
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.containerElement.appendChild(this.renderer.domElement);
+        // camera + controls
+        const cam = this.worldConfig.camera;
+        this.camera = new THREE.PerspectiveCamera(cam.fov, window.innerWidth / window.innerHeight, cam.near, cam.far);
+        if (cam.target && cam.offset) {
+            const target = new THREE.Vector3(...cam.target);
+            const offset = new THREE.Vector3(...cam.offset);
+            this.camera.position.copy(target.clone().add(offset));
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.target.copy(target);
+        }
+        else {
+            const p = cam.position ?? [0, 1, 2];
+            const target = cam.target ?? [0, 0, 0];
+            this.camera.position.set(p[0], p[1], p[2]);
+            this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+            this.controls.target.set(target[0], target[1], target[2]);
+        }
+        const cCfg = this.worldConfig.controls ?? {
+            enabled: true,
+            screenSpacePanning: true,
+        };
+        this.controls.enabled = cCfg.enabled ?? true;
+        this.controls.screenSpacePanning = cCfg.screenSpacePanning ?? true;
+        this.controls.update();
+        // pmrem / env
+        this.pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.pmrem.compileEquirectangularShader();
+        this.neutralEnvTex = this.pmrem.fromScene(new RoomEnvironment()).texture;
+        // bg + fog
+        this.scene.background = new THREE.Color(this.worldConfig.backgroundColor ?? "#ffffff");
+        if (this.worldConfig.fog) {
+            const f = this.worldConfig.fog;
+            this.scene.fog = new THREE.Fog(new THREE.Color(f.color), f.near, f.far);
+        }
+        await this.applyEnvironment();
+        this.installLights();
+        // loader stack
+        const THREE_PATH = `https://unpkg.com/three@0.${THREE.REVISION}.x`;
+        const draco = new DRACOLoader().setDecoderPath(`${THREE_PATH}/examples/jsm/libs/draco/gltf/`);
+        const ktx2 = new KTX2Loader()
+            .setTranscoderPath(`${THREE_PATH}/examples/jsm/libs/basis/`)
+            .detectSupport(this.renderer);
+        this.gltfLoader = new GLTFLoader()
+            .setDRACOLoader(draco)
+            .setKTX2Loader(ktx2)
+            .setMeshoptDecoder(MeshoptDecoder);
+        // models
+        for (const m of this.worldConfig.models) {
+            await this.loadModel(m.id, m.url, m.transform);
+        }
+        // pollers
+        this.installPollers();
+        // ground
+        if (this.worldConfig.addGroundPlane ?? true) {
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.ShadowMaterial({ opacity: 0.45 }));
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0;
+            ground.receiveShadow = true;
+            this.scene.add(ground);
+        }
+        // loop
+        window.addEventListener("resize", this.onResize);
+        this.animate();
+    }
+    dispose() {
+        window.removeEventListener("resize", this.onResize);
+        this.telemetryAnimators.forEach((p) => p.stop());
+        this.telemetryAnimators.clear();
+        if (this.animReq)
+            cancelAnimationFrame(this.animReq);
+        this.controls?.dispose();
+        this.pmrem?.dispose();
+        this.renderer?.dispose();
+        if (this.renderer?.domElement?.parentElement) {
+            this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+        }
+        this.scene.traverse((n) => {
+            n.geometry?.dispose?.();
+            const mats = Array.isArray(n.material)
+                ? n.material
+                : n.material
+                    ? [n.material]
+                    : [];
+            for (const m of mats) {
+                Object.values(m).forEach((v) => {
+                    if (v?.isTexture)
+                        v.dispose?.();
+                });
+            }
+        });
+    }
+    updateConfig(next) {
+        this.worldConfig = { ...this.worldConfig, ...next };
+        this.applyEnvironment();
+        this.refreshLights();
+    }
+    // ---------- env / lights ----------
+    envById(id) {
+        const envCfg = this.worldConfig.environment;
+        if (!envCfg)
+            return null;
+        return envCfg.environments.find((e) => e.id === id) ?? null;
+    }
+    async applyEnvironment() {
+        const envCfg = this.worldConfig.environment;
+        if (!envCfg)
+            return;
+        this.renderer.toneMapping = TONE_MAPS[envCfg.toneMapping ?? "Linear"];
+        const stops = envCfg.exposureStops ?? 0.0;
+        this.renderer.toneMappingExposure = Math.pow(2, stops);
+        const currentId = envCfg.current ?? "neutral";
+        let envTex = null;
+        if (currentId === "neutral") {
+            envTex = this.neutralEnvTex;
+        }
+        else {
+            const rec = this.envById(currentId);
+            if (rec?.path) {
+                envTex = await new Promise((resolve, reject) => {
+                    new EXRLoader().load(rec.path, (tex) => resolve(this.pmrem.fromEquirectangular(tex).texture), undefined, reject);
+                });
+            }
+        }
+        this.scene.environment = envTex;
+        const rec = this.envById(currentId);
+        const asBg = rec?.asBackground ?? false;
+        if (asBg && envTex)
+            this.scene.background = envTex;
+        else
+            this.scene.background = new THREE.Color(this.worldConfig.backgroundColor ?? "#ffffff");
+    }
+    installLights() {
+        const L = this.worldConfig.lights ?? {};
+        if (L.ambient) {
+            const amb = new THREE.AmbientLight(L.ambient.color, L.ambient.intensity);
+            this.ambient = amb;
+            if (L.ambient.attachToCamera ?? true) {
+                this.camera.add(amb);
+                this.scene.add(this.camera);
+            }
+            else {
+                this.scene.add(amb);
+            }
+        }
+        if (L.directional) {
+            const d = L.directional;
+            const dir = new THREE.DirectionalLight(d.color, d.intensity);
+            this.dir = dir;
+            if (d.castShadow) {
+                dir.castShadow = true;
+                if (d.mapSize)
+                    dir.shadow.mapSize.set(d.mapSize, d.mapSize);
+                if (typeof d.bias === "number")
+                    dir.shadow.bias = d.bias;
+                if (typeof d.normalBias === "number")
+                    dir.shadow.normalBias = d.normalBias;
+                const sc = dir.shadow.camera;
+                sc.left = -1;
+                sc.right = 1;
+                sc.top = 1;
+                sc.bottom = -1;
+                sc.near = 0.1;
+                sc.far = 40;
+                sc.updateProjectionMatrix();
+            }
+            this.scene.add(dir);
+            this.scene.add(dir.target);
+            if (d.trackerModelRef && d.trackerLocalPos) {
+                this.lightTracker = new THREE.Object3D();
+                this.lightTracker.position.set(...d.trackerLocalPos);
+                this.scene.add(this.lightTracker);
+            }
+        }
+    }
+    refreshLights() {
+        const L = this.worldConfig.lights ?? {};
+        if (this.ambient && L.ambient) {
+            this.ambient.intensity = L.ambient.intensity;
+            this.ambient.color.set(L.ambient.color);
+        }
+        if (this.dir && L.directional) {
+            this.dir.intensity = L.directional.intensity;
+            this.dir.color.set(L.directional.color);
+        }
+    }
+    updateDirectionalLight(modelId) {
+        if (!this.dir || !this.lightTracker)
+            return;
+        const model = this.models.get(modelId);
+        if (!model)
+            return;
+        model.add(this.lightTracker);
+        this.lightTracker.updateMatrixWorld(true);
+        const worldPos = new THREE.Vector3();
+        this.lightTracker.getWorldPosition(worldPos);
+        model.remove(this.lightTracker);
+        this.scene.add(this.lightTracker);
+        const desired = worldPos.clone().add(new THREE.Vector3(-1, 2, 1));
+        this.dir.position.lerp(desired, 0.15);
+        this.dir.target.position.copy(model.position);
+        this.dir.target.updateMatrixWorld(true);
+    }
+    // ---------- loading ----------
+    async loadModel(id, url, transform, makeFloor = false) {
+        return new Promise((resolve, reject) => {
+            this.gltfLoader.load(url, (gltf) => {
+                const obj = gltf.scene || gltf.scenes?.[0] || gltf.scene;
+                obj.updateMatrixWorld();
+                obj.traverse((node) => {
+                    if (node.castShadow !== undefined)
+                        node.castShadow = true;
+                    if (node.receiveShadow !== undefined)
+                        node.receiveShadow = true;
+                });
+                if (transform?.position)
+                    obj.position.set(...transform.position);
+                if (transform?.rotationEuler)
+                    obj.rotation.set(...transform.rotationEuler);
+                if (transform?.scale)
+                    obj.scale.set(...transform.scale);
+                this.scene.add(obj);
+                this.models.set(id, obj);
+                // build node index
+                const index = new Map();
+                obj.traverse((node) => {
+                    if (node.name) {
+                        index.set(node.name, node);
+                    }
+                });
+                this.nodeIndex.set(id, index);
+                const showAxes = false;
+                if (showAxes) {
+                    const showAxesFor = new Set([
+                        "Body",
+                        "LeftWheel_Hub",
+                        "RightWheel_Hub",
+                    ]);
+                    // ⬇️ Add world-space axes to each named node
+                    for (const [name, node] of index.entries()) {
+                        if (node.getObjectByName(`${name}_axes`))
+                            continue; // already has one
+                        if (!showAxesFor.has(name)) {
+                            console.log("SKIPPING: " + name);
+                            continue;
+                        }
+                        const axes = new THREE.AxesHelper(0.05); // 5cm long axes
+                        axes.name = `${name}_axes`;
+                        axes.visible = true;
+                        // Force world orientation even if node is nested
+                        node.updateMatrixWorld(true);
+                        axes.position.set(0, 0, 0);
+                        node.add(axes); // attaches to node, so transforms with it
+                    }
+                }
+                if (makeFloor) {
+                    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                    floor.rotation.x = -Math.PI / 2;
+                    floor.position.y = 0;
+                    floor.receiveShadow = true;
+                    this.scene.add(floor);
+                }
+                resolve();
+            }, undefined, reject);
+        });
+    }
+    // ---------- polling ----------
+    installPollers() {
+        if (!this.worldConfig.telemetryAnimators)
+            return;
+        this.telemetryAnimators.forEach((p) => p.stop());
+        this.telemetryAnimators.clear();
+        for (const p of this.worldConfig.telemetryAnimators) {
+            const poller = new IntervalPoller(async () => {
+                await this.executePoller(p);
+            }, p.intervalMs);
+            this.telemetryAnimators.set(p.id, poller);
+            poller.start();
+        }
+    }
+    async executePoller(p) {
+        const method = p.method ?? "GET";
+        const rt = p.responseType ?? "json";
+        const resp = await fetch(p.url, {
+            method,
+            headers: p.headers,
+            body: method === "POST" && p.bodyJson
+                ? JSON.stringify(p.bodyJson)
+                : undefined,
+            cache: "no-store",
+        });
+        if (!resp.ok)
+            throw new Error(`Poller ${p.id}: HTTP ${resp.status}`);
+        if (rt === "json") {
+            const data = await resp.json();
+            if (p.fields?.length)
+                this.applyJsonFieldMap(p.fields, data, p.defaultSpace, p.sourceUp);
+        }
+        else {
+            const blob = await resp.blob();
+            const bitmap = await createImageBitmap(blob);
+            if (p.textureTargets?.length) {
+                for (const t of p.textureTargets) {
+                    const node = this.findNodeAnyModel(t.node);
+                    if (!node)
+                        continue;
+                    let tex = null;
+                    const mats = this.asMaterials(node);
+                    for (const m of mats) {
+                        const targetKey = this.materialPropKey(t.prop);
+                        // @ts-ignore
+                        const current = m[targetKey];
+                        if (!tex) {
+                            tex = current ?? new THREE.Texture(bitmap);
+                            tex.image = bitmap;
+                            tex.needsUpdate = true;
+                            tex.flipY = t.flipY ?? false;
+                            if (t.sRGB ?? true)
+                                tex.colorSpace = THREE.SRGBColorSpace;
+                            tex.generateMipmaps = t.generateMipmaps ?? false;
+                            tex.minFilter = (t.minFilter ??
+                                THREE.LinearFilter);
+                            tex.magFilter = (t.magFilter ??
+                                THREE.LinearFilter);
+                            tex.wrapS = THREE.ClampToEdgeWrapping;
+                            tex.wrapT = THREE.ClampToEdgeWrapping;
+                            tex.anisotropy =
+                                t.anisotropy ?? this.renderer.capabilities.getMaxAnisotropy();
+                        }
+                        else {
+                            tex.image = bitmap;
+                            tex.needsUpdate = true;
+                        }
+                        // @ts-ignore
+                        m[targetKey] = tex;
+                        if (t.transparent)
+                            m.transparent = true;
+                        if (typeof t.alphaTest === "number")
+                            m.alphaTest = t.alphaTest;
+                        m.needsUpdate = true;
+                    }
+                }
+            }
+        }
+    }
+    // ---------- mapping ----------
+    getNestedField(obj, path) {
+        return path
+            .split(".")
+            .reduce((acc, key) => acc && acc[key] !== undefined ? acc[key] : undefined, obj);
+    }
+    applyJsonFieldMap(maps, data, defaultSpace, defaultSourceUp) {
+        for (const m of maps) {
+            const raw = this.getNestedField(data, m.fieldId);
+            if (raw === undefined || raw === null)
+                continue;
+            const node = this.findNodeAnyModel(m.node);
+            if (!node) {
+                console.warn(`[viewer] Node not found for telemetry: "${m.node}"`);
+                continue;
+            }
+            const spaceMode = (m.space ?? defaultSpace ?? "local");
+            const num = (x) => typeof x === "number" ? x : typeof x === "string" ? parseFloat(x) : x;
+            switch (m.prop) {
+                case "position": {
+                    if (m.axis && m.axis !== "all") {
+                        const v = num(raw);
+                        if (typeof v !== "number")
+                            break;
+                        const vec = node.position.clone();
+                        if (m.axis === "x")
+                            vec.x = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "y")
+                            vec.y = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "z")
+                            vec.z = m.multiply ? v * m.multiply : v;
+                        node.position.copy(vec);
+                    }
+                    else {
+                        const wx = num(raw.x), wy = num(raw.y), wz = num(raw.z);
+                        if ([wx, wy, wz].some((v) => typeof v !== "number" || Number.isNaN(v)))
+                            break;
+                        const worldV = this.__TMP.v3.set(m.multiply ? wx * m.multiply : wx, m.multiply ? wy * m.multiply : wy, m.multiply ? wz * m.multiply : wz);
+                        this.convertWorldPosFromSource(worldV, m.sourceUp ?? defaultSourceUp);
+                        const localV = spaceMode === "world"
+                            ? this.worldToLocalPosition(node, worldV, this.__TMP.v3b)
+                            : worldV;
+                        node.position.copy(localV);
+                    }
+                    node.updateMatrix();
+                    node.updateMatrixWorld();
+                    break;
+                }
+                case "rotationQuat": {
+                    const wq = num(raw.w ?? raw[0]);
+                    const xq = num(raw.x ?? raw[1]);
+                    const yq = num(raw.y ?? raw[2]);
+                    const zq = num(raw.z ?? raw[3]);
+                    if ([wq, xq, yq, zq].some((v) => typeof v !== "number" || Number.isNaN(v)))
+                        break;
+                    this.__TMP.qWorld.set(xq, yq, zq, wq);
+                    this.convertWorldQuatFromSource(this.__TMP.qWorld, m.sourceUp ?? defaultSourceUp);
+                    const qLocal = spaceMode === "world"
+                        ? this.worldToLocalQuat(node, this.__TMP.qWorld, this.__TMP.qLocal)
+                        : this.__TMP.qWorld;
+                    node.quaternion.copy(qLocal);
+                    node.updateMatrix();
+                    node.updateMatrixWorld();
+                    break;
+                }
+                case "rotationEuler":
+                case "rotationXYZ": {
+                    const ex = num(raw.x), ey = num(raw.y), ez = num(raw.z);
+                    if ([ex, ey, ez].some((v) => typeof v !== "number" || Number.isNaN(v))) {
+                        if (!m.axis || m.axis === "all")
+                            break;
+                        const v = num(raw);
+                        if (typeof v !== "number")
+                            break;
+                        const e = node.rotation.clone();
+                        if (m.axis === "x")
+                            e.x = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "y")
+                            e.y = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "z")
+                            e.z = m.multiply ? v * m.multiply : v;
+                        node.rotation.copy(e);
+                    }
+                    else {
+                        const eWorld = new THREE.Euler(m.multiply ? ex * m.multiply : ex, m.multiply ? ey * m.multiply : ey, m.multiply ? ez * m.multiply : ez, "XYZ");
+                        this.__TMP.qWorld.setFromEuler(eWorld);
+                        this.convertWorldQuatFromSource(this.__TMP.qWorld, m.sourceUp ?? defaultSourceUp);
+                        const qLocal = spaceMode === "world"
+                            ? this.worldToLocalQuat(node, this.__TMP.qWorld, this.__TMP.qLocal)
+                            : this.__TMP.qWorld;
+                        node.quaternion.copy(qLocal);
+                    }
+                    node.updateMatrix();
+                    node.updateMatrixWorld();
+                    break;
+                }
+                case "scale": {
+                    if (m.axis && m.axis !== "all") {
+                        const v = num(raw);
+                        if (typeof v !== "number")
+                            break;
+                        const s = node.scale.clone();
+                        if (m.axis === "x")
+                            s.x = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "y")
+                            s.y = m.multiply ? v * m.multiply : v;
+                        if (m.axis === "z")
+                            s.z = m.multiply ? v * m.multiply : v;
+                        node.scale.copy(s);
+                    }
+                    else if (raw && typeof raw === "object") {
+                        const sx = num(raw.x), sy = num(raw.y), sz = num(raw.z);
+                        if ([sx, sy, sz].some((v) => typeof v !== "number" || Number.isNaN(v)))
+                            break;
+                        node.scale.set(m.multiply ? sx * m.multiply : sx, m.multiply ? sy * m.multiply : sy, m.multiply ? sz * m.multiply : sz);
+                    }
+                    node.updateMatrix();
+                    node.updateMatrixWorld();
+                    break;
+                }
+                case "material.color":
+                case "material.emissive": {
+                    const mats = this.asMaterials(node);
+                    for (const mat of mats) {
+                        const key = this.materialPropKey(m.prop);
+                        if (typeof raw === "string")
+                            mat[key].set(raw);
+                        mat.needsUpdate = true;
+                    }
+                    break;
+                }
+                case "material.map":
+                case "material.emissiveMap": {
+                    // handled by texture poller
+                    break;
+                }
+                case "material.opacity": {
+                    const mats = this.asMaterials(node);
+                    const v = num(raw);
+                    for (const mat of mats) {
+                        mat.opacity =
+                            typeof v === "number" ? v : m.multiply ? v * m.multiply : v;
+                        mat.transparent = true;
+                        mat.needsUpdate = true;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    }
+    materialPropKey(prop) {
+        return prop.replace(/^material\./, "");
+    }
+    asMaterials(node) {
+        const mats = [];
+        // @ts-ignore
+        const mat = node.material;
+        if (mat)
+            mats.push(...(Array.isArray(mat) ? mat : [mat]));
+        return mats;
+    }
+    findNodeAnyModel(nodeName) {
+        for (const [, index] of this.nodeIndex) {
+            const found = index.get(nodeName);
+            if (found)
+                return found;
+        }
+        return null;
+    }
+    // ---------- render ----------
+    animate = () => {
+        this.animReq = requestAnimationFrame(this.animate);
+        this.controls?.update();
+        const d = this.worldConfig.lights?.directional;
+        if (this.dir && d?.trackerModelRef)
+            this.updateDirectionalLight(d.trackerModelRef);
+        this.renderer.render(this.scene, this.camera);
+    };
+    onResize = () => {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    };
+}

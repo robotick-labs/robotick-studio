@@ -1,16 +1,18 @@
 /* ====== Camera fills the page-container ====== */
 
 .rc-ui {
-  position: absolute;   /* fill the .page-container */
-  inset: 0;             /* top/right/bottom/left: 0 */
+  position: absolute; /* fill the .page-container */
+  inset: 0; /* top/right/bottom/left: 0 */
+  z-index: 0; /* added to create a stacking context */
 }
 
-.camera-container {
-  position: absolute;   /* fill the rc-ui area */
+.viewer-container {
+  position: absolute; /* fill the rc-ui area */
   inset: 0;
   overflow: hidden;
   background: #00000000;
   border-radius: 10px;
+  z-index: 0; /* same as parent, stays behind overlays */
 }
 
 #camera-stream {
@@ -18,7 +20,7 @@
   inset: 0;
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain;      /* fill page-container, crop as needed */
+  object-fit: contain; /* fill page-container, crop as needed */
   display: block;
   background: #00000000;
 }
@@ -33,29 +35,32 @@
 .joystick-row {
   position: absolute;
   left: 50%;
-  bottom: 7rem;           /* sits above controls */
+  bottom: 3rem; /* sits above controls */
   transform: translateX(-50%);
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  width: 90vw;
-  max-width: 88%;
-  z-index: 2;
+  width: 95vw;
+  max-width: 95%;
+  z-index: 1000;
 }
 
 .stick-area {
   position: relative;
   width: 150px;
   height: 150px;
-  background: #555;
+  background: rgba(161, 161, 161, 0.35); /* soft background tint */
   border-radius: 10px;
+  backdrop-filter: blur(8px); /* foggy glass effect */
+  -webkit-backdrop-filter: blur(8px); /* Safari support */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* slight depth */
 }
 
 .knob {
   position: absolute;
   width: 40px;
   height: 40px;
-  background: silver;
+  background: rgb(255, 255, 255);
   border-radius: 50%;
   left: 50%;
   top: 50%;
@@ -72,7 +77,7 @@
   font-family: sans-serif;
   text-align: center;
   width: 100%;
-  z-index: 2;
+  z-index: 1000;
 }
 
 .toggle-button {
@@ -86,13 +91,13 @@
 }
 
 .toggle-button.active {
-  background: #3c3;
-  color: #000;
+  background: rgb(80, 216, 80);
+  color: #ffffff;
 }
 
 .toggle-button.inactive {
   background: silver;
-  color: #000;
+  color: #ffffff;
 }
 
 .slider-group {
@@ -109,7 +114,7 @@
   .joystick-row {
     flex-direction: column;
     align-items: center;
-    bottom: 8.5rem;   /* give a bit more room above buttons */
+    bottom: 8.5rem; /* give a bit more room above buttons */
   }
 }
 
