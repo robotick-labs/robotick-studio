@@ -1,0 +1,33 @@
+{
+  "name": "robotick-hub",
+  "version": "1.0.0",
+  "description": "Robotick Hub Web IDE",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "vite build",
+    "build:watch": "vite build --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robotick-labs/robotick-hub.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/robotick-labs/robotick-hub/issues"
+  },
+  "homepage": "https://github.com/robotick-labs/robotick-hub#readme",
+  "devDependencies": {
+    "@types/three": "^0.180.0",
+    "cesium": "^1.134.1",
+    "three": "^0.180.0",
+    "three-stdlib": "^2.36.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.10"
+  }
+}

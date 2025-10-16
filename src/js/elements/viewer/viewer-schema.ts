@@ -134,7 +134,7 @@ export interface ModelConfig {
   };
 }
 
-export interface WorldConfig {
+export interface ViewerConfig {
   container?: HTMLElement | null; // DOM parent; defaults to document.body
   backgroundColor?: string; // "#ffffff"
   fog?: FogConfig | null;

@@ -1,9 +1,20 @@
-// viewer.js
+import type { ViewerConfig } from "./viewer-schema";
 
-let viewerType = null;
-let viewerModule = null;
+type ViewerType = "three-js" | "cesium" | "streaming-image";
 
-export function init(viewerConfig) {
+interface ViewerModule {
+  default: {
+    init: (config: ViewerConfig) => Promise<void>;
+    uninit?: () => void;
+  };
+}
+
+let viewerType: ViewerType | null = null;
+let viewerModule: ViewerModule | null = null;
+
+export function init(
+  viewerConfig: Partial<ViewerConfig> & { viewerType?: string }
+): void {
   const type = viewerConfig?.viewerType;
 
   if (typeof type !== "string") {
@@ -13,13 +24,13 @@ export function init(viewerConfig) {
     return;
   }
 
-  viewerType = type;
+  viewerType = type as ViewerType;
 
   // Fire and forget the async dynamic import
-  loadAndInitViewer(type, viewerConfig);
+  loadAndInitViewer(viewerType, viewerConfig as ViewerConfig);
 }
 
-export function uninit() {
+export function uninit(): void {
   if (viewerModule?.default.uninit) {
     viewerModule.default.uninit();
   }
@@ -27,15 +38,22 @@ export function uninit() {
   viewerModule = null;
 }
 
-async function loadAndInitViewer(type, config) {
+async function loadAndInitViewer(
+  type: ViewerType,
+  config: ViewerConfig
+): Promise<void> {
   try {
     switch (type) {
       case "three-js":
-        viewerModule = await import("./three/viewer-three.js");
+        viewerModule = (await import(
+          "./three/viewer-three.js"
+        )) as ViewerModule;
         break;
 
       case "cesium":
-        viewerModule = await import("./cesium/viewer-cesium.js");
+        viewerModule = (await import(
+          "./cesium/viewer-cesium.js"
+        )) as ViewerModule;
         break;
 
       case "streaming-image":
@@ -47,7 +65,6 @@ async function loadAndInitViewer(type, config) {
         return;
     }
 
-    // Safely call init if available
     await viewerModule.default.init(config);
     console.log(`Created viewer of type "${type}"`);
   } catch (err) {

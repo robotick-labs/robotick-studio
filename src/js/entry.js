@@ -1,9 +1,9 @@
 // entry.js
 
-import { initRouter } from "/js/router.js";
-import { initControls } from "/js/elements/header.js";
+import { initRouter } from "./router.js";
+import { initControls } from "./elements/header.js";
 
-export async function init({ host }) {
+async function init({ host }) {
   console.log(`[Robotick Hub] Starting from host: '${host}'`);
 
   // Attach styles and metadata (as you already have)
@@ -48,3 +48,6 @@ export async function init({ host }) {
   initRouter();
   initControls(host);
 }
+
+const host = location.origin;
+init({ host });

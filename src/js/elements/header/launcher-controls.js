@@ -1,4 +1,4 @@
-import currentProject from "/js/core/current-project.js";
+import currentProject from "../../core/current-project.js";
 import dots from "./launcher-dots.js";
 
 let playStopButton = null;

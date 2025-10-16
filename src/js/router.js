@@ -1,30 +1,5 @@
 let currentModule = null; // Track the currently active JS module
 
-const routes = {
-  "/": { title: "Home", html: "pages/home.html", js: "pages/home.js" },
-  "/project": {
-    title: "Project",
-    html: "pages/project.html",
-    js: "pages/project.js",
-  },
-  "/models": {
-    title: "Models",
-    html: "pages/models.html",
-    js: "pages/models.js",
-  },
-  "/remote-control": {
-    title: "Remote Control",
-    html: "pages/remote-control.html",
-    js: "pages/remote-control.js",
-  },
-  "/telemetry": {
-    title: "Telemetry",
-    html: "pages/telemetry.html",
-    js: "pages/telemetry.js",
-  },
-  "/help": { title: "Help", html: "pages/help.html", js: "pages/help.js" },
-};
-
 async function render() {
   const path = (window.location.hash || "#/").slice(2) || "home";
 
@@ -36,7 +11,7 @@ async function render() {
   const route = {
     title: title,
     html: `pages/${path}.html`,
-    js: `pages/${path}.js`,
+    script: `${path}`,
   };
 
   const app = document.getElementById("app");
@@ -57,7 +32,9 @@ async function render() {
 
   try {
     const htmlPromise = fetch("/html/" + route.html).then((res) => res.text());
-    const jsPromise = route.js ? import(`./${route.js}`) : null;
+    const jsPromise = route.script
+      ? import(`./pages/${route.script}.js`)
+      : null;
 
     const html = await htmlPromise;
     app.innerHTML = html;
@@ -76,11 +53,11 @@ async function render() {
           module.init();
         } else {
           console.warn(
-            `Module '${route.js}' does not export an init() function`
+            `Module '${script}.js' does not export an init() function`
           );
         }
       } catch (err) {
-        console.error(`Failed to load or execute module '${route.js}':`, err);
+        console.error(`Failed to load or execute module '${script}.js':`, err);
       }
     } else {
       currentModule = null;

@@ -1,11 +1,18 @@
-let CESIUM_TOKEN = null;
-let viewer = null;
-let rocketEntity = null;
+// viewer-cesium.ts
+
+import * as Cesium from "cesium";
+import "cesium/Build/Cesium/Widgets/widgets.css";
+
+import type { ViewerConfig } from "../viewer-schema";
+
+let CESIUM_TOKEN: string | null = null;
+let viewer: Cesium.Viewer | null = null;
+let rocketEntity: Cesium.Entity | null = null;
 let exitRequested = false;
-let cameraOffset = null;
+let cameraOffset: Cesium.Cartesian3 | null = null;
 
 // Load token immediately (once, at module load time)
-const secretsPromise = (async () => {
+const secretsPromise: Promise<void> = (async () => {
   try {
     const { CESIUM_TOKEN: LOCAL } = await import(
       "../../../pages/secrets_LOCAL.js"
@@ -19,9 +26,8 @@ const secretsPromise = (async () => {
   }
 })();
 
-export async function loadCesium() {
-  // Only load once
-  if (window.CESIUM_LOADED) return;
+export async function loadCesium(): Promise<void> {
+  if ((window as any).CESIUM_LOADED) return;
 
   const css = document.createElement("link");
   css.rel = "stylesheet";
@@ -36,10 +42,9 @@ export async function loadCesium() {
   document.head.appendChild(css);
   document.head.appendChild(script);
 
-  // Wait for Cesium to become available globally
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve) => {
     script.onload = () => {
-      window.CESIUM_LOADED = true;
+      (window as any).CESIUM_LOADED = true;
       resolve();
     };
   });
@@ -47,8 +52,7 @@ export async function loadCesium() {
   console.log("✅ Cesium loaded");
 }
 
-// Safe init wrapper
-function init() {
+async function init(_config: ViewerConfig): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
     return;
@@ -56,84 +60,81 @@ function init() {
 
   exitRequested = false;
 
-  Promise.all([loadCesium(), secretsPromise]).then(() => {
-    Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
+  await Promise.all([loadCesium(), secretsPromise]);
 
-    viewer = new Cesium.Viewer("viewer-container", {
-      terrain: Cesium.Terrain.fromWorldTerrain({
-        requestVertexNormals: true,
-        requestWaterMask: true,
-      }),
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
-      homeButton: false,
-      sceneModePicker: false,
-      geocoder: false,
-      infoBox: false,
-      selectionIndicator: false,
-      shouldAnimate: true,
-    });
+  Cesium.Ion.defaultAccessToken = CESIUM_TOKEN!;
 
-    // Lock camera
-    const controls = viewer.scene.screenSpaceCameraController;
-    controls.enableRotate = false;
-    controls.enableTranslate = false;
-    controls.enableZoom = false;
-    controls.enableTilt = false;
-    controls.enableLook = false;
-
-    // Static time
-    viewer.clock.shouldAnimate = false;
-    viewer.clock.currentTime = Cesium.JulianDate.fromDate(
-      new Date(Date.UTC(2025, 8, 31, 17, 40, 0)) // 18:00 BST
-    );
-
-    viewer.scene.globe.enableLighting = true;
-
-    const lon = -3.0716882;
-    const lat = 54.3640662;
-    const alt = 102;
-
-    const rocketPosition = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
-    rocketEntity = viewer.entities.add({
-      name: "Rocket",
-      position: rocketPosition,
-      model: {
-        uri: "glb/robotick_simple_rocket.glb",
-        scale: 1.0,
-        minimumPixelSize: 64,
-      },
-      orientation: Cesium.Transforms.headingPitchRollQuaternion(
-        rocketPosition,
-        new Cesium.HeadingPitchRoll(0, 0, 0)
-      ),
-    });
-
-    // Camera offset, pre-rotated 180°
-    const cameraOffsetLin = new Cesium.Cartesian3(11.71, 10.35, 10.1);
-    cameraOffset = Cesium.Matrix3.multiplyByVector(
-      Cesium.Matrix3.fromRotationZ(Math.PI),
-      cameraOffsetLin,
-      new Cesium.Cartesian3()
-    );
-
-    lookAtRocket(rocketPosition);
-    startRocketTracking();
+  viewer = new Cesium.Viewer("viewer-container", {
+    terrain: Cesium.Terrain.fromWorldTerrain({
+      requestVertexNormals: true,
+      requestWaterMask: true,
+    }),
+    timeline: false,
+    animation: false,
+    baseLayerPicker: false,
+    navigationHelpButton: false,
+    fullscreenButton: false,
+    homeButton: false,
+    sceneModePicker: false,
+    geocoder: false,
+    infoBox: false,
+    selectionIndicator: false,
+    shouldAnimate: true,
   });
-}
 
-function lookAtRocket(position) {
-  const transform = Cesium.Transforms.eastNorthUpToFixedFrame(position);
-  const offset = Cesium.Matrix4.multiplyByPoint(
-    transform,
-    cameraOffset,
+  const controls = viewer.scene.screenSpaceCameraController;
+  controls.enableRotate = false;
+  controls.enableTranslate = false;
+  controls.enableZoom = false;
+  controls.enableTilt = false;
+  controls.enableLook = false;
+
+  viewer.clock.shouldAnimate = false;
+  viewer.clock.currentTime = Cesium.JulianDate.fromDate(
+    new Date(Date.UTC(2025, 8, 31, 17, 40, 0))
+  );
+
+  viewer.scene.globe.enableLighting = true;
+
+  const lon = -3.0716882;
+  const lat = 54.3640662;
+  const alt = 102;
+
+  const rocketPosition = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+  rocketEntity = viewer.entities.add({
+    name: "Rocket",
+    position: rocketPosition,
+    model: {
+      uri: "glb/robotick_simple_rocket.glb",
+      scale: 1.0,
+      minimumPixelSize: 64,
+    },
+    orientation: Cesium.Transforms.headingPitchRollQuaternion(
+      rocketPosition,
+      new Cesium.HeadingPitchRoll(0, 0, 0)
+    ),
+  });
+
+  const cameraOffsetLin = new Cesium.Cartesian3(11.71, 10.35, 10.1);
+  cameraOffset = Cesium.Matrix3.multiplyByVector(
+    Cesium.Matrix3.fromRotationZ(Math.PI),
+    cameraOffsetLin,
     new Cesium.Cartesian3()
   );
 
-  viewer.camera.lookAt(
+  lookAtRocket(rocketPosition);
+  startRocketTracking();
+}
+
+function lookAtRocket(position: Cesium.Cartesian3): void {
+  const transform = Cesium.Transforms.eastNorthUpToFixedFrame(position);
+  const offset = Cesium.Matrix4.multiplyByPoint(
+    transform,
+    cameraOffset!,
+    new Cesium.Cartesian3()
+  );
+
+  viewer!.camera.lookAt(
     position,
     new Cesium.Cartesian3(
       offset.x - position.x,
@@ -143,7 +144,7 @@ function lookAtRocket(position) {
   );
 }
 
-function startRocketTracking() {
+function startRocketTracking(): void {
   async function fetchAndUpdate() {
     try {
       await updateRocketFromTelemetry();
@@ -159,7 +160,7 @@ function startRocketTracking() {
   fetchAndUpdate();
 }
 
-async function updateRocketFromTelemetry() {
+async function updateRocketFromTelemetry(): Promise<void> {
   const response = await fetch(
     "http://localhost:7090/api/telemetry/workload/outputs?name=jsb_sim"
   );
@@ -188,8 +189,8 @@ async function updateRocketFromTelemetry() {
   );
 
   if (rocketEntity) {
-    rocketEntity.position = position;
-    rocketEntity.orientation = orientation;
+    rocketEntity.position = new Cesium.ConstantPositionProperty(position);
+    rocketEntity.orientation = new Cesium.ConstantProperty(orientation);
   }
 
   if (viewer && !viewer.isDestroyed()) {
@@ -197,15 +198,13 @@ async function updateRocketFromTelemetry() {
   }
 }
 
-function uninit() {
+function uninit(): void {
   if (!viewer) return;
 
   console.log("Visualizer uninitializing");
 
-  // Stop tracking loop
   exitRequested = true;
 
-  // Destroy viewer and free GPU resources
   if (!viewer.isDestroyed()) {
     viewer.destroy();
   }
@@ -214,9 +213,9 @@ function uninit() {
   rocketEntity = null;
   cameraOffset = null;
 
-  // Optional: clear container
   const container = document.getElementById("viewer-container");
   if (container) container.innerHTML = "";
 }
 
+// Match ViewerModule interface
 export default { init, uninit };

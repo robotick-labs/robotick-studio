@@ -9,12 +9,12 @@ import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 import {
-  WorldConfig,
+  ViewerConfig,
   EnvironmentConfig,
   ToneMap,
   RestPoller,
   ResponseType,
-} from "../viewer_schema.js";
+} from "../viewer-schema.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -62,7 +62,7 @@ export class ViewerWorld {
     qLocal: new THREE.Quaternion(),
   };
 
-  private worldConfig: WorldConfig;
+  private worldConfig: ViewerConfig;
 
   // three bits
   private scene = new THREE.Scene();
@@ -105,7 +105,7 @@ export class ViewerWorld {
 
   private readonly MJ_TO_THREE_INV = this.MJ_TO_THREE.clone().invert();
 
-  constructor(config: WorldConfig) {
+  constructor(config: ViewerConfig) {
     this.worldConfig = config;
   }
 
@@ -291,7 +291,7 @@ export class ViewerWorld {
     });
   }
 
-  updateConfig(next: Partial<WorldConfig>) {
+  updateConfig(next: Partial<ViewerConfig>) {
     this.worldConfig = { ...this.worldConfig, ...next };
     this.applyEnvironment();
     this.refreshLights();

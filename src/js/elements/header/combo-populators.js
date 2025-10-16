@@ -1,6 +1,6 @@
 // header/combo-populators.js
 
-import currentProject from "/js/core/current-project.js";
+import currentProject from "../../core/current-project.js";
 
 async function populateProjectCombo(combo) {
   combo.innerHTML = "";
