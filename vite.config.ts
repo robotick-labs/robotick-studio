@@ -1,8 +1,11 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
+import cesium from "vite-plugin-cesium";
 
 export default defineConfig({
+  plugins: [cesium()],
   build: {
+    outDir: "dist",
     emptyOutDir: false,
     sourcemap: true,
     chunkSizeWarningLimit: 524288,
