@@ -1,11 +1,6 @@
 
-> robotick-hub@1.0.0 build:watch
-> vite build --watch
+  VITE v7.1.10  ready in 158 ms
 
-vite v7.1.10 building for production...
-
-watching for file changes...
-
-build started...
-transforming...
-✓ 9 modules transformed.
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+  ➜  press h + enter to show help
