@@ -39,10 +39,6 @@ async function render() {
     js: `pages/${path}.js`,
   };
 
-  console.log(route.title);
-  console.log(route.html);
-  console.log(route.js);
-
   const app = document.getElementById("app");
 
   if (!route) {
@@ -50,12 +46,12 @@ async function render() {
     return;
   }
 
-  // 👉 Call uninit() on the current module before navigating away
+  // Call uninit() on the current module before navigating away
   if (currentModule && typeof currentModule.uninit === "function") {
     try {
       currentModule.uninit();
     } catch (err) {
-      console.warn(`⚠️ Error during uninit():`, err);
+      console.warn(`Error during uninit():`, err);
     }
   }
 
@@ -80,14 +76,11 @@ async function render() {
           module.init();
         } else {
           console.warn(
-            `⚠️ Module '${route.js}' does not export an init() function`
+            `Module '${route.js}' does not export an init() function`
           );
         }
       } catch (err) {
-        console.error(
-          `❌ Failed to load or execute module '${route.js}':`,
-          err
-        );
+        console.error(`Failed to load or execute module '${route.js}':`, err);
       }
     } else {
       currentModule = null;

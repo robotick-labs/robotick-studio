@@ -14,7 +14,7 @@ import {
   ToneMap,
   RestPoller,
   ResponseType,
-} from "./viewer_three_schema.js";
+} from "../viewer_schema.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,

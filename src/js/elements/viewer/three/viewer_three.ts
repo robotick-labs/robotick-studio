@@ -1,5 +1,5 @@
 import { ViewerWorld } from "./viewer_three_world.js";
-import type { WorldConfig } from "./viewer_three_schema.js";
+import type { WorldConfig } from "../viewer_schema.js";
 
 async function main() {
   const response = await fetch("config/pip_e_viewer_config.json", {
