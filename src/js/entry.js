@@ -3,9 +3,7 @@
 import { initRouter } from "./router.js";
 import { initControls } from "./elements/header.js";
 
-async function init({ host }) {
-  console.log(`[Robotick Hub] Starting from host: '${host}'`);
-
+async function init() {
   // Attach styles and metadata (as you already have)
   const stylesheets = [
     "css/common.css",

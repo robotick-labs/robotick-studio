@@ -187,11 +187,12 @@ export async function pollWorkloadsForever(
           s.hasInitialWorkloads = s.workloads.length > 0;
         });
 
-        const withNoDetails = next
-          .find((e) => e.model.instanceURL === url)!
-          .workloads.filter(
-            (w) => w.config === null && w.inputs === null && w.outputs === null
-          );
+        const matchedEngine = next.find((e) => e.model.instanceURL === url);
+        if (!matchedEngine) return; // prevent crash
+
+        const withNoDetails = matchedEngine.workloads.filter(
+          (w) => w.config === null && w.inputs === null && w.outputs === null
+        );
 
         await Promise.all(
           withNoDetails.map(async (wld) => {

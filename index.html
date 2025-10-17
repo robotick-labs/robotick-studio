@@ -20,7 +20,6 @@
   </body>
 
   <script type="module">
-    const host = location.origin;
-    import("/src/js/entry.js").then((m) => m.init?.({ host }));
+    import("/src/js/entry.js").then((m) => m.init?.());
   </script>
 </html>

@@ -2,9 +2,7 @@ import launcher from "./header/launcher-controls.js";
 import combos from "./header/combo-populators.js";
 import currentProject from "../core/current-project.js";
 
-export function initControls(host) {
-  console.log(`[Robotick Hub] Header Controls init from: '${host}'`);
-
+export function initControls() {
   launcher.initLauncherControls({
     playButton: document.querySelector(".icon-play")?.parentElement,
     restartButton: document.querySelector(".icon-restart")?.parentElement,
