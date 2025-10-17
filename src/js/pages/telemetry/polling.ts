@@ -69,11 +69,29 @@ export async function fetchAllModelJSONs(): Promise<
 
 export async function getEngineModels(): Promise<EngineModel[]> {
   const models = await fetchAllModelJSONs();
-  return models.map((m) => ({
-    modelName: m.modelName,
-    modelPath: m.modelPath,
-    instanceURL: m.engineURL,
-  }));
+
+  const extractPort = (url?: string): number => {
+    if (!url) return 0;
+    try {
+      const parsed = new URL(url);
+      return parseInt(parsed.port || "0", 10);
+    } catch {
+      return 0;
+    }
+  };
+
+  return models
+    .map((m) => ({
+      modelName: m.modelName,
+      modelPath: m.modelPath,
+      instanceURL: m.engineURL,
+    }))
+    .sort((a, b) => {
+      const portA = extractPort(a.instanceURL);
+      const portB = extractPort(b.instanceURL);
+      if (portA !== portB) return portA - portB;
+      return (a.instanceURL || "").localeCompare(b.instanceURL || "");
+    });
 }
 
 export async function fetchWorkloadDetails(
