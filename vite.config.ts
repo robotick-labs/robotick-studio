@@ -1,20 +1,39 @@
 import { defineConfig } from "vite";
-import { resolve, relative, dirname } from "node:path";
-import { readdirSync, statSync } from "node:fs";
+import { resolve, relative } from "node:path";
+import { readdirSync, statSync, existsSync } from "node:fs";
 import cesium from "vite-plugin-cesium";
 
 function getAllEntryPoints(dir: string, baseDir = dir): Record<string, string> {
   const entries: Record<string, string> = {};
 
-  for (const entry of readdirSync(dir)) {
+  if (!existsSync(dir)) {
+    console.warn(`[vite.config] Skipping missing directory: ${dir}`);
+    return entries;
+  }
+
+  let dirEntries: string[] = [];
+  try {
+    dirEntries = readdirSync(dir);
+  } catch (err) {
+    console.warn(`[vite.config] Failed to read directory: ${dir}`, err);
+    return entries;
+  }
+
+  for (const entry of dirEntries) {
     const fullPath = resolve(dir, entry);
     const relPath = relative(baseDir, fullPath);
-    const stats = statSync(fullPath);
+
+    let stats;
+    try {
+      stats = statSync(fullPath);
+    } catch (err) {
+      console.warn(`[vite.config] Failed to stat: ${fullPath}`, err);
+      continue;
+    }
 
     if (stats.isDirectory()) {
       Object.assign(entries, getAllEntryPoints(fullPath, baseDir));
     } else if (/\.(js|ts|tsx)$/.test(entry)) {
-      // Remove extension from output path key
       const key = relPath.replace(/\.(js|ts|tsx)$/, "");
       entries[key] = fullPath;
     }
@@ -23,13 +42,14 @@ function getAllEntryPoints(dir: string, baseDir = dir): Record<string, string> {
   return entries;
 }
 
-const entryPoints = getAllEntryPoints(resolve(__dirname, "src/js"));
+const jsEntryDir = resolve(__dirname, "src/js");
+const entryPoints = getAllEntryPoints(jsEntryDir);
 
 export default defineConfig({
   plugins: [cesium()],
   build: {
     outDir: "dist",
-    emptyOutDir: false,
+    emptyOutDir: true,
     sourcemap: true,
     chunkSizeWarningLimit: 524288,
     rollupOptions: {

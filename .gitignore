@@ -2,3 +2,4 @@ public/js/pages/secrets_LOCAL.js
 src/js/pages/secrets_LOCAL.ts
 node_modules
 dist
+log.txt

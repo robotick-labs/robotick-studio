@@ -2,7 +2,6 @@
   "name": "robotick-hub",
   "version": "1.0.0",
   "description": "Robotick Hub Web IDE",
-  "main": "index.js",
   "directories": {
     "doc": "docs"
   },
@@ -10,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest"
   },
   "repository": {
     "type": "git",
@@ -32,7 +31,8 @@
     "three-stdlib": "^2.36.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
-    "vite-plugin-cesium": "^1.2.23"
+    "vite-plugin-cesium": "^1.2.23",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "react": "^19.2.0",

@@ -26,32 +26,6 @@ const secretsPromise: Promise<void> = (async () => {
   }
 })();
 
-export async function loadCesium(): Promise<void> {
-  if ((window as any).CESIUM_LOADED) return;
-
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href =
-    "https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css";
-
-  const script = document.createElement("script");
-  script.src =
-    "https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js";
-  script.defer = true;
-
-  document.head.appendChild(css);
-  document.head.appendChild(script);
-
-  await new Promise<void>((resolve) => {
-    script.onload = () => {
-      (window as any).CESIUM_LOADED = true;
-      resolve();
-    };
-  });
-
-  console.log("✅ Cesium loaded");
-}
-
 async function init(_config: ViewerConfig): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
@@ -60,7 +34,7 @@ async function init(_config: ViewerConfig): Promise<void> {
 
   exitRequested = false;
 
-  await Promise.all([loadCesium(), secretsPromise]);
+  await secretsPromise;
 
   Cesium.Ion.defaultAccessToken = CESIUM_TOKEN!;
 
@@ -91,7 +65,7 @@ async function init(_config: ViewerConfig): Promise<void> {
 
   viewer.clock.shouldAnimate = false;
   viewer.clock.currentTime = Cesium.JulianDate.fromDate(
-    new Date(Date.UTC(2025, 8, 31, 17, 40, 0))
+    new Date(Date.UTC(2025, 8, 30, 17, 40, 0))
   );
 
   viewer.scene.globe.enableLighting = true;

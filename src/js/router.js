@@ -62,7 +62,6 @@ async function render() {
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("DOMContentLoaded", render);
 
 export function initRouter() {
   render();
