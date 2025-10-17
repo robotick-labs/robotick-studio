@@ -3,3 +3,4 @@ src/js/pages/secrets_LOCAL.ts
 node_modules
 dist
 log.txt
+.vite
