@@ -33,7 +33,10 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 524288,
     rollupOptions: {
-      input: entryPoints,
+      input: {
+        ...entryPoints,
+        main: resolve(__dirname, "index.html"),
+      },
       output: {
         entryFileNames: "js/[name].js",
         chunkFileNames: "js/chunks/[name].js",
