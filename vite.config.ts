@@ -1,6 +1,29 @@
 import { defineConfig } from "vite";
-import { resolve } from "node:path";
+import { resolve, relative, dirname } from "node:path";
+import { readdirSync, statSync } from "node:fs";
 import cesium from "vite-plugin-cesium";
+
+function getAllEntryPoints(dir: string, baseDir = dir): Record<string, string> {
+  const entries: Record<string, string> = {};
+
+  for (const entry of readdirSync(dir)) {
+    const fullPath = resolve(dir, entry);
+    const relPath = relative(baseDir, fullPath);
+    const stats = statSync(fullPath);
+
+    if (stats.isDirectory()) {
+      Object.assign(entries, getAllEntryPoints(fullPath, baseDir));
+    } else if (/\.(js|ts|tsx)$/.test(entry)) {
+      // Remove extension from output path key
+      const key = relPath.replace(/\.(js|ts|tsx)$/, "");
+      entries[key] = fullPath;
+    }
+  }
+
+  return entries;
+}
+
+const entryPoints = getAllEntryPoints(resolve(__dirname, "src/js"));
 
 export default defineConfig({
   plugins: [cesium()],
@@ -10,10 +33,7 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 524288,
     rollupOptions: {
-      input: {
-        entry: resolve(__dirname, "src/js/entry.js"),
-        viewer: resolve(__dirname, "src/js/elements/viewer/viewer.ts"),
-      },
+      input: entryPoints,
       output: {
         entryFileNames: "js/[name].js",
         chunkFileNames: "js/chunks/[name].js",

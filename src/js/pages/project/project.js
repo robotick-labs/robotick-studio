@@ -1,4 +1,4 @@
-import currentProject from "../core/current-project.js";
+import currentProject from "../../core/current-project.js";
 
 export async function init() {
   const editor = document.getElementById("config-editor");

@@ -5,7 +5,7 @@ let currentRemoteConns = [];
 
 const marginX = 20;
 
-import currentProject from "../core/current-project.js";
+import currentProject from "../../core/current-project.js";
 
 export function init() {
   svg = document.getElementById("graph");

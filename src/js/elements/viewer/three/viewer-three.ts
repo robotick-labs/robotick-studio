@@ -12,7 +12,7 @@ async function init(viewerConfig: ViewerConfig): Promise<void> {
   console.log(viewerConfig);
 
   // Fill in container dynamically, if not provided
-  viewerConfig.container = document.getElementById("viewer-containner");
+  viewerConfig.container = document.getElementById("viewer-container");
 
   const world = new ViewerWorld(viewerConfig);
   await world.start();

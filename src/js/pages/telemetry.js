@@ -131,7 +131,7 @@ function createTableForModel(modelInfo) {
   const id = urlToId(url);
 
   const container = document.createElement("div");
-  container.className = "telemetry-instance";
+  container.className = "telemetry-model";
 
   const h3 = document.createElement("h3");
   h3.textContent = modelInfo.modelName;
@@ -371,7 +371,7 @@ export function uninit() {
 
     document
       .getElementById(`table-${urlToId(url)}`)
-      ?.closest(".telemetry-instance")
+      ?.closest(".telemetry-model")
       ?.remove();
   }
 

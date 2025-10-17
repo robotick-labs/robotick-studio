@@ -1,4 +1,4 @@
-import currentProject from "../core/current-project.js";
+import currentProject from "../../core/current-project.js";
 
 let isSettingProject = false;
 
