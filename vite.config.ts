@@ -37,6 +37,7 @@ export default defineConfig({
         ...entryPoints,
         main: resolve(__dirname, "index.html"),
       },
+      preserveEntrySignatures: "exports-only",
       output: {
         entryFileNames: "js/[name].js",
         chunkFileNames: "js/chunks/[name].js",
