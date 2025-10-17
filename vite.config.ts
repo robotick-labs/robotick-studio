@@ -51,7 +51,7 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
-    chunkSizeWarningLimit: 524288,
+    chunkSizeWarningLimit: 512,
     rollupOptions: {
       input: {
         ...entryPoints,

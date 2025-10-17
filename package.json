@@ -26,9 +26,6 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",
-    "cesium": "^1.134.1",
-    "three": "^0.180.0",
-    "three-stdlib": "^2.36.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
     "vite-plugin-cesium": "^1.2.23",
@@ -36,6 +33,9 @@
   },
   "dependencies": {
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "cesium": "^1.134.1",
+    "three": "^0.180.0",
+    "three-stdlib": "^2.36.0"
   }
 }
