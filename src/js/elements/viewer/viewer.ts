@@ -57,14 +57,17 @@ async function loadAndInitViewer(
         break;
 
       case "streaming-image":
-        console.warn("Streaming-image viewer not implemented yet");
-        return;
+        viewerModule = (await import(
+          "./streaming-image/viewer-streaming-image.js"
+        )) as ViewerModule;
+        break;
 
       default:
         console.warn(`Unknown viewer type: ${type}`);
         return;
     }
 
+    console.log(`Creating viewer of type "${type}"`);
     await viewerModule.default.init(config);
     console.log(`Created viewer of type "${type}"`);
   } catch (err) {

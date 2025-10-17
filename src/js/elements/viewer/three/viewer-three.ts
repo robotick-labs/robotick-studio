@@ -1,4 +1,4 @@
-import { ViewerWorld } from "./viewer-three-world"; // :-)
+import { ViewerWorld } from "./viewer-three-world";
 import type { ViewerConfig } from "../viewer-schema";
 
 // Extend the global `window` object to expose `world`
@@ -9,8 +9,6 @@ declare global {
 }
 
 async function init(viewerConfig: ViewerConfig): Promise<void> {
-  console.log(viewerConfig);
-
   // Fill in container dynamically, if not provided
   viewerConfig.container = document.getElementById("viewer-container");
 

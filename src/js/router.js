@@ -23,7 +23,10 @@ async function render() {
     const htmlPromise = fetch(`/html/pages/${path}.html`).then((res) =>
       res.text()
     );
-    const jsPromise = import("./pages/" + path + "/" + path + ".js");
+    const jsPromise = import(
+      /* @vite-ignore */
+      "./pages/" + path + "/" + path + ".js"
+    );
 
     const html = await htmlPromise;
     app.innerHTML = html;
