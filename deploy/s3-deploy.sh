@@ -11,7 +11,7 @@ echo "Building project with Vite..."
 npm run build
 
 echo "Syncing $SOURCE_DIR to s3://$BUCKET_NAME..."
-aws s3 sync "$SOURCE_DIR" "s3://$BUCKET_NAME" --delete
+aws s3 sync "$SOURCE_DIR" "s3://$BUCKET_NAME" --delete --size-only
 
 echo "Invalidating CloudFront cache..."
 aws cloudfront create-invalidation \
