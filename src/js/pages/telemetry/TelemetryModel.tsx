@@ -18,7 +18,7 @@ export function TelemetryModel({ state }: { state: EngineState }) {
         <thead>
           <tr>
             <th>Unique Name</th>
-            <th>TelemetryWorkload Type</th>
+            <th>Workload Type</th>
             <th>Config</th>
             <th>Inputs</th>
             <th>Outputs</th>
