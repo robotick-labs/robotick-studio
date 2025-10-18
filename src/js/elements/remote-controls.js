@@ -499,36 +499,34 @@ function setupMouseEvents(leftStick, rightStick) {
 }
 
 function setupUIControls() {
-  window.onload = () => {
-    const takeoverBtn = document.getElementById("takeover-button");
-    takeoverBtn.classList.add("active");
+  const takeoverBtn = document.getElementById("takeover-button");
+  takeoverBtn.classList.add("active");
 
-    takeoverBtn.onclick = () => {
-      joystickState.use_web_inputs = !joystickState.use_web_inputs;
-      takeoverBtn.classList.toggle("active", joystickState.use_web_inputs);
-      takeoverBtn.classList.toggle("inactive", !joystickState.use_web_inputs);
-      sendFullState();
-    };
-
-    const deadzoneBindings = [
-      ["deadzone-left-x", "dead_zone_left", "x"],
-      ["deadzone-left-y", "dead_zone_left", "y"],
-      ["deadzone-right-x", "dead_zone_right", "x"],
-      ["deadzone-right-y", "dead_zone_right", "y"],
-    ];
-
-    deadzoneBindings.forEach(([id, group, axis]) => {
-      const slider = document.getElementById(id);
-      slider.value = joystickState[group][axis];
-      slider.oninput = () => {
-        joystickState[group][axis] = parseFloat(slider.value);
-        dirtyKeys.add(group);
-        if (!ticking) startTickLoop();
-      };
-    });
-
+  takeoverBtn.onclick = () => {
+    joystickState.use_web_inputs = !joystickState.use_web_inputs;
+    takeoverBtn.classList.toggle("active", joystickState.use_web_inputs);
+    takeoverBtn.classList.toggle("inactive", !joystickState.use_web_inputs);
     sendFullState();
   };
+
+  // const deadzoneBindings = [
+  //   ["deadzone-left-x", "dead_zone_left", "x"],
+  //   ["deadzone-left-y", "dead_zone_left", "y"],
+  //   ["deadzone-right-x", "dead_zone_right", "x"],
+  //   ["deadzone-right-y", "dead_zone_right", "y"],
+  // ];
+  //
+  // deadzoneBindings.forEach(([id, group, axis]) => {
+  //   const slider = document.getElementById(id);
+  //   slider.value = joystickState[group][axis];
+  //   slider.oninput = () => {
+  //     joystickState[group][axis] = parseFloat(slider.value);
+  //     dirtyKeys.add(group);
+  //     if (!ticking) startTickLoop();
+  //   };
+  // });
+
+  sendFullState();
 }
 
 function sendFullState() {
