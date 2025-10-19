@@ -2,19 +2,56 @@
 import currentProject from "../../core/current-project.js";
 import { EngineModel, EngineState, TelemetryWorkload } from "./types";
 
+/**
+ * ESP32-safe, not over-cautious:
+ * - UI tick: 50 ms (20 Hz)
+ * - Per-workload target revisit: 100 ms (~10 Hz)
+ * - Batched polling per tick, fast (stats+outputs) vs slow (config+inputs)
+ * - Cache: "no-store" and AbortSignals
+ * - Empty/missing sections normalized to "-" (as requested)
+ */
+
+const LIVE_SLEEP_MS = 50; // UI poll cadence (20 Hz)
+const PER_WORKLOAD_TARGET_MS = 100; // Per-workload refresh target (~10 Hz)
+const SLOW_REFRESH_MS = 3000; // Config/inputs refresh interval
+
 export function urlToId(url: string) {
   return url.replace(/[:/.]/g, "_");
 }
 
+function normalizeSection<T = any>(v: T | null | undefined): T | string {
+  if (v && typeof v === "object") {
+    try {
+      if (Object.keys(v as any).length > 0) return v;
+    } catch {
+      /* fallthrough */
+    }
+  }
+  return "-";
+}
+
 export async function fetchJSON<T = any>(
   urlBase: string,
-  path: string
+  path: string,
+  signal?: AbortSignal
 ): Promise<T | null> {
   try {
-    const res = await fetch(`${urlBase}${path}`);
-    return await res.json();
+    const res = await fetch(`${urlBase}${path}`, {
+      cache: "no-store",
+      signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      console.warn("Fetch non-OK:", urlBase + path, res.status, res.statusText);
+      return null;
+    }
+    const text = await res.text();
+    if (!text) return null;
+    return JSON.parse(text) as T;
   } catch (err) {
-    console.warn("Fetch failed:", urlBase + path, err);
+    if ((err as any)?.name !== "AbortError") {
+      console.warn("Fetch failed:", urlBase + path, err);
+    }
     return null;
   }
 }
@@ -96,36 +133,117 @@ export async function getEngineModels(): Promise<EngineModel[]> {
 
 export async function fetchWorkloadDetails(
   url: string,
-  name: string
+  name: string,
+  signal?: AbortSignal
 ): Promise<{
-  config: any;
-  inputs: any;
-  outputs: any;
+  config: any | string;
+  inputs: any | string;
+  outputs: any | string;
 }> {
   const [config, inputs, outputs] = await Promise.all([
-    fetchJSON(url, `/api/telemetry/workload/config?name=${name}`),
-    fetchJSON(url, `/api/telemetry/workload/inputs?name=${name}`),
-    fetchJSON(url, `/api/telemetry/workload/outputs?name=${name}`),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/config?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/inputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/outputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
   ]);
-  return { config, inputs, outputs };
+  return {
+    config: normalizeSection(config),
+    inputs: normalizeSection(inputs),
+    outputs: normalizeSection(outputs),
+  };
 }
 
 export async function fetchWorkloadLiveData(
   url: string,
-  name: string
+  name: string,
+  signal?: AbortSignal
 ): Promise<{
-  stats: any;
-  config: any;
-  inputs: any;
-  outputs: any;
+  stats: any | null;
+  config: any | string;
+  inputs: any | string;
+  outputs: any | string;
 }> {
   const [stats, config, inputs, outputs] = await Promise.all([
-    fetchJSON(url, `/api/telemetry/workload/stats?name=${name}`),
-    fetchJSON(url, `/api/telemetry/workload/config?name=${name}`),
-    fetchJSON(url, `/api/telemetry/workload/inputs?name=${name}`),
-    fetchJSON(url, `/api/telemetry/workload/outputs?name=${name}`),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/stats?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/config?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/inputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/outputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
   ]);
-  return { stats, config, inputs, outputs };
+  return {
+    stats: stats ?? null,
+    config: normalizeSection(config),
+    inputs: normalizeSection(inputs),
+    outputs: normalizeSection(outputs),
+  };
+}
+
+// FAST path: stats + outputs only (for high-rate updates)
+async function fetchWorkloadFast(
+  url: string,
+  name: string,
+  signal?: AbortSignal
+): Promise<{ stats: any | null; outputs: any | string }> {
+  const [stats, outputs] = await Promise.all([
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/stats?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/outputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+  ]);
+  return { stats: stats ?? null, outputs: normalizeSection(outputs) };
+}
+
+// SLOW path: config + inputs (for infrequent refresh)
+async function fetchWorkloadSlow(
+  url: string,
+  name: string,
+  signal?: AbortSignal
+): Promise<{ config: any | string; inputs: any | string }> {
+  const [config, inputs] = await Promise.all([
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/config?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+    fetchJSON(
+      url,
+      `/api/telemetry/workload/inputs?name=${encodeURIComponent(name)}`,
+      signal
+    ),
+  ]);
+  return { config: normalizeSection(config), inputs: normalizeSection(inputs) };
 }
 
 // State helpers for immutable-ish updates
@@ -169,19 +287,25 @@ export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function nowMs() {
+  return Date.now();
+}
+
 // Long-running loops, called from TelemetryApp
 export async function pollWorkloadsForever(
   state: EngineState,
   setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
 ) {
   const url = state.model.instanceURL;
+  const signal = state.pollingController.signal;
   try {
     while (true) {
-      if (state.pollingController.signal.aborted) return;
+      if (signal.aborted) return;
 
       const data = await fetchJSON<{
         workloads?: { name?: string; type?: string }[];
-      }>(url, "/api/telemetry/workloads");
+      }>(url, "/api/telemetry/workloads", signal);
+
       const names = new Set<string>();
 
       if (data?.workloads) {
@@ -197,9 +321,10 @@ export async function pollWorkloadsForever(
                 dt_ms: null,
                 goal_ms: null,
                 self_ms: null,
-                config: null,
-                inputs: null,
-                outputs: null,
+                // Use "-" placeholders until we fetch details
+                config: "-",
+                inputs: "-",
+                outputs: "-",
               });
             }
           }
@@ -210,15 +335,17 @@ export async function pollWorkloadsForever(
         const matchedEngine = next.find((e) => e.model.instanceURL === url);
         if (!matchedEngine) return; // prevent crash
 
+        // Fetch details for newly discovered workloads (those still at "-")
         const withNoDetails = matchedEngine.workloads.filter(
-          (w) => w.config === null && w.inputs === null && w.outputs === null
+          (w) => w.config === "-" && w.inputs === "-" && w.outputs === "-"
         );
 
         await Promise.all(
           withNoDetails.map(async (wld) => {
             const { config, inputs, outputs } = await fetchWorkloadDetails(
               url,
-              wld.name
+              wld.name,
+              signal
             );
             mutateEngine(setEngines, url, (s) => {
               const target = s.workloads.find((x) => x.name === wld.name);
@@ -246,39 +373,78 @@ export async function startLivePolling(
   setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
 ) {
   const url = state.model.instanceURL;
+  const signal = state.livePollingController.signal;
+
+  // Track slow refresh cadence locally to avoid expanding EngineState
+  let lastSlowRefresh = 0;
+
   try {
     while (true) {
-      if (state.livePollingController.signal.aborted) return;
+      if (signal.aborted) return;
 
       const snapshot = getEngineSnapshot(setEngines, url);
-      if (snapshot?.canLivePoll && snapshot.workloads.length > 0) {
-        const idx = snapshot.workloadIndex % snapshot.workloads.length;
-        const w = snapshot.workloads[idx];
-        const name = w.name;
+      const workloads = snapshot?.workloads ?? [];
 
-        const { stats, config, inputs, outputs } = await fetchWorkloadLiveData(
-          url,
-          name
+      if (snapshot?.canLivePoll && workloads.length > 0) {
+        const N = workloads.length;
+
+        // Compute batch so each workload gets ≤ PER_WORKLOAD_TARGET_MS revisit
+        const batchSize = Math.max(
+          1,
+          Math.ceil((N * LIVE_SLEEP_MS) / PER_WORKLOAD_TARGET_MS)
         );
 
+        const startIdx = snapshot.workloadIndex % N;
+        const toPoll: string[] = [];
+        for (let i = 0; i < batchSize; i++) {
+          toPoll.push(workloads[(startIdx + i) % N].name);
+        }
+
+        // FAST: poll stats+outputs for this batch
+        const fastResults = await Promise.all(
+          toPoll.map((name) => fetchWorkloadFast(url, name, signal))
+        );
+
+        // Apply fast updates (normalize outputs to "-")
         mutateEngine(setEngines, url, (s) => {
-          s.workloadIndex =
-            (s.workloadIndex + 1) % Math.max(1, s.workloads.length);
-          const target = s.workloads.find((x) => x.name === name);
-          if (target) {
+          s.workloadIndex = (s.workloadIndex + batchSize) % Math.max(1, N);
+          for (let i = 0; i < toPoll.length; i++) {
+            const name = toPoll[i];
+            const { stats, outputs } = fastResults[i] || {};
+            const target = s.workloads.find((x) => x.name === name);
+            if (!target) continue;
             if (stats) {
               target.self_ms = stats.self_ms;
               target.dt_ms = stats.dt_ms;
               target.goal_ms = stats.goal_ms;
             }
-            if (config) target.config = config;
-            if (inputs) target.inputs = inputs;
-            if (outputs) target.outputs = outputs;
+            target.outputs = normalizeSection(outputs);
           }
         });
+
+        // SLOW: refresh config+inputs periodically without blocking the fast path
+        const now = nowMs();
+        if (now - lastSlowRefresh >= SLOW_REFRESH_MS) {
+          lastSlowRefresh = now;
+          void Promise.all(
+            toPoll.map(async (name) => {
+              const { config, inputs } = await fetchWorkloadSlow(
+                url,
+                name,
+                signal
+              );
+              mutateEngine(setEngines, url, (s) => {
+                const target = s.workloads.find((x) => x.name === name);
+                if (!target) return;
+                target.config = normalizeSection(config);
+                target.inputs = normalizeSection(inputs);
+              });
+            })
+          );
+        }
       }
 
-      await sleep(50);
+      await sleep(LIVE_SLEEP_MS);
     }
   } catch (e: any) {
     if (e?.name !== "AbortError") console.error("Live polling error:", e);
