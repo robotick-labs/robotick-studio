@@ -4,6 +4,14 @@
   position: absolute; /* fill the .page-container */
   inset: 0; /* top/right/bottom/left: 0 */
   z-index: 0; /* added to create a stacking context */
+
+  /* Prevent Block text selection (all modern + legacy prefixes) */
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+
+  /* Stop long-press context/callout on iOS Safari */
+  -webkit-touch-callout: none;
 }
 
 .viewer-container {
