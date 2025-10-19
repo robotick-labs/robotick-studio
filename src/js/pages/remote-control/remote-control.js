@@ -2,15 +2,25 @@
 
 import remoteControls from "../../elements/remote-controls.js";
 import viewer from "../../elements/viewer/viewer.js";
+import * as RcTelemetry from "../../elements/rc-telemetry";
 import currentProject from "../../core/current-project.js";
 
 export function init() {
+  // show basic telemetry if we're Pip.e (temp measure - we need to add a setting for this really)
+  {
+    const projectPath = currentProject.getProjectPath();
+    if (projectPath.includes("pip-e")) {
+      RcTelemetry.init();
+    }
+  }
+
   remoteControls.init();
   loadAndInitAsync(); // fire and forget
 }
 
 export function uninit() {
   remoteControls.uninit();
+  RcTelemetry.uninit();
   viewer.uninit();
 }
 
