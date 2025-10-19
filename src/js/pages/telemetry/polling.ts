@@ -115,15 +115,17 @@ export async function fetchWorkloadLiveData(
   name: string
 ): Promise<{
   stats: any;
+  config: any;
   inputs: any;
   outputs: any;
 }> {
-  const [stats, inputs, outputs] = await Promise.all([
+  const [stats, config, inputs, outputs] = await Promise.all([
     fetchJSON(url, `/api/telemetry/workload/stats?name=${name}`),
+    fetchJSON(url, `/api/telemetry/workload/config?name=${name}`),
     fetchJSON(url, `/api/telemetry/workload/inputs?name=${name}`),
     fetchJSON(url, `/api/telemetry/workload/outputs?name=${name}`),
   ]);
-  return { stats, inputs, outputs };
+  return { stats, config, inputs, outputs };
 }
 
 // State helpers for immutable-ish updates
@@ -254,7 +256,7 @@ export async function startLivePolling(
         const w = snapshot.workloads[idx];
         const name = w.name;
 
-        const { stats, inputs, outputs } = await fetchWorkloadLiveData(
+        const { stats, config, inputs, outputs } = await fetchWorkloadLiveData(
           url,
           name
         );
@@ -269,6 +271,7 @@ export async function startLivePolling(
               target.dt_ms = stats.dt_ms;
               target.goal_ms = stats.goal_ms;
             }
+            if (config) target.config = config;
             if (inputs) target.inputs = inputs;
             if (outputs) target.outputs = outputs;
           }
