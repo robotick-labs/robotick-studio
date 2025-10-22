@@ -55,7 +55,7 @@ function init() {
     "right-knob",
     "right_stick",
     true,
-    false
+    true
   );
 
   setupTouchEvents(leftStick, rightStick);
