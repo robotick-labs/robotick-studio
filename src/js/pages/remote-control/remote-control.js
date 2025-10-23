@@ -2,6 +2,7 @@
 
 import remoteControls from "../../elements/remote-controls.js";
 import viewer from "../../elements/viewer/viewer.js";
+import * as RcSubtitles from "../../elements/rc-subtitles.js";
 import * as RcTelemetry from "../../elements/rc-telemetry";
 import currentProject from "../../core/current-project.js";
 
@@ -10,6 +11,7 @@ export function init() {
   {
     const projectPath = currentProject.getProjectPath();
     if (projectPath.includes("pip-e")) {
+      RcSubtitles.init();
       RcTelemetry.init();
     }
   }
@@ -20,6 +22,7 @@ export function init() {
 
 export function uninit() {
   remoteControls.uninit();
+  RcSubtitles.uninit();
   RcTelemetry.uninit();
   viewer.uninit();
 }
