@@ -1,14 +1,55 @@
-const nodeSize = { width: 140, height: 40 };
-let svg, swimlaneLayer, groupLayer, connectionsLayer, nodeLayer;
-let currentLocalConns = [];
-let currentRemoteConns = [];
+// graph.ts
 
+type Conn = { from: string; to: string; isRemote?: boolean };
+
+interface Workload {
+  name: string;
+  type?: string;
+  children?: string[];
+}
+
+interface DirectConnection {
+  from: string;
+  to: string;
+}
+
+interface RemoteDirectConnection {
+  from: string;
+  to_remote: string;
+}
+
+interface RemoteModelSpec {
+  name: string;
+  connections?: RemoteDirectConnection[];
+}
+
+interface ModelData {
+  root: string;
+  workloads: Workload[];
+  connections?: DirectConnection[];
+  remote_models?: RemoteModelSpec[];
+}
+
+const nodeSize = { width: 140, height: 40 } as const;
 const marginX = 20;
+
+let svg!: SVGSVGElement;
+let swimlaneLayer!: SVGGElement;
+let groupLayer!: SVGGElement;
+let connectionsLayer!: SVGGElement;
+let nodeLayer!: SVGGElement;
+
+let currentLocalConns: Conn[] = [];
+let currentRemoteConns: Conn[] = [];
 
 import currentProject from "../../core/current-project.js";
 
-export function init() {
-  svg = document.getElementById("graph");
+export function init(): void {
+  const el = document.getElementById("graph");
+  if (!el || !(el instanceof SVGSVGElement)) {
+    throw new Error(`#graph <svg> not found or not an SVGSVGElement`);
+  }
+  svg = el;
 
   swimlaneLayer = createSvgLayer("swimlanes-layer");
   groupLayer = createSvgLayer("groups-layer");
@@ -20,86 +61,74 @@ export function init() {
   svg.appendChild(connectionsLayer);
   svg.appendChild(nodeLayer);
 
-  loadAndRenderModel();
+  void loadAndRenderModel();
 }
 
-function createSvgLayer(id) {
+function createSvgLayer(id: string): SVGGElement {
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("id", id);
   return g;
 }
 
-async function fetchJSON(url) {
+async function fetchJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${url}`);
-  return await res.json();
+  return (await res.json()) as T;
 }
 
-const idFor = (modelPath, id) =>
-  `${modelPath
-    .split("/")
-    .pop()
-    .replace(/\.model\.yaml$/, "")}:${id}`;
+const idFor = (modelPath: string, id: string): string =>
+  `${
+    modelPath
+      .split("/")
+      .pop()
+      ?.replace(/\.model\.yaml$/, "") ?? ""
+  }:${id}`;
 
-async function loadAndRenderModel() {
+async function loadAndRenderModel(): Promise<void> {
   try {
-    const projectPath = currentProject.getProjectPath();
+    const projectPath = (currentProject as any).getProjectPath?.();
     if (!projectPath) throw new Error("No project path set");
 
-    const models = await fetchJSON(
+    const models = await fetchJSON<string[]>(
       `http://localhost:7081/query/list-project-models?project_path=${encodeURIComponent(
         projectPath
       )}`
     );
 
-    // --- helpers for this render pass ---
-    let maxBottom = 0;
-    const bumpSvgSize = (bottomY) => {
-      maxBottom = Math.max(maxBottom, bottomY);
-      const extra = 60; // padding
-      svg.setAttribute("viewBox", `0 0 1000 ${maxBottom + extra}`);
-      svg.setAttribute("height", maxBottom + extra);
-    };
-
     let yOffset = 40;
-
-    const allLocalConns = [];
-    const allRemoteConns = [];
+    let maxTotalNodeCount = 0;
+    const allLocalConns: Conn[] = [];
+    const allRemoteConns: Conn[] = [];
 
     for (const modelPath of models) {
       const model = await loadModel(projectPath, modelPath);
       const root = model.workloads.find((w) => w.name === model.root);
-      if (!root || !root.children) continue;
-
-      const laneHeight = 100;
+      if (!root) continue;
 
       drawSectionLabel(modelPath, yOffset - 10);
 
-      const sectionHeight = drawSwimlanes(
+      const { height: sectionHeight, maxNodes } = drawSwimlanes(
         modelPath,
         root,
         model.workloads,
-        laneHeight,
+        100,
         yOffset
       );
 
-      bumpSvgSize(yOffset + sectionHeight);
+      maxTotalNodeCount = Math.max(maxTotalNodeCount, maxNodes);
       yOffset += sectionHeight + 60;
 
-      // 1. Local connections
-      const localConns = (model.connections || []).map((dc) => ({
+      const localConns: Conn[] = (model.connections ?? []).map((dc) => ({
         from: idFor(modelPath, dc.from.split(".")[0]),
         to: idFor(modelPath, dc.to.split(".")[0]),
       }));
 
-      // 2. Remote connections (to other models)
-      const remoteConns = [];
-
-      for (const remote of model.remote_models || []) {
-        const remoteModelId = remote.name; // e.g. "spine"
-        for (const dc of remote.connections || []) {
-          const fromId = idFor(modelPath, dc.from.split(".")[0]); // local side
-          const toId = `${remoteModelId}:${dc.to_remote.split(".")[0]}`; // remote side
+      const remoteConns: Conn[] = [];
+      for (const remote of model.remote_models ?? []) {
+        const remoteModelId = remote.name;
+        for (const dc of remote.connections ?? []) {
+          const fromId = idFor(modelPath, dc.from.split(".")[0]);
+          const toId = `${remoteModelId}:${dc.to_remote.split(".")[0]}`;
           remoteConns.push({ from: fromId, to: toId, isRemote: true });
         }
       }
@@ -108,60 +137,82 @@ async function loadAndRenderModel() {
       allRemoteConns.push(...remoteConns);
     }
 
+    // === Final sizing ===
+    const finalWidth =
+      marginX * 2 + 120 + (maxTotalNodeCount - 1) * 180 + nodeSize.width + 40;
+    svg.setAttribute("width", String(finalWidth));
+    svg.setAttribute("height", String(yOffset));
+    svg.setAttribute("viewBox", `0 0 ${finalWidth} ${yOffset + 60}`);
+
+    swimlaneLayer
+      .querySelectorAll<SVGRectElement>("rect.swimlane")
+      .forEach((lane) =>
+        lane.setAttribute("width", String(finalWidth - 2 * marginX))
+      );
+
     updateConnections(allLocalConns, allRemoteConns);
   } catch (err) {
     console.error("Error loading or rendering model:", err);
   }
 }
 
-function drawSectionLabel(name, y) {
+function drawSectionLabel(name: string, y: number): void {
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  text.setAttribute("x", marginX + 10);
-  text.setAttribute("y", y);
+  text.setAttribute("x", String(marginX + 10));
+  text.setAttribute("y", String(y));
   text.classList.add("model-label");
   text.textContent = name;
   svg.appendChild(text);
 }
 
-async function loadModel(project_path, model_path) {
+async function loadModel(
+  project_path: string,
+  model_path: string
+): Promise<ModelData> {
   const res = await fetch(
-    `http://localhost:7081/query/get-model?project_path=${project_path}&model_path=${model_path}`
+    `http://localhost:7081/query/get-model?project_path=${encodeURIComponent(
+      project_path
+    )}&model_path=${encodeURIComponent(model_path)}`
   );
   if (!res.ok) throw new Error("Failed to fetch model");
-  return await res.json(); // built-in JSON parser
+  return (await res.json()) as ModelData;
 }
 
-function drawSwimlanes(modelPath, root, workloads, height, yStart = 0) {
+function drawSwimlanes(
+  modelPath: string,
+  root: Workload,
+  workloads: Workload[],
+  height: number,
+  yStart = 0
+): { height: number; maxNodes: number } {
   const startX = 120;
   const spacing = 180;
   const offsetY = (height - nodeSize.height) / 2;
 
-  let lanes = [];
+  let lanes: Workload[] = [];
 
   if (root.type === "SyncedGroupWorkload") {
-    // One swimlane per child
-    lanes = root.children
+    lanes = (root.children ?? [])
       .map((childId) => workloads.find((w) => w.name === childId))
-      .filter(Boolean);
+      .filter(Boolean) as Workload[];
   } else {
-    // Single swimlane for all root.children
     lanes = [root];
   }
 
+  let maxNodeCount = 0;
   const totalHeight = lanes.length * height;
 
   lanes.forEach((laneParent, i) => {
     const y = yStart + i * height;
 
-    // === Swimlane background
     const lane = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     lane.classList.add("swimlane");
-    lane.setAttribute("x", marginX);
-    lane.setAttribute("y", y);
+    lane.setAttribute("x", String(marginX));
+    lane.setAttribute("y", String(y));
     lane.setAttribute("rx", "6");
     lane.setAttribute("ry", "6");
-    lane.setAttribute("width", 1000 - 2 * marginX);
-    lane.setAttribute("height", height);
+    lane.setAttribute("width", "0"); // Will be filled in later
+    lane.setAttribute("height", String(height));
     swimlaneLayer.appendChild(lane);
 
     const label = document.createElementNS(
@@ -169,24 +220,25 @@ function drawSwimlanes(modelPath, root, workloads, height, yStart = 0) {
       "text"
     );
     label.classList.add("label");
-    label.setAttribute("x", marginX + 10);
-    label.setAttribute("y", y + 20);
+    label.setAttribute("x", String(marginX + 10));
+    label.setAttribute("y", String(y + 20));
     label.textContent = `Thread ${i + 1}`;
     swimlaneLayer.appendChild(label);
 
-    // === Nodes
-    const all = [laneParent.name];
+    const all: string[] = [laneParent.name];
 
     all.forEach((childId, idx) => {
       const workload = workloads.find((w) => w.name === childId);
       if (!workload) return;
 
       const x = startX + idx * spacing;
+      maxNodeCount = Math.max(maxNodeCount, idx + 1);
 
       if (workload.children?.length) {
         workload.children.forEach((subId, j) => {
           const sub = workloads.find((w) => w.name === subId);
           if (!sub) return;
+          maxNodeCount = Math.max(maxNodeCount, j + 1);
           createNode(
             idFor(modelPath, sub.name),
             sub.name,
@@ -214,10 +266,10 @@ function drawSwimlanes(modelPath, root, workloads, height, yStart = 0) {
     });
   });
 
-  return totalHeight;
+  return { height: totalHeight, maxNodes: maxNodeCount };
 }
 
-function createNode(id, name, x, y) {
+function createNode(id: string, name: string, x: number, y: number): void {
   const padL = 10;
   const padR = 8;
   const usable = nodeSize.width - padL - padR;
@@ -229,15 +281,14 @@ function createNode(id, name, x, y) {
 
   const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   rect.classList.add("workload");
-  rect.setAttribute("width", nodeSize.width);
-  rect.setAttribute("height", nodeSize.height);
+  rect.setAttribute("width", String(nodeSize.width));
+  rect.setAttribute("height", String(nodeSize.height));
 
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
   text.setAttribute("x", String(padL));
   text.setAttribute("y", "25");
   text.textContent = name;
 
-  // Add a tooltip of the full name
   const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
   title.textContent = name;
   text.appendChild(title);
@@ -246,29 +297,25 @@ function createNode(id, name, x, y) {
   g.appendChild(text);
   nodeLayer.appendChild(g);
 
-  // After it's in the DOM, measure and ellipsize if needed
   ellipsizeSvgText(text, name, usable);
-
   makeDraggable(g);
 }
 
-/**
- * Truncate text content so it fits in 'maxWidth' (in px) and add an ellipsis.
- * Works by binary searching the max substring length that fits.
- */
-function ellipsizeSvgText(textEl, full, maxWidth) {
-  // Quick pass: if it fits, done
+function ellipsizeSvgText(
+  textEl: SVGTextElement,
+  full: string,
+  maxWidth: number
+): void {
   textEl.textContent = full;
   if (textEl.getComputedTextLength() <= maxWidth) return;
 
   const ellipsis = "…";
-  // Measure ellipsis once
   textEl.textContent = ellipsis;
   const ellW = textEl.getComputedTextLength();
+  if (ellW > maxWidth) return;
 
   let lo = 0;
   let hi = full.length;
-  // Binary search the largest prefix that fits with the ellipsis appended
   while (lo < hi) {
     const mid = Math.floor((lo + hi + 1) / 2);
     textEl.textContent = full.slice(0, mid) + ellipsis;
@@ -281,41 +328,55 @@ function ellipsizeSvgText(textEl, full, maxWidth) {
   }
 
   textEl.textContent = full.slice(0, lo) + ellipsis;
-
-  // Restore tooltip
   const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
   title.textContent = full;
   textEl.appendChild(title);
 }
 
-function createGroupBox(id, x, y, w, h) {
+function createGroupBox(
+  id: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
   const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   rect.classList.add("group");
-  rect.setAttribute("x", x);
-  rect.setAttribute("y", y);
-  rect.setAttribute("width", w);
-  rect.setAttribute("height", h);
+  rect.setAttribute("x", String(x));
+  rect.setAttribute("y", String(y));
+  rect.setAttribute("width", String(w));
+  rect.setAttribute("height", String(h));
   groupLayer.appendChild(rect);
 }
 
-function makeDraggable(node) {
-  let offsetX = 0,
-    offsetY = 0;
+function makeDraggable(node: SVGGElement): void {
+  let offsetX = 0;
+  let offsetY = 0;
   const pt = svg.createSVGPoint();
 
-  const toSvgCoords = (e) => {
+  const toSvgCoords = (e: MouseEvent): DOMPoint => {
     pt.x = e.clientX;
     pt.y = e.clientY;
-    return pt.matrixTransform(svg.getScreenCTM().inverse());
+
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return pt;
+    return pt.matrixTransform(ctm.inverse());
   };
 
-  node.addEventListener("mousedown", (e) => {
+  node.addEventListener("mousedown", (e: MouseEvent) => {
     const start = toSvgCoords(e);
-    const matrix = node.transform.baseVal.getItem(0).matrix;
+    const base = node.transform.baseVal;
+    if (base.numberOfItems === 0) {
+      const t = svg.createSVGTransform();
+      t.setTranslate(0, 0);
+      base.appendItem(t);
+    }
+    const matrix = base.getItem(0).matrix;
+
     offsetX = start.x - matrix.e;
     offsetY = start.y - matrix.f;
 
-    const onMouseMove = (ev) => {
+    const onMouseMove = (ev: MouseEvent) => {
       const { x, y } = toSvgCoords(ev);
       node.setAttribute(
         "transform",
@@ -324,18 +385,17 @@ function makeDraggable(node) {
       updateConnections(currentLocalConns, currentRemoteConns);
     };
 
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
     window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener(
-      "mouseup",
-      () => {
-        window.removeEventListener("mousemove", onMouseMove);
-      },
-      { once: true }
-    );
+    window.addEventListener("mouseup", onMouseUp, { once: true });
   });
 }
 
-function updateConnections(localConns, remoteConns) {
+function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
   currentLocalConns = localConns;
   currentRemoteConns = remoteConns;
 
@@ -343,9 +403,9 @@ function updateConnections(localConns, remoteConns) {
     connectionsLayer.removeChild(connectionsLayer.firstChild);
   }
 
-  const drawConnection = (c, styleClass) => {
-    const from = document.getElementById(c.from);
-    const to = document.getElementById(c.to);
+  const drawConnection = (c: Conn, styleClass: string): void => {
+    const from = document.getElementById(c.from) as SVGGElement | null;
+    const to = document.getElementById(c.to) as SVGGElement | null;
     if (!from || !to) return;
 
     const fm = from.transform.baseVal.getItem(0).matrix;
