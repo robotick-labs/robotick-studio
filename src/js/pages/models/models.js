@@ -35,6 +35,12 @@ async function fetchJSON(url) {
   return await res.json();
 }
 
+const idFor = (modelPath, id) =>
+  `${modelPath
+    .split("/")
+    .pop()
+    .replace(/\.model\.yaml$/, "")}:${id}`;
+
 async function loadAndRenderModel() {
   try {
     const projectPath = currentProject.getProjectPath();
@@ -54,11 +60,6 @@ async function loadAndRenderModel() {
       svg.setAttribute("viewBox", `0 0 1000 ${maxBottom + extra}`);
       svg.setAttribute("height", maxBottom + extra);
     };
-    const idFor = (modelPath, id) =>
-      `${modelPath
-        .split("/")
-        .pop()
-        .replace(/\.model\.yaml$/, "")}:${id}`;
 
     let yOffset = 40;
 
@@ -70,37 +71,20 @@ async function loadAndRenderModel() {
       const root = model.workloads.find((w) => w.name === model.root);
       if (!root || !root.children) continue;
 
-      const lanes = root.children.length;
       const laneHeight = 100;
-      const sectionHeight = lanes * laneHeight;
 
       drawSectionLabel(modelPath, yOffset - 10);
-      drawSwimlanes(lanes, laneHeight, yOffset);
 
-      const startX = 100;
-      const spacing = 180;
-      const offsetY = (laneHeight - nodeSize.height) / 2;
+      const sectionHeight = drawSwimlanes(
+        modelPath,
+        root,
+        model.workloads,
+        laneHeight,
+        yOffset
+      );
 
-      root.children.forEach((childId, idx) => {
-        const workload = model.workloads.find((w) => w.name === childId);
-        const y = yOffset + idx * laneHeight + offsetY;
-
-        if (workload?.children?.length) {
-          workload.children.forEach((subId, j) => {
-            createNode(idFor(modelPath, subId), subId, startX + j * spacing, y);
-          });
-          const boxWidth = workload.children.length * spacing + 20;
-          createGroupBox(
-            idFor(modelPath, workload.id),
-            startX - 10,
-            y - 10,
-            boxWidth,
-            nodeSize.height + 20
-          );
-        } else {
-          createNode(idFor(modelPath, childId), childId, startX, y);
-        }
-      });
+      bumpSvgSize(yOffset + sectionHeight);
+      yOffset += sectionHeight + 60;
 
       // 1. Local connections
       const localConns = (model.connections || []).map((dc) => ({
@@ -122,10 +106,6 @@ async function loadAndRenderModel() {
 
       allLocalConns.push(...localConns);
       allRemoteConns.push(...remoteConns);
-
-      // Grow the SVG and move down for the next model
-      bumpSvgSize(yOffset + sectionHeight);
-      yOffset += sectionHeight + 60;
     }
 
     updateConnections(allLocalConns, allRemoteConns);
@@ -151,10 +131,29 @@ async function loadModel(project_path, model_path) {
   return await res.json(); // built-in JSON parser
 }
 
-function drawSwimlanes(count, height, yStart = 0) {
-  for (let i = 0; i < count; i++) {
+function drawSwimlanes(modelPath, root, workloads, height, yStart = 0) {
+  const startX = 120;
+  const spacing = 180;
+  const offsetY = (height - nodeSize.height) / 2;
+
+  let lanes = [];
+
+  if (root.type === "SyncedGroupWorkload") {
+    // One swimlane per child
+    lanes = root.children
+      .map((childId) => workloads.find((w) => w.name === childId))
+      .filter(Boolean);
+  } else {
+    // Single swimlane for all root.children
+    lanes = [root];
+  }
+
+  const totalHeight = lanes.length * height;
+
+  lanes.forEach((laneParent, i) => {
     const y = yStart + i * height;
 
+    // === Swimlane background
     const lane = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     lane.classList.add("swimlane");
     lane.setAttribute("x", marginX);
@@ -174,10 +173,55 @@ function drawSwimlanes(count, height, yStart = 0) {
     label.setAttribute("y", y + 20);
     label.textContent = `Thread ${i + 1}`;
     swimlaneLayer.appendChild(label);
-  }
+
+    // === Nodes
+    const all = [laneParent.name];
+
+    all.forEach((childId, idx) => {
+      const workload = workloads.find((w) => w.name === childId);
+      if (!workload) return;
+
+      const x = startX + idx * spacing;
+
+      if (workload.children?.length) {
+        workload.children.forEach((subId, j) => {
+          const sub = workloads.find((w) => w.name === subId);
+          if (!sub) return;
+          createNode(
+            idFor(modelPath, sub.name),
+            sub.name,
+            startX + j * spacing,
+            y + offsetY
+          );
+        });
+
+        const boxWidth = workload.children.length * spacing;
+        createGroupBox(
+          idFor(modelPath, workload.name),
+          startX - 20,
+          y + offsetY - 10,
+          boxWidth,
+          nodeSize.height + 20
+        );
+      } else {
+        createNode(
+          idFor(modelPath, workload.name),
+          workload.name,
+          x,
+          y + offsetY
+        );
+      }
+    });
+  });
+
+  return totalHeight;
 }
 
 function createNode(id, name, x, y) {
+  const padL = 10;
+  const padR = 8;
+  const usable = nodeSize.width - padL - padR;
+
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.classList.add("workload-node");
   g.setAttribute("id", id);
@@ -189,15 +233,59 @@ function createNode(id, name, x, y) {
   rect.setAttribute("height", nodeSize.height);
 
   const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-  text.setAttribute("x", "10");
+  text.setAttribute("x", String(padL));
   text.setAttribute("y", "25");
   text.textContent = name;
+
+  // Add a tooltip of the full name
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = name;
+  text.appendChild(title);
 
   g.appendChild(rect);
   g.appendChild(text);
   nodeLayer.appendChild(g);
 
+  // After it's in the DOM, measure and ellipsize if needed
+  ellipsizeSvgText(text, name, usable);
+
   makeDraggable(g);
+}
+
+/**
+ * Truncate text content so it fits in 'maxWidth' (in px) and add an ellipsis.
+ * Works by binary searching the max substring length that fits.
+ */
+function ellipsizeSvgText(textEl, full, maxWidth) {
+  // Quick pass: if it fits, done
+  textEl.textContent = full;
+  if (textEl.getComputedTextLength() <= maxWidth) return;
+
+  const ellipsis = "…";
+  // Measure ellipsis once
+  textEl.textContent = ellipsis;
+  const ellW = textEl.getComputedTextLength();
+
+  let lo = 0;
+  let hi = full.length;
+  // Binary search the largest prefix that fits with the ellipsis appended
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    textEl.textContent = full.slice(0, mid) + ellipsis;
+    const w = textEl.getComputedTextLength();
+    if (w <= maxWidth) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  textEl.textContent = full.slice(0, lo) + ellipsis;
+
+  // Restore tooltip
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = full;
+  textEl.appendChild(title);
 }
 
 function createGroupBox(id, x, y, w, h) {

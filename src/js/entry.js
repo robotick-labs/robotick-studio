@@ -7,10 +7,10 @@ async function init() {
   // Attach styles and metadata (as you already have)
   const stylesheets = [
     "css/common.css",
-    "css/composer.css",
     "css/footer.css",
     "css/header.css",
     "css/home.css",
+    "css/models.css",
     "css/project.css",
     "css/remote-control.css",
     "css/telemetry.css",
