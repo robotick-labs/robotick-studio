@@ -416,12 +416,54 @@ function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
     const x2 = tm.e;
     const y2 = tm.f + nodeSize.height / 2;
 
+    const spacing = 180;
+    const EPSILON = 2;
+    const STRAIGHT_LEN = 10;
+    const BASE_ARC_HEIGHT = 80;
+    const BASE_ARC_FACTOR = 10;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    const isHorizAligned = Math.abs(dy) < EPSILON;
+    const isAdjacent = isHorizAligned && Math.abs(dx) - spacing < EPSILON;
+    const shouldArc = isHorizAligned && !isAdjacent && !c.isRemote;
+
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.classList.add("connection", styleClass);
-    path.setAttribute(
-      "d",
-      `M${x1},${y1} C${x1 + 40},${y1} ${x2 - 40},${y2} ${x2},${y2}`
-    );
+
+    if (isAdjacent) {
+      path.setAttribute("d", `M${x1},${y1} L${x2},${y2}`);
+    } else if (shouldArc) {
+      const midX1 = x1 + STRAIGHT_LEN;
+      const midX2 = x2 - STRAIGHT_LEN;
+
+      const absDx = Math.abs(dx);
+      const scale = absDx / spacing;
+      const arcHeight = BASE_ARC_HEIGHT + scale * BASE_ARC_FACTOR;
+
+      const arcY = dx > 0 ? y1 - arcHeight : y1 + arcHeight;
+
+      path.setAttribute(
+        "d",
+        `M${x1},${y1} ` +
+          `L${midX1},${y1} ` +
+          `Q${(midX1 + midX2) / 2},${arcY} ${midX2},${y2} ` +
+          `L${x2},${y2}`
+      );
+    } else {
+      // Not arc-able — just polyline with entry/exit straight segments
+      const midX1 = x1 + STRAIGHT_LEN;
+      const midX2 = x2 - STRAIGHT_LEN;
+      path.setAttribute(
+        "d",
+        `M${x1},${y1} ` +
+          `L${midX1},${y1} ` +
+          `L${midX2},${y2} ` +
+          `L${x2},${y2}`
+      );
+    }
+
     connectionsLayer.appendChild(path);
   };
 
