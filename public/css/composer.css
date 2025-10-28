@@ -36,7 +36,7 @@
   right: 0;
 
   height: 100px;
-  background: #222;
+  background: #12121d;
   color: #ddd;
   font-size: 13px;
   padding: 10px 16px;
@@ -45,9 +45,16 @@
   z-index: 1000;
 }
 
+#graph {
+  background-color: #070a12;
+  display: block; /* Prevent inline spacing */
+  width: 100%;
+  height: auto;
+}
+
 #property-panel {
   width: 25%;
-  background: #1e1e1e;
+  background: #12121d;
   color: #ccc;
   padding: 16px;
   overflow-y: auto;
@@ -63,7 +70,7 @@
 }
 
 .prop-section {
-  border-top: 1px solid #333;
+  border-top: 1px solid #0a0e16;
   padding-top: 12px;
 }
 
@@ -79,7 +86,7 @@
 .prop-section input[type="text"],
 .prop-section input[type="number"] {
   margin-left: auto;
-  background: #333;
+  background: #1c1f2c;
   border: 1px solid #555;
   color: #eee;
   padding: 4px 6px;
@@ -89,7 +96,6 @@
   max-width: 100%;
 }
 
-
 .prop-section input[type="checkbox"] {
   margin-left: auto;
   transform: scale(1.1);
@@ -98,7 +104,6 @@
 .prop-section input:hover {
   border-color: #888;
 }
-
 
 /* === Additional SVG Styling === */
 
@@ -132,9 +137,9 @@
 }
 
 .swimlane {
-  fill: #222;
-  stroke: #333;
-  stroke-width: 1;
+  fill: #0a0e16;
+  stroke: #1c1f2c;
+  stroke-width: 0.5;
 }
 
 .label {
@@ -143,11 +148,11 @@
 }
 
 .workload-node rect.workload {
-      fill: #2266aa;
-      stroke: #88ccff;
-      stroke-width: 2;
-      rx: 6;
-      cursor: move;
+  fill: #2266aa;
+  stroke: #88ccff;
+  stroke-width: 2;
+  rx: 6;
+  cursor: move;
 }
 
 .workload-node text {
@@ -183,4 +188,3 @@
   fill: #555;
   stroke: #aaa;
 }
-

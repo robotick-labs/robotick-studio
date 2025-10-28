@@ -35,7 +35,7 @@
 
 .project-value input[type="text"] {
   width: 100%;
-  background: #222;
+  background: #1a1f2c;
   color: #eee;
   border: 1px solid #555;
   border-radius: 4px;
@@ -60,7 +60,7 @@
 .btn-add-item {
   font-size: 18px;
   padding: 4px 8px;
-  background: #666666;
+  background: #27273d;
   color: white;
   border: none;
   border-radius: 4px;

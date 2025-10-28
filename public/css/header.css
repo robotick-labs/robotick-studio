@@ -4,7 +4,7 @@ header {
   align-items: center;
   position: relative;
   padding: 1rem 2rem;
-  background: #222;
+  background: #070a12;
   color: white;
   border-bottom: 1px solid #444;
 }
@@ -50,7 +50,7 @@ header nav a {
   white-space: nowrap;
   color: #eee;
   text-decoration: none;
-  background: #414040;
+  background: #2b2b42;
   padding: 6px 10px;
   border-radius: 10px;
   transition: background 0.2s ease, color 0.2s ease;
@@ -58,11 +58,10 @@ header nav a {
 
 header nav a:hover,
 header nav a:focus {
-  background: #5a5a5a;
+  background: #343450;
   color: #fff;
 }
 
-/* your existing submenus/buttons still fine */
 .nav-menu-dev,
 .nav-menu-test {
   display: flex;
@@ -246,7 +245,7 @@ header nav a:focus {
   font-size: 18px;
   padding: 4px 4px;
   color: white;
-  background: #404040;
+  background: #2b2b42;
   border: 2px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   text-align: center;
