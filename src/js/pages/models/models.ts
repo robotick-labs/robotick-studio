@@ -417,10 +417,11 @@ function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
     const y2 = tm.f + nodeSize.height / 2;
 
     const spacing = 180;
-    const EPSILON = 2;
+    const EPSILON = 50;
     const STRAIGHT_LEN = 15;
-    const BASE_OFFSET = 30; // Minimum vertical offset
-    const OFFSET_SCALE = 0.05; // Multiplier per px of horizontal distance
+    const BASE_OFFSET = 25; // Minimum vertical offset
+    const OFFSET_SCALE = 0.04; // Multiplier per px of horizontal distance
+    const ADJACENT_OFFSET_Y = 5;
 
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -432,14 +433,17 @@ function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
 
     if (isAdjacent) {
       // Simple direct line
-      path.setAttribute("d", `M${x1},${y1} L${x2},${y2}`);
+      path.setAttribute(
+        "d",
+        `M${x1},${y1 + ADJACENT_OFFSET_Y} L${x2},${y2 + ADJACENT_OFFSET_Y}`
+      );
     } else {
       // Horizontal exit
       const midX1 = x1 + STRAIGHT_LEN;
       const midX2 = x2 - STRAIGHT_LEN;
 
       const offset = BASE_OFFSET + Math.abs(dx) * OFFSET_SCALE;
-      const arcDir = dy < 0 || dx > 0 ? -1 : 1; // up for left→right
+      const arcDir = dy == 0 && dx > 0 ? -1 : 1; // up for left→right
       const arcY = y1 + arcDir * offset;
 
       path.setAttribute(
