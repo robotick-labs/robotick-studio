@@ -1,14 +1,17 @@
-// Entry for the models feature with Doc/View architecture
 import { GraphDoc } from "./core/graphDoc";
 import { RectilinearRouter } from "./core/routing/rectilinearRouter";
 import { SvgView, createSvgLayers } from "./view/svgView";
-import { DragController } from "./controllers/dragController";
 import { loadAllModels } from "./services/projectModelsLoader";
-import { buildInitialDoc } from "./core/layout/layout";
+
+import { ModelStore } from "./core/modelStore";
+import { buildGraphDocFromModel } from "./core/layout/project";
+import { SlotDragController } from "./controllers/slotDragController";
+import { SelectionController } from "./controllers/selectionController";
+import { PropertyPanelView } from "./view/propertyPanelView";
 
 const nodeSize = { width: 140, height: 40 } as const;
-const marginX = 20;
-const spacing = 180;
+const marginX = 20,
+  spacing = 180;
 
 export async function init(): Promise<void> {
   const el = document.getElementById("graph");
@@ -19,13 +22,16 @@ export async function init(): Promise<void> {
   const layers = createSvgLayers(svg);
 
   const doc = new GraphDoc();
+  const store = new ModelStore();
   const router = new RectilinearRouter();
   const view = new SvgView(svg, layers, router);
+  const props = new PropertyPanelView();
 
+  // initial load
   const models = await loadAllModels();
-  const summary = buildInitialDoc(doc, models);
+  store.load(models);
+  const summary = buildGraphDocFromModel(store, doc);
 
-  // Compute final width & height like the original file:
   const finalWidth =
     marginX * 2 +
     120 +
@@ -33,10 +39,58 @@ export async function init(): Promise<void> {
     nodeSize.width +
     40;
   const finalHeight = summary.totalHeight;
-  // Render with explicit canvas size and fixed-width swimlanes
-  view.render(doc, { width: finalWidth, height: finalHeight });
 
-  // Dragging
-  const drag = new DragController(svg, doc, view);
-  drag.attachAll();
+  const renderAll = () => {
+    const s = buildGraphDocFromModel(store, doc);
+    const w =
+      marginX * 2 +
+      120 +
+      (Math.max(s.globalMaxNodes, 1) - 1) * spacing +
+      nodeSize.width +
+      40;
+    view.render(doc, { width: w, height: s.totalHeight });
+    props.render(doc);
+    new SlotDragController(svg, doc, view, store).attachAll();
+  };
+
+  view.render(doc, { width: finalWidth, height: finalHeight });
+  props.render(doc);
+
+  // controllers
+  new SelectionController(svg).attach();
+  new SlotDragController(svg, doc, view, store).attachAll();
+
+  // events
+  window.addEventListener("models:store-updated", renderAll);
+
+  window.addEventListener("models:plus-click", (e: any) => {
+    const { sectionIndex, laneIndex } = e.detail;
+    const section = doc.sections[sectionIndex];
+    const modelId = section.modelId;
+    const nextName = suggestName(store, modelId, "NewWorkload");
+    store.insertAt(modelId, laneIndex, section.maxNodes, {
+      name: nextName,
+      type: "TemplateWorkload",
+    });
+    renderAll();
+  });
+
+  window.addEventListener("models:selection-changed", () => props.render(doc));
+
+  window.addEventListener("models:rename-requested", (e: any) => {
+    const { nodeId, newName } = e.detail;
+    const n = doc.getNode(nodeId);
+    if (!n) return;
+    const modelId = n.meta?.modelId!;
+    store.rename(modelId, n.label, newName);
+    renderAll();
+  });
+}
+
+function suggestName(store: ModelStore, modelId: string, base: string): string {
+  let i = 1;
+  const m = store.get(modelId)!;
+  const exists = (name: string) => m.workloads.some((w) => w.name === name);
+  while (exists(`${base}${i}`)) i++;
+  return `${base}${i}`;
 }

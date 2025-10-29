@@ -1,9 +1,12 @@
-import currentProject from "../../../core/current-project.js"; // keep your existing module path
+import currentProject from "../../../core/current-project.js";
 
 export interface Workload {
   name: string;
   type?: string;
+  tick_rate_hz: number;
   children?: string[];
+  config: Record<string, string>;
+  inputs: Record<string, string>;
 }
 
 export interface DirectConnection {

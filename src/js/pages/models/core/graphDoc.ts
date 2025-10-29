@@ -1,3 +1,5 @@
+import type { Workload } from "../services/projectModelsLoader.ts";
+
 export type NodeId = string;
 
 export type NodeKind = "workload" | "group" | "label";
@@ -11,6 +13,7 @@ export interface Node {
   w: number;
   h: number;
   lane: number; // lane index (thread) within its section
+  workload?: Workload;
   meta?: {
     modelId?: string;
     type?: string;
@@ -26,13 +29,13 @@ export interface Edge {
 }
 
 export interface Section {
-  index: number; // order in document
-  modelId: string; // e.g., "foo.model.yaml"
-  yStart: number; // top of section
-  laneCount: number; // number of thread lanes
-  laneHeight: number; // pixels per lane (e.g., 100)
-  maxNodes: number; // max nodes in any lane (for width computation)
-  labelY: number; // y for section label text
+  index: number;
+  modelId: string;
+  yStart: number;
+  laneCount: number;
+  laneHeight: number;
+  maxNodes: number;
+  labelY: number;
 }
 
 export class GraphDoc {

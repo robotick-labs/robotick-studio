@@ -64,14 +64,14 @@
 }
 
 #property-panel h3 {
-  margin: 0 0 16px;
+  margin: 0 0 8px;
   font-size: 16px;
   color: #fff;
 }
 
 .prop-section {
   border-top: 1px solid #0a0e16;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .prop-section label {
@@ -187,4 +187,29 @@
 .project-button:hover {
   fill: #555;
   stroke: #aaa;
+}
+
+/* --- Add-button (minimal) --- */
+.plus-slot {
+  cursor: pointer;
+}
+
+.plus-slot .workload.plus {
+  fill: rgba(21, 76, 39, 0.5); /* #154c27 */
+  stroke: rgba(89, 192, 122, 0.5); /* #59c07a */
+  stroke-width: 2;
+  rx: 6; /* match node rounding */
+}
+
+.plus-slot text {
+  fill: rgba(207, 234, 215, 0.5); /* #cfead7 */
+  font-weight: 700;
+  font-size: 18px;
+  dominant-baseline: middle;
+  pointer-events: none; /* group gets the click */
+}
+
+.plus-slot:hover .workload.plus {
+  fill: rgba(26, 95, 49, 0.5); /* #1a5f31 */
+  stroke: rgba(122, 224, 154, 0.5); /* #7ae09a */
 }

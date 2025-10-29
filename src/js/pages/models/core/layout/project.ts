@@ -14,12 +14,11 @@ export interface LayoutSummary {
   globalMaxNodes: number;
 }
 
-export function projectModelToDoc(
+export function buildGraphDocFromModel(
   store: ModelStore,
   doc: GraphDoc
 ): LayoutSummary {
   doc.sections = [];
-  doc.version++;
   const edges: Edge[] = [];
   let yOffset = 40,
     globalMaxNodes = 0,
@@ -36,9 +35,11 @@ export function projectModelToDoc(
       const laneY = yOffset + lane * laneHeight;
       const names = store.laneChildren(modelId, lane);
       maxSlots = Math.max(maxSlots, names.length);
-      // place each workload at (slotIndex)
+
       names.forEach((localName, slot) => {
         const id = idFor(modelId, localName);
+        const workload = m.workloads.find((w) => w.name === localName);
+        if (!workload) return;
         const node: Node = {
           id,
           kind: "workload",
@@ -48,31 +49,34 @@ export function projectModelToDoc(
           w: nodeSize.width,
           h: nodeSize.height,
           lane,
+          workload,
           meta: { modelId, section: sectionIndex },
         };
         doc.upsertNode(node);
       });
-      // group box spans 0..(names.length-1)
+
       const parentName = lanes[lane];
-      const group: Node = {
-        id: idFor(modelId, parentName),
-        kind: "group",
-        label: parentName,
-        x: startX - 20,
-        y: laneY + lanePadY - 10,
-        w: Math.max(names.length, 1) * spacing,
-        h: nodeSize.height + 20,
-        lane,
-        meta: {
-          modelId,
-          section: sectionIndex,
-          children: names.map((n) => idFor(modelId, n)),
-        },
-      };
-      doc.upsertNode(group);
+      const groupWorkload = m.workloads.find((w) => w.name === parentName);
+      if (groupWorkload && groupWorkload.children == null) {
+        const group: Node = {
+          id: idFor(modelId, parentName),
+          kind: "workload",
+          label: parentName,
+          x: startX,
+          y: laneY + lanePadY,
+          w: nodeSize.width,
+          h: nodeSize.height,
+          lane,
+          meta: {
+            modelId,
+            section: sectionIndex,
+            children: names.map((n) => idFor(modelId, n)),
+          },
+        };
+        doc.upsertNode(group);
+      }
     }
 
-    // edges
     for (const c of m.connections ?? []) {
       edges.push({
         from: idFor(modelId, c.from.split(".")[0]),
