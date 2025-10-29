@@ -419,8 +419,8 @@ function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
     const spacing = 180;
     const EPSILON = 2;
     const STRAIGHT_LEN = 15;
-    const BASE_ARC_HEIGHT = 30; // min vertical bend
-    const ARC_SCALE = 0.05; // how much vertical bend scales with dx
+    const BASE_OFFSET = 30; // Minimum vertical offset
+    const OFFSET_SCALE = 0.05; // Multiplier per px of horizontal distance
 
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -431,27 +431,25 @@ function updateConnections(localConns: Conn[], remoteConns: Conn[]): void {
     path.classList.add("connection", styleClass);
 
     if (isAdjacent) {
+      // Simple direct line
       path.setAttribute("d", `M${x1},${y1} L${x2},${y2}`);
     } else {
+      // Horizontal exit
       const midX1 = x1 + STRAIGHT_LEN;
       const midX2 = x2 - STRAIGHT_LEN;
 
-      const arcHeight = BASE_ARC_HEIGHT + Math.abs(dx) * ARC_SCALE;
-      const arcDir = dy < 0 || dx > 0 ? -1 : 1; // Up for left→right, down for right→left
-      const arcOffset = arcDir * arcHeight;
-
-      const cx1 = midX1;
-      const cy1 = y1 + arcOffset;
-
-      const cx2 = midX2;
-      const cy2 = y2 + arcOffset;
+      const offset = BASE_OFFSET + Math.abs(dx) * OFFSET_SCALE;
+      const arcDir = dy < 0 || dx > 0 ? -1 : 1; // up for left→right
+      const arcY = y1 + arcDir * offset;
 
       path.setAttribute(
         "d",
-        `M${x1},${y1} ` +
+        `M${x1},${y1} ` + // horizontal exit
           `L${midX1},${y1} ` +
-          `C${cx1},${cy1} ${cx2},${cy2} ${midX2},${y2} ` +
-          `L${x2},${y2}`
+          `L${midX1},${arcY} ` + // vertical up/down
+          `L${midX2},${arcY} ` + // horizontal toward target
+          `L${midX2},${y2} ` + // vertical into target
+          `L${x2},${y2}` // final entry
       );
     }
 
