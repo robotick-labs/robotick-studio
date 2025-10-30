@@ -1,5 +1,10 @@
-import { GraphDoc, type Node, type Edge, type Section } from "../graphDoc";
-import { ModelStore } from "../modelStore";
+import {
+  GraphDoc,
+  type Node,
+  type Edge,
+  type Section,
+} from "../editorNodeGraph";
+import { ModelStore } from "../../document/documentStore";
 import { idFor } from "../utils/ids";
 
 const nodeSize = { width: 140, height: 40 } as const;

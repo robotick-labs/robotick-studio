@@ -1,10 +1,10 @@
-import { GraphDoc } from "./core/graphDoc";
-import { RectilinearRouter } from "./core/routing/rectilinearRouter";
+import { GraphDoc } from "./view/editorNodeGraph";
+import { RectilinearRouter } from "./view/routing/rectilinearRouter";
 import { SvgView, createSvgLayers } from "./view/svgView";
 import { loadAllModels } from "./services/projectModelsLoader";
 
-import { ModelStore } from "./core/modelStore";
-import { buildGraphDocFromModel } from "./core/layout/project";
+import { ModelStore } from "./document/documentStore";
+import { buildGraphDocFromModel } from "./view/layout/project";
 import { SlotDragController } from "./controllers/slotDragController";
 import { SelectionController } from "./controllers/selectionController";
 import { PropertyPanelView } from "./view/propertyPanelView";

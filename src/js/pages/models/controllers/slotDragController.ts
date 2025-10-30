@@ -1,8 +1,10 @@
-import type { GraphDoc } from "../core/graphDoc";
+import type { GraphDoc } from "../view/editorNodeGraph";
 import type { SvgView } from "../view/svgView";
-import { ModelStore } from "../core/modelStore";
+import { ModelStore } from "../document/documentStore";
 
-const startX = 120, spacing = 180, nodeW = 140;
+const startX = 120,
+  spacing = 180,
+  nodeW = 140;
 
 function slotFromX(x: number): number {
   const raw = (x - startX) / spacing;
@@ -27,24 +29,30 @@ export class SlotDragController {
   }
 
   private attach(nodeId: string, el: SVGGElement): void {
-    let startLane = 0, startSlot = 0, modelId = "", dragging = false;
+    let startLane = 0,
+      startSlot = 0,
+      modelId = "",
+      dragging = false;
 
     const getMeta = () => {
       const n = this.doc.getNode(nodeId)!;
-      modelId = (n.meta?.modelId ?? "");
+      modelId = n.meta?.modelId ?? "";
       startLane = n.lane;
       startSlot = slotFromX(n.x);
     };
 
     const toSvg = (e: MouseEvent) => {
       const pt = this.svg.createSVGPoint();
-      pt.x = e.clientX; pt.y = e.clientY;
+      pt.x = e.clientX;
+      pt.y = e.clientY;
       const ctm = this.svg.getScreenCTM();
       return ctm ? pt.matrixTransform(ctm.inverse()) : pt;
     };
 
     el.addEventListener("mousedown", (e) => {
-      getMeta(); dragging = true; e.preventDefault();
+      getMeta();
+      dragging = true;
+      e.preventDefault();
       const onMove = (_ev: MouseEvent) => {
         if (!dragging) return;
         // preview could be added here

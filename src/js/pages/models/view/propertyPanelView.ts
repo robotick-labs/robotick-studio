@@ -1,6 +1,5 @@
-import { editorState } from "../core/editorState";
-import type { GraphDoc } from "../core/graphDoc";
-import type { Workload } from "../services/projectModelsLoader.ts";
+import { editorState } from "../controllers/editorState";
+import type { GraphDoc } from "./editorNodeGraph";
 
 export class PropertyPanelView {
   private root: HTMLElement;
@@ -13,21 +12,13 @@ export class PropertyPanelView {
   render(doc: GraphDoc) {
     const id = editorState.selection;
     const node = id ? doc.getNode(id) : null;
-    const type =
-      node?.kind === "workload"
-        ? node.meta?.type ?? "Workload"
-        : node?.kind ?? "-";
+    var workload = node?.workload;
 
-    this.root.innerHTML = `<h3>Properties <span style="font-weight: normal">| ${type}</span></h3>`;
-
-    console.log("Selected node:", node);
-    console.log("Has workload?", node?.workload);
+    this.root.innerHTML = workload?.type
+      ? `<h3>Properties <span style="font-weight: normal">| ${workload.type}</span></h3>`
+      : `<h3>Properties</h3>`;
 
     if (!node || node.kind !== "workload" || node.workload == null) return;
-
-    const workload = node.workload;
-
-    console.log(workload);
 
     // --- Core section ---
     this.root.appendChild(

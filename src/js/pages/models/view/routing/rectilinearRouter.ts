@@ -1,5 +1,5 @@
 import type { ConnectionRouter } from "./types";
-import type { Node } from "../graphDoc";
+import type { Node } from "../editorNodeGraph";
 
 export class RectilinearRouter implements ConnectionRouter {
   constructor(
@@ -20,10 +20,13 @@ export class RectilinearRouter implements ConnectionRouter {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const isHorizAligned = Math.abs(dy) < this.epsilon;
-    const isAdjacent = isHorizAligned && Math.abs(dx) - this.spacing < this.epsilon;
+    const isAdjacent =
+      isHorizAligned && Math.abs(dx) - this.spacing < this.epsilon;
 
     if (isAdjacent) {
-      return `M${x1},${y1 + this.adjacentOffsetY} L${x2},${y2 + this.adjacentOffsetY}`;
+      return `M${x1},${y1 + this.adjacentOffsetY} L${x2},${
+        y2 + this.adjacentOffsetY
+      }`;
     }
 
     const midX1 = x1 + this.straightLen;
@@ -39,7 +42,7 @@ export class RectilinearRouter implements ConnectionRouter {
       `L${midX1},${arcY}`,
       `L${midX2},${arcY}`,
       `L${midX2},${y2}`,
-      `L${x2},${y2}`
+      `L${x2},${y2}`,
     ].join(" ");
   }
 }
