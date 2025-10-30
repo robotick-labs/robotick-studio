@@ -10,7 +10,7 @@ export class RectilinearRouter implements ConnectionRouter {
     private offsetScale = 0.04,
     private adjacentOffsetY = 5,
     private minChannelSpacing = 6,
-    private leftMargin = 100
+    private leftMargin = 25
   ) {}
 
   routeAll(
@@ -18,11 +18,25 @@ export class RectilinearRouter implements ConnectionRouter {
     getNode: (id: string) => Node | undefined
   ): RoutedEdge[] {
     const results: RoutedEdge[] = [];
+
     const usedArcYs: number[] = [];
+    const usedColXs: number[] = [];
+
+    // === Deduplicate by from→to key ===
+    const seen = new Set<string>();
+    const uniqueEdges: Edge[] = [];
+
+    for (const edge of edges) {
+      const key = `${edge.from}→${edge.to}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueEdges.push(edge);
+      }
+    }
 
     // Compute far-left margin X
     const allNodes = new Set<Node>();
-    for (const edge of edges) {
+    for (const edge of uniqueEdges) {
       const from = getNode(edge.from);
       const to = getNode(edge.to);
       if (from) allNodes.add(from);
@@ -30,9 +44,9 @@ export class RectilinearRouter implements ConnectionRouter {
     }
 
     const minX = Math.min(...Array.from(allNodes).map((n) => n.x));
-    const leftColumnX = minX - this.leftMargin;
+    const leftColumnBase = minX - this.leftMargin;
 
-    for (const edge of edges) {
+    for (const edge of uniqueEdges) {
       const from = getNode(edge.from);
       const to = getNode(edge.to);
       if (!from || !to) continue;
@@ -59,8 +73,10 @@ export class RectilinearRouter implements ConnectionRouter {
           y2 + this.adjacentOffsetY
         }`;
       } else if (!isHorizAligned) {
-        // INTER-LANE — force via leftColumn
+        // === INTER-LANE ===
         const arcDir = dx > 0 ? -1 : 1;
+
+        // Compute arcY (vertical lane position) — avoid overlaps
         let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
         let colY = y1 + arcDir * arcOffset;
 
@@ -75,20 +91,33 @@ export class RectilinearRouter implements ConnectionRouter {
           colY = y1 + arcDir * arcOffset;
           attempts++;
         }
-
         usedArcYs.push(colY);
+
+        // Compute colX (horizontal position of left-margin vertical) — avoid overlaps
+        let colX = leftColumnBase;
+        attempts = 0;
+        while (
+          usedColXs.some(
+            (used) => Math.abs(used - colX) < this.minChannelSpacing
+          ) &&
+          attempts < 20
+        ) {
+          colX -= this.minChannelSpacing; // bump left
+          attempts++;
+        }
+        usedColXs.push(colX);
 
         path = [
           `M${x1},${y1}`,
           `L${midX1},${y1}`,
           `L${midX1},${colY}`,
-          `L${leftColumnX},${colY}`,
-          `L${leftColumnX},${y2}`,
+          `L${colX},${colY}`,
+          `L${colX},${y2}`,
           `L${midX2},${y2}`,
           `L${targetLeft},${y2}`,
         ].join(" ");
       } else {
-        // IN-LANE — arc above or below depending on direction
+        // === IN-LANE ===
         const arcDir = dx > 0 ? -1 : 1;
         let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
         let arcY = y1 + arcDir * arcOffset;
@@ -104,7 +133,6 @@ export class RectilinearRouter implements ConnectionRouter {
           arcY = y1 + arcDir * arcOffset;
           attempts++;
         }
-
         usedArcYs.push(arcY);
 
         path = [
