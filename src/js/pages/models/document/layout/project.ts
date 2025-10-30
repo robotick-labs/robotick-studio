@@ -3,8 +3,9 @@ import {
   type Node,
   type Edge,
   type Section,
-} from "./editorNodeGraph";
-import { ModelStore } from "../../document/documentStore";
+} from "../../view/node-graph/layout/editorNodeGraph";
+import { DocumentStore } from "../../document/documentStore";
+import { nodeIdFor } from "../../view/node-graph/utils/nodeIdFor";
 
 const nodeSize = { width: 140, height: 40 } as const;
 const startX = 120,
@@ -18,17 +19,8 @@ export interface LayoutSummary {
   globalMaxNodes: number;
 }
 
-export function nodeIdFor(modelPath: string, id: string): string {
-  const base =
-    modelPath
-      .split("/")
-      .pop()
-      ?.replace(/\.model\.yaml$/, "") ?? "";
-  return `${base}:${id}`;
-}
-
 export function buildGraphDocFromModel(
-  store: ModelStore,
+  store: DocumentStore,
   doc: GraphDoc
 ): LayoutSummary {
   doc.sections = [];

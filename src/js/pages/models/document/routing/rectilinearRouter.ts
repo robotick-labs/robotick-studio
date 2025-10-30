@@ -1,5 +1,5 @@
-import type { ConnectionRouter } from "./connectionRouter";
-import type { Node } from "../layout/editorNodeGraph";
+import type { ConnectionRouter } from "./types";
+import type { Node } from "../../view/node-graph/layout/editorNodeGraph";
 
 export class RectilinearRouter implements ConnectionRouter {
   constructor(

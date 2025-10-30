@@ -1,4 +1,4 @@
-import type { GraphDoc, Node, Section } from "./editorNodeGraph";
+import type { GraphDoc, Node, Section } from "../layout/editorNodeGraph";
 import type { ConnectionRouter } from "../core/routing/types";
 import { createSvgLayers } from "./svgLayers";
 

@@ -1,6 +1,6 @@
 // src/js/pages/models/view/node-graph/initNodeGraph.ts
-import { GraphDoc } from "./editorNodeGraph";
-import { createSvgLayers, SvgView } from "./svgView";
+import { GraphDoc } from "./layout/editorNodeGraph";
+import { createSvgLayers, SvgView } from "./render/svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
 import { buildGraphDocFromModel } from "./layout/buildGraphDocFromModel";
@@ -42,8 +42,6 @@ export function initNodeGraph(
   buildGraphDocFromModel(store, doc);
 
   const layers = createSvgLayers(svgEl);
-  const router = new RectilinearRouter();
-  const view = new SvgView(svgEl, layers, router);
 
   const computeSize = () => {
     const s = buildGraphDocFromModel(store, doc);
@@ -56,6 +54,9 @@ export function initNodeGraph(
     const height = s.totalHeight;
     return { width, height };
   };
+
+  const router = new RectilinearRouter();
+  const view = new SvgView(svgEl, layers, router);
 
   const render = () => {
     const { width, height } = computeSize();
