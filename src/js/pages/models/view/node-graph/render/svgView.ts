@@ -128,20 +128,18 @@ export class SvgView {
 
   private renderEdges(doc: GraphDoc): void {
     this.layers.edges.replaceChildren();
-    for (const e of doc.edges) {
-      const from = doc.getNode(e.from),
-        to = doc.getNode(e.to);
-      if (!from || !to) continue;
-      const d = this.router.route(from, to);
+
+    const edges = this.router.routeAll(doc.edges, (id: string) =>
+      doc.getNode(id)
+    );
+
+    for (const e of edges) {
       const path = document.createElementNS(
         "http://www.w3.org/2000/svg",
         "path"
       );
-      path.setAttribute("d", d);
-      path.classList.add(
-        "connection",
-        e.isRemote ? "remote-connection" : "local-connection"
-      );
+      path.setAttribute("d", e.path);
+      path.classList.add(...e.classList);
       this.layers.edges.appendChild(path);
     }
   }

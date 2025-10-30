@@ -1,5 +1,5 @@
-import type { ConnectionRouter } from "./connectionRouter";
-import type { Node } from "../layout/editorNodeGraph";
+import type { ConnectionRouter, RoutedEdge } from "./connectionRouter";
+import type { Edge, Node } from "../layout/editorNodeGraph";
 
 export class RectilinearRouter implements ConnectionRouter {
   constructor(
@@ -44,5 +44,29 @@ export class RectilinearRouter implements ConnectionRouter {
       `L${midX2},${y2}`,
       `L${x2},${y2}`,
     ].join(" ");
+  }
+
+  routeAll(
+    edges: Edge[],
+    getNode: (id: string) => Node | undefined
+  ): RoutedEdge[] {
+    const results = [];
+
+    for (const edge of edges) {
+      const from = getNode(edge.from);
+      const to = getNode(edge.to);
+      if (!from || !to) continue;
+
+      const path = this.route(from, to);
+      results.push({
+        path,
+        classList: [
+          "connection",
+          edge.isRemote ? "remote-connection" : "local-connection",
+        ],
+      });
+    }
+
+    return results;
   }
 }
