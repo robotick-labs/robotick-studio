@@ -27,14 +27,10 @@ export class SvgView {
     private router: ConnectionRouter
   ) {}
 
-  render(doc: GraphDoc, size?: CanvasSize): void {
-    const width =
-      size?.width ?? Math.max(400, doc.bounds().w + marginX * 2 + 120);
-    const height =
-      size?.height ?? Math.max(200, doc.bounds().h + marginX * 2 + 60);
-    this.svg.setAttribute("width", String(width));
-    this.svg.setAttribute("height", String(height));
-    this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  render(doc: GraphDoc): void {
+    // this.svg.setAttribute("width", String(width));
+    // this.svg.setAttribute("height", String(height));
+    // this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
     this.renderSwimlanes(doc.sections, width);
     this.renderSectionLabels(doc.sections);

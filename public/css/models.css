@@ -117,7 +117,7 @@
 .connection-hover-area {
   fill: none;
   stroke: transparent;
-  stroke-width: 16; /* makes hover hit area wider */
+  stroke-width: 12; /* makes hover hit area wider */
   pointer-events: stroke; /* only reacts to hovering over stroke */
 }
 
@@ -135,8 +135,8 @@
 }
 
 /* Glow when group is hovered */
-.connection-group:hover .connection {
-  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 6px currentColor);
+.connection-group:hover .connection-hover-area {
+  stroke: rgba(128, 128, 255, 0.35);
 }
 
 @keyframes dash-shift {

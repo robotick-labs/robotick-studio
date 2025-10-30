@@ -43,24 +43,11 @@ export function initNodeGraph(
 
   const layers = createSvgLayers(svgEl);
 
-  const computeSize = () => {
-    const s = buildGraphDocFromModel(store, doc);
-    const width =
-      marginX * 2 +
-      120 +
-      (Math.max(s.globalMaxNodes, 1) - 1) * spacing +
-      nodeSize.width +
-      40;
-    const height = s.totalHeight;
-    return { width, height };
-  };
-
   const router = new RectilinearRouter();
   const view = new SvgView(svgEl, layers, router);
 
   const render = () => {
-    const { width, height } = computeSize();
-    view.render(doc, { width, height });
+    view.render(doc);
   };
 
   const attachControllers = () => {
