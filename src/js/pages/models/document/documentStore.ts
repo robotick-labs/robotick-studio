@@ -1,4 +1,5 @@
 import type { ModelData } from "./modelData";
+import { loadAllModels } from "./modelData";
 
 export interface WorkloadSpec {
   name: string;
@@ -23,9 +24,12 @@ export class DocumentStore {
   private models = new Map<string, ModelData>();
   version = 0;
 
-  load(models: { modelPath: string; data: ModelData }[]) {
+  async load() {
+    const loadedModels = await loadAllModels();
+
     this.models.clear();
-    for (const m of models)
+
+    for (const m of loadedModels)
       this.models.set(m.modelPath, structuredClone(m.data));
     this.version++;
     this.notify();
