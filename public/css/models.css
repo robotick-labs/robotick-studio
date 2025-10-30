@@ -134,7 +134,10 @@
   animation: dash-shift 2s linear infinite;
 }
 
-/* Glow when group is hovered */
+.connection-group:hover .connection {
+  stroke-width: 3;
+}
+
 .connection-group:hover .connection-hover-area {
   stroke: rgba(128, 128, 255, 0.35);
 }

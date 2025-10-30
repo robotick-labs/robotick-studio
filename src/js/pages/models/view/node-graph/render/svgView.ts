@@ -108,6 +108,7 @@ export class SvgView {
       g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       g.id = n.id;
       g.classList.add("workload-node");
+
       const rect = document.createElementNS(
         "http://www.w3.org/2000/svg",
         "rect"
@@ -122,12 +123,56 @@ export class SvgView {
       );
       text.setAttribute("x", "10");
       text.setAttribute("y", "25");
-      text.textContent = n.label;
 
+      // Append first so CSS for .workload-node text is applied before measuring
       g.append(rect, text);
       this.layers.nodes.appendChild(g);
+
+      // Fit label to available width (account for left padding ~10 and a little right padding)
+      const maxTextWidth = Math.max(0, n.w - 20);
+      this.fitTextWithEllipsis(text, n.label, maxTextWidth);
     }
     return g;
+  }
+
+  /**
+   * Sets textContent to the longest prefix that fits within maxWidth,
+   * appending a single ellipsis if truncation was needed.
+   * Measures in-place so computed styles are accurate.
+   */
+  private fitTextWithEllipsis(
+    textEl: SVGTextElement,
+    full: string,
+    maxWidth: number
+  ): void {
+    // 1) Try full text first (no ellipsis if it fits)
+    textEl.textContent = full;
+    if (textEl.getComputedTextLength() <= maxWidth) {
+      return;
+    }
+
+    // 2) Binary search longest fitting prefix with an ellipsis
+    let lo = 0;
+    let hi = full.length;
+    let best = 0;
+
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      // Trim trailing underscores/spaces before ellipsis to avoid "_…"
+      const trial = full.slice(0, mid).replace(/[_\s]+$/, "") + "…";
+      textEl.textContent = trial;
+
+      if (textEl.getComputedTextLength() <= maxWidth) {
+        best = mid; // mid fits → try to take more
+        lo = mid + 1;
+      } else {
+        hi = mid - 1; // mid too long → take less
+      }
+    }
+
+    const finalPrefix = full.slice(0, best).replace(/[_\s]+$/, "");
+    textEl.textContent = finalPrefix + "…";
+    textEl.setAttribute("title", full); // show full label on hover
   }
 
   private renderNodes(doc: GraphDoc): void {
