@@ -34,7 +34,7 @@ export class RectilinearRouter implements ConnectionRouter {
       }
     }
 
-    // Compute far-left margin X
+    // === Compute far-left margin X ===
     const allNodes = new Set<Node>();
     for (const edge of uniqueEdges) {
       const from = getNode(edge.from);
@@ -46,6 +46,7 @@ export class RectilinearRouter implements ConnectionRouter {
     const minX = Math.min(...Array.from(allNodes).map((n) => n.x));
     const leftColumnBase = minX - this.leftMargin;
 
+    // === Main routing loop ===
     for (const edge of uniqueEdges) {
       const from = getNode(edge.from);
       const to = getNode(edge.to);
@@ -76,7 +77,7 @@ export class RectilinearRouter implements ConnectionRouter {
         // === INTER-LANE ===
         const arcDir = dx > 0 ? -1 : 1;
 
-        // Compute arcY (vertical lane position) — avoid overlaps
+        // === Allocate vertical lane on left margin ===
         let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
         let colY = y1 + arcDir * arcOffset;
 
@@ -93,7 +94,7 @@ export class RectilinearRouter implements ConnectionRouter {
         }
         usedArcYs.push(colY);
 
-        // Compute colX (horizontal position of left-margin vertical) — avoid overlaps
+        // === Allocate horizontal position of vertical column ===
         let colX = leftColumnBase;
         attempts = 0;
         while (
@@ -102,18 +103,36 @@ export class RectilinearRouter implements ConnectionRouter {
           ) &&
           attempts < 20
         ) {
-          colX -= this.minChannelSpacing; // bump left
+          colX -= this.minChannelSpacing;
           attempts++;
         }
         usedColXs.push(colX);
+
+        // === Final arcY after fan-in should always run along TOP of swimlane ===
+        let arcY2 = y2 - (this.baseOffset + Math.abs(dx) * this.offsetScale);
+
+        attempts = 0;
+        while (
+          usedArcYs.some(
+            (used) => Math.abs(used - arcY2) < this.minChannelSpacing
+          ) &&
+          attempts < 20
+        ) {
+          arcY2 -= this.minChannelSpacing;
+          attempts++;
+        }
+        usedArcYs.push(arcY2);
+
+        const midX3 = targetLeft - this.straightLen;
 
         path = [
           `M${x1},${y1}`,
           `L${midX1},${y1}`,
           `L${midX1},${colY}`,
           `L${colX},${colY}`,
-          `L${colX},${y2}`,
-          `L${midX2},${y2}`,
+          `L${colX},${arcY2}`,
+          `L${midX3},${arcY2}`,
+          `L${midX3},${y2}`,
           `L${targetLeft},${y2}`,
         ].join(" ");
       } else {
