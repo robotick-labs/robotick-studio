@@ -1,13 +1,17 @@
-import { GraphDoc } from "./view/editorNodeGraph";
-import { RectilinearRouter } from "./view/routing/rectilinearRouter";
-import { SvgView, createSvgLayers } from "./view/svgView";
+import React from "react";
+import { createRoot } from "react-dom/client";
+
+import { GraphDoc } from "./view/node-graph/editorNodeGraph";
+import { RectilinearRouter } from "./view/node-graph/routing/rectilinearRouter";
+import { SvgView, createSvgLayers } from "./view/node-graph/svgView";
 import { loadAllModels } from "./services/projectModelsLoader";
 
 import { ModelStore } from "./document/documentStore";
-import { buildGraphDocFromModel } from "./view/layout/project";
+import { buildGraphDocFromModel } from "./view/node-graph/layout/project";
 import { SlotDragController } from "./controllers/slotDragController";
 import { SelectionController } from "./controllers/selectionController";
-import { PropertyPanelView } from "./view/propertyPanelView";
+
+import { PropertyPanel } from "./view/properties/PropertyPanel";
 
 const nodeSize = { width: 140, height: 40 } as const;
 const marginX = 20,
@@ -25,7 +29,12 @@ export async function init(): Promise<void> {
   const store = new ModelStore();
   const router = new RectilinearRouter();
   const view = new SvgView(svg, layers, router);
-  const props = new PropertyPanelView();
+
+  // initialize the property-panel (a React component)
+  const panelRoot = createRoot(document.getElementById("property-panel")!);
+  let currentDoc = doc; // capture in outer scope
+
+  panelRoot.render(<PropertyPanel doc={currentDoc} />);
 
   // initial load
   const models = await loadAllModels();
@@ -49,12 +58,17 @@ export async function init(): Promise<void> {
       nodeSize.width +
       40;
     view.render(doc, { width: w, height: s.totalHeight });
-    props.render(doc);
+
+    currentDoc = doc;
+    panelRoot.render(<PropertyPanel doc={currentDoc} />);
+
     new SlotDragController(svg, doc, view, store).attachAll();
   };
 
   view.render(doc, { width: finalWidth, height: finalHeight });
-  props.render(doc);
+
+  currentDoc = doc;
+  panelRoot.render(<PropertyPanel doc={currentDoc} />);
 
   // controllers
   new SelectionController(svg).attach();
@@ -75,7 +89,9 @@ export async function init(): Promise<void> {
     renderAll();
   });
 
-  window.addEventListener("models:selection-changed", () => props.render(doc));
+  window.addEventListener("models:selection-changed", () =>
+    panelRoot.render(<PropertyPanel doc={currentDoc} />)
+  );
 
   window.addEventListener("models:rename-requested", (e: any) => {
     const { nodeId, newName } = e.detail;

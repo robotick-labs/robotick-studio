@@ -5,7 +5,7 @@ import {
   type Section,
 } from "../editorNodeGraph";
 import { ModelStore } from "../../document/documentStore";
-import { idFor } from "../utils/ids";
+import { nodeIdFor } from "../utils/nodeIdFor";
 
 const nodeSize = { width: 140, height: 40 } as const;
 const startX = 120,
@@ -42,7 +42,7 @@ export function buildGraphDocFromModel(
       maxSlots = Math.max(maxSlots, names.length);
 
       names.forEach((localName, slot) => {
-        const id = idFor(modelId, localName);
+        const id = nodeIdFor(modelId, localName);
         const workload = m.workloads.find((w) => w.name === localName);
         if (!workload) return;
         const node: Node = {
@@ -64,7 +64,7 @@ export function buildGraphDocFromModel(
       const groupWorkload = m.workloads.find((w) => w.name === parentName);
       if (groupWorkload && groupWorkload.children == null) {
         const group: Node = {
-          id: idFor(modelId, parentName),
+          id: nodeIdFor(modelId, parentName),
           kind: "workload",
           label: parentName,
           x: startX,
@@ -75,7 +75,7 @@ export function buildGraphDocFromModel(
           meta: {
             modelId,
             section: sectionIndex,
-            children: names.map((n) => idFor(modelId, n)),
+            children: names.map((n) => nodeIdFor(modelId, n)),
           },
         };
         doc.upsertNode(group);
@@ -84,14 +84,14 @@ export function buildGraphDocFromModel(
 
     for (const c of m.connections ?? []) {
       edges.push({
-        from: idFor(modelId, c.from.split(".")[0]),
-        to: idFor(modelId, c.to.split(".")[0]),
+        from: nodeIdFor(modelId, c.from.split(".")[0]),
+        to: nodeIdFor(modelId, c.to.split(".")[0]),
       });
     }
     for (const r of m.remote_models ?? []) {
       for (const c of r.connections ?? []) {
         edges.push({
-          from: idFor(modelId, c.from.split(".")[0]),
+          from: nodeIdFor(modelId, c.from.split(".")[0]),
           to: `${r.name}:${c.to_remote.split(".")[0]}`,
           isRemote: true,
         });

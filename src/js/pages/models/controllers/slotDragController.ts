@@ -1,5 +1,5 @@
-import type { GraphDoc } from "../view/editorNodeGraph";
-import type { SvgView } from "../view/svgView";
+import type { GraphDoc } from "../view/node-graph/editorNodeGraph";
+import type { SvgView } from "../view/node-graph/svgView";
 import { ModelStore } from "../document/documentStore";
 
 const startX = 120,
