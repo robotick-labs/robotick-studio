@@ -32,7 +32,7 @@ export class SvgView {
     this.renderSectionLabels(doc.sections);
     this.renderNodes(doc);
     this.renderEdges(doc);
-    this.drawPlusButtons(doc.sections);
+    this.drawPlusButtons(doc);
 
     // Step 2: measure actual bounding box
     const margin = 40;
@@ -213,23 +213,37 @@ export class SvgView {
     }
   }
 
-  private drawPlusButtons(sections: Section[]) {
+  private drawPlusButtons(doc: GraphDoc) {
     // Remove previous buttons
     Array.from(this.svg.querySelectorAll("g.plus-slot")).forEach((n) =>
       n.remove()
     );
 
+    const sections = doc.sections;
+
     const ns = "http://www.w3.org/2000/svg";
     const W = 140,
-      H = 40; // plus tile size (matches nodes)
+      H = 40;
     const r = 4;
     const cx = W / 2,
-      cy = H / 2; // center of the tile
+      cy = H / 2;
 
     for (const s of sections) {
       for (let lane = 0; lane < s.laneCount; lane++) {
         const laneY = s.yStart + lane * s.laneHeight;
-        const x = startX + s.maxNodes * spacing; // first empty slot
+
+        // ⬇️ Find the rightmost node *in this lane*
+        const nodesInLane = Array.from(doc.nodes.values()).filter(
+          (n) => n.meta?.section === s.index && n.lane === lane
+        );
+
+        const maxX =
+          nodesInLane.length > 0
+            ? Math.max(...nodesInLane.map((n) => n.x))
+            : startX - spacing;
+
+        const x = maxX + spacing;
+
         const y = laneY + (s.laneHeight - H) / 2;
 
         const g = document.createElementNS(ns, "g");
@@ -237,15 +251,13 @@ export class SvgView {
         g.setAttribute("transform", `translate(${x},${y})`);
         g.setAttribute("data-section", String(s.index));
         g.setAttribute("data-lane", String(lane));
-        g.setAttribute("tabindex", "0"); // keyboard focus
+        g.setAttribute("tabindex", "0");
 
-        // Tile background
         const rect = document.createElementNS(ns, "rect");
         rect.setAttribute("width", String(W));
         rect.setAttribute("height", String(H));
         rect.classList.add("workload", "plus");
 
-        // Pixel-perfect "+" (two centered lines)
         const h = document.createElementNS(ns, "line");
         h.setAttribute("x1", String(cx - r));
         h.setAttribute("y1", String(cy));
@@ -258,7 +270,6 @@ export class SvgView {
         v.setAttribute("x2", String(cx));
         v.setAttribute("y2", String(cy + r));
 
-        // Let CSS style hover states; set sensible defaults
         [h, v].forEach((l) => {
           l.setAttribute("stroke", "#cfead7");
           l.setAttribute("stroke-width", "2");

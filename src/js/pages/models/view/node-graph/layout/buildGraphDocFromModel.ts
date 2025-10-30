@@ -9,7 +9,7 @@ import { ModelStore } from "../../document/documentStore";
 const nodeSize = { width: 140, height: 40 } as const;
 const startX = 120,
   spacing = 180,
-  laneHeight = 100;
+  laneHeight = 200;
 const lanePadY = (laneHeight - nodeSize.height) / 2;
 
 export interface LayoutSummary {
