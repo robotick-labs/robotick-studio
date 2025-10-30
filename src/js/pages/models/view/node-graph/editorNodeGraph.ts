@@ -1,4 +1,4 @@
-import type { Workload } from "../../services/projectModelsLoader.js";
+import type { Workload } from "../../document/modelData.js";
 
 export type NodeId = string;
 

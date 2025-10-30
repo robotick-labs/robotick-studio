@@ -14,19 +14,32 @@ export const spacing = 180;
 export type NodeGraphAPI = {
   svg: SVGSVGElement;
   view: SvgView;
+  /** Recompute layout + render SVG */
   render: () => void;
+  /** Attach graph controllers (selection, drag) */
   attachControllers: () => void;
+  /** Force layout rebuild (use after structural edits) */
+  refreshLayout: () => void;
+  /** Stop listening to store/events and detach anything we hooked */
+  dispose: () => void;
+  /** Access the live graph document (read-only usage preferred) */
+  getDoc: () => GraphDoc;
 };
 
 export function initNodeGraph(
   svgSelector: string,
-  doc: GraphDoc,
   store: ModelStore
 ): NodeGraphAPI {
   const svgEl = document.querySelector(svgSelector);
   if (!svgEl || !(svgEl instanceof SVGSVGElement)) {
     throw new Error(`${svgSelector} not found or not an SVGSVGElement`);
   }
+
+  // Keep the graph's state local to this instance
+  const doc = new GraphDoc();
+
+  // Initial build (so we know sizes before first paint)
+  buildGraphDocFromModel(store, doc);
 
   const layers = createSvgLayers(svgEl);
   const router = new RectilinearRouter();
@@ -54,13 +67,13 @@ export function initNodeGraph(
     new SlotDragController(svgEl, doc, view, store).attachAll();
   };
 
-  // react to store changes
-  store.subscribe(render);
+  // ——— Store subscription (render on any store mutation) ———
+  const unsubscribeStore = store.subscribe(render);
 
-  // graph-specific events live here
-  
-  window.addEventListener("models:plus-click", (e: any) => {
-    const { sectionIndex, laneIndex } = e.detail;
+  // ——— Graph-specific events (kept local to this module) ———
+  const plusClickHandler = (e: Event) => {
+    const ce = e as CustomEvent<{ sectionIndex: number; laneIndex: number }>;
+    const { sectionIndex, laneIndex } = ce.detail;
     const section = doc.sections[sectionIndex];
     const modelId = section.modelId;
     const nextName = suggestName(store, modelId, "NewWorkload");
@@ -68,17 +81,62 @@ export function initNodeGraph(
       name: nextName,
       type: "TemplateWorkload",
     });
-  });
+    // No manual render: store.subscribe(render) will handle it.
+  };
 
-  window.addEventListener("models:rename-requested", (e: any) => {
-    const { nodeId, newName } = e.detail;
+  const renameHandler = (e: Event) => {
+    const ce = e as CustomEvent<{ nodeId: string; newName: string }>;
+    const { nodeId, newName } = ce.detail;
     const n = doc.getNode(nodeId);
     if (!n) return;
     const modelId = n.meta?.modelId!;
     store.rename(modelId, n.label, newName);
-  });
+    // No manual render: handled by store subscription
+  };
 
-  return { svg: svgEl, view, render, attachControllers };
+  window.addEventListener(
+    "models:plus-click",
+    plusClickHandler as EventListener
+  );
+  window.addEventListener(
+    "models:rename-requested",
+    renameHandler as EventListener
+  );
+
+  // First paint + attach controllers (idempotent if caller repeats)
+  render();
+  attachControllers();
+
+  const refreshLayout = () => {
+    buildGraphDocFromModel(store, doc);
+    render();
+  };
+
+  const dispose = () => {
+    // Clean up all listeners we installed
+    unsubscribeStore?.();
+    window.removeEventListener(
+      "models:plus-click",
+      plusClickHandler as EventListener
+    );
+    window.removeEventListener(
+      "models:rename-requested",
+      renameHandler as EventListener
+    );
+    // If you later add controller-level detach(), call them here.
+  };
+
+  const getDoc = () => doc;
+
+  return {
+    svg: svgEl,
+    view,
+    render,
+    attachControllers,
+    refreshLayout,
+    dispose,
+    getDoc,
+  };
 }
 
 function suggestName(store: ModelStore, modelId: string, base: string): string {
@@ -88,4 +146,3 @@ function suggestName(store: ModelStore, modelId: string, base: string): string {
   while (exists(`${base}${i}`)) i++;
   return `${base}${i}`;
 }
-

@@ -1,9 +1,4 @@
-import type { ModelData } from "../services/projectModelsLoader";
-
-export interface WorkloadSpec {
-  name: string;
-  type?: string;
-}
+import type { ModelData, Workload } from "./modelData";
 
 export class ModelStore {
   private listeners = new Set<() => void>();
@@ -13,9 +8,14 @@ export class ModelStore {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() { this.listeners.forEach(l => l()); }
+  private notify() {
+    this.listeners.forEach((l) => l());
+  }
 
-  entries(): IterableIterator<[string, ModelData]> { return this.models.entries(); }
+  entries(): IterableIterator<[string, ModelData]> {
+    return this.models.entries();
+  }
+
   private models = new Map<string, ModelData>();
   version = 0;
 
@@ -23,12 +23,14 @@ export class ModelStore {
     this.models.clear();
     for (const m of models)
       this.models.set(m.modelPath, structuredClone(m.data));
-    this.version++; this.notify();
+    this.version++;
+    this.notify();
   }
 
   getModelIds(): string[] {
     return [...this.models.keys()].sort();
   }
+
   get(modelId: string): ModelData | undefined {
     return this.models.get(modelId);
   }
@@ -54,7 +56,8 @@ export class ModelStore {
       parent.children = [parent.name];
     }
     parent.children = names;
-    this.version++; this.notify();
+    this.version++;
+    this.notify();
   }
 
   moveWithinLane(
@@ -75,31 +78,32 @@ export class ModelStore {
     modelId: string,
     laneIndex: number,
     slot: number,
-    spec: WorkloadSpec
+    workload: Workload
   ) {
     const m = this.models.get(modelId)!;
-    if (!m.workloads.find((w) => w.name === spec.name)) {
-      m.workloads.push({ name: spec.name, type: spec.type });
+    if (!m.workloads.find((w) => w.name === workload.name)) {
+      m.workloads.push(workload);
     }
     const names = this.laneChildren(modelId, laneIndex);
     const clamped = Math.max(0, Math.min(slot, names.length));
-    names.splice(clamped, 0, spec.name);
+    names.splice(clamped, 0, workload.name);
     this.setLaneChildren(modelId, laneIndex, names);
   }
 
-  rename(modelId: string, oldName: string, next: string) {
+  rename(modelId: string, oldName: string, newName: string) {
     const m = this.models.get(modelId)!;
     const w = m.workloads.find((x) => x.name === oldName);
     if (!w) return;
-    w.name = next;
+    w.name = newName;
     for (const ww of m.workloads) {
       if (ww.children)
-        ww.children = ww.children.map((n) => (n === oldName ? next : n));
+        ww.children = ww.children.map((n) => (n === oldName ? newName : n));
     }
     for (const c of m.connections ?? []) {
-      c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${next}.`);
-      c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${next}.`);
+      c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${newName}.`);
+      c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${newName}.`);
     }
-    this.version++; this.notify();
+    this.version++;
+    this.notify();
   }
 }
