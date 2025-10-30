@@ -32,120 +32,44 @@ export class RectilinearRouter implements ConnectionRouter {
       }
     }
 
-    // === Compute far-left margin X ===
+    // === Collect nodes to find far-left for the margin column ===
     const allNodes = new Set<Node>();
     for (const edge of uniqueEdges) {
-      const from = getNode(edge.from);
-      const to = getNode(edge.to);
-      if (from) allNodes.add(from);
-      if (to) allNodes.add(to);
+      const f = getNode(edge.from);
+      const t = getNode(edge.to);
+      if (f) allNodes.add(f);
+      if (t) allNodes.add(t);
     }
     const minX = Math.min(...Array.from(allNodes).map((n) => n.x));
     const leftColumnBase = minX - this.leftMargin;
 
-    // === Separate inter-lane and in-lane edges ===
-    const groupedByTarget = new Map<string, Edge[]>();
-    const otherEdges: Edge[] = [];
+    // Helpers
+    const allocateColumnX = (baseX: number): number => {
+      let x = baseX;
+      while (usedColXs.some((u) => Math.abs(u - x) < this.minChannelSpacing)) {
+        x -= this.minChannelSpacing;
+      }
+      usedColXs.push(x);
+      return x;
+    };
 
+    const placeTrackY = (
+      laneCenterY: number,
+      pos: "top" | "bottom",
+      base: number
+    ): number => {
+      let off = base;
+      let y = laneCenterY + (pos === "top" ? -off : off);
+      while (usedArcYs.some((u) => Math.abs(u - y) < this.minChannelSpacing)) {
+        off += this.minChannelSpacing;
+        y = laneCenterY + (pos === "top" ? -off : off);
+      }
+      usedArcYs.push(y);
+      return y;
+    };
+
+    // === Main routing ===
     for (const edge of uniqueEdges) {
-      const from = getNode(edge.from);
-      const to = getNode(edge.to);
-      if (!from || !to) continue;
-
-      const dx = to.x - (from.x + from.w);
-      const dy = to.y + to.h / 2 - (from.y + from.h / 2);
-      const isHorizAligned = Math.abs(dy) < this.epsilon;
-      const isAdjacent =
-        isHorizAligned && Math.abs(dx) - this.spacing < this.epsilon;
-
-      if (!isHorizAligned && !isAdjacent) {
-        if (!groupedByTarget.has(edge.to)) groupedByTarget.set(edge.to, []);
-        groupedByTarget.get(edge.to)!.push(edge);
-      } else {
-        otherEdges.push(edge);
-      }
-    }
-
-    // === Handle merged inter-lane groups ===
-    for (const [targetId, edgesToTarget] of groupedByTarget.entries()) {
-      const to = getNode(targetId);
-      if (!to) continue;
-
-      const x2 = to.x;
-      const y2 = to.y + to.h / 2;
-      const targetLeft = x2;
-      const midX2 = targetLeft - this.straightLen;
-
-      // Shared margin and top-lane geometry
-      let colX = leftColumnBase;
-      while (
-        usedColXs.some((used) => Math.abs(used - colX) < this.minChannelSpacing)
-      ) {
-        colX -= this.minChannelSpacing;
-      }
-      usedColXs.push(colX);
-
-      let arcY2 = y2 - (this.baseOffset + 30); // shared top path inside lane
-      while (
-        usedArcYs.some(
-          (used) => Math.abs(used - arcY2) < this.minChannelSpacing
-        )
-      ) {
-        arcY2 -= this.minChannelSpacing;
-      }
-      usedArcYs.push(arcY2);
-
-      const midX3 = targetLeft - this.straightLen;
-
-      // Shared tail path from left column → top of lane → node
-      const sharedTail = [
-        `L${colX},${arcY2}`,
-        `L${midX3},${arcY2}`,
-        `L${midX3},${y2}`,
-        `L${targetLeft},${y2}`,
-      ];
-
-      // Each source connects to the shared left column
-      for (const edge of edgesToTarget) {
-        const from = getNode(edge.from);
-        if (!from) continue;
-
-        const x1 = from.x + from.w;
-        const y1 = from.y + from.h / 2;
-        const midX1 = x1 + this.straightLen;
-
-        // Determine vertical route to merge point
-        let colY =
-          y1 - (this.baseOffset + Math.abs(x2 - x1) * this.offsetScale);
-        while (
-          usedArcYs.some(
-            (used) => Math.abs(used - colY) < this.minChannelSpacing
-          )
-        ) {
-          colY -= this.minChannelSpacing;
-        }
-        usedArcYs.push(colY);
-
-        const path = [
-          `M${x1},${y1}`,
-          `L${midX1},${y1}`,
-          `L${midX1},${colY}`,
-          `L${colX},${colY}`,
-          ...sharedTail,
-        ].join(" ");
-
-        results.push({
-          path,
-          classList: [
-            "connection",
-            edge.isRemote ? "remote-connection" : "local-connection",
-          ],
-        });
-      }
-    }
-
-    // === Handle all other (in-lane and adjacent) edges ===
-    for (const edge of otherEdges) {
       const from = getNode(edge.from);
       const to = getNode(edge.to);
       if (!from || !to) continue;
@@ -167,36 +91,70 @@ export class RectilinearRouter implements ConnectionRouter {
 
       let path: string;
 
-      if (isAdjacent) {
-        // Simple short connection
+      if (!isHorizAligned) {
+        // =========================
+        // INTER-LANE (between lanes)
+        // Rule:
+        //   - exit source via BOTTOM track
+        //   - go LEFT to margin column
+        //   - vertical along margin to TOP track of target lane
+        //   - RIGHT along TOP track to just before node
+        //   - DOWN to node center and RIGHT into node
+        // =========================
+
+        // Allocate a left margin column X (shared but spaced)
+        const colX = allocateColumnX(leftColumnBase);
+
+        // Desired horizontal offsets (scale with horizontal span)
+        const srcBase = this.baseOffset + Math.abs(dx) * this.offsetScale;
+        const tgtBase = this.baseOffset + 30; // keep target top track visibly separated
+
+        // 1) Source lane BOTTOM track (horizontal)
+        const srcBottomY = placeTrackY(y1, "bottom", srcBase);
+
+        // 2) Target lane TOP track (horizontal)
+        const tgtTopY = placeTrackY(y2, "top", tgtBase);
+
+        // Route per the spec:
+        path = [
+          // From center → down to bottom track of source lane
+          `M${x1},${y1}`,
+          `L${x1},${srcBottomY}`,
+          // Across to left margin
+          `L${colX},${srcBottomY}`,
+          // Along margin to TOP of target lane (can be up or down depending on lanes)
+          `L${colX},${tgtTopY}`,
+          // Across along TOP track of target lane to just before node
+          `L${midX2},${tgtTopY}`,
+          // Down to node center
+          `L${midX2},${y2}`,
+          // Into node
+          `L${targetLeft},${y2}`,
+        ].join(" ");
+      } else if (isAdjacent) {
+        // =========================
+        // INTRA-LANE ADJACENT — mid-lane short
+        // =========================
         path = `M${x1},${y1 + this.adjacentOffsetY} L${x2},${
           y2 + this.adjacentOffsetY
         }`;
       } else {
-        // Normal in-lane arc
-        const arcDir = dx > 0 ? -1 : 1;
-        let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
-        let arcY = y1 + arcDir * arcOffset;
-
-        let attempts = 0;
-        while (
-          usedArcYs.some(
-            (used) => Math.abs(used - arcY) < this.minChannelSpacing
-          ) &&
-          attempts < 20
-        ) {
-          arcOffset += this.minChannelSpacing;
-          arcY = y1 + arcDir * arcOffset;
-          attempts++;
-        }
-        usedArcYs.push(arcY);
+        // =========================
+        // INTRA-LANE (same lane, non-adjacent)
+        // Rule:
+        //   - Left→Right: TOP track
+        //   - Right→Left: BOTTOM track
+        // =========================
+        const trackPos: "top" | "bottom" = dx > 0 ? "top" : "bottom";
+        const base = this.baseOffset + Math.abs(dx) * this.offsetScale;
+        const arcY = placeTrackY(y1, trackPos, base);
 
         path = [
           `M${x1},${y1}`,
-          `L${midX1},${y1}`,
-          `L${midX1},${arcY}`,
-          `L${midX2},${arcY}`,
-          `L${midX2},${y2}`,
+          `L${x1},${arcY}`, // up or down to track
+          `L${midX1},${arcY}`, // short horizontal
+          `L${midX2},${arcY}`, // across lane
+          `L${midX2},${y2}`, // into target centerline
           `L${targetLeft},${y2}`,
         ].join(" ");
       }
