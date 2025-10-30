@@ -66,7 +66,7 @@ export class SlotDragController {
         const targetSlot = slotFromX(p.x - nodeW / 2);
         if (targetSlot !== startSlot) {
           this.store.moveWithinLane(modelId, startLane, startSlot, targetSlot);
-          window.dispatchEvent(new CustomEvent("models:store-updated"));
+          window.dispatchEvent(new CustomEvent("models-graph:store-updated"));
         }
       };
       window.addEventListener("mousemove", onMove);

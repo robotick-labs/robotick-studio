@@ -200,7 +200,7 @@ export class SvgView {
 
         const fire = () =>
           window.dispatchEvent(
-            new CustomEvent("models:plus-click", {
+            new CustomEvent("models-graph:plus-click", {
               detail: { sectionIndex: s.index, laneIndex: lane },
             })
           );

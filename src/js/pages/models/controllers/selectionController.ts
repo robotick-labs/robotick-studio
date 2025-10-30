@@ -10,7 +10,7 @@ export class SelectionController {
       if (g?.id) {
         editorState.selection = g.id;
         window.dispatchEvent(
-          new CustomEvent("models:selection-changed", {
+          new CustomEvent("models-graph:selection-changed", {
             detail: { nodeId: g.id },
           })
         );
