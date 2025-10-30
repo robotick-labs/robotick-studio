@@ -189,20 +189,20 @@
   stroke: #aaa;
 }
 
-/* --- Add-button (minimal) --- */
+/* --- Add-button --- */
 .plus-slot {
   cursor: pointer;
 }
 
 .plus-slot .workload.plus {
-  fill: rgba(21, 76, 39, 0.5); /* #154c27 */
-  stroke: rgba(89, 192, 122, 0.5); /* #59c07a */
+  fill: rgba(60, 60, 60, 0.5); /* medium grey fill */
+  stroke: rgba(180, 180, 180, 0.5); /* light grey stroke */
   stroke-width: 2;
   rx: 6; /* match node rounding */
 }
 
 .plus-slot text {
-  fill: rgba(207, 234, 215, 0.5); /* #cfead7 */
+  fill: rgba(220, 220, 220, 0.5); /* very light grey text */
   font-weight: 700;
   font-size: 18px;
   dominant-baseline: middle;
@@ -210,6 +210,6 @@
 }
 
 .plus-slot:hover .workload.plus {
-  fill: rgba(26, 95, 49, 0.5); /* #1a5f31 */
-  stroke: rgba(122, 224, 154, 0.5); /* #7ae09a */
+  fill: rgba(85, 85, 85, 0.5); /* slightly lighter on hover */
+  stroke: rgba(220, 220, 220, 0.5); /* brighter grey stroke */
 }

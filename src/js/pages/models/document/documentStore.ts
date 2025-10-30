@@ -1,4 +1,9 @@
-import type { ModelData, Workload } from "./modelData";
+import type { ModelData } from "./modelData";
+
+export interface WorkloadSpec {
+  name: string;
+  type?: string;
+}
 
 export class ModelStore {
   private listeners = new Set<() => void>();
@@ -15,7 +20,6 @@ export class ModelStore {
   entries(): IterableIterator<[string, ModelData]> {
     return this.models.entries();
   }
-
   private models = new Map<string, ModelData>();
   version = 0;
 
@@ -30,7 +34,6 @@ export class ModelStore {
   getModelIds(): string[] {
     return [...this.models.keys()].sort();
   }
-
   get(modelId: string): ModelData | undefined {
     return this.models.get(modelId);
   }
@@ -78,30 +81,30 @@ export class ModelStore {
     modelId: string,
     laneIndex: number,
     slot: number,
-    workload: Workload
+    spec: WorkloadSpec
   ) {
     const m = this.models.get(modelId)!;
-    if (!m.workloads.find((w) => w.name === workload.name)) {
-      m.workloads.push(workload);
+    if (!m.workloads.find((w) => w.name === spec.name)) {
+      m.workloads.push({ name: spec.name, type: spec.type });
     }
     const names = this.laneChildren(modelId, laneIndex);
     const clamped = Math.max(0, Math.min(slot, names.length));
-    names.splice(clamped, 0, workload.name);
+    names.splice(clamped, 0, spec.name);
     this.setLaneChildren(modelId, laneIndex, names);
   }
 
-  rename(modelId: string, oldName: string, newName: string) {
+  rename(modelId: string, oldName: string, next: string) {
     const m = this.models.get(modelId)!;
     const w = m.workloads.find((x) => x.name === oldName);
     if (!w) return;
-    w.name = newName;
+    w.name = next;
     for (const ww of m.workloads) {
       if (ww.children)
-        ww.children = ww.children.map((n) => (n === oldName ? newName : n));
+        ww.children = ww.children.map((n) => (n === oldName ? next : n));
     }
     for (const c of m.connections ?? []) {
-      c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${newName}.`);
-      c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${newName}.`);
+      c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${next}.`);
+      c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${next}.`);
     }
     this.version++;
     this.notify();

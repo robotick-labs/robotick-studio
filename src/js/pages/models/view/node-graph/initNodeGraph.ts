@@ -95,11 +95,11 @@ export function initNodeGraph(
   };
 
   window.addEventListener(
-    "models:plus-click",
+    "models-graph:plus-click",
     plusClickHandler as EventListener
   );
   window.addEventListener(
-    "models:rename-requested",
+    "models-graph:rename-requested",
     renameHandler as EventListener
   );
 
@@ -116,11 +116,11 @@ export function initNodeGraph(
     // Clean up all listeners we installed
     unsubscribeStore?.();
     window.removeEventListener(
-      "models:plus-click",
+      "models-graph:plus-click",
       plusClickHandler as EventListener
     );
     window.removeEventListener(
-      "models:rename-requested",
+      "models-graph:rename-requested",
       renameHandler as EventListener
     );
     // If you later add controller-level detach(), call them here.
