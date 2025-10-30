@@ -110,8 +110,18 @@
 .connection {
   fill: none;
   stroke-width: 2;
+  pointer-events: none; /* disable direct hover */
 }
 
+/* Hover zone path */
+.connection-hover-area {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16; /* makes hover hit area wider */
+  pointer-events: stroke; /* only reacts to hovering over stroke */
+}
+
+/* Visible lines */
 .local-connection {
   stroke: orange;
   stroke-dasharray: 4 4;
@@ -122,6 +132,11 @@
   stroke: green;
   stroke-dasharray: 1 3 6 3;
   animation: dash-shift 2s linear infinite;
+}
+
+/* Glow when group is hovered */
+.connection-group:hover .connection {
+  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 6px currentColor);
 }
 
 @keyframes dash-shift {

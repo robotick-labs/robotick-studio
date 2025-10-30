@@ -134,13 +134,26 @@ export class SvgView {
     );
 
     for (const e of edges) {
-      const path = document.createElementNS(
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.classList.add("connection-group");
+
+      const hoverPath = document.createElementNS(
         "http://www.w3.org/2000/svg",
         "path"
       );
-      path.setAttribute("d", e.path);
-      path.classList.add(...e.classList);
-      this.layers.edges.appendChild(path);
+      hoverPath.setAttribute("d", e.path);
+      hoverPath.classList.add("connection-hover-area");
+
+      const visiblePath = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "path"
+      );
+      visiblePath.setAttribute("d", e.path);
+      visiblePath.classList.add("connection", ...e.classList);
+
+      g.appendChild(hoverPath);
+      g.appendChild(visiblePath);
+      this.layers.edges.appendChild(g);
     }
   }
 
