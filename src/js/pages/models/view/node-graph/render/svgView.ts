@@ -28,15 +28,30 @@ export class SvgView {
   ) {}
 
   render(doc: GraphDoc): void {
-    // this.svg.setAttribute("width", String(width));
-    // this.svg.setAttribute("height", String(height));
-    // this.svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-
-    this.renderSwimlanes(doc.sections, width);
+    // Step 1: render all content first
     this.renderSectionLabels(doc.sections);
     this.renderNodes(doc);
     this.renderEdges(doc);
     this.drawPlusButtons(doc.sections);
+
+    // Step 2: measure actual bounding box
+    const margin = 40;
+    const bounds = this.svg.getBBox();
+
+    const viewX = Math.floor(bounds.x) - margin;
+    const viewY = Math.floor(bounds.y) - margin;
+    const viewWidth = Math.ceil(bounds.width) + margin * 2;
+    const viewHeight = Math.ceil(bounds.height) + margin * 2;
+
+    this.svg.setAttribute("width", String(viewWidth));
+    this.svg.setAttribute("height", String(viewHeight));
+    this.svg.setAttribute(
+      "viewBox",
+      `${viewX} ${viewY} ${viewWidth} ${viewHeight}`
+    );
+
+    // Step 3: re-render swimlanes with final width
+    this.renderSwimlanes(doc.sections, viewWidth);
   }
 
   private renderSwimlanes(sections: Section[], canvasWidth: number): void {
