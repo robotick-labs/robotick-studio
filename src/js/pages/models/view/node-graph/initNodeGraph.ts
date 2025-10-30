@@ -54,5 +54,38 @@ export function initNodeGraph(
     new SlotDragController(svgEl, doc, view, store).attachAll();
   };
 
+  // react to store changes
+  store.subscribe(render);
+
+  // graph-specific events live here
+  
+  window.addEventListener("models:plus-click", (e: any) => {
+    const { sectionIndex, laneIndex } = e.detail;
+    const section = doc.sections[sectionIndex];
+    const modelId = section.modelId;
+    const nextName = suggestName(store, modelId, "NewWorkload");
+    store.insertAt(modelId, laneIndex, section.maxNodes, {
+      name: nextName,
+      type: "TemplateWorkload",
+    });
+  });
+
+  window.addEventListener("models:rename-requested", (e: any) => {
+    const { nodeId, newName } = e.detail;
+    const n = doc.getNode(nodeId);
+    if (!n) return;
+    const modelId = n.meta?.modelId!;
+    store.rename(modelId, n.label, newName);
+  });
+
   return { svg: svgEl, view, render, attachControllers };
 }
+
+function suggestName(store: ModelStore, modelId: string, base: string): string {
+  let i = 1;
+  const m = store.get(modelId)!;
+  const exists = (name: string) => m.workloads.some((w) => w.name === name);
+  while (exists(`${base}${i}`)) i++;
+  return `${base}${i}`;
+}
+

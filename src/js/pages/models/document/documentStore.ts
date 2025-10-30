@@ -6,6 +6,16 @@ export interface WorkloadSpec {
 }
 
 export class ModelStore {
+  private listeners = new Set<() => void>();
+
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify() { this.listeners.forEach(l => l()); }
+
+  entries(): IterableIterator<[string, ModelData]> { return this.models.entries(); }
   private models = new Map<string, ModelData>();
   version = 0;
 
@@ -13,7 +23,7 @@ export class ModelStore {
     this.models.clear();
     for (const m of models)
       this.models.set(m.modelPath, structuredClone(m.data));
-    this.version++;
+    this.version++; this.notify();
   }
 
   getModelIds(): string[] {
@@ -44,7 +54,7 @@ export class ModelStore {
       parent.children = [parent.name];
     }
     parent.children = names;
-    this.version++;
+    this.version++; this.notify();
   }
 
   moveWithinLane(
@@ -90,6 +100,6 @@ export class ModelStore {
       c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${next}.`);
       c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${next}.`);
     }
-    this.version++;
+    this.version++; this.notify();
   }
 }

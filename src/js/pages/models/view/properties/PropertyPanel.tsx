@@ -1,17 +1,32 @@
 import React from "react";
-import { editorState } from "../../controllers/editorState";
-import { GraphDoc } from "../node-graph/editorNodeGraph";
+import { ModelStore } from "../../document/documentStore";
+import { useSelection } from "../../document/editorSelectionStore";
 
-type PropertyPanelProps = {
-  doc: GraphDoc;
-};
+type PropertyPanelProps = { store: ModelStore };
 
-export const PropertyPanel: React.FC<PropertyPanelProps> = ({ doc }) => {
-  const id = editorState.selection;
-  const node = id ? doc.getNode(id) : null;
-  const workload = node?.workload;
+export const PropertyPanel: React.FC<PropertyPanelProps> = ({ store }) => {
+  const selectedId = useSelection();
+  let workload: any = null;
+  let workloadType: string | undefined;
 
-  if (!node || node.kind !== "workload" || !workload) {
+  if (selectedId) {
+    const [base, wname] = selectedId.split(":", 2);
+    if (base && wname) {
+      for (const [modelId, model] of store.entries()) {
+        const modelBase = modelId
+          .split("/")
+          .pop()
+          ?.replace(/\.model\.yaml$/, "");
+        if (modelBase === base) {
+          workload = model.workloads.find((w: any) => w.name === wname) || null;
+          if (workload) workloadType = workload.type;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!workload) {
     return (
       <div>
         <h3>Properties</h3>
@@ -23,7 +38,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({ doc }) => {
     <div>
       <h3>
         Properties{" "}
-        <span style={{ fontWeight: "normal" }}>| {workload.type}</span>
+        <span style={{ fontWeight: "normal" }}>| {workloadType}</span>
       </h3>
 
       <PropertySection
