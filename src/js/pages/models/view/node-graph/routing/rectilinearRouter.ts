@@ -8,56 +8,115 @@ export class RectilinearRouter implements ConnectionRouter {
     private straightLen = 15,
     private baseOffset = 25,
     private offsetScale = 0.04,
-    private adjacentOffsetY = 5
+    private adjacentOffsetY = 5,
+    private minChannelSpacing = 6,
+    private leftMargin = 100
   ) {}
-
-  route(from: Node, to: Node): string {
-    const x1 = from.x + from.w;
-    const y1 = from.y + from.h / 2;
-    const x2 = to.x;
-    const y2 = to.y + to.h / 2;
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const isHorizAligned = Math.abs(dy) < this.epsilon;
-    const isAdjacent =
-      isHorizAligned && Math.abs(dx) - this.spacing < this.epsilon;
-
-    if (isAdjacent) {
-      return `M${x1},${y1 + this.adjacentOffsetY} L${x2},${
-        y2 + this.adjacentOffsetY
-      }`;
-    }
-
-    const midX1 = x1 + this.straightLen;
-    const midX2 = x2 - this.straightLen;
-
-    const offset = this.baseOffset + Math.abs(dx) * this.offsetScale;
-    const arcDir = dy === 0 && dx > 0 ? -1 : 1;
-    const arcY = y1 + arcDir * offset;
-
-    return [
-      `M${x1},${y1}`,
-      `L${midX1},${y1}`,
-      `L${midX1},${arcY}`,
-      `L${midX2},${arcY}`,
-      `L${midX2},${y2}`,
-      `L${x2},${y2}`,
-    ].join(" ");
-  }
 
   routeAll(
     edges: Edge[],
     getNode: (id: string) => Node | undefined
   ): RoutedEdge[] {
-    const results = [];
+    const results: RoutedEdge[] = [];
+    const usedArcYs: number[] = [];
+
+    // Compute far-left margin X
+    const allNodes = new Set<Node>();
+    for (const edge of edges) {
+      const from = getNode(edge.from);
+      const to = getNode(edge.to);
+      if (from) allNodes.add(from);
+      if (to) allNodes.add(to);
+    }
+
+    const minX = Math.min(...Array.from(allNodes).map((n) => n.x));
+    const leftColumnX = minX - this.leftMargin;
 
     for (const edge of edges) {
       const from = getNode(edge.from);
       const to = getNode(edge.to);
       if (!from || !to) continue;
 
-      const path = this.route(from, to);
+      const x1 = from.x + from.w;
+      const y1 = from.y + from.h / 2;
+      const x2 = to.x;
+      const y2 = to.y + to.h / 2;
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const isHorizAligned = Math.abs(dy) < this.epsilon;
+      const isAdjacent =
+        isHorizAligned && Math.abs(dx) - this.spacing < this.epsilon;
+
+      const targetLeft = to.x;
+      const midX1 = x1 + this.straightLen;
+      const midX2 = targetLeft - this.straightLen;
+
+      let path: string;
+
+      if (isAdjacent) {
+        path = `M${x1},${y1 + this.adjacentOffsetY} L${x2},${
+          y2 + this.adjacentOffsetY
+        }`;
+      } else if (!isHorizAligned) {
+        // INTER-LANE — force via leftColumn
+        const arcDir = dx > 0 ? -1 : 1;
+        let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
+        let colY = y1 + arcDir * arcOffset;
+
+        let attempts = 0;
+        while (
+          usedArcYs.some(
+            (used) => Math.abs(used - colY) < this.minChannelSpacing
+          ) &&
+          attempts < 20
+        ) {
+          arcOffset += this.minChannelSpacing;
+          colY = y1 + arcDir * arcOffset;
+          attempts++;
+        }
+
+        usedArcYs.push(colY);
+
+        path = [
+          `M${x1},${y1}`,
+          `L${midX1},${y1}`,
+          `L${midX1},${colY}`,
+          `L${leftColumnX},${colY}`,
+          `L${leftColumnX},${y2}`,
+          `L${midX2},${y2}`,
+          `L${targetLeft},${y2}`,
+        ].join(" ");
+      } else {
+        // IN-LANE — arc above or below depending on direction
+        const arcDir = dx > 0 ? -1 : 1;
+        let arcOffset = this.baseOffset + Math.abs(dx) * this.offsetScale;
+        let arcY = y1 + arcDir * arcOffset;
+
+        let attempts = 0;
+        while (
+          usedArcYs.some(
+            (used) => Math.abs(used - arcY) < this.minChannelSpacing
+          ) &&
+          attempts < 20
+        ) {
+          arcOffset += this.minChannelSpacing;
+          arcY = y1 + arcDir * arcOffset;
+          attempts++;
+        }
+
+        usedArcYs.push(arcY);
+
+        path = [
+          `M${x1},${y1}`,
+          `L${midX1},${y1}`,
+          `L${midX1},${arcY}`,
+          `L${midX2},${arcY}`,
+          `L${midX2},${y2}`,
+          `L${targetLeft},${y2}`,
+        ].join(" ");
+      }
+
       results.push({
         path,
         classList: [

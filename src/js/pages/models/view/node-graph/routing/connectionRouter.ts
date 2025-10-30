@@ -6,7 +6,6 @@ export interface RoutedEdge {
 }
 
 export interface ConnectionRouter {
-  route(from: Node, to: Node): string;
   routeAll(
     edges: Edge[],
     getNode: (id: string) => Node | undefined
