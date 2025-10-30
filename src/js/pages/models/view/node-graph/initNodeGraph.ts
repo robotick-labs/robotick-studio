@@ -3,7 +3,7 @@ import { GraphDoc } from "./editorNodeGraph";
 import { createSvgLayers, SvgView } from "./svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
-import { buildGraphDocFromModel } from "./layout/project";
+import { buildGraphDocFromModel } from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
 
