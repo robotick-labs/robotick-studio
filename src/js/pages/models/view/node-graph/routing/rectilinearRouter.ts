@@ -9,7 +9,7 @@ export class RectilinearRouter implements ConnectionRouter {
     private baseOffset = 25,
     private offsetScale = 0.04,
     private adjacentOffsetY = 5,
-    private minChannelSpacing = 6,
+    private minChannelSpacing = 4,
     private leftMargin = 25
   ) {}
 
