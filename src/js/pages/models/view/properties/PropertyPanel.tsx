@@ -1,8 +1,8 @@
 import React from "react";
-import { ModelStore } from "../../document/documentStore";
+import { DocumentStore } from "../../document/documentStore";
 import { useSelection } from "../../document/editorSelectionStore";
 
-type PropertyPanelProps = { store: ModelStore };
+type PropertyPanelProps = { store: DocumentStore };
 
 export const PropertyPanel: React.FC<PropertyPanelProps> = ({ store }) => {
   const selectedId = useSelection();

@@ -2,7 +2,7 @@
 import { GraphDoc } from "./editorNodeGraph";
 import { createSvgLayers, SvgView } from "./svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";
-import { ModelStore } from "../../document/documentStore";
+import { DocumentStore } from "../../document/documentStore";
 import { buildGraphDocFromModel } from "./layout/project";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
@@ -28,7 +28,7 @@ export type NodeGraphAPI = {
 
 export function initNodeGraph(
   svgSelector: string,
-  store: ModelStore
+  store: DocumentStore
 ): NodeGraphAPI {
   const svgEl = document.querySelector(svgSelector);
   if (!svgEl || !(svgEl instanceof SVGSVGElement)) {
@@ -139,7 +139,11 @@ export function initNodeGraph(
   };
 }
 
-function suggestName(store: ModelStore, modelId: string, base: string): string {
+function suggestName(
+  store: DocumentStore,
+  modelId: string,
+  base: string
+): string {
   let i = 1;
   const m = store.get(modelId)!;
   const exists = (name: string) => m.workloads.some((w) => w.name === name);

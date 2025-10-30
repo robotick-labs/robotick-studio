@@ -5,7 +5,7 @@ export interface WorkloadSpec {
   type?: string;
 }
 
-export class ModelStore {
+export class DocumentStore {
   private listeners = new Set<() => void>();
 
   subscribe(listener: () => void) {

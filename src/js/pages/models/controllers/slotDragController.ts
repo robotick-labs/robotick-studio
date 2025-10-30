@@ -1,6 +1,6 @@
 import type { GraphDoc } from "../view/node-graph/editorNodeGraph";
 import type { SvgView } from "../view/node-graph/svgView";
-import { ModelStore } from "../document/documentStore";
+import { DocumentStore } from "../document/documentStore";
 
 const startX = 120,
   spacing = 180,
@@ -16,7 +16,7 @@ export class SlotDragController {
     private svg: SVGSVGElement,
     private doc: GraphDoc,
     private view: SvgView,
-    private store: ModelStore
+    private store: DocumentStore
   ) {}
 
   attachAll(): void {
