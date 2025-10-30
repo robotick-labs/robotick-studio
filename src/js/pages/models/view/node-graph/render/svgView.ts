@@ -69,7 +69,7 @@ export class SvgView {
         rect.setAttribute("rx", "6");
         rect.setAttribute("ry", "6");
         rect.setAttribute("width", String(canvasWidth - marginX * 2));
-        rect.setAttribute("height", String(section.laneHeight));
+        rect.setAttribute("height", String(section.laneHeight + 1));
         this.layers.swim.appendChild(rect);
 
         const label = document.createElementNS(
