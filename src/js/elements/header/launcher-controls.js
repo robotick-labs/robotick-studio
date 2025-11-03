@@ -1,6 +1,10 @@
 import currentProject from "../../core/current-project.js";
 import dots from "./launcher-dots.js";
 
+// event-bus (exported so other systems can listen for run/stop events)
+const launcherEvents = new EventTarget();
+export { launcherEvents };
+
 let playStopButton = null;
 let restartButton = null;
 
@@ -131,6 +135,8 @@ async function requestPlay() {
   }
 
   try {
+    launcherEvents.dispatchEvent(new Event("run-requested"));
+
     const res = await fetch(
       `http://localhost:7081/launcher/run?project_path=${encodeURIComponent(
         projectPath
@@ -152,6 +158,8 @@ async function requestPlay() {
 
 async function requestStop() {
   try {
+    launcherEvents.dispatchEvent(new Event("stop-requested"));
+
     const res = await fetch("http://localhost:7081/launcher/stop", {
       method: "POST",
     });

@@ -1,7 +1,8 @@
+import { launcherEvents } from "../../elements/header/launcher-controls.js";
+
 let ansiUp = null;
 let ws = null;
-
-let accumulatedMessages = "";
+let allMessages = []; // Keep raw messages for filtering
 
 export async function init() {
   if (!ansiUp) {
@@ -16,18 +17,50 @@ export async function init() {
     return;
   }
 
-  ws = new WebSocket("ws://localhost:7081/launcher/ws/log");
   const log = document.getElementById("log");
   const container = document.querySelector(".terminal-container");
+  const filterBox = document.getElementById("log-filter");
+  const clearOnRun = document.getElementById("clear-on-run");
+
+  ws = new WebSocket("ws://localhost:7081/launcher/ws/log");
 
   ws.onmessage = (event) => {
-    const html = ansiUp.ansi_to_html(event.data);
-    log.insertAdjacentHTML("beforeend", html + "<br>");
+    const text = event.data;
+    allMessages.push(text);
+    appendMessage(text);
+  };
 
+  function appendMessage(text) {
+    const filter = filterBox.value.trim().toLowerCase();
+    if (filter && !text.toLowerCase().includes(filter)) return;
+
+    const html = ansiUp.ansi_to_html(text);
+    log.insertAdjacentHTML("beforeend", html + "<br>");
     requestAnimationFrame(() => {
       container.scrollTop = container.scrollHeight;
     });
-  };
+  }
+
+  // === Filter logic ===
+  filterBox.addEventListener("input", () => {
+    log.innerHTML = "";
+    const filter = filterBox.value.trim().toLowerCase();
+    for (const msg of allMessages) {
+      if (!filter || msg.toLowerCase().includes(filter)) {
+        const html = ansiUp.ansi_to_html(msg);
+        log.insertAdjacentHTML("beforeend", html + "<br>");
+      }
+    }
+  });
+
+  // === Clear on run ===
+  launcherEvents.addEventListener("run-requested", () => {
+    if (clearOnRun.checked) {
+      allMessages = [];
+      log.innerHTML = "";
+      console.log("[Console] Log cleared (on run)");
+    }
+  });
 }
 
 export function uninit() {
