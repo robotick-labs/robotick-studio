@@ -21,6 +21,7 @@ export async function init() {
   const container = document.querySelector(".terminal-container");
   const filterBox = document.getElementById("log-filter");
   const clearOnRun = document.getElementById("clear-on-run");
+  const wrapText = document.getElementById("wrap-text");
 
   ws = new WebSocket("ws://localhost:7081/launcher/ws/log");
 
@@ -61,6 +62,18 @@ export async function init() {
       console.log("[Console] Log cleared (on run)");
     }
   });
+
+  // === Toggle text wrapping ===
+  wrapText.addEventListener("change", () => {
+    if (wrapText.checked) {
+      log.style.whiteSpace = "pre-wrap";
+    } else {
+      log.style.whiteSpace = "pre";
+    }
+  });
+
+  // Ensure correct initial state
+  log.style.whiteSpace = wrapText.checked ? "pre-wrap" : "pre";
 }
 
 export function uninit() {
