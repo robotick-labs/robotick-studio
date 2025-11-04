@@ -7,12 +7,12 @@ export function TelemetryWorkload({ w }: { w: Workload }) {
   const rawSelf = typeof w.self_ms === "number" ? w.self_ms : null;
   const rawGoal = typeof w.goal_ms === "number" ? w.goal_ms : null;
 
-  const self_ms = rawSelf !== null ? rawSelf.toFixed(1) : "–";
-  const dt_ms = typeof w.dt_ms === "number" ? w.dt_ms.toFixed(1) : "–";
-  const goal_ms = rawGoal !== null ? rawGoal.toFixed(1) : "–";
+  const self_ms = rawSelf !== null ? rawSelf.toFixed(3) : "–";
+  const dt_ms = typeof w.dt_ms === "number" ? w.dt_ms.toFixed(3) : "–";
+  const goal_ms = rawGoal !== null ? rawGoal.toFixed(3) : "–";
   const load_pct =
     rawSelf !== null && rawGoal && rawGoal > 0
-      ? ((rawSelf / rawGoal) * 100).toFixed(1)
+      ? ((rawSelf / rawGoal) * 100).toFixed(2)
       : "–";
 
   let usageClass = "";
