@@ -37,6 +37,7 @@ export interface DecodedField {
 }
 
 export interface DecodedWorkload {
+  type?: string;
   config?: Record<string, DecodedField>;
   inputs?: Record<string, DecodedField>;
   outputs?: Record<string, DecodedField>;
@@ -60,11 +61,12 @@ export async function fetchRawBuffer(
   try {
     const resp = await fetch(`${baseUrl}/api/telemetry/workloads_buffer/raw`, {
       cache: "no-store",
+      keepalive: true,
     });
 
     if (resp.ok) {
       const buffer = await resp.arrayBuffer();
-      const sessionId = resp.headers.get("X-Robotick-Session-ID");
+      const sessionId = resp.headers.get("X-Robotick-Session-Id");
       return { buffer, sessionId };
     }
   } catch {
@@ -175,8 +177,10 @@ export function decodeTelemetry(
   const workloads: Record<string, DecodedWorkload> = {};
 
   for (const workload of layout.workloads) {
-    const w: DecodedWorkload = {};
+    const decoded_workload: DecodedWorkload = {};
     const base = workload.offset_within_container;
+
+    decoded_workload.type = (workload as any)["type"];
 
     for (const section_name of ["config", "inputs", "outputs"]) {
       const section = (workload as any)[section_name];
@@ -188,11 +192,11 @@ export function decodeTelemetry(
       ) {
         const absOffset = base + section.offset_within_container;
         const decodedStruct = decodeStruct(section.type, absOffset);
-        (w as any)[section_name] = decodedStruct;
+        (decoded_workload as any)[section_name] = decodedStruct;
       }
     }
 
-    workloads[workload.name] = w;
+    workloads[workload.name] = decoded_workload;
   }
 
   return workloads;

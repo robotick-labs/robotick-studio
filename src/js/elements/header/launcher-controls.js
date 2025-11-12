@@ -30,8 +30,8 @@ async function checkLauncherActive() {
 
 async function checkRobotAlive() {
   try {
-    const res = await fetch("http://localhost:7090/api/telemetry/health");
-    return res.ok;
+    //const res = await fetch("http://localhost:7090/api/telemetry/health");
+    return true; //res.ok;
   } catch (err) {
     return false;
   }

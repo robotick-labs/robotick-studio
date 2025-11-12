@@ -1,10 +1,6 @@
 // src/js/pages/telemetry/polling.ts
 // -----------------------------------------------------------------------------
-// Robotick unified telemetry polling (using telemetry-client.ts)
-// -----------------------------------------------------------------------------
-// The classic workload/config/input/output JSON endpoints are gone.
-// Instead, this version uses fetchLayout() + fetchRawBuffer() + decodeTelemetry()
-// to retrieve all workload data in one go.
+// Robotick unified telemetry polling (global-coordinated, smooth cadence)
 // -----------------------------------------------------------------------------
 
 import currentProject from "../../core/current-project.js";
@@ -16,7 +12,7 @@ import {
   TelemetryLayout,
 } from "./telemetry-client";
 
-const LIVE_SLEEP_MS = 50; // UI poll cadence (20 Hz)
+const LIVE_SLEEP_MS = 50; // 20Hz UI cadence; change if needed
 
 // -----------------------------------------------------------------------------
 // Utilities
@@ -136,7 +132,7 @@ export function mutateEngine(
       if (e.model.instanceURL !== url) return e;
       const clone: EngineState = {
         ...e,
-        workloads: e.workloads.map((w) => ({ ...w })),
+        workloads: e.workloads,
         pollingController: e.pollingController,
         livePollingController: e.livePollingController,
       };
@@ -149,93 +145,123 @@ export function mutateEngine(
   return nextCapture;
 }
 
-export function getEngineSnapshot(
-  setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>,
-  url: string
-): EngineState | undefined {
-  let snap: EngineState | undefined;
-  setEngines((prev) => {
-    snap = prev.find((e) => e.model.instanceURL === url);
-    return prev;
-  });
-  return snap;
-}
-
 export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function nowMs() {
-  return Date.now();
-}
-
 // -----------------------------------------------------------------------------
-// Main polling loop
+// GLOBAL polling loop (replaces per-engine startLivePolling())
 // -----------------------------------------------------------------------------
 
 export async function startLivePolling(
-  state: EngineState,
+  engines: EngineState[],
   setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
 ) {
-  const url = state.model.instanceURL;
-  const signal = state.livePollingController.signal;
+  const globalController = new AbortController();
+  const signal = globalController.signal;
 
-  let layout: TelemetryLayout | null = null;
-  let lastSessionId: string | null = null;
+  // Per-engine layout + session caches
+  const layouts: Record<string, TelemetryLayout | null> = {};
+  const sessionIds: Record<string, string | null> = {};
 
   try {
-    while (true) {
-      if (signal.aborted) return;
+    while (!signal.aborted) {
+      const frameStart = performance.now();
+      const t0 = performance.now();
 
-      // Refresh layout if never fetched or session changes
-      if (!layout) {
-        layout = await fetchLayout(url);
-      }
+      // TEMP: limit how many engines we poll per frame (for testing)
+      // Later, replace with e.g. `const activeEngines = engines.filter(e => e.isExpanded)`
+      const limitedEngines = engines.slice(0, 2); // poll first 2 only for now
 
-      // Fetch raw buffer with session heade
-      const { buffer, sessionId } = await fetchRawBuffer(url);
-      if (!buffer || buffer.byteLength === 0) {
-        await sleep(500);
-        continue;
-      }
+      // Fetch/decode all selected engines in parallel
+      const results = await Promise.all(
+        limitedEngines.map(async (engine) => {
+          const url = engine.model.instanceURL;
+          const tA = performance.now();
 
-      if (sessionId !== lastSessionId) {
-        layout = await fetchLayout(url);
-        lastSessionId = sessionId;
-      }
+          // Cached layout fetch
+          let layout = layouts[url];
+          if (!layout) {
+            layout = await fetchLayout(url);
+            layouts[url] = layout;
+          }
 
-      const decoded = layout ? decodeTelemetry(layout, buffer) : {};
+          const tB = performance.now();
+          const { buffer, sessionId } = await fetchRawBuffer(url);
+          const tC = performance.now();
 
-      // Apply updates to engine state
-      mutateEngine(setEngines, url, (engineState) => {
-        engineState.canLivePoll = true;
-        engineState.hasInitialWorkloads = true;
-        engineState.workloads = [];
+          // Refresh layout if session changes
+          if (sessionIds[url] && sessionIds[url] !== sessionId) {
+            layout = await fetchLayout(url);
+            layouts[url] = layout;
+          }
+          sessionIds[url] = sessionId;
 
-        for (const [name, w] of Object.entries(decoded)) {
-          const outputs = w.outputs;
-          const inputs = w.inputs;
-          const config = w.config;
-          const dt_ms = (w.stats?.dt_ms as number) ?? null;
-          const goal_ms = (w.stats?.goal_ms as number) ?? null;
-          const self_ms = (w.stats?.self_ms as number) ?? null;
+          // Decode
+          let decoded: any = {};
+          if (layout && buffer && buffer.byteLength) {
+            const tD = performance.now();
+            decoded = decodeTelemetry(layout, buffer);
+            const tE = performance.now();
+            console.log(
+              `[${url}] layout=${(tB - tA).toFixed(1)} raw=${(tC - tB).toFixed(
+                1
+              )} decode=${(tE - tD).toFixed(1)}`
+            );
+          }
 
-          engineState.workloads.push({
-            name,
-            type: w.type,
-            dt_ms,
-            goal_ms,
-            self_ms,
-            config,
-            inputs,
-            outputs,
-          });
-        }
-      });
+          return { url, decoded };
+        })
+      );
 
-      await sleep(LIVE_SLEEP_MS);
+      const tFetch = performance.now();
+
+      // Apply all updates in one React state change
+      setEngines((prev) =>
+        prev.map((engine) => {
+          const entry = results.find((r) => r.url === engine.model.instanceURL);
+          if (!entry || !entry.decoded) return engine;
+
+          const decoded = entry.decoded;
+          const workloads = [...engine.workloads];
+
+          for (const [name, d] of Object.entries(decoded)) {
+            const idx = workloads.findIndex((w) => w.name === name);
+            const patch: Partial<TelemetryWorkload> = {
+              type: (d as any).type,
+              config: (d as any).config,
+              inputs: (d as any).inputs,
+              outputs: (d as any).outputs,
+              self_ms: (d as any).stats?.self_ms ?? null,
+              dt_ms: (d as any).stats?.dt_ms ?? null,
+              goal_ms: (d as any).stats?.goal_ms ?? null,
+            };
+            if (idx >= 0) workloads[idx] = { ...workloads[idx], ...patch };
+            else workloads.push({ name, ...patch } as TelemetryWorkload);
+          }
+
+          return {
+            ...engine,
+            workloads,
+            canLivePoll: true,
+            hasInitialWorkloads: true,
+          };
+        })
+      );
+
+      const tAfterSet = performance.now();
+      console.log(
+        `[telemetry] fetch=${(tFetch - t0).toFixed(1)}ms  react=${(
+          tAfterSet - tFetch
+        ).toFixed(1)}ms`
+      );
+
+      // Maintain even cadence (~20Hz)
+      const elapsed = performance.now() - frameStart;
+      await sleep(Math.max(0, LIVE_SLEEP_MS - elapsed));
     }
-  } catch (e: any) {
-    if (e?.name !== "AbortError") console.error("Live polling error:", e);
+  } catch (err) {
+    if (signal.aborted) return;
+    console.error("Global polling stopped:", err);
   }
 }

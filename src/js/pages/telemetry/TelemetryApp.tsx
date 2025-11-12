@@ -28,9 +28,7 @@ export function TelemetryApp() {
       if (cancelled) return;
       setEngines(initial);
 
-      initial.forEach((state) => {
-        startLivePolling(state, setEngines);
-      });
+      startLivePolling(initial, setEngines);
     })();
 
     return () => {
