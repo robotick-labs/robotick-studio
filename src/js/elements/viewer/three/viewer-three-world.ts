@@ -581,33 +581,32 @@ export class ViewerWorld {
 
   // ---------- mapping ----------
 
-  // Traverses a nested object following a dot-separated path (e.g. "a.b.c")
-  // and returns the corresponding value, or undefined if any key is missing.
-
   /**
-   * Returns a top-level member of a DecodedWorkload by name,
-   * e.g. "outputs" or "inputs". Returns undefined if not found.
+   * Traverses a nested object (e.g. DecodedWorkload) using a dot-separated path
+   * like "outputs.body_orientation.w" and returns the corresponding value.
+   * Returns undefined if any part of the path is missing.
    */
-  private getNestedField(obj: any, path: string): any {
-    if (!obj || typeof obj !== "object") {
+  private getNestedField(sourceObject: any, fieldPath: string): any {
+    if (!sourceObject || typeof sourceObject !== "object") {
       return undefined;
     }
 
-    const keys = path.split(".");
-    let acc: any = obj;
+    const pathSegments = fieldPath.split(".");
+    let currentValue: any = sourceObject;
 
-    for (const key of keys) {
-      const before = acc;
-      const next =
-        acc && typeof acc === "object" && key in acc ? acc[key] : undefined;
-
-      acc = next;
-      if (acc === undefined) {
-        break;
+    for (const segment of pathSegments) {
+      if (
+        currentValue &&
+        typeof currentValue === "object" &&
+        segment in currentValue
+      ) {
+        currentValue = currentValue[segment];
+      } else {
+        return undefined; // stop early if path is invalid
       }
     }
 
-    return acc;
+    return currentValue;
   }
 
   private applyFieldsData(

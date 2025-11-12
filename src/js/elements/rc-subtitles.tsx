@@ -5,8 +5,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 
-const TELEMETRY_URL =
-  "http://localhost:7091/api/telemetry/workload/outputs?name=rsc_mind_test";
+import { getWorkloadOutputFields } from "../pages/telemetry/telemetry-client";
+
+const TELEMETRY_BASE_URL = "http://localhost:7091";
+const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 
 let root: ReactDOM.Root | null = null;
 let intervalId: number | null = null;
@@ -51,23 +53,26 @@ function SubtitlesView() {
   useEffect(() => {
     async function poll() {
       try {
-        const res = await fetch(TELEMETRY_URL, { cache: "no-store" });
-        if (!res.ok) throw new Error(res.statusText);
-        const json = await res.json();
+        const workload = await getWorkloadOutputFields(
+          TELEMETRY_BASE_URL,
+          TELEMETRY_WORKLOAD_ID
+        );
 
-        const text = extractSubtitleText(json);
-        if (typeof text === "string") {
-          const next = normalizeForDisplay(text);
-          if (next !== lastTextRef.current) {
-            lastTextRef.current = next;
-            setSubtitle(next);
-            setVisible(!!next);
-            // Bump key to retrigger CSS animation on change
-            setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
-          }
+        const text = workload?.outputs?.script?.thought_text;
+        if (typeof text !== "string" || text === "") {
+          return; // nothing to display
+        }
+
+        const normalized = normalizeForDisplay(text);
+        if (normalized !== lastTextRef.current) {
+          lastTextRef.current = normalized;
+          setSubtitle(normalized);
+          setVisible(true);
+          // retrigger CSS animation
+          setAnimateKey((key) => (key + 1) % Number.MAX_SAFE_INTEGER);
         }
       } catch {
-        // On fetch error, don’t spam UI; just keep last subtitle
+        // ignore transient network or decoding errors
       }
     }
 

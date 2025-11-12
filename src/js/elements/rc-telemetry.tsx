@@ -4,8 +4,10 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 
-const TELEMETRY_URL =
-  "http://localhost:7091/api/telemetry/workload/outputs?name=rsc_mind_test";
+import { getWorkloadOutputFields } from "../pages/telemetry/telemetry-client";
+
+const TELEMETRY_BASE_URL = "http://localhost:7091";
+const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 
 let root: ReactDOM.Root | null = null;
 let intervalId: number | null = null;
@@ -17,10 +19,14 @@ function RcTelemetryView() {
   useEffect(() => {
     async function poll() {
       try {
-        const res = await fetch(TELEMETRY_URL);
-        if (!res.ok) throw new Error(res.statusText);
-        const json = await res.json();
-        setData(json);
+        const data = await getWorkloadOutputFields(
+          TELEMETRY_BASE_URL,
+          TELEMETRY_WORKLOAD_ID
+        );
+        if (!data?.outputs) {
+          return; // empty — nothing to do
+        }
+        setData(data.outputs);
         setError(null);
       } catch (err: any) {
         setError(err.message || "Fetch failed");
