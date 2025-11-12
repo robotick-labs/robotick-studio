@@ -33,12 +33,19 @@
 
 .telemetry-table-container {
   background: #0a0e16; /**/
-  padding: 20px;
   border-radius: 10px;
 }
 
 .telemetry-model {
-  margin-bottom: 6rem;
+  padding: 20px;
+  border-radius: 20px;
+  border: 3px solid rgba(0, 0, 0, 0);
+}
+
+/* When the <h3> inside .telemetry-model is hovered,
+   apply background to the entire telemetry-model container */
+.telemetry-model:has(h3:hover) {
+  border: 3px solid #141b2b;
 }
 
 /* Table */

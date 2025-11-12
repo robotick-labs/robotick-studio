@@ -169,9 +169,12 @@ export async function startLivePolling(
       const frameStart = performance.now();
       const t0 = performance.now();
 
-      // TEMP: limit how many engines we poll per frame (for testing)
-      // Later, replace with e.g. `const activeEngines = engines.filter(e => e.isExpanded)`
-      const limitedEngines = engines.slice(0, 2); // poll first 2 only for now
+      const limitedEngines = engines.filter(
+        (e) =>
+          localStorage.getItem(
+            `telemetry-update-${urlToId(e.model.instanceURL)}`
+          ) === "true"
+      );
 
       // Fetch/decode all selected engines in parallel
       const results = await Promise.all(
