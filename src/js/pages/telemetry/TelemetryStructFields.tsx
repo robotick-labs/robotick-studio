@@ -3,19 +3,17 @@ import React from "react";
 
 function formatNumberSmart(n: number): string {
   if (!isFinite(n)) return String(n);
-  if (n === 0) return "0";
+  if (Number.isInteger(n)) return String(n); // no decimals for ints
+
   const abs = Math.abs(n);
-  const intPart = Math.trunc(abs);
-  const intDigits = intPart === 0 ? 0 : Math.floor(Math.log10(intPart)) + 1;
-  const hasFraction = abs !== intPart;
-  const remainingSig = Math.max(0, 4 - intDigits);
-  const s =
-    remainingSig <= 0
-      ? hasFraction
-        ? n.toFixed(2)
-        : intPart.toString()
-      : n.toFixed(remainingSig);
-  return s.replace(/\.?0+$/, "");
+
+  // Choose precision tiers for readable, stable output
+  let decimals = 2;
+  if (abs >= 100) decimals = 1;
+  else if (abs >= 10) decimals = 2;
+  else decimals = 3;
+
+  return n.toFixed(decimals);
 }
 
 function isPlainObject(v: any): v is Record<string, any> {
@@ -34,25 +32,7 @@ function leafToString(value: any): string {
   if (value === null || value === undefined) return "–";
   if (typeof value === "number") return formatNumberSmart(value);
   if (typeof value === "string") return value;
-
-  // Typed arrays / buffers / blobs → concise descriptor
-  if (ArrayBuffer.isView(value)) {
-    // e.g., Uint8Array, Float32Array
-    const ctor = value.constructor?.name ?? "TypedArray";
-    return `<${ctor} ${value.byteLength}B>`;
-  }
-  if (value instanceof ArrayBuffer) {
-    return `<ArrayBuffer ${value.byteLength}B>`;
-  }
-  if (typeof Blob !== "undefined" && value instanceof Blob) {
-    return `<Blob ${value.type || "application/octet-stream"} ${value.size}B>`;
-  }
-  if (typeof ImageBitmap !== "undefined" && value instanceof ImageBitmap) {
-    return `<ImageBitmap ${value.width}x${value.height}>`;
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
+  if (typeof value === "boolean") return String(value);
 
   // Fallback for non-plain objects
   if (!isPlainObject(value)) {

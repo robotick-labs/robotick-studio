@@ -8,21 +8,17 @@ export function TelemetryModel({
   index,
 }: {
   state: EngineState;
-  index: number; // 👈 add index from parent render loop
+  index: number;
 }) {
   const { model, workloads } = state;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const updateKey = `telemetry-update-${urlToId(model.instanceURL)}`;
 
-  // ---------------------------------------------------------------------------
-  // Initialise expanded state
-  // ---------------------------------------------------------------------------
-  // 1. If stored preference exists, use that.
-  // 2. Otherwise, expand the first four models by default.
+  // Initialise expanded state (persisted in localStorage)
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved !== null) return saved === "true";
-    return index < 4; // 👈 default-open first 4
+    return index < 4; // default-open first 4 models
   });
 
   // Persist expanded state + polling preference
@@ -33,44 +29,43 @@ export function TelemetryModel({
 
   const handleToggle = () => setIsExpanded((prev) => !prev);
 
-  return (
-    <div className="telemetry-model">
-      <h3
-        onClick={handleToggle}
-        style={{ cursor: "pointer", userSelect: "none" }}
-      >
-        {model.modelName}
-      </h3>
+  // Prevent clicks inside the table from toggling expansion
+  const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
 
-      <div
-        className="telemetry-model-label"
-        onClick={handleToggle}
-        style={{ cursor: "pointer", userSelect: "none", marginBottom: "4px" }}
-      >
+  return (
+    <div className="telemetry-model" onClick={handleToggle}>
+      <h3 style={{ margin: 0 }}>{model.modelName}</h3>
+
+      <div className="telemetry-model-label" style={{ marginBottom: "4px" }}>
         {model.modelPath} | {model.instanceURL}
       </div>
 
       {isExpanded && (
-        <table id={`table-${urlToId(model.instanceURL)}`} className="telemetry">
-          <thead>
-            <tr>
-              <th>Unique Name</th>
-              <th>Workload Type</th>
-              <th>Config</th>
-              <th>Inputs</th>
-              <th>Outputs</th>
-              <th>Self Duration (ms)</th>
-              <th>Time Delta (ms)</th>
-              <th>Goal Period (ms)</th>
-              <th>Usage %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {workloads.map((w) => (
-              <TelemetryWorkload key={w.name} w={w} />
-            ))}
-          </tbody>
-        </table>
+        <div onClick={stopPropagation}>
+          <table
+            id={`table-${urlToId(model.instanceURL)}`}
+            className="telemetry"
+          >
+            <thead>
+              <tr>
+                <th>Unique Name</th>
+                <th>Workload Type</th>
+                <th>Config</th>
+                <th>Inputs</th>
+                <th>Outputs</th>
+                <th>Self Duration (ms)</th>
+                <th>Time Delta (ms)</th>
+                <th>Goal Period (ms)</th>
+                <th>Usage %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workloads.map((w) => (
+                <TelemetryWorkload key={w.name} w={w} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
