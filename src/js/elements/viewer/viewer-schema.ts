@@ -93,8 +93,8 @@ export type ResponseType = "json" | "blob" | "png" | "jpeg";
 
 export interface RestPoller {
   id: string;
-  url: string;
-  method?: "GET" | "POST";
+  baseUrl: string;
+  workloadName: string;
   headers?: Record<string, string>;
   bodyJson?: Record<string, unknown>; // for POST
   responseType?: ResponseType; // default "json"
@@ -104,7 +104,8 @@ export interface RestPoller {
   defaultSpace?: "local" | "world";
   sourceUp?: "Y" | "Z"; // default "Y"
   // For textures (blob/png/jpeg): where to apply
-  textureTargets?: {
+  textureFields?: {
+    fieldId: string;
     node: string;
     prop:
       | "material.map"

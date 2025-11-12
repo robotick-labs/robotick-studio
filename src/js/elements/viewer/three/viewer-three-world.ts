@@ -16,6 +16,11 @@ import {
   ResponseType,
 } from "../viewer-schema.js";
 
+import {
+  DecodedWorkload,
+  getWorkloadOutputFields,
+} from "../../../pages/telemetry/telemetry-client";
+
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
   Linear: THREE.LinearToneMapping,
@@ -520,79 +525,94 @@ export class ViewerWorld {
   private async executePoller(p: RestPoller) {
     const method = p.method ?? "GET";
     const rt: ResponseType = p.responseType ?? "json";
-    const resp = await fetch(p.url, {
-      method,
-      headers: p.headers,
-      body:
-        method === "POST" && p.bodyJson
-          ? JSON.stringify(p.bodyJson)
-          : undefined,
-      cache: "no-store",
-    });
-    if (!resp.ok) throw new Error(`Poller ${p.id}: HTTP ${resp.status}`);
 
-    if (rt === "json") {
-      const data = await resp.json();
-      if (p.fields?.length)
-        this.applyJsonFieldMap(p.fields!, data, p.defaultSpace, p.sourceUp);
-    } else {
-      const blob = await resp.blob();
-      const bitmap = await createImageBitmap(blob);
-      if (p.textureTargets?.length) {
-        for (const t of p.textureTargets) {
-          const node = this.findNodeAnyModel(t.node);
-          if (!node) continue;
-          let tex: THREE.Texture | null = null;
-          const mats = this.asMaterials(node);
-          for (const m of mats) {
-            const targetKey = this.materialPropKey(t.prop);
-            // @ts-ignore
-            const current = m[targetKey] as THREE.Texture | undefined;
-            if (!tex) {
-              tex = current ?? new THREE.Texture(bitmap);
-              tex.image = bitmap;
-              tex.needsUpdate = true;
-              tex.flipY = t.flipY ?? false;
-              if (t.sRGB ?? true) tex.colorSpace = THREE.SRGBColorSpace;
-              tex.generateMipmaps = t.generateMipmaps ?? false;
-              tex.minFilter = (t.minFilter ??
-                THREE.LinearFilter) as THREE.MinificationTextureFilter;
-              tex.magFilter = (t.magFilter ??
-                THREE.LinearFilter) as THREE.MagnificationTextureFilter;
-              tex.wrapS = THREE.ClampToEdgeWrapping;
-              tex.wrapT = THREE.ClampToEdgeWrapping;
-              tex.anisotropy =
-                t.anisotropy ?? this.renderer.capabilities.getMaxAnisotropy();
-            } else {
-              tex.image = bitmap;
-              tex.needsUpdate = true;
-            }
-            // @ts-ignore
-            m[targetKey] = tex;
-            if (t.transparent) (m as any).transparent = true;
-            if (typeof t.alphaTest === "number")
-              (m as any).alphaTest = t.alphaTest;
-            m.needsUpdate = true;
+    const data = await getWorkloadOutputFields(p.baseUrl, p.workloadName);
+    if (data == null) {
+      return; // empty — nothing to do
+    }
+
+    if (p.fields?.length) {
+      this.applyFieldsData(p.fields!, data, p.defaultSpace, p.sourceUp);
+    }
+
+    if (p.textureFields?.length) {
+      for (const t of p.textureFields) {
+        const raw = this.getNestedField(data, t.fieldId);
+        const blob = new Blob([raw], { type: "image/png" });
+        const bitmap = await createImageBitmap(blob);
+
+        const node = this.findNodeAnyModel(t.node);
+        if (!node) continue;
+        let tex: THREE.Texture | null = null;
+        const mats = this.asMaterials(node);
+        for (const m of mats) {
+          const targetKey = this.materialPropKey(t.prop);
+          // @ts-ignore
+          const current = m[targetKey] as THREE.Texture | undefined;
+          if (!tex) {
+            tex = current ?? new THREE.Texture(bitmap);
+            tex.image = bitmap;
+            tex.needsUpdate = true;
+            tex.flipY = t.flipY ?? false;
+            if (t.sRGB ?? true) tex.colorSpace = THREE.SRGBColorSpace;
+            tex.generateMipmaps = t.generateMipmaps ?? false;
+            tex.minFilter = (t.minFilter ??
+              THREE.LinearFilter) as THREE.MinificationTextureFilter;
+            tex.magFilter = (t.magFilter ??
+              THREE.LinearFilter) as THREE.MagnificationTextureFilter;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.anisotropy =
+              t.anisotropy ?? this.renderer.capabilities.getMaxAnisotropy();
+          } else {
+            tex.image = bitmap;
+            tex.needsUpdate = true;
           }
+          // @ts-ignore
+          m[targetKey] = tex;
+          if (t.transparent) (m as any).transparent = true;
+          if (typeof t.alphaTest === "number")
+            (m as any).alphaTest = t.alphaTest;
+          m.needsUpdate = true;
         }
       }
     }
   }
 
   // ---------- mapping ----------
-  private getNestedField(obj: Record<string, any>, path: string): any {
-    return path
-      .split(".")
-      .reduce(
-        (acc: any, key: string) =>
-          acc && acc[key] !== undefined ? acc[key] : undefined,
-        obj
-      );
+
+  // Traverses a nested object following a dot-separated path (e.g. "a.b.c")
+  // and returns the corresponding value, or undefined if any key is missing.
+
+  /**
+   * Returns a top-level member of a DecodedWorkload by name,
+   * e.g. "outputs" or "inputs". Returns undefined if not found.
+   */
+  private getNestedField(obj: any, path: string): any {
+    if (!obj || typeof obj !== "object") {
+      return undefined;
+    }
+
+    const keys = path.split(".");
+    let acc: any = obj;
+
+    for (const key of keys) {
+      const before = acc;
+      const next =
+        acc && typeof acc === "object" && key in acc ? acc[key] : undefined;
+
+      acc = next;
+      if (acc === undefined) {
+        break;
+      }
+    }
+
+    return acc;
   }
 
-  private applyJsonFieldMap(
+  private applyFieldsData(
     maps: Required<RestPoller>["fields"],
-    data: Record<string, any>,
+    data: DecodedWorkload,
     defaultSpace?: "local" | "world",
     defaultSourceUp?: "Y" | "Z"
   ) {

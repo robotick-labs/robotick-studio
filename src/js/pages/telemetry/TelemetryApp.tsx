@@ -1,11 +1,7 @@
 // src/js/pages/telemetry/TelemetryApp.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { EngineState } from "./types";
-import {
-  getEngineModels,
-  pollWorkloadsForever,
-  startLivePolling,
-} from "./polling";
+import { getEngineModels, startLivePolling } from "./polling";
 import { TelemetryModel } from "./TelemetryModel";
 
 export function TelemetryApp() {
@@ -33,7 +29,6 @@ export function TelemetryApp() {
       setEngines(initial);
 
       initial.forEach((state) => {
-        pollWorkloadsForever(state, setEngines);
         startLivePolling(state, setEngines);
       });
     })();

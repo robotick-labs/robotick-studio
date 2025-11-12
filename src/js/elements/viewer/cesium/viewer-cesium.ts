@@ -4,6 +4,7 @@ import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
 import type { ViewerConfig } from "../viewer-schema";
+import { getWorkloadOutputFields } from "../../../pages/telemetry/telemetry-client";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
@@ -135,12 +136,13 @@ function startRocketTracking(): void {
 }
 
 async function updateRocketFromTelemetry(): Promise<void> {
-  const response = await fetch(
-    "http://localhost:7090/api/telemetry/workload/outputs?name=jsb_sim"
+  const data = await getWorkloadOutputFields(
+    "http://localhost:7090",
+    "jsb_sim"
   );
-  if (!response.ok) return;
-
-  const data = await response.json();
+  if (data.empty) {
+    return;
+  }
 
   const lat = parseFloat(data["jsb.fcs_position_lat_deg"]);
   const lon = parseFloat(data["jsb.fcs_position_long_deg"]);
