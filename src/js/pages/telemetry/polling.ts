@@ -167,7 +167,6 @@ export async function startLivePolling(
   try {
     while (!signal.aborted) {
       const frameStart = performance.now();
-      const t0 = performance.now();
 
       const limitedEngines = engines.filter(
         (e) =>
@@ -180,7 +179,6 @@ export async function startLivePolling(
       const results = await Promise.all(
         limitedEngines.map(async (engine) => {
           const url = engine.model.instanceURL;
-          const tA = performance.now();
 
           // Cached layout fetch
           let layout = layouts[url];
@@ -189,9 +187,7 @@ export async function startLivePolling(
             layouts[url] = layout;
           }
 
-          const tB = performance.now();
           const { buffer, sessionId } = await fetchRawBuffer(url);
-          const tC = performance.now();
 
           // Refresh layout if session changes
           if (sessionIds[url] && sessionIds[url] !== sessionId) {
@@ -203,21 +199,12 @@ export async function startLivePolling(
           // Decode
           let decoded: any = {};
           if (layout && buffer && buffer.byteLength) {
-            const tD = performance.now();
             decoded = decodeTelemetry(layout, buffer);
-            const tE = performance.now();
-            console.log(
-              `[${url}] layout=${(tB - tA).toFixed(1)} raw=${(tC - tB).toFixed(
-                1
-              )} decode=${(tE - tD).toFixed(1)}`
-            );
           }
 
           return { url, decoded };
         })
       );
-
-      const tFetch = performance.now();
 
       // Apply all updates in one React state change
       setEngines((prev) =>
@@ -250,13 +237,6 @@ export async function startLivePolling(
             hasInitialWorkloads: true,
           };
         })
-      );
-
-      const tAfterSet = performance.now();
-      console.log(
-        `[telemetry] fetch=${(tFetch - t0).toFixed(1)}ms  react=${(
-          tAfterSet - tFetch
-        ).toFixed(1)}ms`
       );
 
       // Maintain even cadence (~20Hz)
