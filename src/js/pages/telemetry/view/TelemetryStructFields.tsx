@@ -83,7 +83,7 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
 }
 
 // -------------------------------------------------------------
-// ImageField: small wrapper that memoises the URL
+// ImageField: small wrapper that memoises the URL + tracks dimensions
 // -------------------------------------------------------------
 function ImageField({
   field,
@@ -100,6 +100,9 @@ function ImageField({
   const path = field.path;
   const label = field.name;
   const mime = field.mime_type;
+
+  // Track decoded image dimensions
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
 
   // Validate binary
   if (!(raw instanceof Uint8Array)) {
@@ -134,9 +137,14 @@ function ImageField({
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
+            onLoad={(e) => {
+              const img = e.currentTarget as HTMLImageElement;
+              setDims({ w: img.naturalWidth, h: img.naturalHeight });
+            }}
             onClick={toggle}
           />
         )}
+        {dims && ` (${dims.w}×${dims.h})`}
       </div>
 
       {isOpen && (

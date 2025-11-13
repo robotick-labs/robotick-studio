@@ -16,6 +16,10 @@ export function TelemetryWorkload({ w }) {
       <td>
         <TelemetryStructFields struct={w.outputs} />
       </td>
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
     </tr>
   );
 }
