@@ -1,7 +1,9 @@
 // TelemetryStructFields.tsx
-import React, { useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 
-// Number formatting (unchanged)
+// -------------------------------------------------------------
+// Number formatting
+// -------------------------------------------------------------
 function formatNumberSmart(n: number): string {
   if (!isFinite(n)) return String(n);
   if (Number.isInteger(n)) return String(n);
@@ -21,6 +23,9 @@ function formatValue(value: any, type: string): string {
   return `<${type}>`;
 }
 
+// -------------------------------------------------------------
+// Main structured-field renderer
+// -------------------------------------------------------------
 export function TelemetryStructFields({ struct }: { struct?: any }) {
   const [panels, setPanels] = useState<Record<string, boolean>>({});
 
@@ -31,19 +36,42 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
   function renderField(f: any): React.ReactNode {
     const label = f.name;
 
+    // Nested struct
     if (f.fields && f.fields.length > 0) {
       return (
         <div key={f.path}>
           <b>{label}</b>
-          <div style={{ marginLeft: 10 }}>{f.fields.map(renderField)}</div>
+          <div key={f.path + "_children"} style={{ marginLeft: 10 }}>
+            {f.fields.map((child: any) => renderField(child))}
+          </div>
         </div>
       );
     }
 
+    // Image field
     if (typeof f.mime_type === "string" && f.mime_type.startsWith("image/")) {
-      return renderImageField(f, panels, setPanels);
+      return (
+        <ImageField
+          key={f.path}
+          field={f}
+          isOpen={!!panels[f.path]}
+          toggle={() =>
+            setPanels((p) => ({
+              ...p,
+              [f.path]: !p[f.path],
+            }))
+          }
+          close={() =>
+            setPanels((p) => ({
+              ...p,
+              [f.path]: false,
+            }))
+          }
+        />
+      );
     }
 
+    // Primitive leaf
     return (
       <div key={f.path}>
         {label}: {formatValue(f.getValue(), f.type)}
@@ -55,99 +83,100 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
 }
 
 // -------------------------------------------------------------
-// Thumbnail + Live Panel
+// ImageField: small wrapper that memoises the URL
 // -------------------------------------------------------------
-function renderImageField(
-  f: any,
-  panels: Record<string, boolean>,
-  setPanels: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
-): React.ReactNode {
-  const path = f.path;
-  const label = f.name;
-  const raw = f.getValue();
+function ImageField({
+  field,
+  isOpen,
+  toggle,
+  close,
+}: {
+  field: any;
+  isOpen: boolean;
+  toggle: () => void;
+  close: () => void;
+}) {
+  const raw: Uint8Array = field.getValue();
+  const path = field.path;
+  const label = field.name;
+  const mime = field.mime_type;
 
+  // Validate binary
   if (!(raw instanceof Uint8Array)) {
     return <div key={path}>{label}: &lt;invalid image data&gt;</div>;
   }
 
-  const url = URL.createObjectURL(new Blob([raw], { type: f.mime_type }));
+  // Memoised object URL — new only when raw changes
+  const url = useMemo(() => {
+    try {
+      return URL.createObjectURL(new Blob([raw], { type: mime }));
+    } catch {
+      return null;
+    }
+  }, [raw, mime]);
+
+  // Cleanup URL on change/unmount
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
 
   return (
-    <>
-      {/* Thumbnail */}
-      <div key={path}>
+    <React.Fragment key={path}>
+      <div>
         {label}:{" "}
-        <img
-          key={raw.byteLength}
-          src={url}
-          alt={label}
-          className="telemetry-thumb"
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
-          onClick={() =>
-            setPanels((p) => ({
-              ...p,
-              [path]: !p[path],
-            }))
-          }
-          onLoad={() => URL.revokeObjectURL(url)}
-        />
+        {url && (
+          <img
+            src={url}
+            alt={label}
+            className="telemetry-thumb"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+            onClick={toggle}
+          />
+        )}
       </div>
 
-      {/* Live-updating panel */}
-      <ImagePanel
-        raw={raw}
-        mime_type={f.mime_type}
-        path={path}
-        visible={!!panels[path]}
-        onClose={() =>
-          setPanels((p) => ({
-            ...p,
-            [path]: false,
-          }))
-        }
-      />
-    </>
+      {isOpen && (
+        <ImagePanel raw={raw} mime_type={mime} path={path} onClose={close} />
+      )}
+    </React.Fragment>
   );
 }
 
-// Valid 1x1 black PNG (base64 encoded)
-const BLACK_PNG_DATA_URL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA" +
-  "AAC0lEQVR42mP8/x8AAwMCAO+Xc0cAAAAASUVORK5CYII=";
-
-function safeCreateImageUrl(raw: Uint8Array, mime_type: string): string {
-  try {
-    const blob = new Blob([raw], { type: mime_type });
-    return URL.createObjectURL(blob);
-  } catch {
-    return BLACK_PNG_DATA_URL;
-  }
-}
-
 // -------------------------------------------------------------
-// ImagePanel with drag + resize + close
+// ImagePanel — memoised URL, lazy-mounted when opened
 // -------------------------------------------------------------
 function ImagePanel({
   raw,
   mime_type,
   path,
-  visible,
   onClose,
 }: {
   raw: Uint8Array;
   mime_type: string;
   path: string;
-  visible: boolean;
   onClose: () => void;
 }) {
   const [pos, setPos] = useState({ x: 200, y: 200 });
   const [size, setSize] = useState({ w: 640, h: 420 });
 
-  if (!raw) return null;
+  // URL created only once per raw
+  const url = useMemo(() => {
+    try {
+      return URL.createObjectURL(new Blob([raw], { type: mime_type }));
+    } catch {
+      return null;
+    }
+  }, [raw, mime_type]);
 
-  const url = URL.createObjectURL(new Blob([raw], { type: mime_type }));
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
 
   // Dragging
   function onTitleMouseDown(e: React.MouseEvent) {
@@ -156,17 +185,16 @@ function ImagePanel({
     const startY = e.clientY;
     const orig = { ...pos };
 
-    const move = (ev: MouseEvent) => {
+    function move(ev: MouseEvent) {
       setPos({
         x: orig.x + (ev.clientX - startX),
         y: orig.y + (ev.clientY - startY),
       });
-    };
-
-    const up = () => {
+    }
+    function up() {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-    };
+    }
 
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -179,17 +207,16 @@ function ImagePanel({
     const startY = e.clientY;
     const orig = { ...size };
 
-    const move = (ev: MouseEvent) => {
+    function move(ev: MouseEvent) {
       setSize({
         w: Math.max(200, orig.w + (ev.clientX - startX)),
         h: Math.max(200, orig.h + (ev.clientY - startY)),
       });
-    };
-
-    const up = () => {
+    }
+    function up() {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-    };
+    }
 
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -199,11 +226,11 @@ function ImagePanel({
     <div
       className="telemetry-image-panel"
       style={{
-        display: visible ? "block" : "none",
         left: pos.x,
         top: pos.y,
         width: size.w,
         height: size.h,
+        display: "block",
       }}
     >
       <div
@@ -216,17 +243,17 @@ function ImagePanel({
         </span>
       </div>
 
-      <img
-        key={raw.byteLength}
-        src={url}
-        alt={path}
-        style={{
-          width: "100%",
-          height: `calc(100% - 22px)`,
-          objectFit: "contain",
-        }}
-        onLoad={() => URL.revokeObjectURL(url)}
-      />
+      {url && (
+        <img
+          src={url}
+          alt={path}
+          style={{
+            width: "100%",
+            height: `calc(100% - 22px)`,
+            objectFit: "contain",
+          }}
+        />
+      )}
 
       <div
         className="telemetry-image-panel-resize-handle"
