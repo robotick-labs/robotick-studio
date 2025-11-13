@@ -1,10 +1,15 @@
 // viewer-cesium.ts
+// Robotick Hub 3D flight viewer (Cesium) using live telemetry from JSBSim workload.
 
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
 import type { ViewerConfig } from "../viewer-schema";
-import { getWorkloadOutputFields } from "../../../pages/telemetry/telemetry-client";
+import {
+  fetchLayout,
+  fetchRaw,
+  createTelemetryModel,
+} from "../../../pages/telemetry/document/telemetry-client";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
@@ -12,7 +17,10 @@ let rocketEntity: Cesium.Entity | null = null;
 let exitRequested = false;
 let cameraOffset: Cesium.Cartesian3 | null = null;
 
-// Load token immediately (once, at module load time)
+// ---------------------------------------------------------------------------
+// Token loading
+// ---------------------------------------------------------------------------
+
 const secretsPromise: Promise<void> = (async () => {
   try {
     const { CESIUM_TOKEN: LOCAL } = await import(
@@ -27,6 +35,8 @@ const secretsPromise: Promise<void> = (async () => {
   }
 })();
 
+// ---------------------------------------------------------------------------
+
 async function init(_config: ViewerConfig): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
@@ -34,9 +44,7 @@ async function init(_config: ViewerConfig): Promise<void> {
   }
 
   exitRequested = false;
-
   await secretsPromise;
-
   Cesium.Ion.defaultAccessToken = CESIUM_TOKEN!;
 
   viewer = new Cesium.Viewer("viewer-container", {
@@ -101,6 +109,8 @@ async function init(_config: ViewerConfig): Promise<void> {
   startRocketTracking();
 }
 
+// ---------------------------------------------------------------------------
+
 function lookAtRocket(position: Cesium.Cartesian3): void {
   const transform = Cesium.Transforms.eastNorthUpToFixedFrame(position);
   const offset = Cesium.Matrix4.multiplyByPoint(
@@ -119,6 +129,8 @@ function lookAtRocket(position: Cesium.Cartesian3): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+
 function startRocketTracking(): void {
   async function fetchAndUpdate() {
     try {
@@ -127,7 +139,7 @@ function startRocketTracking(): void {
       console.warn("Rocket tracking update failed:", err);
     } finally {
       if (!exitRequested) {
-        setTimeout(fetchAndUpdate, 33);
+        setTimeout(fetchAndUpdate, 33); // ~30Hz updates
       }
     }
   }
@@ -135,82 +147,65 @@ function startRocketTracking(): void {
   fetchAndUpdate();
 }
 
-async function fetchWorkloadNested(
-  baseUrl: string,
-  workloadName: string
-): Promise<any | null> {
-  try {
-    const layoutUrl = `${baseUrl}/api/telemetry/workloads_buffer/layout`;
-    const rawUrl = `${baseUrl}/api/telemetry/workloads_buffer/raw`;
-
-    const layout = await fetch(layoutUrl).then((r) => r.json());
-    const raw = await fetch(rawUrl).then((r) => r.arrayBuffer());
-
-    const decoded = decodeTelemetry(layout, raw);
-    if (!decoded) return null;
-
-    const flat = getWorkloadOutputFields(decoded, workloadName);
-    if (!flat || flat.length === 0) return null;
-
-    const root: any = {};
-    for (const f of flat) {
-      const clean = f.path.replace(/^(inputs|outputs|config)\./, "");
-      const parts = clean.split(".");
-      let cur = root;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const p = parts[i];
-        if (!cur[p]) cur[p] = {};
-        cur = cur[p];
-      }
-      cur[parts[parts.length - 1]] = f.value;
-    }
-
-    return root;
-  } catch (err) {
-    console.warn("[cesium viewer] telemetry fetch failed:", err);
-    return null;
-  }
-}
+// ---------------------------------------------------------------------------
+// Full fetch-decode-update path (no caching)
+// ---------------------------------------------------------------------------
 
 async function updateRocketFromTelemetry(): Promise<void> {
-  const nested = await fetchWorkloadNested("http://localhost:7090", "jsb_sim");
+  const baseUrl = "http://localhost:7090";
+  const workloadName = "jsb_sim";
 
-  if (!nested) {
-    return;
-  }
+  try {
+    // Fetch fresh layout + raw buffer every time
+    const layout = await fetchLayout(baseUrl);
+    if (!layout) return;
 
-  // The JSBSim workload puts its fields directly inside the root
-  const lat = parseFloat(nested.fcs_position_lat_deg);
-  const lon = parseFloat(nested.fcs_position_long_deg);
-  const alt = parseFloat(nested.fcs_position_alt_sl_ft) * 0.3048 + 100;
+    const decoded = createTelemetryModel(layout);
+    const { raw: raw } = await fetchRaw(baseUrl);
+    if (!raw) return;
+    decoded.raw = raw;
 
-  const roll = Cesium.Math.toRadians(parseFloat(nested.fcs_attitude_roll_deg));
-  const pitch = Cesium.Math.toRadians(
-    parseFloat(nested.fcs_attitude_pitch_deg)
-  );
-  const yaw = Cesium.Math.toRadians(parseFloat(nested.fcs_attitude_yaw_deg));
+    // Access fields directly via getField()
+    const get = (fieldPath: string): number =>
+      parseFloat(
+        decoded
+          .getField(`${workloadName}.outputs.${fieldPath}`)
+          ?.getValue?.() ?? "0"
+      );
 
-  const position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
-  const orientation = Cesium.Transforms.headingPitchRollQuaternion(
-    position,
-    new Cesium.HeadingPitchRoll(yaw, pitch, roll)
-  );
+    const lat = get("fcs_position_lat_deg");
+    const lon = get("fcs_position_long_deg");
+    const alt = get("fcs_position_alt_sl_ft") * 0.3048 + 100;
 
-  if (rocketEntity) {
-    rocketEntity.position = new Cesium.ConstantPositionProperty(position);
-    rocketEntity.orientation = new Cesium.ConstantProperty(orientation);
-  }
+    const roll = Cesium.Math.toRadians(get("fcs_attitude_roll_deg"));
+    const pitch = Cesium.Math.toRadians(get("fcs_attitude_pitch_deg"));
+    const yaw = Cesium.Math.toRadians(get("fcs_attitude_yaw_deg"));
 
-  if (viewer && !viewer.isDestroyed()) {
-    lookAtRocket(position);
+    const position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+    const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+      position,
+      new Cesium.HeadingPitchRoll(yaw, pitch, roll)
+    );
+
+    if (rocketEntity) {
+      rocketEntity.position = new Cesium.ConstantPositionProperty(position);
+      rocketEntity.orientation = new Cesium.ConstantProperty(orientation);
+    }
+
+    if (viewer && !viewer.isDestroyed()) {
+      lookAtRocket(position);
+    }
+  } catch (err) {
+    console.warn("[Cesium viewer] telemetry fetch failed:", err);
   }
 }
+
+// ---------------------------------------------------------------------------
 
 function uninit(): void {
   if (!viewer) return;
 
   console.log("Visualizer uninitializing");
-
   exitRequested = true;
 
   if (!viewer.isDestroyed()) {
@@ -225,5 +220,6 @@ function uninit(): void {
   if (container) container.innerHTML = "";
 }
 
-// Match ViewerModule interface
+// ---------------------------------------------------------------------------
+
 export default { init, uninit };

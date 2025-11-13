@@ -1,7 +1,9 @@
 // src/js/pages/telemetry/telemetry.tsx
+// (main entry-point for Telemetry page)
+
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { TelemetryApp } from "./TelemetryApp";
+import { TelemetryApp } from "./view/TelemetryApp";
 
 let root: ReactDOM.Root | null = null;
 

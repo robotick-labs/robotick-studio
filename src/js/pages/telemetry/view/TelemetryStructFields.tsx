@@ -27,23 +27,41 @@ function formatValue(value: any, type: string): string {
     return `<${type}>`;
   }
 
-  // Numeric values → fancy formatting
+  // ---------------------------------------------------------
+  // Arrays → suppress contents, show only type + count
+  // ---------------------------------------------------------
+  if (Array.isArray(value)) {
+    return `<${type}, ${value.length}>`;
+  }
+
+  // ---------------------------------------------------------
+  // Scalars
+  // ---------------------------------------------------------
+
+  // Numbers → stable formatting
   if (typeof value === "number") {
     return formatNumberSmart(value);
   }
 
-  // Strings → wrap in quotes
+  // Strings → quoted
   if (typeof value === "string") {
     return `"${value}"`;
   }
 
-  // Binary blobs → suppress output, show just <type>
+  // Binary blobs → suppressed
   if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
-    return `<${type}>`;
+    const bytes =
+      value instanceof Uint8Array ? value.byteLength : value.byteLength;
+    return `<${type}> (${bytes} bytes)`;
   }
 
-  // Fallback (rare)
-  return String(value);
+  // Bool
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  // Fallback
+  return `<${type}>`;
 }
 
 // -------------------------------------------------------------
@@ -59,12 +77,12 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
     const label = f.name; // only the local component (no full path)
 
     // Composite struct field
-    if (f.children && f.children.length > 0) {
+    if (f.fields && f.fields.length > 0) {
       return (
         <div key={f.path}>
           <b>{label}</b>
           <div style={{ marginLeft: 10 }}>
-            {f.children.map((child: any) => renderField(child))}
+            {f.fields.map((child: any) => renderField(child))}
           </div>
         </div>
       );
@@ -73,7 +91,7 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
     // Leaf field
     return (
       <div key={f.path}>
-        {label}: {formatValue(f.value, f.type)}
+        {label}: {formatValue(f.getValue(), f.type)}
       </div>
     );
   }

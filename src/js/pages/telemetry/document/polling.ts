@@ -3,9 +3,15 @@
 // Robotick unified telemetry polling (global-coordinated, smooth cadence)
 // -----------------------------------------------------------------------------
 
-import currentProject from "../../core/current-project.js";
-import { EngineModel, EngineState } from "./types";
-import { decodeTelemetry, TelemetryLayout } from "./telemetry-client";
+import currentProject from "../../../core/current-project.js";
+import { EngineModel, EngineState } from "../view/types.js";
+import {
+  fetchLayout,
+  fetchRaw,
+  createTelemetryModel,
+  LayoutModel,
+  ITelemetryModel,
+} from "./telemetry-client.js";
 
 // Polling frequency (20 Hz UI cadence)
 const LIVE_SLEEP_MS = 50;
@@ -125,37 +131,6 @@ export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Low-level endpoint wrappers
-async function fetchLayout(url: string): Promise<TelemetryLayout | null> {
-  try {
-    const r = await fetch(`${url}/api/telemetry/workloads_buffer/layout`, {
-      cache: "no-store",
-    });
-    if (!r.ok) return null;
-    return (await r.json()) as TelemetryLayout;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchRaw(
-  url: string
-): Promise<{ buf: ArrayBuffer; sid: string }> {
-  try {
-    const r = await fetch(`${url}/api/telemetry/workloads_buffer/raw`, {
-      cache: "no-store",
-    });
-    const buf = await r.arrayBuffer();
-    const sid =
-      r.headers.get("x-session-id") ||
-      r.headers.get("x-robotick-session-id") ||
-      "";
-    return { buf, sid };
-  } catch {
-    return { buf: new ArrayBuffer(0), sid: "" };
-  }
-}
-
 // -----------------------------------------------------------------------------
 // GLOBAL polling loop
 // -----------------------------------------------------------------------------
@@ -165,7 +140,8 @@ export async function startLivePolling(
   setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
 ) {
   // Layout + session caches per engine
-  const layouts: Record<string, TelemetryLayout | null> = {};
+  const layouts: Record<string, LayoutModel | null> = {};
+  const decodedModels: Record<string, ITelemetryModel | null> = {};
   const sessionIds: Record<string, string | null> = {};
 
   while (true) {
@@ -180,33 +156,31 @@ export async function startLivePolling(
       activeEngines.map(async (engine) => {
         const url = engine.model.instanceURL;
 
-        // 1) Cached layout
+        // Always fetch fresh raw buffer + identifying session-id
+        const { raw: buf, sid } = await fetchRaw(url);
+
+        // If session changed → refresh layout
         let layout = layouts[url];
-        if (!layout) {
+        let decoded = decodedModels[url];
+        if (
+          !layout ||
+          !decoded ||
+          (sessionIds[url] && sessionIds[url] !== sid)
+        ) {
           layout = await fetchLayout(url);
+          decoded = createTelemetryModel(layout);
           layouts[url] = layout;
-        }
-
-        // 2) Raw buffer + session
-        const { buf, sid } = await fetchRaw(url);
-
-        // 3) If session changed → refresh layout
-        if (sessionIds[url] && sessionIds[url] !== sid) {
-          layout = await fetchLayout(url);
-          layouts[url] = layout;
+          decodedModels[url] = decoded;
         }
         sessionIds[url] = sid;
 
-        // 4) Decode with absolute-offset inlining
-        const decoded = layout
-          ? decodeTelemetry(layout, buf)
-          : { workloads: [] };
+        decoded.raw = buf;
 
         return { url, decoded };
       })
     );
 
-    // 5) Apply to React state in a single pass
+    // Apply to React state in a single pass
     setEngines((prev) =>
       prev.map((engine) => {
         const r = results.find((x) => x.url === engine.model.instanceURL);
@@ -221,7 +195,7 @@ export async function startLivePolling(
       })
     );
 
-    // 6) Maintain stable cadence
+    // Maintain stable cadence
     await sleep(LIVE_SLEEP_MS);
   }
 }

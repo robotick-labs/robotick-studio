@@ -17,10 +17,10 @@ import {
 } from "../viewer-schema.js";
 
 import {
-  decodeTelemetry,
-  getWorkloadOutputFields,
-  WorkloadOutputField,
-} from "../../../pages/telemetry/telemetry-client";
+  fetchLayout,
+  fetchRaw,
+  createTelemetryModel,
+} from "../../../pages/telemetry/document/telemetry-client.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -145,12 +145,10 @@ export class ViewerWorld {
     return out;
   }
 
-  // Apply to world-space vectors/quats coming from a Z-up (MuJoCo) source:
   private convertWorldPosFromSource(v: THREE.Vector3, sourceUp?: "Y" | "Z") {
     if (sourceUp === "Z") {
       v.set(-v.x, v.z, -v.y);
     }
-
     return v;
   }
 
@@ -160,7 +158,6 @@ export class ViewerWorld {
     sourceUp?: "Y" | "Z"
   ) {
     if (sourceUp !== "Z") return q;
-
     q.premultiply(this.MJ_TO_THREE);
     q.multiply(this.MJ_TO_THREE_INV);
     q.set(-q.x, q.y, -q.z, q.w);
@@ -469,23 +466,17 @@ export class ViewerWorld {
               "RightWheel_Hub",
             ]);
 
-            // ⬇️ Add world-space axes to each named node
             for (const [name, node] of index.entries()) {
-              if (node.getObjectByName(`${name}_axes`)) continue; // already has one
+              if (node.getObjectByName(`${name}_axes`)) continue;
+              if (!showAxesFor.has(name)) continue;
 
-              if (!showAxesFor.has(name)) {
-                console.log("SKIPPING: " + name);
-                continue;
-              }
-
-              const axes = new THREE.AxesHelper(0.05); // 5cm long axes
+              const axes = new THREE.AxesHelper(0.05);
               axes.name = `${name}_axes`;
               axes.visible = true;
 
-              // Force world orientation even if node is nested
               node.updateMatrixWorld(true);
               axes.position.set(0, 0, 0);
-              node.add(axes); // attaches to node, so transforms with it
+              node.add(axes);
             }
           }
 
@@ -523,49 +514,21 @@ export class ViewerWorld {
     }
   }
 
-  // Perform the full fetch → decode → flatten → nest process,
-  // returning a nested object identical to the old API.
-  // Perform the full fetch → decode → flatten → nest process,
-  // but KEEP prefixes (“outputs.”, “inputs.”, “config.”)
-  // so the Viewer’s field paths still work.
-  private async fetchWorkloadNested(
-    baseUrl: string,
-    workloadName: string
-  ): Promise<any | null> {
+  // New: fetch decoded model (layout + raw), set raw, return decoded.
+  private async fetchDecodedModel(baseUrl: string): Promise<any | null> {
     try {
-      const layoutUrl = `${baseUrl}/api/telemetry/workloads_buffer/layout`;
-      const rawUrl = `${baseUrl}/api/telemetry/workloads_buffer/raw`;
+      const layout = await fetchLayout(baseUrl);
+      if (!layout) return;
 
-      const layout = await fetch(layoutUrl).then((r) => r.json());
-      const raw = await fetch(rawUrl).then((r) => r.arrayBuffer());
+      const { raw } = await fetchRaw(baseUrl);
+      if (!raw) return;
 
-      const decoded = decodeTelemetry(layout, raw);
+      const decoded = createTelemetryModel(layout);
       if (!decoded) return null;
 
-      // flat leaf fields from the OUTPUTS section
-      const flat: WorkloadOutputField[] = getWorkloadOutputFields(
-        decoded,
-        workloadName
-      );
-      if (!flat || flat.length === 0) return null;
+      decoded.raw = raw;
 
-      // Build nested tree WITHOUT stripping prefixes
-      const root: any = {};
-
-      for (const f of flat) {
-        const parts = f.path.split("."); // <-- keep full path
-        let cur = root;
-
-        for (let i = 0; i < parts.length - 1; i++) {
-          const key = parts[i];
-          if (!cur[key]) cur[key] = {};
-          cur = cur[key];
-        }
-
-        cur[parts[parts.length - 1]] = f.value;
-      }
-
-      return root;
+      return decoded;
     } catch (err) {
       console.warn("[viewer] telemetry fetch failed:", err);
       return null;
@@ -576,25 +539,33 @@ export class ViewerWorld {
     const method = p.method ?? "GET";
     const rt: ResponseType = p.responseType ?? "json";
 
-    const data = await this.fetchWorkloadNested(p.baseUrl, p.workloadName);
-    if (data == null) {
-      return; // empty — nothing to do
+    const decoded = await this.fetchDecodedModel(p.baseUrl);
+    if (!decoded) {
+      return;
     }
 
+    // Fields → drive scene from scalar/vec/quats
     if (p.fields?.length) {
       this.applyFieldsData(
         p.workloadName,
         p.fields!,
-        data,
+        decoded,
         p.defaultSpace,
         p.sourceUp
       );
     }
 
+    // Textures → expect binary payloads (Uint8Array / ArrayBuffer)
     if (p.textureFields?.length) {
       for (const t of p.textureFields) {
-        const raw = this.getNestedField(data, `${p.workloadName}.${t.fieldId}`);
+        const fieldPath = `${p.workloadName}.${t.fieldId}`;
+        const field = decoded.getField?.(fieldPath);
+        if (!field) {
+          console.warn("Texture field not found:", fieldPath);
+          continue;
+        }
 
+        const raw = field.getValue();
         if (!(raw instanceof Uint8Array) && !(raw instanceof ArrayBuffer)) {
           console.warn("Texture field is not binary:", t.fieldId, raw);
           continue;
@@ -642,44 +613,19 @@ export class ViewerWorld {
   }
 
   // ---------- mapping ----------
-
-  /**
-   * Traverses a nested object (e.g. DecodedWorkload) using a dot-separated path
-   * like "outputs.body_orientation.w" and returns the corresponding value.
-   * Returns undefined if any part of the path is missing.
-   */
-  private getNestedField(sourceObject: any, fieldPath: string): any {
-    if (!sourceObject || typeof sourceObject !== "object") {
-      return undefined;
-    }
-
-    const pathSegments = fieldPath.split(".");
-    let currentValue: any = sourceObject;
-
-    for (const segment of pathSegments) {
-      if (
-        currentValue &&
-        typeof currentValue === "object" &&
-        segment in currentValue
-      ) {
-        currentValue = currentValue[segment];
-      } else {
-        return undefined; // stop early if path is invalid
-      }
-    }
-
-    return currentValue;
-  }
-
   private applyFieldsData(
     workloadName: string,
     maps: Required<RestPoller>["fields"],
-    data: DecodedWorkload,
+    decoded: any,
     defaultSpace?: "local" | "world",
     defaultSourceUp?: "Y" | "Z"
   ) {
     for (const m of maps) {
-      const raw = this.getNestedField(data, `${workloadName}.${m.fieldId}`);
+      const fieldPath = `${workloadName}.${m.fieldId}`;
+      const field = decoded.getField?.(fieldPath);
+      if (!field) continue;
+
+      const raw = field.getValue();
       if (raw === undefined || raw === null) continue;
 
       const node = this.findNodeAnyModel(m.node);

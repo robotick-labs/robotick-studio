@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { EngineState } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
-import { urlToId } from "./polling";
+import { urlToId } from "../document/polling";
 
 export function TelemetryModel({
   state,

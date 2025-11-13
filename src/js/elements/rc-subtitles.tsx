@@ -1,45 +1,42 @@
-// rc-subtitles.tsx
+// subtitles.tsx
 // Robotick Hub overlay: bottom-of-screen subtitles from rsc_mind_test outputs
+// Shows white text on a clear-black background, like TV/movie subtitles.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 
 import {
-  decodeTelemetry,
-  getWorkloadOutputFields,
-} from "../pages/telemetry/telemetry-client";
+  fetchLayout,
+  fetchRaw,
+  createTelemetryModel,
+} from "../pages/telemetry/document/telemetry-client";
 
 const TELEMETRY_BASE_URL = "http://localhost:7091";
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
+const FIELD_PATH = `${TELEMETRY_WORKLOAD_ID}.outputs.script.thought_text`;
 
 let root: ReactDOM.Root | null = null;
 let intervalId: number | null = null;
 
 // -------------------------------------------------------------
-
-function extractSubtitleFromFields(fields: any[]): string {
-  if (!fields) return "";
-
-  // Look for known path endings
-  const f =
-    fields.find((x) => x.path.endsWith("script.thought_text")) ||
-    fields.find((x) => x.path.endsWith("script.text")) ||
-    fields.find((x) => x.path.includes("thought"));
-
-  if (!f) return "";
-  const v = f.value;
-  return typeof v === "string" ? v : "";
+// Subtitle extraction (fixed path)
+// -------------------------------------------------------------
+function extractSubtitleText(decoded: any): string {
+  if (!decoded || !decoded.getField) return "";
+  const field = decoded.getField(FIELD_PATH);
+  if (!field) return "";
+  const value = field.getValue?.();
+  return typeof value === "string" ? value : "";
 }
 
 // -------------------------------------------------------------
-
 function normalizeForDisplay(s: string): string {
+  // Trim, collapse excessive whitespace, keep intentional newlines
   const trimmed = s.replace(/\r/g, "").trim();
   return trimmed.replace(/[ \t]{2,}/g, " ");
 }
 
 // -------------------------------------------------------------
-
 function SubtitlesView() {
   const [subtitle, setSubtitle] = useState<string>("");
   const [visible, setVisible] = useState<boolean>(false);
@@ -49,50 +46,47 @@ function SubtitlesView() {
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
   useEffect(() => {
+    let cachedLayout: any | null = null;
+    let decoded: any | null = null;
+
     async function poll() {
       try {
-        // 1) Fetch layout + raw
-        const layout = await (
-          await fetch(
-            `${TELEMETRY_BASE_URL}/api/telemetry/workloads_buffer/layout`
-          )
-        ).json();
-
-        const raw = await (
-          await fetch(
-            `${TELEMETRY_BASE_URL}/api/telemetry/workloads_buffer/raw`
-          )
-        ).arrayBuffer();
-
-        // 2) Decode whole model
-        const decoded = decodeTelemetry(layout, raw);
-
-        // 3) Flat list of leaf output fields
-        const fields = getWorkloadOutputFields(decoded, TELEMETRY_WORKLOAD_ID);
-
-        // 4) Extract subtitle text
-        const text = extractSubtitleFromFields(fields);
-        if (typeof text !== "string" || text === "") {
-          return;
+        // Fetch layout once
+        if (!cachedLayout) {
+          cachedLayout = await fetchLayout(TELEMETRY_BASE_URL);
+          if (!cachedLayout) return;
+          decoded = createTelemetryModel(cachedLayout);
         }
 
-        const norm = normalizeForDisplay(text);
-        if (norm !== lastTextRef.current) {
-          lastTextRef.current = norm;
-          setSubtitle(norm);
+        // Fetch raw buffer per frame
+        const { raw: raw } = await fetchRaw(TELEMETRY_BASE_URL);
+        if (!raw) return;
+        decoded.raw = raw;
+
+        // Extract and normalise
+        const text = extractSubtitleText(decoded);
+        if (!text) return;
+
+        const normalized = normalizeForDisplay(text);
+        if (normalized !== lastTextRef.current) {
+          lastTextRef.current = normalized;
+          setSubtitle(normalized);
           setVisible(true);
-          setAnimateKey((x) => (x + 1) % Number.MAX_SAFE_INTEGER);
+          setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
         }
       } catch {
-        // ignore temporary network / decode errors
+        // ignore transient network/decode errors
       }
     }
 
+    // Prime + poll ~10 Hz (100 ms)
     poll();
-    intervalId = window.setInterval(poll, 100); // 10 Hz
+    intervalId = window.setInterval(poll, 100);
     return () => {
-      if (intervalId) clearInterval(intervalId);
-      intervalId = null;
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
     };
   }, []);
 
@@ -104,6 +98,7 @@ function SubtitlesView() {
           visible && safeSubtitle ? "show" : "hide"
         }`}
       >
+        {/* Preserve intended newlines */}
         {safeSubtitle.split("\n").map((line, idx, arr) => (
           <span className="subtitles-line" key={idx}>
             {line}
@@ -116,7 +111,6 @@ function SubtitlesView() {
 }
 
 // -------------------------------------------------------------
-
 function mountReact(container: HTMLElement) {
   if (!root) {
     root = ReactDOM.createRoot(container);
@@ -135,9 +129,15 @@ function unmountReact() {
   }
 }
 
+/** Called by page manager */
 export function init() {
+  console.log("Subtitles overlay initialized");
+
   const content = document.getElementById("rc-ui");
-  if (!content) return;
+  if (!content) {
+    console.error("No rc-ui container found.");
+    return;
+  }
 
   let container = document.getElementById("rc-subtitles-container");
   if (!container) {
@@ -150,6 +150,8 @@ export function init() {
 }
 
 export function uninit() {
+  console.log("Subtitles overlay uninitializing");
+
   unmountReact();
 
   const container = document.getElementById("rc-subtitles-container");

@@ -1,7 +1,7 @@
-// src/js/pages/telemetry/TelemetryApp.tsx
+// src/js/pages/telemetry/view/TelemetryApp.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { EngineState } from "./types";
-import { getEngineModels, startLivePolling } from "./polling";
+import { getEngineModels, startLivePolling } from "../document/polling";
 import { TelemetryModel } from "./TelemetryModel";
 
 export function TelemetryApp() {
