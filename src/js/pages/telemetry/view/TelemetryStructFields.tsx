@@ -143,7 +143,7 @@ function ImagePanel({
   onClose: () => void;
 }) {
   const [pos, setPos] = useState({ x: 200, y: 200 });
-  const [size, setSize] = useState({ w: 320, h: 320 });
+  const [size, setSize] = useState({ w: 640, h: 420 });
 
   if (!raw) return null;
 
