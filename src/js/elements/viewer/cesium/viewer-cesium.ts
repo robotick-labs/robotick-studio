@@ -160,15 +160,15 @@ async function updateRocketFromTelemetry(): Promise<void> {
     const layout = await fetchLayout(baseUrl);
     if (!layout) return;
 
-    const decoded = createTelemetryModel(layout);
+    const telemetryModel = createTelemetryModel(layout);
     const { raw: raw } = await fetchRaw(baseUrl);
     if (!raw) return;
-    decoded.raw = raw;
+    telemetryModel.raw = raw;
 
     // Access fields directly via getField()
     const get = (fieldPath: string): number =>
       parseFloat(
-        decoded
+        telemetryModel
           .getField(`${workloadName}.outputs.${fieldPath}`)
           ?.getValue?.() ?? "0"
       );

@@ -38,7 +38,7 @@ function RcTelemetryView() {
 
   useEffect(() => {
     let cachedLayout: any | null = null;
-    let decoded: any | null = null;
+    let telemetryModel: any | null = null;
 
     async function poll() {
       try {
@@ -46,16 +46,16 @@ function RcTelemetryView() {
         if (!cachedLayout) {
           cachedLayout = await fetchLayout(TELEMETRY_BASE_URL);
           if (!cachedLayout) return;
-          decoded = createTelemetryModel(cachedLayout);
+          telemetryModel = createTelemetryModel(cachedLayout);
         }
 
         // 2) Fetch raw buffer only each frame
         const { raw: raw } = await fetchRaw(TELEMETRY_BASE_URL);
         if (!raw) return;
-        decoded.raw = raw;
+        telemetryModel.raw = raw;
 
         // 3) Locate target workload
-        const workload = decoded.workloads.find(
+        const workload = telemetryModel.workloads.find(
           (w: any) => w.name === TELEMETRY_WORKLOAD_ID
         );
         if (!workload || !workload.outputs) return;

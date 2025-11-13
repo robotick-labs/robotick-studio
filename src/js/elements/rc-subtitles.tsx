@@ -21,9 +21,9 @@ let intervalId: number | null = null;
 // -------------------------------------------------------------
 // Subtitle extraction (fixed path)
 // -------------------------------------------------------------
-function extractSubtitleText(decoded: any): string {
-  if (!decoded || !decoded.getField) return "";
-  const field = decoded.getField(FIELD_PATH);
+function extractSubtitleText(telemetryModel: any): string {
+  if (!telemetryModel || !telemetryModel.getField) return "";
+  const field = telemetryModel.getField(FIELD_PATH);
   if (!field) return "";
   const value = field.getValue?.();
   return typeof value === "string" ? value : "";
@@ -47,7 +47,7 @@ function SubtitlesView() {
 
   useEffect(() => {
     let cachedLayout: any | null = null;
-    let decoded: any | null = null;
+    let telemetryModel: any | null = null;
 
     async function poll() {
       try {
@@ -55,16 +55,16 @@ function SubtitlesView() {
         if (!cachedLayout) {
           cachedLayout = await fetchLayout(TELEMETRY_BASE_URL);
           if (!cachedLayout) return;
-          decoded = createTelemetryModel(cachedLayout);
+          telemetryModel = createTelemetryModel(cachedLayout);
         }
 
         // Fetch raw buffer per frame
         const { raw: raw } = await fetchRaw(TELEMETRY_BASE_URL);
         if (!raw) return;
-        decoded.raw = raw;
+        telemetryModel.raw = raw;
 
         // Extract and normalise
-        const text = extractSubtitleText(decoded);
+        const text = extractSubtitleText(telemetryModel);
         if (!text) return;
 
         const normalized = normalizeForDisplay(text);

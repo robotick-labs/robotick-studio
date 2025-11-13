@@ -514,8 +514,8 @@ export class ViewerWorld {
     }
   }
 
-  // New: fetch decoded model (layout + raw), set raw, return decoded.
-  private async fetchDecodedModel(baseUrl: string): Promise<any | null> {
+  // New: fetch telemetryModel model (layout + raw), set raw, return telemetryModel.
+  private async fetchTelemetryModel(baseUrl: string): Promise<any | null> {
     try {
       const layout = await fetchLayout(baseUrl);
       if (!layout) return;
@@ -523,55 +523,57 @@ export class ViewerWorld {
       const { raw } = await fetchRaw(baseUrl);
       if (!raw) return;
 
-      const decoded = createTelemetryModel(layout);
-      if (!decoded) return null;
+      const telemetryModel = createTelemetryModel(layout);
+      if (!telemetryModel) return null;
 
-      decoded.raw = raw;
+      telemetryModel.raw = raw;
 
-      return decoded;
+      return telemetryModel;
     } catch (err) {
       console.warn("[viewer] telemetry fetch failed:", err);
       return null;
     }
   }
 
-  private async executePoller(p: RestPoller) {
-    const method = p.method ?? "GET";
-    const rt: ResponseType = p.responseType ?? "json";
-
-    const decoded = await this.fetchDecodedModel(p.baseUrl);
-    if (!decoded) {
-      return;
-    }
+  private async executePoller(poller: RestPoller) {
+    const telemetryModel = await this.fetchTelemetryModel(poller.baseUrl);
+    if (!telemetryModel) return;
 
     // Fields → drive scene from scalar/vec/quats
-    if (p.fields?.length) {
+    if (poller.fields?.length) {
       this.applyFieldsData(
-        p.workloadName,
-        p.fields!,
-        decoded,
-        p.defaultSpace,
-        p.sourceUp
+        poller.workloadName,
+        poller.fields!,
+        telemetryModel,
+        poller.defaultSpace,
+        poller.sourceUp
       );
     }
 
     // Textures → expect binary payloads (Uint8Array / ArrayBuffer)
-    if (p.textureFields?.length) {
-      for (const t of p.textureFields) {
-        const fieldPath = `${p.workloadName}.${t.fieldId}`;
-        const field = decoded.getField?.(fieldPath);
+    if (poller.textureFields?.length) {
+      for (const t of poller.textureFields) {
+        const fieldPath = `${poller.workloadName}.${t.fieldId}`;
+        const field = telemetryModel.getField?.(fieldPath);
         if (!field) {
           console.warn("Texture field not found:", fieldPath);
           continue;
         }
 
-        const raw = field.getValue();
-        if (!(raw instanceof Uint8Array) && !(raw instanceof ArrayBuffer)) {
-          console.warn("Texture field is not binary:", t.fieldId, raw);
+        if (field.mime_type !== "image/png") {
+          console.warn(
+            `Texture field mime_type [${field.mime_type}] is not 'image/png': ${fieldPath}`
+          );
           continue;
         }
 
-        const blob = new Blob([raw], { type: "image/png" });
+        const fieldValue = field.getValue();
+        if (!(fieldValue instanceof Uint8Array)) {
+          console.warn("Texture field is not binary:", t.fieldId, fieldValue);
+          continue;
+        }
+
+        const blob = new Blob([fieldValue], { type: field.mime_type });
         const bitmap = await createImageBitmap(blob);
 
         const node = this.findNodeAnyModel(t.node);
@@ -616,17 +618,17 @@ export class ViewerWorld {
   private applyFieldsData(
     workloadName: string,
     maps: Required<RestPoller>["fields"],
-    decoded: any,
+    telemetryModel: any,
     defaultSpace?: "local" | "world",
     defaultSourceUp?: "Y" | "Z"
   ) {
     for (const m of maps) {
       const fieldPath = `${workloadName}.${m.fieldId}`;
-      const field = decoded.getField?.(fieldPath);
+      const field = telemetryModel.getField?.(fieldPath);
       if (!field) continue;
 
-      const raw = field.getValue();
-      if (raw === undefined || raw === null) continue;
+      const fieldValue = field.getValue();
+      if (fieldValue === undefined || fieldValue === null) continue;
 
       const node = this.findNodeAnyModel(m.node);
       if (!node) {
@@ -643,7 +645,7 @@ export class ViewerWorld {
       switch (m.prop) {
         case "position": {
           if (m.axis && m.axis !== "all") {
-            const v = num(raw);
+            const v = num(fieldValue);
             if (typeof v !== "number") break;
             const vec = node.position.clone();
             if (m.axis === "x") vec.x = m.multiply ? v * m.multiply : v;
@@ -651,9 +653,9 @@ export class ViewerWorld {
             if (m.axis === "z") vec.z = m.multiply ? v * m.multiply : v;
             node.position.copy(vec);
           } else {
-            const wx = num(raw.x),
-              wy = num(raw.y),
-              wz = num(raw.z);
+            const wx = num(fieldValue.x),
+              wy = num(fieldValue.y),
+              wz = num(fieldValue.z);
             if (
               [wx, wy, wz].some((v) => typeof v !== "number" || Number.isNaN(v))
             )
@@ -679,10 +681,10 @@ export class ViewerWorld {
         }
 
         case "rotationQuat": {
-          const wq = num(raw.w ?? raw[0]);
-          const xq = num(raw.x ?? raw[1]);
-          const yq = num(raw.y ?? raw[2]);
-          const zq = num(raw.z ?? raw[3]);
+          const wq = num(fieldValue.w ?? fieldValue[0]);
+          const xq = num(fieldValue.x ?? fieldValue[1]);
+          const yq = num(fieldValue.y ?? fieldValue[2]);
+          const zq = num(fieldValue.z ?? fieldValue[3]);
           if (
             [wq, xq, yq, zq].some(
               (v) => typeof v !== "number" || Number.isNaN(v)
@@ -714,14 +716,14 @@ export class ViewerWorld {
 
         case "rotationEuler":
         case "rotationXYZ": {
-          const ex = num(raw.x),
-            ey = num(raw.y),
-            ez = num(raw.z);
+          const ex = num(fieldValue.x),
+            ey = num(fieldValue.y),
+            ez = num(fieldValue.z);
           if (
             [ex, ey, ez].some((v) => typeof v !== "number" || Number.isNaN(v))
           ) {
             if (!m.axis || m.axis === "all") break;
-            const v = num(raw);
+            const v = num(fieldValue);
             if (typeof v !== "number") break;
             const e = node.rotation.clone();
             if (m.axis === "x") e.x = m.multiply ? v * m.multiply : v;
@@ -759,17 +761,17 @@ export class ViewerWorld {
 
         case "scale": {
           if (m.axis && m.axis !== "all") {
-            const v = num(raw);
+            const v = num(fieldValue);
             if (typeof v !== "number") break;
             const s = node.scale.clone();
             if (m.axis === "x") s.x = m.multiply ? v * m.multiply : v;
             if (m.axis === "y") s.y = m.multiply ? v * m.multiply : v;
             if (m.axis === "z") s.z = m.multiply ? v * m.multiply : v;
             node.scale.copy(s);
-          } else if (raw && typeof raw === "object") {
-            const sx = num(raw.x),
-              sy = num(raw.y),
-              sz = num(raw.z);
+          } else if (fieldValue && typeof fieldValue === "object") {
+            const sx = num(fieldValue.x),
+              sy = num(fieldValue.y),
+              sz = num(fieldValue.z);
             if (
               [sx, sy, sz].some((v) => typeof v !== "number" || Number.isNaN(v))
             )
@@ -790,7 +792,8 @@ export class ViewerWorld {
           const mats = this.asMaterials(node);
           for (const mat of mats) {
             const key = this.materialPropKey(m.prop) as "color" | "emissive";
-            if (typeof raw === "string") (mat as any)[key].set(raw);
+            if (typeof fieldValue === "string")
+              (mat as any)[key].set(fieldValue);
             mat.needsUpdate = true;
           }
           break;
@@ -804,7 +807,7 @@ export class ViewerWorld {
 
         case "material.opacity": {
           const mats = this.asMaterials(node);
-          const v = num(raw);
+          const v = num(fieldValue);
           for (const mat of mats) {
             (mat as any).opacity =
               typeof v === "number" ? v : m.multiply ? v * m.multiply : v;

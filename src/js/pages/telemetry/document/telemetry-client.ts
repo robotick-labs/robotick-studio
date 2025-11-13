@@ -4,7 +4,7 @@
 // - Uses layout.types[] as the canonical schema
 // - Resolves structs recursively with unlimited depth
 // - Computes absolute offsets for every field
-// - Propagates type.meta to DecodedStruct and DecodedField
+// - Propagates type.mime_type to DecodedStruct and DecodedField
 // - Decodes primitives + FixedStringNN
 // -----------------------------------------------------------------------------
 
@@ -24,7 +24,7 @@ export interface LayoutType {
   size: number;
   alignment?: number;
   type_category?: number;
-  meta?: string;
+  mime_type?: string;
   fields?: LayoutField[];
 }
 
@@ -59,7 +59,7 @@ export interface ITelemetryField {
   type: string;
   path: string;
   offset: number; // absolute byte offset into raw buffer
-  meta?: string; // inherited from LayoutType.meta
+  mime_type?: string; // inherited from LayoutType.mime_type
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
@@ -70,7 +70,7 @@ export interface ITelemetryStruct {
   typeName: string;
   offset: number; // absolute byte offset of struct root
   fields: ITelemetryField[];
-  meta?: string;
+  mime_type?: string;
 }
 
 export interface ITelemetryWorkload {
@@ -104,19 +104,18 @@ export async function fetchLayout(url: string): Promise<LayoutModel | null> {
 }
 
 export async function fetchRaw(
-  url: string
+  base_url: string
 ): Promise<{ raw: ArrayBuffer; sid: string }> {
+  const url = `${base_url}/api/telemetry/workloads_buffer/raw`;
   try {
-    const r = await fetch(`${url}/api/telemetry/workloads_buffer/raw`, {
+    const r = await fetch(url, {
       cache: "no-store",
     });
     const buf = await r.arrayBuffer();
-    const sid =
-      r.headers.get("x-session-id") ||
-      r.headers.get("x-robotick-session-id") ||
-      "";
+    const sid = r.headers.get("x-robotick-session-id") || "";
     return { raw: buf, sid };
-  } catch {
+  } catch (error) {
+    console.warn(`fetchRaw() failed for '${url}'`, error);
     return { raw: new ArrayBuffer(0), sid: "" };
   }
 }
@@ -130,7 +129,7 @@ function readSingle(
   raw: ArrayBuffer,
   offset: number,
   type: string,
-  meta: string
+  mime_type: string
 ): any {
   switch (type) {
     case "float":
@@ -153,8 +152,8 @@ function readSingle(
       return view.getUint8(offset);
   }
 
-  // FixedStringNN (meta marks text)
-  if (meta === "text/plain") {
+  // FixedStringNN (mime_type marks text)
+  if (mime_type === "text/plain") {
     const max = parseInt(type.replace(/\D/g, ""), 10) || 0;
     const bytes = new Uint8Array(raw, offset, max);
     const zero = bytes.indexOf(0);
@@ -171,7 +170,7 @@ function readSingle(
   return null;
 }
 
-function bytesPerPrimitive(type: string, meta: string): number {
+function bytesPerPrimitive(type: string, mime_type: string): number {
   switch (type) {
     case "float":
       return 4;
@@ -192,7 +191,7 @@ function bytesPerPrimitive(type: string, meta: string): number {
     case "uint8_t":
       return 1;
   }
-  if (meta === "text/plain") {
+  if (mime_type === "text/plain") {
     return parseInt(type.replace(/\D/g, ""), 10) || 0; // FixedStringN
   }
   return 1;
@@ -203,21 +202,21 @@ export function readValue(
   raw: ArrayBuffer,
   offset: number,
   type: string,
-  meta: string,
+  mime_type: string,
   element_count: number
 ): any {
   try {
     if (element_count <= 1) {
-      return readSingle(view, raw, offset, type, meta);
+      return readSingle(view, raw, offset, type, mime_type);
     }
     if (type === "uint8_t") {
       return new Uint8Array(raw, offset, element_count);
     }
     const results: any[] = [];
     let localOffset = offset;
-    const stride = bytesPerPrimitive(type, meta);
+    const stride = bytesPerPrimitive(type, mime_type);
     for (let i = 0; i < element_count; i++) {
-      results.push(readSingle(view, raw, localOffset, type, meta));
+      results.push(readSingle(view, raw, localOffset, type, mime_type));
       localOffset += stride;
     }
     return results;
@@ -237,7 +236,7 @@ namespace TelemetryFactory {
       model: TelemetryModel,
       abs: number,
       type: string,
-      meta?: string,
+      mime_type?: string,
       count?: number
     ): unknown;
     buildObject(
@@ -259,13 +258,19 @@ namespace TelemetryFactory {
     for (const t of layout.types) typeMap.set(t.name, t);
 
     const reader: Reader = {
-      getLeaf(model, abs, type, meta, count = 1) {
+      getLeaf(model, abs, type, mime_type, count = 1) {
         const view = model.view();
         const raw = model.raw;
         if (!view || !raw) return null;
-        if (count <= 1) return readSingle(view, raw, abs, type, meta ?? "");
-        if (type === "uint8_t") return new Uint8Array(raw, abs, count);
-        return readValue(view, raw, abs, type, meta ?? "", count);
+        if (count <= 1)
+          return readSingle(view, raw, abs, type, mime_type ?? "");
+
+        const hasMeta =
+          typeof mime_type === "string" && mime_type.trim().length > 0;
+        if (type === "uint8_t" || (hasMeta && mime_type !== "text/plain")) {
+          return new Uint8Array(raw, abs, count);
+        }
+        return readValue(view, raw, abs, type, mime_type ?? "", count);
       },
 
       buildObject(model, typeName, base) {
@@ -297,7 +302,7 @@ namespace TelemetryFactory {
               model,
               childAbs,
               f.type,
-              childType?.meta,
+              childType?.mime_type,
               f.element_count
             );
           }
@@ -348,7 +353,7 @@ namespace TelemetryFactory {
                 abs,
                 model,
                 reader,
-                childType?.meta,
+                childType?.mime_type,
                 f.element_count,
                 nested.fields,
                 childType?.size ?? 0,
@@ -364,7 +369,7 @@ namespace TelemetryFactory {
                 abs,
                 model,
                 reader,
-                childType?.meta,
+                childType?.mime_type,
                 f.element_count,
                 undefined,
                 0,
@@ -375,7 +380,7 @@ namespace TelemetryFactory {
         }
       }
 
-      return new TelemetryStruct(typeName, base, fields, t?.meta);
+      return new TelemetryStruct(typeName, base, fields, t?.mime_type);
     };
 
     const workloads: ITelemetryWorkload[] = [];
@@ -475,7 +480,7 @@ class TelemetryStruct implements ITelemetryStruct {
     public readonly typeName: string,
     public readonly offset: number,
     public readonly fields: ITelemetryField[],
-    public readonly meta?: string
+    public readonly mime_type?: string
   ) {}
 }
 
@@ -491,7 +496,7 @@ class TelemetryField implements ITelemetryField {
         model: TelemetryModel,
         abs: number,
         type: string,
-        meta?: string,
+        mime_type?: string,
         count?: number
       ) => unknown;
       buildObject: (
@@ -507,7 +512,7 @@ class TelemetryField implements ITelemetryField {
         stride: number
       ) => Record<string, unknown>[];
     },
-    public readonly meta?: string,
+    public readonly mime_type?: string,
     private readonly elementCount: number = 1,
     public readonly fields?: ITelemetryField[],
     private readonly childSize: number = 0, // for struct arrays
@@ -536,7 +541,7 @@ class TelemetryField implements ITelemetryField {
       this.model,
       this.offset,
       this.type,
-      this.meta,
+      this.mime_type,
       this.elementCount
     );
   }

@@ -157,26 +157,28 @@ export async function startLivePolling(
         const url = engine.model.instanceURL;
 
         // Always fetch fresh raw buffer + identifying session-id
-        const { raw: buf, sid } = await fetchRaw(url);
+        const { raw, sid } = await fetchRaw(url);
 
         // If session changed → refresh layout
         let layout = layouts[url];
-        let decoded = decodedModels[url];
+        let telemetryModel = decodedModels[url];
         if (
           !layout ||
-          !decoded ||
+          !telemetryModel ||
           (sessionIds[url] && sessionIds[url] !== sid)
         ) {
           layout = await fetchLayout(url);
-          decoded = createTelemetryModel(layout);
           layouts[url] = layout;
-          decodedModels[url] = decoded;
+          telemetryModel = layout ? createTelemetryModel(layout) : null;
+          decodedModels[url] = telemetryModel;
         }
         sessionIds[url] = sid;
 
-        decoded.raw = buf;
+        if (telemetryModel) {
+          telemetryModel.raw = raw;
+        }
 
-        return { url, decoded };
+        return { url, telemetryModel };
       })
     );
 
@@ -184,11 +186,17 @@ export async function startLivePolling(
     setEngines((prev) =>
       prev.map((engine) => {
         const r = results.find((x) => x.url === engine.model.instanceURL);
-        if (!r) return engine;
+        if (
+          !r ||
+          !r.telemetryModel ||
+          !r.telemetryModel.raw ||
+          r.telemetryModel.raw.byteLength == 0
+        )
+          return engine;
 
         return {
           ...engine,
-          workloads: r.decoded.workloads,
+          workloads: r.telemetryModel.workloads,
           canLivePoll: true,
           hasInitialWorkloads: true,
         };
