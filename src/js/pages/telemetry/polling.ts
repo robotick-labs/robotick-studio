@@ -4,15 +4,11 @@
 // -----------------------------------------------------------------------------
 
 import currentProject from "../../core/current-project.js";
-import { EngineModel, EngineState, TelemetryWorkload } from "./types";
-import {
-  fetchLayout,
-  fetchRawBuffer,
-  decodeTelemetry,
-  TelemetryLayout,
-} from "./telemetry-client";
+import { EngineModel, EngineState } from "./types";
+import { decodeTelemetry, TelemetryLayout } from "./telemetry-client";
 
-const LIVE_SLEEP_MS = 50; // 20Hz UI cadence; change if needed
+// Polling frequency (20 Hz UI cadence)
+const LIVE_SLEEP_MS = 50;
 
 // -----------------------------------------------------------------------------
 // Utilities
@@ -33,14 +29,17 @@ export async function fetchJSON<T = any>(
       signal,
       headers: { Accept: "application/json" },
     });
+
     if (!res.ok) return null;
-    const text = await res.text();
-    if (!text) return null;
-    return JSON.parse(text) as T;
+    return await res.json();
   } catch {
     return null;
   }
 }
+
+// -----------------------------------------------------------------------------
+// Model discovery (needed by TelemetryApp)
+// -----------------------------------------------------------------------------
 
 export async function fetchAllModelJSONs(): Promise<
   { modelName: string; engineURL: string; modelPath: string; json: any }[]
@@ -59,6 +58,7 @@ export async function fetchAllModelJSONs(): Promise<
     modelPath: string;
     json: any;
   }[] = [];
+
   if (!modelPaths) return results;
 
   for (const modelPath of modelPaths) {
@@ -118,133 +118,110 @@ export async function getEngineModels(): Promise<EngineModel[]> {
 }
 
 // -----------------------------------------------------------------------------
-// State helpers
+// Helpers
 // -----------------------------------------------------------------------------
-
-export function mutateEngine(
-  setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>,
-  url: string,
-  mut: (engineState: EngineState) => void
-): EngineState[] {
-  let nextCapture: EngineState[] = [];
-  setEngines((prev) => {
-    const next = prev.map((e) => {
-      if (e.model.instanceURL !== url) return e;
-      const clone: EngineState = {
-        ...e,
-        workloads: e.workloads,
-        pollingController: e.pollingController,
-        livePollingController: e.livePollingController,
-      };
-      mut(clone);
-      return clone;
-    });
-    nextCapture = next;
-    return next;
-  });
-  return nextCapture;
-}
 
 export function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Low-level endpoint wrappers
+async function fetchLayout(url: string): Promise<TelemetryLayout | null> {
+  try {
+    const r = await fetch(`${url}/api/telemetry/workloads_buffer/layout`, {
+      cache: "no-store",
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as TelemetryLayout;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRaw(
+  url: string
+): Promise<{ buf: ArrayBuffer; sid: string }> {
+  try {
+    const r = await fetch(`${url}/api/telemetry/workloads_buffer/raw`, {
+      cache: "no-store",
+    });
+    const buf = await r.arrayBuffer();
+    const sid =
+      r.headers.get("x-session-id") ||
+      r.headers.get("x-robotick-session-id") ||
+      "";
+    return { buf, sid };
+  } catch {
+    return { buf: new ArrayBuffer(0), sid: "" };
+  }
 }
 
 // -----------------------------------------------------------------------------
-// GLOBAL polling loop (replaces per-engine startLivePolling())
+// GLOBAL polling loop
 // -----------------------------------------------------------------------------
 
 export async function startLivePolling(
   engines: EngineState[],
   setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
 ) {
-  const globalController = new AbortController();
-  const signal = globalController.signal;
-
-  // Per-engine layout + session caches
+  // Layout + session caches per engine
   const layouts: Record<string, TelemetryLayout | null> = {};
   const sessionIds: Record<string, string | null> = {};
 
-  try {
-    while (!signal.aborted) {
-      const frameStart = performance.now();
+  while (true) {
+    const activeEngines = engines.filter(
+      (e) =>
+        localStorage.getItem(
+          `telemetry-update-${urlToId(e.model.instanceURL)}`
+        ) === "true"
+    );
 
-      const limitedEngines = engines.filter(
-        (e) =>
-          localStorage.getItem(
-            `telemetry-update-${urlToId(e.model.instanceURL)}`
-          ) === "true"
-      );
+    const results = await Promise.all(
+      activeEngines.map(async (engine) => {
+        const url = engine.model.instanceURL;
 
-      // Fetch/decode all selected engines in parallel
-      const results = await Promise.all(
-        limitedEngines.map(async (engine) => {
-          const url = engine.model.instanceURL;
+        // 1) Cached layout
+        let layout = layouts[url];
+        if (!layout) {
+          layout = await fetchLayout(url);
+          layouts[url] = layout;
+        }
 
-          // Cached layout fetch
-          let layout = layouts[url];
-          if (!layout) {
-            layout = await fetchLayout(url);
-            layouts[url] = layout;
-          }
+        // 2) Raw buffer + session
+        const { buf, sid } = await fetchRaw(url);
 
-          const { buffer, sessionId } = await fetchRawBuffer(url);
+        // 3) If session changed → refresh layout
+        if (sessionIds[url] && sessionIds[url] !== sid) {
+          layout = await fetchLayout(url);
+          layouts[url] = layout;
+        }
+        sessionIds[url] = sid;
 
-          // Refresh layout if session changes
-          if (sessionIds[url] && sessionIds[url] !== sessionId) {
-            layout = await fetchLayout(url);
-            layouts[url] = layout;
-          }
-          sessionIds[url] = sessionId;
+        // 4) Decode with absolute-offset inlining
+        const decoded = layout
+          ? decodeTelemetry(layout, buf)
+          : { workloads: [] };
 
-          // Decode
-          let decoded: any = {};
-          if (layout && buffer && buffer.byteLength) {
-            decoded = decodeTelemetry(layout, buffer);
-          }
+        return { url, decoded };
+      })
+    );
 
-          return { url, decoded };
-        })
-      );
+    // 5) Apply to React state in a single pass
+    setEngines((prev) =>
+      prev.map((engine) => {
+        const r = results.find((x) => x.url === engine.model.instanceURL);
+        if (!r) return engine;
 
-      // Apply all updates in one React state change
-      setEngines((prev) =>
-        prev.map((engine) => {
-          const entry = results.find((r) => r.url === engine.model.instanceURL);
-          if (!entry || !entry.decoded) return engine;
+        return {
+          ...engine,
+          workloads: r.decoded.workloads,
+          canLivePoll: true,
+          hasInitialWorkloads: true,
+        };
+      })
+    );
 
-          const decoded = entry.decoded;
-          const workloads = [...engine.workloads];
-
-          for (const [name, d] of Object.entries(decoded)) {
-            const idx = workloads.findIndex((w) => w.name === name);
-            const patch: Partial<TelemetryWorkload> = {
-              type: (d as any).type,
-              config: (d as any).config,
-              inputs: (d as any).inputs,
-              outputs: (d as any).outputs,
-              self_ms: (d as any).stats?.self_ms ?? null,
-              dt_ms: (d as any).stats?.dt_ms ?? null,
-              goal_ms: (d as any).stats?.goal_ms ?? null,
-            };
-            if (idx >= 0) workloads[idx] = { ...workloads[idx], ...patch };
-            else workloads.push({ name, ...patch } as TelemetryWorkload);
-          }
-
-          return {
-            ...engine,
-            workloads,
-            canLivePoll: true,
-            hasInitialWorkloads: true,
-          };
-        })
-      );
-
-      // Maintain even cadence (~20Hz)
-      const elapsed = performance.now() - frameStart;
-      await sleep(Math.max(0, LIVE_SLEEP_MS - elapsed));
-    }
-  } catch (err) {
-    if (signal.aborted) return;
-    console.error("Global polling stopped:", err);
+    // 6) Maintain stable cadence
+    await sleep(LIVE_SLEEP_MS);
   }
 }

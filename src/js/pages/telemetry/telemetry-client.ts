@@ -1,237 +1,301 @@
 // telemetry-client.ts
 // -----------------------------------------------------------------------------
-// Lightweight client for fetching and decoding Robotick telemetry buffers
+// Robotick unified absolute-offset telemetry decoder
+// - Uses layout.types[] as the canonical schema
+// - Resolves structs recursively with unlimited depth
+// - Computes absolute offsets for every field
+// - Propagates type.meta to DecodedStruct and DecodedField
+// - Decodes primitives + FixedStringNN
 // -----------------------------------------------------------------------------
 
-export interface TelemetryField {
+// -----------------------------------------------------------------------------
+// Raw Layout Types (directly from engine /layout endpoint)
+// -----------------------------------------------------------------------------
+
+export interface LayoutField {
   name: string;
   type: string;
   offset_within_container: number;
-  size?: number;
 }
 
-export interface TelemetryType {
+export interface LayoutType {
   name: string;
-  size?: number;
-  meta?: string;
-  fields?: TelemetryField[];
+  size: number;
+  alignment?: number;
+  type_category?: number;
+  meta?: string; // NEW: propagate to decoded
+  fields?: LayoutField[];
 }
 
-export interface TelemetryWorkload {
-  name: string;
+export interface WorkloadStructRef {
+  type: string;
   offset_within_container: number;
-  config?: TelemetryField[];
-  inputs?: TelemetryField[];
-  outputs?: TelemetryField[];
+}
+
+export interface LayoutWorkload {
+  name: string;
+  type: string;
+  offset_within_container: number;
+
+  config?: WorkloadStructRef;
+  inputs?: WorkloadStructRef;
+  outputs?: WorkloadStructRef;
 }
 
 export interface TelemetryLayout {
-  types: TelemetryType[];
-  workloads: TelemetryWorkload[];
+  workloads: LayoutWorkload[];
+  types: LayoutType[];
+  engine_session_id?: string;
+  buffer_size_used?: number;
 }
 
+// -----------------------------------------------------------------------------
+// Decoded Structures (for UI / React)
+// -----------------------------------------------------------------------------
+
 export interface DecodedField {
+  name: string;
   type: string;
   path: string;
+  offset: number; // absolute byte offset into raw buffer
   value: any;
+  meta?: string; // NEW: inherited from LayoutType.meta
+  children?: DecodedField[];
+}
+
+export interface DecodedStruct {
+  typeName: string;
+  offset: number; // absolute byte offset of struct root
+  fields: DecodedField[];
+  meta?: string; // NEW
 }
 
 export interface DecodedWorkload {
-  type?: string;
-  config?: Record<string, DecodedField>;
-  inputs?: Record<string, DecodedField>;
-  outputs?: Record<string, DecodedField>;
+  name: string;
+  type: string;
+  config?: DecodedStruct;
+  inputs?: DecodedStruct;
+  outputs?: DecodedStruct;
+}
+
+export interface DecodedModel {
+  workloads: DecodedWorkload[];
 }
 
 // -----------------------------------------------------------------------------
-// Fetch functions
+// Value decoding
 // -----------------------------------------------------------------------------
 
-export async function fetchLayout(baseUrl: string): Promise<TelemetryLayout> {
-  const resp = await fetch(`${baseUrl}/api/telemetry/workloads_buffer/layout`);
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch layout: ${resp.statusText}`);
-  }
-  return await resp.json();
-}
-
-export async function fetchRawBuffer(
-  baseUrl: string
-): Promise<{ buffer: ArrayBuffer; sessionId: string | null }> {
+function readValue(
+  view: DataView,
+  raw: ArrayBuffer,
+  offset: number,
+  type: string,
+  meta: string
+): any {
   try {
-    const resp = await fetch(`${baseUrl}/api/telemetry/workloads_buffer/raw`, {
-      cache: "no-store",
-      keepalive: true,
-    });
+    switch (type) {
+      case "float":
+        return view.getFloat32(offset, true);
+      case "double":
+        return view.getFloat64(offset, true);
+      case "bool":
+        return view.getUint8(offset) !== 0;
+      case "int":
+        return view.getInt32(offset, true);
+      case "uint32_t":
+        return view.getUint32(offset, true);
+      case "uint16_t":
+        return view.getUint16(offset, true);
+      case "int16_t":
+        return view.getInt16(offset, true);
+      case "int8_t":
+        return view.getInt8(offset);
+      case "uint8_t":
+        return view.getUint8(offset);
+    }
 
-    if (resp.ok) {
-      const buffer = await resp.arrayBuffer();
-      const sessionId = resp.headers.get("X-Robotick-Session-Id");
-      return { buffer, sessionId };
+    // FixedStringNN
+    if (meta === "text/plain") {
+      const max = parseInt(type.replace(/\D/g, ""), 10) || 0;
+      const bytes = new Uint8Array(raw, offset, max);
+      const zero = bytes.indexOf(0);
+      const slice = bytes.slice(0, zero >= 0 ? zero : max);
+      return new TextDecoder().decode(slice);
+    }
+
+    if (type) {
+      // Return raw blind data buffer when type cannot be interpreted.
+      // (Viewer code will detect Uint8Array or ArrayBuffer accordingly.)
+      const remaining = new Uint8Array(raw, offset);
+      return remaining.slice(); // copy so slices don’t alias the main buffer
     }
   } catch {
-    // swallow network or abort errors
+    // Fall through to return null below
   }
 
-  // fallback: empty result
-  return { buffer: new ArrayBuffer(0), sessionId: null };
+  return null;
 }
 
 // -----------------------------------------------------------------------------
-// Decoder
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// Decoder
+// Main struct decoder
 // -----------------------------------------------------------------------------
 
 export function decodeTelemetry(
   layout: TelemetryLayout,
-  arrayBuffer: ArrayBuffer
-): Record<string, DecodedWorkload> {
-  const view = new DataView(arrayBuffer);
-  const typeMap = Object.fromEntries(layout.types.map((t) => [t.name, t]));
+  raw: ArrayBuffer
+): DecodedModel {
+  const view = new DataView(raw);
+  const typeMap = new Map<string, LayoutType>();
 
-  function safe<T>(fn: () => T): T | string {
-    try {
-      return fn();
-    } catch {
-      return "<out-of-bounds>";
-    }
+  // Build type registry
+  for (const t of layout.types) {
+    typeMap.set(t.name, t);
   }
 
-  function decodeText(offset: number, length: number): string {
-    const bytes = new Uint8Array(view.buffer, offset, length);
-    const nullIndex = bytes.indexOf(0);
-    const end = nullIndex >= 0 ? nullIndex : bytes.length;
-    return new TextDecoder().decode(bytes.slice(0, end));
-  }
+  // -------------------------------------------------------------
+  // Recursive struct decoder (absolute offsets)
+  // -------------------------------------------------------------
+  function decodeByType(
+    typeName: string,
+    baseOffset: number,
+    pathPrefix: string
+  ): DecodedStruct {
+    const t = typeMap.get(typeName);
 
-  // Decode any primitive or text value
-  function decodePrimitive(typeName: string, absoluteOffset: number): any {
-    switch (typeName) {
-      case "float":
-        return safe(() => view.getFloat32(absoluteOffset, true));
-      case "double":
-        return safe(() => view.getFloat64(absoluteOffset, true));
-      case "bool":
-        return safe(() => !!view.getUint8(absoluteOffset));
-      case "int":
-        return safe(() => view.getInt32(absoluteOffset, true));
-      case "uint16_t":
-        return safe(() => view.getUint16(absoluteOffset, true));
-      case "uint32_t":
-        return safe(() => view.getUint32(absoluteOffset, true));
+    const out: DecodedStruct = {
+      typeName,
+      offset: baseOffset,
+      fields: [],
+      meta: t?.meta ?? undefined,
+    };
+
+    if (!t || !t.fields || t.fields.length === 0) {
+      return out;
     }
 
-    const typeDesc = typeMap[typeName];
-    if (typeDesc?.meta === "text/plain" && typeDesc.size) {
-      return safe(() => decodeText(absoluteOffset, typeDesc.size!));
-    }
+    for (const f of t.fields) {
+      const abs = baseOffset + f.offset_within_container;
+      const path = `${pathPrefix}.${f.name}`;
+      const childType = typeMap.get(f.type);
 
-    // Blind-data fallback: return raw bytes if size is known
-    if (typeDesc?.size) {
-      return safe(
-        () =>
-          new Uint8Array(
-            view.buffer,
-            absoluteOffset,
-            Math.min(typeDesc.size!, view.byteLength - absoluteOffset)
-          )
-      );
-    }
+      const isComposite =
+        childType &&
+        Array.isArray(childType.fields) &&
+        childType.fields.length > 0;
 
-    // No descriptor or unknown size
-    return safe(
-      () => new Uint8Array(view.buffer, absoluteOffset, 16) // arbitrary 16-byte peek
-    );
-  }
-
-  // Recursively decode struct fields into nested JS objects
-  function decodeStruct(typeName: string, baseOffset: number): any {
-    const typeDesc = typeMap[typeName];
-    if (!typeDesc) {
-      return "<unknown-type>";
-    }
-
-    // Primitive or text type — return direct value
-    const isPrimitive =
-      !typeDesc.fields || typeDesc.fields.length === 0 || !!typeDesc.meta;
-    if (isPrimitive) {
-      return decodePrimitive(typeName, baseOffset);
-    }
-
-    // Composite: recursively decode subfields
-    const result: Record<string, any> = {};
-    for (const field of typeDesc.fields) {
-      const absOffset = baseOffset + field.offset_within_container;
-      result[field.name] = decodeStruct(field.type, absOffset);
-    }
-    return result;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Decode workloads into nested objects
-  // ---------------------------------------------------------------------------
-
-  const workloads: Record<string, DecodedWorkload> = {};
-
-  for (const workload of layout.workloads) {
-    const decoded_workload: DecodedWorkload = {};
-    const base = workload.offset_within_container;
-
-    decoded_workload.type = (workload as any)["type"];
-
-    for (const section_name of ["config", "inputs", "outputs"]) {
-      const section = (workload as any)[section_name];
-      if (!section) continue;
-
-      if (
-        typeof section.type === "string" &&
-        typeof section.offset_within_container === "number"
-      ) {
-        const absOffset = base + section.offset_within_container;
-        const decodedStruct = decodeStruct(section.type, absOffset);
-        (decoded_workload as any)[section_name] = decodedStruct;
+      // Composite struct → recurse
+      if (isComposite) {
+        const nested = decodeByType(f.type, abs, path);
+        out.fields.push({
+          name: f.name,
+          type: f.type,
+          path,
+          offset: abs,
+          value: undefined,
+          meta: childType?.meta ?? undefined,
+          children: nested.fields,
+        });
+      }
+      // Leaf field
+      else {
+        out.fields.push({
+          name: f.name,
+          type: f.type,
+          path,
+          offset: abs,
+          value: readValue(view, raw, abs, f.type, childType?.meta ?? ""),
+          meta: childType?.meta ?? undefined,
+        });
       }
     }
 
-    workloads[workload.name] = decoded_workload;
+    return out;
   }
 
-  return workloads;
+  // -------------------------------------------------------------------------
+  // Decode each workload and inline config/inputs/outputs completely
+  // -------------------------------------------------------------------------
+
+  const decodedWorkloads: DecodedWorkload[] = [];
+
+  for (const wl of layout.workloads) {
+    const base = wl.offset_within_container;
+
+    const d: DecodedWorkload = {
+      name: wl.name,
+      type: wl.type,
+    };
+
+    if (wl.config) {
+      d.config = decodeByType(
+        wl.config.type,
+        base + wl.config.offset_within_container,
+        `${wl.name}.config`
+      );
+    }
+
+    if (wl.inputs) {
+      d.inputs = decodeByType(
+        wl.inputs.type,
+        base + wl.inputs.offset_within_container,
+        `${wl.name}.inputs`
+      );
+    }
+
+    if (wl.outputs) {
+      d.outputs = decodeByType(
+        wl.outputs.type,
+        base + wl.outputs.offset_within_container,
+        `${wl.name}.outputs`
+      );
+    }
+
+    decodedWorkloads.push(d);
+  }
+
+  return { workloads: decodedWorkloads };
 }
 
 // -----------------------------------------------------------------------------
-// Workload outputs accessor
+// Convenience API: extract all leaf fields for a workload's outputs
+//  - Flattens nested struct fields
+//  - Returns [{ path, type, value, offset, meta }, ...]
 // -----------------------------------------------------------------------------
 
-/**
- * Fetches layout + raw buffer, decodes them, and returns a simple
- * { path: value } map for all output leaf fields of a named workload.
- */
-export async function getWorkloadOutputFields(
-  baseUrl: string,
+export interface WorkloadOutputField {
+  path: string;
+  type: string;
+  value: any;
+  offset: number;
+  meta?: string;
+}
+
+export function getWorkloadOutputFields(
+  decodedModel: DecodedModel,
   workloadName: string
-): Promise<DecodedWorkload | null> {
-  try {
-    const [layout, raw] = await Promise.all([
-      fetchLayout(baseUrl),
-      fetchRawBuffer(baseUrl),
-    ]);
+): WorkloadOutputField[] {
+  const workload = decodedModel.workloads.find((w) => w.name === workloadName);
+  if (!workload || !workload.outputs) return [];
 
-    if (!raw.buffer || raw.buffer.byteLength === 0) {
-      return null;
+  const out: WorkloadOutputField[] = [];
+
+  function recurse(fields: DecodedField[]) {
+    for (const f of fields) {
+      if (f.children && f.children.length > 0) {
+        recurse(f.children);
+      } else {
+        out.push({
+          path: f.path,
+          type: f.type,
+          value: f.value,
+          offset: f.offset,
+          meta: f.meta,
+        });
+      }
     }
-
-    const decoded = decodeTelemetry(layout, raw.buffer);
-    const workload = decoded[workloadName];
-    if (workload && typeof workload === "object") {
-      return workload;
-    }
-
-    return null;
-  } catch (err) {
-    return null;
   }
+
+  recurse(workload.outputs.fields);
+  return out;
 }

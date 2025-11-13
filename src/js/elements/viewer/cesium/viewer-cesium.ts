@@ -135,28 +135,60 @@ function startRocketTracking(): void {
   fetchAndUpdate();
 }
 
+async function fetchWorkloadNested(
+  baseUrl: string,
+  workloadName: string
+): Promise<any | null> {
+  try {
+    const layoutUrl = `${baseUrl}/api/telemetry/workloads_buffer/layout`;
+    const rawUrl = `${baseUrl}/api/telemetry/workloads_buffer/raw`;
+
+    const layout = await fetch(layoutUrl).then((r) => r.json());
+    const raw = await fetch(rawUrl).then((r) => r.arrayBuffer());
+
+    const decoded = decodeTelemetry(layout, raw);
+    if (!decoded) return null;
+
+    const flat = getWorkloadOutputFields(decoded, workloadName);
+    if (!flat || flat.length === 0) return null;
+
+    const root: any = {};
+    for (const f of flat) {
+      const clean = f.path.replace(/^(inputs|outputs|config)\./, "");
+      const parts = clean.split(".");
+      let cur = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const p = parts[i];
+        if (!cur[p]) cur[p] = {};
+        cur = cur[p];
+      }
+      cur[parts[parts.length - 1]] = f.value;
+    }
+
+    return root;
+  } catch (err) {
+    console.warn("[cesium viewer] telemetry fetch failed:", err);
+    return null;
+  }
+}
+
 async function updateRocketFromTelemetry(): Promise<void> {
-  const data = await getWorkloadOutputFields(
-    "http://localhost:7090",
-    "jsb_sim"
-  );
-  if (data.empty) {
+  const nested = await fetchWorkloadNested("http://localhost:7090", "jsb_sim");
+
+  if (!nested) {
     return;
   }
 
-  const lat = parseFloat(data["jsb.fcs_position_lat_deg"]);
-  const lon = parseFloat(data["jsb.fcs_position_long_deg"]);
-  const alt = parseFloat(data["jsb.fcs_position_alt_sl_ft"]) * 0.3048 + 100;
+  // The JSBSim workload puts its fields directly inside the root
+  const lat = parseFloat(nested.fcs_position_lat_deg);
+  const lon = parseFloat(nested.fcs_position_long_deg);
+  const alt = parseFloat(nested.fcs_position_alt_sl_ft) * 0.3048 + 100;
 
-  const roll = Cesium.Math.toRadians(
-    parseFloat(data["jsb.fcs_attitude_roll_deg"])
-  );
+  const roll = Cesium.Math.toRadians(parseFloat(nested.fcs_attitude_roll_deg));
   const pitch = Cesium.Math.toRadians(
-    parseFloat(data["jsb.fcs_attitude_pitch_deg"])
+    parseFloat(nested.fcs_attitude_pitch_deg)
   );
-  const yaw = Cesium.Math.toRadians(
-    parseFloat(data["jsb.fcs_attitude_yaw_deg"])
-  );
+  const yaw = Cesium.Math.toRadians(parseFloat(nested.fcs_attitude_yaw_deg));
 
   const position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
   const orientation = Cesium.Transforms.headingPitchRollQuaternion(

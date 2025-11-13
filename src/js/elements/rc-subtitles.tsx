@@ -1,11 +1,13 @@
-// subtitles.tsx
+// rc-subtitles.tsx
 // Robotick Hub overlay: bottom-of-screen subtitles from rsc_mind_test outputs
-// Shows white text on a clear-black background, like TV/movie subtitles.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 
-import { getWorkloadOutputFields } from "../pages/telemetry/telemetry-client";
+import {
+  decodeTelemetry,
+  getWorkloadOutputFields,
+} from "../pages/telemetry/telemetry-client";
 
 const TELEMETRY_BASE_URL = "http://localhost:7091";
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
@@ -13,33 +15,30 @@ const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 let root: ReactDOM.Root | null = null;
 let intervalId: number | null = null;
 
-function extractSubtitleText(json: any): string {
-  if (!json) return "";
-  // Support both nested and dotted key styles
-  const nested = json?.script?.thought_text;
-  if (typeof nested === "string") return nested;
+// -------------------------------------------------------------
 
-  const dotted = json["script.thought_text"];
-  if (typeof dotted === "string") return dotted;
+function extractSubtitleFromFields(fields: any[]): string {
+  if (!fields) return "";
 
-  // Some payloads may wrap outputs under a key
-  const outputs = json?.outputs ?? json?.data ?? null;
-  if (outputs) {
-    const oNested = outputs?.script?.thought_text;
-    if (typeof oNested === "string") return oNested;
-    const oDotted = outputs["script.thought_text"];
-    if (typeof oDotted === "string") return oDotted;
-  }
+  // Look for known path endings
+  const f =
+    fields.find((x) => x.path.endsWith("script.thought_text")) ||
+    fields.find((x) => x.path.endsWith("script.text")) ||
+    fields.find((x) => x.path.includes("thought"));
 
-  return "";
+  if (!f) return "";
+  const v = f.value;
+  return typeof v === "string" ? v : "";
 }
+
+// -------------------------------------------------------------
 
 function normalizeForDisplay(s: string): string {
-  // Trim, collapse excessive whitespace, keep intentional newlines
   const trimmed = s.replace(/\r/g, "").trim();
-  // Avoid collapsing single newlines that indicate manual line breaks
   return trimmed.replace(/[ \t]{2,}/g, " ");
 }
+
+// -------------------------------------------------------------
 
 function SubtitlesView() {
   const [subtitle, setSubtitle] = useState<string>("");
@@ -47,43 +46,53 @@ function SubtitlesView() {
   const [animateKey, setAnimateKey] = useState<number>(0);
   const lastTextRef = useRef<string>("");
 
-  // Treat HTML special chars as text; React escapes by default.
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
   useEffect(() => {
     async function poll() {
       try {
-        const workload = await getWorkloadOutputFields(
-          TELEMETRY_BASE_URL,
-          TELEMETRY_WORKLOAD_ID
-        );
+        // 1) Fetch layout + raw
+        const layout = await (
+          await fetch(
+            `${TELEMETRY_BASE_URL}/api/telemetry/workloads_buffer/layout`
+          )
+        ).json();
 
-        const text = workload?.outputs?.script?.thought_text;
+        const raw = await (
+          await fetch(
+            `${TELEMETRY_BASE_URL}/api/telemetry/workloads_buffer/raw`
+          )
+        ).arrayBuffer();
+
+        // 2) Decode whole model
+        const decoded = decodeTelemetry(layout, raw);
+
+        // 3) Flat list of leaf output fields
+        const fields = getWorkloadOutputFields(decoded, TELEMETRY_WORKLOAD_ID);
+
+        // 4) Extract subtitle text
+        const text = extractSubtitleFromFields(fields);
         if (typeof text !== "string" || text === "") {
-          return; // nothing to display
+          return;
         }
 
-        const normalized = normalizeForDisplay(text);
-        if (normalized !== lastTextRef.current) {
-          lastTextRef.current = normalized;
-          setSubtitle(normalized);
+        const norm = normalizeForDisplay(text);
+        if (norm !== lastTextRef.current) {
+          lastTextRef.current = norm;
+          setSubtitle(norm);
           setVisible(true);
-          // retrigger CSS animation
-          setAnimateKey((key) => (key + 1) % Number.MAX_SAFE_INTEGER);
+          setAnimateKey((x) => (x + 1) % Number.MAX_SAFE_INTEGER);
         }
       } catch {
-        // ignore transient network or decoding errors
+        // ignore temporary network / decode errors
       }
     }
 
-    // Prime + poll ~10 Hz (100 ms)
     poll();
-    intervalId = window.setInterval(poll, 100);
+    intervalId = window.setInterval(poll, 100); // 10 Hz
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
+      if (intervalId) clearInterval(intervalId);
+      intervalId = null;
     };
   }, []);
 
@@ -95,17 +104,18 @@ function SubtitlesView() {
           visible && safeSubtitle ? "show" : "hide"
         }`}
       >
-        {/* Preserve intended newlines */}
-        {safeSubtitle.split("\n").map((line, idx) => (
+        {safeSubtitle.split("\n").map((line, idx, arr) => (
           <span className="subtitles-line" key={idx}>
             {line}
-            {idx < safeSubtitle.split("\n").length - 1 ? <br /> : null}
+            {idx < arr.length - 1 ? <br /> : null}
           </span>
         ))}
       </div>
     </div>
   );
 }
+
+// -------------------------------------------------------------
 
 function mountReact(container: HTMLElement) {
   if (!root) {
@@ -125,18 +135,10 @@ function unmountReact() {
   }
 }
 
-/** Called by page manager */
 export function init() {
-  console.log("Subtitles overlay initialized");
-
-  // Reuse the same app container as other page modules
   const content = document.getElementById("rc-ui");
-  if (!content) {
-    console.error("No rc-ui container found.");
-    return;
-  }
+  if (!content) return;
 
-  // Ensure our container exists
   let container = document.getElementById("rc-subtitles-container");
   if (!container) {
     container = document.createElement("div");
@@ -148,8 +150,6 @@ export function init() {
 }
 
 export function uninit() {
-  console.log("Subtitles overlay uninitializing");
-
   unmountReact();
 
   const container = document.getElementById("rc-subtitles-container");

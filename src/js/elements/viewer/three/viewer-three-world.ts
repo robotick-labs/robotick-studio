@@ -17,8 +17,9 @@ import {
 } from "../viewer-schema.js";
 
 import {
-  DecodedWorkload,
+  decodeTelemetry,
   getWorkloadOutputFields,
+  WorkloadOutputField,
 } from "../../../pages/telemetry/telemetry-client";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
@@ -522,22 +523,83 @@ export class ViewerWorld {
     }
   }
 
+  // Perform the full fetch → decode → flatten → nest process,
+  // returning a nested object identical to the old API.
+  // Perform the full fetch → decode → flatten → nest process,
+  // but KEEP prefixes (“outputs.”, “inputs.”, “config.”)
+  // so the Viewer’s field paths still work.
+  private async fetchWorkloadNested(
+    baseUrl: string,
+    workloadName: string
+  ): Promise<any | null> {
+    try {
+      const layoutUrl = `${baseUrl}/api/telemetry/workloads_buffer/layout`;
+      const rawUrl = `${baseUrl}/api/telemetry/workloads_buffer/raw`;
+
+      const layout = await fetch(layoutUrl).then((r) => r.json());
+      const raw = await fetch(rawUrl).then((r) => r.arrayBuffer());
+
+      const decoded = decodeTelemetry(layout, raw);
+      if (!decoded) return null;
+
+      // flat leaf fields from the OUTPUTS section
+      const flat: WorkloadOutputField[] = getWorkloadOutputFields(
+        decoded,
+        workloadName
+      );
+      if (!flat || flat.length === 0) return null;
+
+      // Build nested tree WITHOUT stripping prefixes
+      const root: any = {};
+
+      for (const f of flat) {
+        const parts = f.path.split("."); // <-- keep full path
+        let cur = root;
+
+        for (let i = 0; i < parts.length - 1; i++) {
+          const key = parts[i];
+          if (!cur[key]) cur[key] = {};
+          cur = cur[key];
+        }
+
+        cur[parts[parts.length - 1]] = f.value;
+      }
+
+      return root;
+    } catch (err) {
+      console.warn("[viewer] telemetry fetch failed:", err);
+      return null;
+    }
+  }
+
   private async executePoller(p: RestPoller) {
     const method = p.method ?? "GET";
     const rt: ResponseType = p.responseType ?? "json";
 
-    const data = await getWorkloadOutputFields(p.baseUrl, p.workloadName);
+    const data = await this.fetchWorkloadNested(p.baseUrl, p.workloadName);
     if (data == null) {
       return; // empty — nothing to do
     }
 
     if (p.fields?.length) {
-      this.applyFieldsData(p.fields!, data, p.defaultSpace, p.sourceUp);
+      this.applyFieldsData(
+        p.workloadName,
+        p.fields!,
+        data,
+        p.defaultSpace,
+        p.sourceUp
+      );
     }
 
     if (p.textureFields?.length) {
       for (const t of p.textureFields) {
-        const raw = this.getNestedField(data, t.fieldId);
+        const raw = this.getNestedField(data, `${p.workloadName}.${t.fieldId}`);
+
+        if (!(raw instanceof Uint8Array) && !(raw instanceof ArrayBuffer)) {
+          console.warn("Texture field is not binary:", t.fieldId, raw);
+          continue;
+        }
+
         const blob = new Blob([raw], { type: "image/png" });
         const bitmap = await createImageBitmap(blob);
 
@@ -610,13 +672,14 @@ export class ViewerWorld {
   }
 
   private applyFieldsData(
+    workloadName: string,
     maps: Required<RestPoller>["fields"],
     data: DecodedWorkload,
     defaultSpace?: "local" | "world",
     defaultSourceUp?: "Y" | "Z"
   ) {
     for (const m of maps) {
-      const raw = this.getNestedField(data, m.fieldId);
+      const raw = this.getNestedField(data, `${workloadName}.${m.fieldId}`);
       if (raw === undefined || raw === null) continue;
 
       const node = this.findNodeAnyModel(m.node);
