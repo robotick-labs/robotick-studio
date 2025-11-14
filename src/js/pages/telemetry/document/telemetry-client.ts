@@ -48,7 +48,8 @@ export interface LayoutModel {
   workloads: LayoutWorkload[];
   types: LayoutType[];
   engine_session_id: string;
-  buffer_size_used: number;
+  workloads_buffer_size_used: number;
+  process_memory_used: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -86,7 +87,8 @@ export interface ITelemetryWorkload {
 export interface ITelemetryModel {
   workloads: ITelemetryWorkload[];
   raw: ArrayBuffer | null;
-  buffer_size_used: number;
+  workloads_buffer_size_used: number;
+  process_memory_used: number;
   getField?(path: string): ITelemetryField | undefined;
 }
 
@@ -430,7 +432,8 @@ namespace TelemetryFactory {
       workloads.push(d);
     }
 
-    model.buffer_size_used = layout.buffer_size_used;
+    model.workloads_buffer_size_used = layout.workloads_buffer_size_used;
+    model.process_memory_used = layout.process_memory_used;
     model.workloads = workloads;
 
     // Path lookup identical to previous behaviour
@@ -473,7 +476,8 @@ namespace TelemetryFactory {
 
 class TelemetryModel implements ITelemetryModel {
   workloads: ITelemetryWorkload[] = [];
-  buffer_size_used: number = 0;
+  workloads_buffer_size_used: number = 0;
+  process_memory_used: number = 0;
   private _raw: ArrayBuffer | null = null;
   private _view: DataView | null = null;
 

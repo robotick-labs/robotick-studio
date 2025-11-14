@@ -9,7 +9,8 @@ export interface EngineState {
   model: EngineModel;
   workloads: any[];
   workloadIndex: number;
-  bufferSizeUsed: number;
+  workloadsMemoryUsed: number;
+  processMemoryUsed: number;
   pollingController: AbortController;
   livePollingController: AbortController;
   hasInitialWorkloads: boolean;

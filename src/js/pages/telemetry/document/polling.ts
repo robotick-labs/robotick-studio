@@ -197,7 +197,8 @@ export async function startLivePolling(
         return {
           ...engine,
           workloads: r.telemetryModel.workloads,
-          bufferSizeUsed: r.telemetryModel.buffer_size_used,
+          workloadsMemoryUsed: r.telemetryModel.workloads_buffer_size_used,
+          processMemoryUsed: r.telemetryModel.process_memory_used,
           canLivePoll: true,
           hasInitialWorkloads: true,
         };

@@ -29,7 +29,7 @@ export function TelemetryModel({
   state: EngineState;
   index: number;
 }) {
-  const { model, workloads, bufferSizeUsed } = state;
+  const { model, workloads, workloadsMemoryUsed, processMemoryUsed } = state;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const updateKey = `telemetry-update-${urlToId(model.instanceURL)}`;
 
@@ -59,8 +59,10 @@ export function TelemetryModel({
         {model.modelPath} | {model.instanceURL}
         {isExpanded && (
           <>
-            {" | workloads buffer size: "}
-            {formatBytesWithCommas(bufferSizeUsed)} bytes
+            {" | process memory: "}
+            {formatBytesWithCommas(processMemoryUsed)} bytes
+            {" | workloads memory: "}
+            {formatBytesWithCommas(workloadsMemoryUsed)} bytes
           </>
         )}
       </div>
