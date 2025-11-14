@@ -37,6 +37,7 @@ export interface LayoutWorkload {
   name: string;
   type: string;
   offset_within_container: number;
+  stats_offset_within_container: number;
 
   config?: LayoutWorkloadStruct;
   inputs?: LayoutWorkloadStruct;
@@ -76,6 +77,7 @@ export interface ITelemetryStruct {
 export interface ITelemetryWorkload {
   name: string;
   type: string;
+  stats?: ITelemetryStruct;
   config?: ITelemetryStruct;
   inputs?: ITelemetryStruct;
   outputs?: ITelemetryStruct;
@@ -408,6 +410,20 @@ namespace TelemetryFactory {
           base + wl.outputs.offset_within_container,
           `${wl.name}.outputs`
         );
+      }
+
+      // Stats
+      {
+        const statsType = typeMap.get("WorkloadInstanceStats");
+        if (statsType && typeof wl.stats_offset_within_container === "number") {
+          const abs = wl.stats_offset_within_container; // relative to raw-buffer not workload
+
+          d.stats = buildStruct(
+            "WorkloadInstanceStats",
+            abs,
+            `${wl.name}.stats`
+          );
+        }
       }
 
       workloads.push(d);

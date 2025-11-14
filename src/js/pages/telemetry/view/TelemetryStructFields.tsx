@@ -1,5 +1,13 @@
 // TelemetryStructFields.tsx
-import React, { useMemo, useRef, useState, useEffect } from "react";
+// -----------------------------------------------------------------------------
+// Robotick unified structured-field renderer
+// Image fields handled with global blob-cache to prevent leaks/churn
+// -----------------------------------------------------------------------------
+// Robotick Labs 2025
+// -----------------------------------------------------------------------------
+
+import React, { useState } from "react";
+import { useBlobURL } from "./telemetry-image-blobs";
 
 // -------------------------------------------------------------
 // Number formatting
@@ -56,14 +64,14 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
           field={f}
           isOpen={!!panels[f.path]}
           toggle={() =>
-            setPanels((p) => ({
-              ...p,
-              [f.path]: !p[f.path],
+            setPanels((prev) => ({
+              ...prev,
+              [f.path]: !prev[f.path],
             }))
           }
           close={() =>
-            setPanels((p) => ({
-              ...p,
+            setPanels((prev) => ({
+              ...prev,
               [f.path]: false,
             }))
           }
@@ -83,7 +91,7 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
 }
 
 // -------------------------------------------------------------
-// ImageField: small wrapper that memoises the URL + tracks dimensions
+// ImageField: thumbnail + dimensions
 // -------------------------------------------------------------
 function ImageField({
   field,
@@ -101,32 +109,17 @@ function ImageField({
   const label = field.name;
   const mime = field.mime_type;
 
-  // Track decoded image dimensions
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
 
-  // Validate binary
   if (!(raw instanceof Uint8Array)) {
-    return <div key={path}>{label}: &lt;invalid image data&gt;</div>;
+    return <div>{label}: &lt;invalid image data&gt;</div>;
   }
 
-  // Memoised object URL — new only when raw changes
-  const url = useMemo(() => {
-    try {
-      return URL.createObjectURL(new Blob([raw], { type: mime }));
-    } catch {
-      return null;
-    }
-  }, [raw, mime]);
-
-  // Cleanup URL on change/unmount
-  useEffect(() => {
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [url]);
+  // URL managed by global cache + LRU
+  const url = useBlobURL(raw, mime);
 
   return (
-    <React.Fragment key={path}>
+    <>
       <div>
         {label}:{" "}
         {url && (
@@ -150,12 +143,12 @@ function ImageField({
       {isOpen && (
         <ImagePanel raw={raw} mime_type={mime} path={path} onClose={close} />
       )}
-    </React.Fragment>
+    </>
   );
 }
 
 // -------------------------------------------------------------
-// ImagePanel — memoised URL, lazy-mounted when opened
+// ImagePanel — draggable, resizable large image viewer
 // -------------------------------------------------------------
 function ImagePanel({
   raw,
@@ -171,22 +164,8 @@ function ImagePanel({
   const [pos, setPos] = useState({ x: 200, y: 200 });
   const [size, setSize] = useState({ w: 640, h: 420 });
 
-  // URL created only once per raw
-  const url = useMemo(() => {
-    try {
-      return URL.createObjectURL(new Blob([raw], { type: mime_type }));
-    } catch {
-      return null;
-    }
-  }, [raw, mime_type]);
+  const url = useBlobURL(raw, mime_type);
 
-  useEffect(() => {
-    return () => {
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [url]);
-
-  // Dragging
   function onTitleMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     const startX = e.clientX;
@@ -199,6 +178,7 @@ function ImagePanel({
         y: orig.y + (ev.clientY - startY),
       });
     }
+
     function up() {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -208,7 +188,6 @@ function ImagePanel({
     window.addEventListener("mouseup", up);
   }
 
-  // Resizing
   function onResizeMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     const startX = e.clientX;
@@ -221,6 +200,7 @@ function ImagePanel({
         h: Math.max(200, orig.h + (ev.clientY - startY)),
       });
     }
+
     function up() {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
@@ -257,7 +237,7 @@ function ImagePanel({
           alt={path}
           style={{
             width: "100%",
-            height: `calc(100% - 22px)`,
+            height: "calc(100% - 22px)",
             objectFit: "contain",
           }}
         />
