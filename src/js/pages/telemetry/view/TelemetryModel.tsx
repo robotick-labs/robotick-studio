@@ -3,6 +3,25 @@ import { EngineState } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
 import { urlToId } from "../document/polling";
 
+/**
+ * Format a byte count with comma thousands separators.
+ * Example: 12345678 -> "12,345,678"
+ */
+export function formatBytesWithCommas(value: any): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  const integerValue = Math.trunc(value);
+
+  const isNegative = integerValue < 0;
+  const absValue = Math.abs(integerValue);
+
+  const formatted = absValue.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  return isNegative ? "-" + formatted : formatted;
+}
+
 export function TelemetryModel({
   state,
   index,
@@ -10,7 +29,7 @@ export function TelemetryModel({
   state: EngineState;
   index: number;
 }) {
-  const { model, workloads } = state;
+  const { model, workloads, bufferSizeUsed } = state;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const updateKey = `telemetry-update-${urlToId(model.instanceURL)}`;
 
@@ -38,6 +57,12 @@ export function TelemetryModel({
 
       <div className="telemetry-model-label" style={{ marginBottom: "4px" }}>
         {model.modelPath} | {model.instanceURL}
+        {isExpanded && (
+          <>
+            {" | workloads buffer size: "}
+            {formatBytesWithCommas(bufferSizeUsed)} bytes
+          </>
+        )}
       </div>
 
       {isExpanded && (
