@@ -1,21 +1,21 @@
 // entry.js
 
 import { initRouter } from "./router.js";
-import { initControls } from "./elements/header.js";
+import { initControls } from "./components/header.js";
 
 async function init() {
   // Attach styles and metadata (as you already have)
   const stylesheets = [
-    "css/common.css",
-    "css/footer.css",
-    "css/header.css",
-    "css/home.css",
-    "css/models.css",
-    "css/project.css",
-    "css/remote-control.css",
-    "css/telemetry.css",
-    "css/terminal.css",
-    "css/visualizer.css",
+    "static/styles/common.css",
+    "static/styles/footer.css",
+    "static/styles/header.css",
+    "static/styles/home.css",
+    "static/styles/models.css",
+    "static/styles/project.css",
+    "static/styles/remote-control.css",
+    "static/styles/telemetry.css",
+    "static/styles/terminal.css",
+    "static/styles/visualizer.css",
   ];
   stylesheets.forEach((href) => {
     const link = document.createElement("link");
@@ -27,7 +27,7 @@ async function init() {
   // Favicon + meta
   const icon = document.createElement("link");
   icon.rel = "icon";
-  icon.href = "images/icon.png";
+  icon.href = "static/images/icon.png";
   document.head.appendChild(icon);
 
   const themeMeta = document.createElement("meta");
@@ -38,7 +38,7 @@ async function init() {
   document.title = "Hub | Robotick";
 
   // Load external layout HTML
-  const res = await fetch("/html/elements/header.html");
+  const res = await fetch("static/html/components/header.html");
   const html = await res.text();
   document.querySelector("header").innerHTML = html;
 

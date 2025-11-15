@@ -4,7 +4,7 @@ export async function init() {
   const editor = document.getElementById("config-editor");
   const saveBtn = document.getElementById("save-project");
 
-  const schema = await fetch("/schemas/project-config.schema.json").then(
+  const schema = await fetch("static/schemas/project-config.schema.json").then(
     (res) => res.json()
   );
 

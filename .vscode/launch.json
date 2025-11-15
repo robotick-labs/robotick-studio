@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Electron: Main + Renderer",
+      "configurations": ["Electron: Main", "Electron: Renderer"]
+    }
+  ],
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Electron: Main",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "electron-dev"],
+      "env": { "ELECTRON_DEV": "1" },
+      "windowsHide": false,
+      "outputCapture": "std",
+      "skipFiles": ["<node_internals>/**"],
+      "internalConsoleOptions": "neverOpen",
+      "stopOnEntry": false
+    },
+    {
+      "type": "pwa-chrome",
+      "request": "attach",
+      "name": "Electron: Renderer",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/renderer",
+      "timeout": 20000
+    }
+  ]
+}

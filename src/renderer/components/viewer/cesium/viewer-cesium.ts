@@ -4,12 +4,12 @@
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-import type { ViewerConfig } from "../viewer-schema";
+import type { ViewerConfig } from "../viewer-schema.js";
 import {
   fetchLayout,
   fetchRaw,
   createTelemetryModel,
-} from "../../../pages/telemetry/document/telemetry-client";
+} from "../../../pages/telemetry/document/telemetry-client.js";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;

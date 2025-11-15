@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Vite Dev Server",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": ".*"
+        },
+        "background": {
+          "activeOnStart": true,
+
+          // Start when we see: "VITE v7.2.2 ..."
+          "beginsPattern": "^\\s*VITE",
+
+          // End when we see: "ready in 147 ms"
+          "endsPattern": "ready in\\s+[0-9]+\\s*ms"
+        }
+      }
+    }
+  ]
+}

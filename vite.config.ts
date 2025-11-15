@@ -1,68 +1,57 @@
 import { defineConfig } from "vite";
-import { resolve, relative } from "node:path";
+import path, { resolve, relative } from "node:path";
 import { readdirSync, statSync, existsSync } from "node:fs";
-import cesium from "vite-plugin-cesium";
 
-function getAllEntryPoints(dir: string, baseDir = dir): Record<string, string> {
+function collectEntries(dir: string, base = dir) {
   const entries: Record<string, string> = {};
+  if (!existsSync(dir)) return entries;
 
-  if (!existsSync(dir)) {
-    console.warn(`[vite.config] Skipping missing directory: ${dir}`);
-    return entries;
-  }
+  for (const item of readdirSync(dir)) {
+    const full = resolve(dir, item);
+    const rel = relative(base, full);
+    const stat = statSync(full);
 
-  let dirEntries: string[] = [];
-  try {
-    dirEntries = readdirSync(dir);
-  } catch (err) {
-    console.warn(`[vite.config] Failed to read directory: ${dir}`, err);
-    return entries;
-  }
-
-  for (const entry of dirEntries) {
-    const fullPath = resolve(dir, entry);
-    const relPath = relative(baseDir, fullPath);
-
-    let stats;
-    try {
-      stats = statSync(fullPath);
-    } catch (err) {
-      console.warn(`[vite.config] Failed to stat: ${fullPath}`, err);
+    if (stat.isDirectory()) {
+      Object.assign(entries, collectEntries(full, base));
       continue;
     }
 
-    if (stats.isDirectory()) {
-      Object.assign(entries, getAllEntryPoints(fullPath, baseDir));
-    } else if (/\.(js|ts|tsx)$/.test(entry)) {
-      const key = relPath.replace(/\.(js|ts|tsx)$/, "");
-      entries[key] = fullPath;
+    if (/\.(js|ts|tsx)$/.test(item)) {
+      const key = rel.replace(/\.(js|ts|tsx)$/, "");
+      entries[key] = full;
     }
   }
 
   return entries;
 }
 
-const jsEntryDir = resolve(__dirname, "src/js");
-const entryPoints = getAllEntryPoints(jsEntryDir);
+const entryPoints = collectEntries(resolve(__dirname, "src/renderer"));
 
 export default defineConfig({
-  plugins: [cesium()],
+  root: "src/renderer",
+
+  publicDir: "../../public/renderer",
+
   build: {
-    outDir: "dist",
+    outDir: "../../dist/renderer",
     emptyOutDir: true,
-    sourcemap: true,
-    chunkSizeWarningLimit: 512,
+
     rollupOptions: {
       input: {
         ...entryPoints,
-        main: resolve(__dirname, "index.html"),
+        index: resolve(__dirname, "src/renderer/index.html"),
       },
-      preserveEntrySignatures: "exports-only",
       output: {
         entryFileNames: "js/[name].js",
         chunkFileNames: "js/chunks/[name].js",
-        assetFileNames: "js/assets/[name][extname]",
+        assetFileNames: "assets/[name][extname]",
       },
+    },
+  },
+
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "src/renderer"),
     },
   },
 });

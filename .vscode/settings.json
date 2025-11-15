@@ -8,14 +8,14 @@
     "editor.defaultFormatter": "redhat.vscode-xml",
     "editor.tabSize": 2
   },
-  "debug.onTaskErrors": "abort",
   "clang-format.style": "file",
   "search.exclude": {
     "**/lib": true,
     "**/build": true,
     "**/.launcher": true,
     "**/node_modules": true,
-    "**/dist": true
+    "**/dist": true,
+    "**/renderer/assets/glb": true
   },
   "files.watcherExclude": {
     "**/build/**": true,

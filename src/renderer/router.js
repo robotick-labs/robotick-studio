@@ -20,7 +20,7 @@ async function render() {
   }
 
   try {
-    const htmlPromise = fetch(`/html/pages/${path}.html`).then((res) =>
+    const htmlPromise = fetch(`static/html/pages/${path}.html`).then((res) =>
       res.text()
     );
     const jsPromise = import(

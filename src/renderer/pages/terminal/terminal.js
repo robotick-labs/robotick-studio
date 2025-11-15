@@ -1,4 +1,4 @@
-import { launcherEvents } from "../../elements/header/launcher-controls.js";
+import { launcherEvents } from "../../components/header/launcher-controls.js";
 
 let ansiUp = null;
 let ws = null;

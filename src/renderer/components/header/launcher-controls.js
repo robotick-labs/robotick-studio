@@ -127,7 +127,7 @@ function initLauncherControls({ playButton, restartButton: restartBtn }) {
 
 async function requestPlay() {
   const projectPath = currentProject.getProjectPath();
-  const launcherProfile = currentProject.getLauncherProfile();
+  const launcherProfile = currentProject.getLauncherProfile() ?? "local:ALL";
 
   if (!projectPath || !launcherProfile) {
     console.warn("[Launcher] Missing project or profile");

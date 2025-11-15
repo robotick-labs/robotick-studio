@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>Hub | Robotick</title>
-    <link rel="icon" type="image/png" href="/images/icon.png" />
+    <link rel="icon" type="image/png" href="static/images/icon.png" />
     <script type="importmap">
       {
         "imports": {
@@ -11,7 +11,18 @@
         }
       }
     </script>
-    <script type="module" src="/src/js/entry.js"></script>
+    <script type="module" src="entry.js"></script>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
+        img-src * data: blob:;
+        media-src * data: blob:;
+        connect-src * ws: wss: http: https: blob:;
+        script-src * 'unsafe-inline' 'unsafe-eval';
+        style-src * 'unsafe-inline';
+      "
+    />
   </head>
   <header></header>
   <body>
