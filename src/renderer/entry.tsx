@@ -10,6 +10,7 @@ async function initApp() {
     "./static/styles/footer.css",
     "./static/styles/header.css",
     "./static/styles/home.css",
+    "./static/styles/help.css",
     "./static/styles/models.css",
     "./static/styles/project.css",
     "./static/styles/remote-control.css",
