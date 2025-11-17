@@ -3,8 +3,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { mountRouter } from "./router.js";
-import { initControls } from "./components/header";
-import HeaderLayout from "./components/HeaderLayout";
+import { initControls } from "./components/header.js";
+import HeaderLayout from "./components/HeaderLayout.js";
 
 async function initApp() {
   // Load stylesheets

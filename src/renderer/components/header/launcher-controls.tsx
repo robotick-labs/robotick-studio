@@ -1,4 +1,4 @@
-import currentProject from "../../core/current-project.js";
+import currentProject from "../../core/current-project";
 import dots from "./launcher-dots";
 
 type LauncherStatus = "stopped" | "starting" | "running";

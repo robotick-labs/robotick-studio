@@ -1,6 +1,6 @@
 // header/combo-populators.tsx
 
-import currentProject from "../../core/current-project.js";
+import currentProject from "../../core/current-project";
 
 type ProjectComboElement = HTMLSelectElement & {
   knownProjectPaths?: string[];
@@ -104,11 +104,7 @@ async function populateProfileCombo(combo: ProfileComboElement) {
   combo.innerHTML = "";
   const selectedProfile = currentProject.getLauncherProfile();
 
-  function addProfileOption(
-    label: string,
-    value: string,
-    isSelected = false
-  ) {
+  function addProfileOption(label: string, value: string, isSelected = false) {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;

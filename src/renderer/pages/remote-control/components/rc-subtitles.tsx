@@ -9,7 +9,7 @@ import {
   fetchLayout,
   fetchRaw,
   createTelemetryModel,
-} from "../pages/telemetry/document/telemetry-client";
+} from "../../telemetry/document/telemetry-client";
 
 const TELEMETRY_BASE_URL = "http://localhost:7091";
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";

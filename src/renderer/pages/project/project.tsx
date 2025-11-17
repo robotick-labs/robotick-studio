@@ -1,7 +1,7 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import currentProject from "../../core/current-project.js";
+import currentProject from "../../core/current-project";
 
 import { StringField } from "./components/StringField";
 import { StringArrayField } from "./components/StringArrayField";

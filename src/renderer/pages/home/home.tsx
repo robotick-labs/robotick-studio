@@ -1,7 +1,7 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useState } from "react";
-import currentProject from "../../core/current-project.js";
+import currentProject from "../../core/current-project";
 
 interface ProjectMeta {
   path: string;

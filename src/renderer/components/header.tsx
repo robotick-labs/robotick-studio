@@ -1,6 +1,6 @@
 import launcher from "./header/launcher-controls";
 import combos from "./header/combo-populators";
-import currentProject from "../core/current-project.js";
+import currentProject from "../core/current-project";
 
 function enableClientSideNav() {
   const nav = document.querySelector("nav");
