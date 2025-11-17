@@ -1,6 +1,6 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { launcherEvents } from "../../components/header/launcher-controls.js";
+import { launcherEvents } from "../../components/header/launcher-controls";
 
 // ansi_up loader (global, loads once)
 let AnsiUpClass: any = null;

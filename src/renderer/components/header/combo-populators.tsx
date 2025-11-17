@@ -1,8 +1,17 @@
-// header/combo-populators.js
+// header/combo-populators.tsx
 
 import currentProject from "../../core/current-project.js";
 
-async function populateProjectCombo(combo) {
+type ProjectComboElement = HTMLSelectElement & {
+  knownProjectPaths?: string[];
+};
+
+type ProjectMeta = {
+  path: string;
+  name: string;
+};
+
+async function populateProjectCombo(combo: ProjectComboElement) {
   combo.innerHTML = "";
 
   const res = await fetch("http://localhost:7081/query/list-projects");
@@ -15,7 +24,7 @@ async function populateProjectCombo(combo) {
   const current = currentProject.getProjectPath();
 
   const metas = await Promise.all(
-    paths.map(async (path) => {
+    paths.map(async (path): Promise<ProjectMeta | null> => {
       try {
         const r = await fetch(
           `http://localhost:7081/query/get-project-settings?project_path=${encodeURIComponent(
@@ -34,7 +43,7 @@ async function populateProjectCombo(combo) {
   );
 
   const projects = metas
-    .filter((p) => p)
+    .filter((p): p is ProjectMeta => Boolean(p))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   for (const project of projects) {
@@ -63,10 +72,14 @@ async function populateProjectCombo(combo) {
   combo.knownProjectPaths = projects.map((p) => p.path);
 }
 
-async function populateProfileCombo(combo) {
+async function populateProfileCombo(combo: HTMLSelectElement) {
   const current = currentProject.getProjectPath();
 
-  function addProfileOption(label, value, isSelected = false) {
+  function addProfileOption(
+    label: string,
+    value: string,
+    isSelected = false
+  ) {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
@@ -80,7 +93,7 @@ async function populateProfileCombo(combo) {
         current
       )}`
     );
-    const modelPaths = (await r.json()).sort();
+    const modelPaths = (await r.json()).sort() as string[];
 
     if (modelPaths.length > 1) {
       addProfileOption("All - Local", "local:ALL", false);
@@ -88,7 +101,7 @@ async function populateProfileCombo(combo) {
     }
 
     for (const modelPath of modelPaths) {
-      const basename = modelPath.split("/").pop();
+      const basename = modelPath.split("/").pop() ?? "";
       const base = basename.replace(/\..*$/, "");
 
       const localValue = `local:${modelPath}`;

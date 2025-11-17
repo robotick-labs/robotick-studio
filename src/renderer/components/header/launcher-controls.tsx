@@ -1,18 +1,25 @@
 import currentProject from "../../core/current-project.js";
-import dots from "./launcher-dots.js";
+import dots from "./launcher-dots";
+
+type LauncherStatus = "stopped" | "starting" | "running";
+
+type LauncherControlOptions = {
+  playButton: HTMLElement | null | undefined;
+  restartButton: HTMLElement | null | undefined;
+};
 
 // event-bus (exported so other systems can listen for run/stop events)
 const launcherEvents = new EventTarget();
 export { launcherEvents };
 
-let playStopButton = null;
-let restartButton = null;
+let playStopButton: HTMLElement | null = null;
+let restartButton: HTMLElement | null = null;
 
-let currentStatus = "stopped"; // 'stopped' | 'starting' | 'running'
+let currentStatus: LauncherStatus = "stopped";
 let pollIntervalMs = 1000;
 let stableCount = 0;
 
-function sleep(ms) {
+function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -72,6 +79,7 @@ function updateUI() {
   if (!playStopButton || !restartButton) return;
 
   const playIcon = playStopButton.querySelector("span");
+  if (!playIcon) return;
 
   const isRunning = currentStatus === "running";
   const isStarting = currentStatus === "starting";
@@ -96,9 +104,12 @@ function updateUI() {
   }
 }
 
-function initLauncherControls({ playButton, restartButton: restartBtn }) {
-  playStopButton = playButton;
-  restartButton = restartBtn;
+function initLauncherControls({
+  playButton,
+  restartButton: restartBtn,
+}: LauncherControlOptions) {
+  playStopButton = playButton ?? null;
+  restartButton = restartBtn ?? null;
 
   if (!playStopButton || !restartButton) {
     console.warn("Launcher controls not found");

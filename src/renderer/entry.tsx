@@ -1,7 +1,7 @@
 // entry.tsx
 
 import { mountRouter } from "./router.js";
-import { initControls } from "./components/header.js";
+import { initControls } from "./components/header";
 
 async function initApp() {
   // Load stylesheets
