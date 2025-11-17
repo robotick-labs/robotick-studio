@@ -1,7 +1,10 @@
 // entry.tsx
 
+import React from "react";
+import ReactDOM from "react-dom/client";
 import { mountRouter } from "./router.js";
 import { initControls } from "./components/header";
+import HeaderLayout from "./components/HeaderLayout";
 
 async function initApp() {
   // Load stylesheets
@@ -40,15 +43,18 @@ async function initApp() {
 
   document.title = "Hub | Robotick";
 
-  // Load header HTML
-  const res = await fetch("./static/html/components/header.html");
-  const headerHtml = await res.text();
-  document.querySelector("header")!.innerHTML = headerHtml;
+  // Mount header component
+  const headerElement = document.querySelector("header");
+  if (headerElement) {
+    const headerRoot = ReactDOM.createRoot(headerElement);
+    headerRoot.render(<HeaderLayout onReady={initControls} />);
+  } else {
+    console.warn("Header element not found");
+  }
 
   // Router + header controls
   const app = document.getElementById("app")!;
   mountRouter(app);
-  initControls(location.origin);
 }
 
 initApp();

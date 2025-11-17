@@ -4,6 +4,11 @@ import currentProject from "../../core/current-project.js";
 
 type ProjectComboElement = HTMLSelectElement & {
   knownProjectPaths?: string[];
+  _projectHandlerAttached?: boolean;
+};
+
+type ProfileComboElement = HTMLSelectElement & {
+  _launcherProfileHandlerAttached?: boolean;
 };
 
 type ProjectMeta = {
@@ -59,21 +64,45 @@ async function populateProjectCombo(combo: ProjectComboElement) {
   addOption.textContent = "Add Project...";
   combo.appendChild(addOption);
 
-  combo.addEventListener("change", () => {
-    const selectedPath = combo.value;
-    if (selectedPath === "__add__") {
-      alert("Add project flow not implemented yet.");
-    } else {
-      currentProject.setProjectPath(selectedPath);
-      location.reload();
-    }
-  });
+  if (!combo._projectHandlerAttached) {
+    combo.addEventListener("change", () => {
+      const selectedPath = combo.value;
+      if (selectedPath === "__add__") {
+        alert("Add project flow not implemented yet.");
+      } else {
+        currentProject.setProjectPath(selectedPath);
+        location.reload();
+      }
+    });
+    combo._projectHandlerAttached = true;
+  }
 
   combo.knownProjectPaths = projects.map((p) => p.path);
 }
 
-async function populateProfileCombo(combo: HTMLSelectElement) {
+const defaultProfiles = [
+  { label: "All - Local", value: "local:ALL" },
+  { label: "All - Native", value: "native:ALL" },
+];
+
+function ensureProfileChangeHandler(combo: ProfileComboElement) {
+  if (combo._launcherProfileHandlerAttached) return;
+  combo.addEventListener("change", () => {
+    const selectedProfile = combo.value;
+    if (selectedProfile === "edit") {
+      alert("Profile editor not implemented yet.");
+    } else {
+      currentProject.setLauncherProfile(selectedProfile);
+      console.log(`Launcher profile -> '${selectedProfile}'`);
+    }
+  });
+  combo._launcherProfileHandlerAttached = true;
+}
+
+async function populateProfileCombo(combo: ProfileComboElement) {
   const current = currentProject.getProjectPath();
+  combo.innerHTML = "";
+  const selectedProfile = currentProject.getLauncherProfile();
 
   function addProfileOption(
     label: string,
@@ -95,10 +124,9 @@ async function populateProfileCombo(combo: HTMLSelectElement) {
     );
     const modelPaths = (await r.json()).sort() as string[];
 
-    if (modelPaths.length > 1) {
-      addProfileOption("All - Local", "local:ALL", false);
-      addProfileOption("All - Native", "native:ALL", false);
-    }
+    defaultProfiles.forEach(({ label, value }) =>
+      addProfileOption(label, value, selectedProfile === value)
+    );
 
     for (const modelPath of modelPaths) {
       const basename = modelPath.split("/").pop() ?? "";
@@ -114,21 +142,16 @@ async function populateProfileCombo(combo: HTMLSelectElement) {
         nativeValue === current
       );
     }
-
     addProfileOption("Edit Profiles…", "edit");
-
-    combo.addEventListener("change", () => {
-      const selectedProfile = combo.value;
-      if (selectedProfile === "__add__") {
-        alert("Add profile flow not implemented yet.");
-      } else {
-        currentProject.setLauncherProfile(selectedProfile);
-        console.log(`Launcher profile -> '${selectedProfile}'`);
-      }
-    });
   } catch (err) {
     console.error("Failed to fetch project models:", err);
+    defaultProfiles.forEach(({ label, value }) =>
+      addProfileOption(label, value, selectedProfile === value)
+    );
+    addProfileOption("Edit Profiles…", "edit");
   }
+
+  ensureProfileChangeHandler(combo);
 }
 
 export default { populateProjectCombo, populateProfileCombo };
