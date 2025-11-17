@@ -11,6 +11,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
     },
+    sandbox: false,
   });
 
   win.setMenuBarVisibility(false);

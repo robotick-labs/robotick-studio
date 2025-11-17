@@ -1,4 +1,10 @@
-/* Container */
+.terminal-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
 .terminal-container {
   margin: 2rem auto;
   padding: 1rem 2rem;
@@ -6,7 +12,7 @@
   border-radius: 12px;
   color: #eee;
   background: #070a12;
-  max-width: 95%;
+  width: 95%;
   height: 93%;
   overflow-y: auto;
   overflow-x: auto;

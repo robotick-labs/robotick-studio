@@ -1,25 +1,16 @@
-// src/js/pages/telemetry/telemetry.tsx
-// (main entry-point for Telemetry page)
-
 import React from "react";
-import ReactDOM from "react-dom/client";
 import { TelemetryApp } from "./view/TelemetryApp";
 
-let root: ReactDOM.Root | null = null;
+export default function TelemetryPage() {
+  return (
+    <div className="telemetry-container">
+      <h2>Workload Telemetry</h2>
 
-export function init() {
-  const container = document.querySelector(".telemetry-table-container");
-  if (!container) {
-    console.error("No .telemetry-table-container found to mount React app.");
-    return;
-  }
-  root = ReactDOM.createRoot(container);
-  root.render(<TelemetryApp />);
-}
-
-export function uninit() {
-  if (root) {
-    root.unmount();
-    root = null;
-  }
+      {/* This container must exist exactly like this,
+          because TelemetryApp renders into it. */}
+      <div className="telemetry-table-container">
+        <TelemetryApp />
+      </div>
+    </div>
+  );
 }

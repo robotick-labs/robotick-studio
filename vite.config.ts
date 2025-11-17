@@ -28,6 +28,7 @@ function collectEntries(dir: string, base = dir) {
 const entryPoints = collectEntries(resolve(__dirname, "src/renderer"));
 
 export default defineConfig({
+  base: "./",
   root: "src/renderer",
 
   publicDir: "../../public/renderer",
