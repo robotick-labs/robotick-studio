@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
-import { fetchProjectModels } from "../../core/projects-api";
+import { useProjectModels } from "../../hooks/use-project-models";
 import styles from "./styles/ProfilePicker.module.css";
 
 type ProfileOption = {
@@ -19,66 +19,25 @@ const EDIT_VALUE = "__edit__";
 export function ProfilePicker() {
   const { projectPath, launcherProfile, setLauncherProfile } =
     useProjectContext();
-  const [options, setOptions] = useState<ProfileOption[]>(() => [
-    ...DEFAULT_PROFILES,
-    { label: "Edit Profiles…", value: EDIT_VALUE },
-  ]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { models, loading, error } = useProjectModels(projectPath, 5000);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      if (!projectPath) {
-        setOptions([
-          ...DEFAULT_PROFILES,
-          { label: "Edit Profiles…", value: EDIT_VALUE },
-        ]);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const models = await fetchProjectModels(projectPath);
-        if (cancelled) return;
-
-        const modelOptions: ProfileOption[] = models.flatMap((modelPath) => {
+  const options = useMemo<ProfileOption[]>(() => {
+    const modelOptions: ProfileOption[] = projectPath
+      ? models.flatMap((modelPath) => {
           const basename = modelPath.split("/").pop() ?? modelPath;
           const base = basename.replace(/\..*$/, "");
           return [
             { label: `${base} - Local`, value: `local:${modelPath}` },
             { label: `${base} - Native`, value: `native:${modelPath}` },
           ];
-        });
-
-        setOptions([
-          ...DEFAULT_PROFILES,
-          ...modelOptions,
-          { label: "Edit Profiles…", value: EDIT_VALUE },
-        ]);
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load profiles"
-          );
-          setOptions([
-            ...DEFAULT_PROFILES,
-            { label: "Edit Profiles…", value: EDIT_VALUE },
-          ]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectPath]);
+        })
+      : [];
+    return [
+      ...DEFAULT_PROFILES,
+      ...modelOptions,
+      { label: "Edit Profiles…", value: EDIT_VALUE },
+    ];
+  }, [models, projectPath]);
 
   const mergedOptions = useMemo(() => {
     if (!launcherProfile) return options;

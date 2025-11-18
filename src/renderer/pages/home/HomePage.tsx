@@ -2,44 +2,28 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
-import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import { useProjectMetas } from "../../hooks/use-project-metas";
 import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
 import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {
-  const [projects, setProjects] = useState<ProjectMeta[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
   const { projectPath, setProjectPath } = useProjectContext();
+  const { projects, error } = useProjectMetas(5000);
+  const [selectedPath, setSelectedPath] = useState<string>("");
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
-  const initialProjectPathRef = useRef(projectPath);
+  const autoSelectRef = useRef(Boolean(projectPath));
 
   useEffect(() => {
     setSelectedPath(projectPath);
   }, [projectPath]);
 
   useEffect(() => {
-    async function loadProjects() {
-      try {
-        setError(null);
-        const metas = await fetchProjectMetas();
-        setProjects(metas);
-
-        if (!initialProjectPathRef.current && metas.length > 0) {
-          const defaultPath = metas[0].path;
-          setProjectPath(defaultPath);
-        }
-      } catch (err) {
-        console.error("Failed to load projects:", err);
-        setError(
-          err instanceof Error ? err.message : "Failed to load projects"
-        );
-      }
+    if (!autoSelectRef.current && !projectPath && projects.length > 0) {
+      setProjectPath(projects[0].path);
+      autoSelectRef.current = true;
     }
-
-    loadProjects();
-  }, [setProjectPath]);
+  }, [projectPath, projects, setProjectPath]);
 
   function selectProject(path: string) {
     requestProjectChange(path);

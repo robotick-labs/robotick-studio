@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
-import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import { useProjectMetas } from "../../hooks/use-project-metas";
 import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
 import styles from "./styles/ProjectPicker.module.css";
 
@@ -8,36 +8,9 @@ const ADD_PROJECT_VALUE = "__add__";
 
 export function ProjectPicker() {
   const { projectPath } = useProjectContext();
-  const [projects, setProjects] = useState<ProjectMeta[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { projects, loading, error } = useProjectMetas(5000);
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const metas = await fetchProjectMetas();
-        if (!cancelled) setProjects(metas);
-      } catch (err) {
-        if (!cancelled)
-          setError(
-            err instanceof Error ? err.message : "Failed to load projects"
-          );
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const options = useMemo(() => {
     const knownPaths = new Set(projects.map((p) => p.path));
