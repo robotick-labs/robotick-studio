@@ -2,8 +2,13 @@
 
 import type { ViewerConfig } from "../viewer-schema";
 
+interface StreamingImageViewerConfig extends ViewerConfig {
+  imageSourceUrl?: string;
+}
+
 let videoInterval: ReturnType<typeof setInterval> | null = null;
-const remoteControlServer = "http://localhost:7080";
+const BLACK_PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
   console.log("Streaming Image Viewer initialized", viewerConfig);
@@ -16,22 +21,44 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
 
   const cameraImg = document.createElement("img");
   cameraImg.id = "camera-stream";
+  cameraImg.src = BLACK_PIXEL;
   viewerContainer.appendChild(cameraImg);
 
   let lastFrameBlobUrl: string | null = null;
+  const streamingConfig = viewerConfig as StreamingImageViewerConfig;
+  const baseImageSourceUrl =
+    typeof streamingConfig.imageSourceUrl === "string"
+      ? streamingConfig.imageSourceUrl.trim()
+      : "";
 
   function refreshCameraFrame() {
+    if (!baseImageSourceUrl) {
+      if (cameraImg.src !== BLACK_PIXEL) {
+        cameraImg.src = BLACK_PIXEL;
+      }
+      return;
+    }
+
     const loaderImg = new Image();
     loaderImg.onload = () => {
       cameraImg.src = loaderImg.src;
-      if (lastFrameBlobUrl) URL.revokeObjectURL(lastFrameBlobUrl);
-      lastFrameBlobUrl = loaderImg.src;
+      if (lastFrameBlobUrl) {
+        URL.revokeObjectURL(lastFrameBlobUrl);
+        lastFrameBlobUrl = null;
+      }
+      if (loaderImg.src.startsWith("blob:")) {
+        lastFrameBlobUrl = loaderImg.src;
+      }
     };
     loaderImg.onerror = () => {
       console.warn("Camera frame failed to load");
+      cameraImg.src = BLACK_PIXEL;
     };
 
-    fetch(`${remoteControlServer}/api/jpeg_data?t=${Date.now()}`)
+    const cacheBustedUrl = `${baseImageSourceUrl}${
+      baseImageSourceUrl.includes("?") ? "&" : "?"
+    }t=${Date.now()}`;
+    fetch(cacheBustedUrl)
       .then((res) => {
         if (!res.ok) throw new Error("HTTP error");
         return res.blob();
@@ -42,6 +69,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
       })
       .catch((err) => {
         console.warn("Camera fetch failed:", err);
+        cameraImg.src = BLACK_PIXEL;
       });
   }
 

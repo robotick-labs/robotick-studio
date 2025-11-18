@@ -116,18 +116,42 @@ export async function fetchRaw(
     const r = await fetch(url, {
       cache: "no-store",
     });
+    if (!r.ok) {
+      throw new Error(`telemetry raw request failed: ${r.status}`);
+    }
     const buf = await r.arrayBuffer();
     const sid = r.headers.get("x-robotick-session-id") || "";
     return { raw: buf, sid };
   } catch (error) {
     console.warn(`fetchRaw() failed for '${url}'`, error);
-    return { raw: new ArrayBuffer(0), sid: "" };
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
 // -----------------------------------------------------------------------------
 // Value decoding (primitives / FixedStringNN)
 // -----------------------------------------------------------------------------
+
+function withinBounds(total: number, offset: number, bytes: number): boolean {
+  if (offset < 0) return false;
+  if (bytes <= 0) return offset <= total;
+  return offset + bytes <= total;
+}
+
+function safeUint8Slice(
+  raw: ArrayBuffer,
+  offset: number,
+  length: number
+): Uint8Array | null {
+  if (!withinBounds(raw.byteLength, offset, length)) {
+    return null;
+  }
+  try {
+    return new Uint8Array(raw, offset, length);
+  } catch {
+    return null;
+  }
+}
 
 function readSingle(
   view: DataView,
@@ -136,40 +160,59 @@ function readSingle(
   type: string,
   mime_type: string
 ): any {
+  const safeRead = <T>(bytes: number, reader: () => T): T | null => {
+    if (!withinBounds(view.byteLength, offset, bytes)) return null;
+    try {
+      return reader();
+    } catch {
+      return null;
+    }
+  };
+
   switch (type) {
     case "float":
-      return view.getFloat32(offset, true);
+      return safeRead(4, () => view.getFloat32(offset, true));
     case "double":
-      return view.getFloat64(offset, true);
+      return safeRead(8, () => view.getFloat64(offset, true));
     case "bool":
-      return view.getUint8(offset) !== 0;
+      return safeRead(1, () => view.getUint8(offset) !== 0);
     case "int":
-      return view.getInt32(offset, true);
+      return safeRead(4, () => view.getInt32(offset, true));
     case "uint32_t":
-      return view.getUint32(offset, true);
+      return safeRead(4, () => view.getUint32(offset, true));
     case "uint16_t":
-      return view.getUint16(offset, true);
+      return safeRead(2, () => view.getUint16(offset, true));
     case "int16_t":
-      return view.getInt16(offset, true);
+      return safeRead(2, () => view.getInt16(offset, true));
     case "int8_t":
-      return view.getInt8(offset);
+      return safeRead(1, () => view.getInt8(offset));
     case "uint8_t":
-      return view.getUint8(offset);
+      return safeRead(1, () => view.getUint8(offset));
   }
 
-  // FixedStringNN (mime_type marks text)
   if (mime_type === "text/plain") {
     const max = parseInt(type.replace(/\D/g, ""), 10) || 0;
-    const bytes = new Uint8Array(raw, offset, max);
-    const zero = bytes.indexOf(0);
-    const slice = bytes.slice(0, zero >= 0 ? zero : max);
-    return new TextDecoder().decode(slice);
+    if (max <= 0) return "";
+    const available = Math.min(max, Math.max(0, raw.byteLength - offset));
+    if (!withinBounds(raw.byteLength, offset, available)) return "";
+    try {
+      const bytes = new Uint8Array(raw, offset, available);
+      const zero = bytes.indexOf(0);
+      const slice = bytes.slice(0, zero >= 0 ? zero : available);
+      return new TextDecoder().decode(slice);
+    } catch {
+      return "";
+    }
   }
 
-  // Unknown / raw → tail copy
   if (type) {
-    const remaining = new Uint8Array(raw, offset);
-    return remaining.slice();
+    if (offset < 0 || offset > raw.byteLength) return null;
+    try {
+      const remaining = new Uint8Array(raw, offset);
+      return remaining.slice();
+    } catch {
+      return null;
+    }
   }
 
   return null;
@@ -215,7 +258,7 @@ export function readValue(
       return readSingle(view, raw, offset, type, mime_type);
     }
     if (type === "uint8_t") {
-      return new Uint8Array(raw, offset, element_count);
+      return safeUint8Slice(raw, offset, element_count);
     }
     const results: any[] = [];
     let localOffset = offset;
@@ -273,7 +316,7 @@ namespace TelemetryFactory {
         const hasMeta =
           typeof mime_type === "string" && mime_type.trim().length > 0;
         if (type === "uint8_t" || (hasMeta && mime_type !== "text/plain")) {
-          return new Uint8Array(raw, abs, count);
+          return safeUint8Slice(raw, abs, count ?? 0);
         }
         return readValue(view, raw, abs, type, mime_type ?? "", count);
       },

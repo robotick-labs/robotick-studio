@@ -4,6 +4,7 @@ import styles from "../styles/RemoteControlsPanel.module.css";
 
 export type RemoteControlsPanelConfig = {
   defaultUseWebInputs?: boolean;
+  remoteControlServer?: string;
 };
 
 export default function RemoteControlsPanel({
@@ -28,6 +29,7 @@ export default function RemoteControlsPanel({
     rightArea: rightAreaEl,
     rightKnob: rightKnobEl,
     useWebInputs,
+    remoteControlServer: config?.remoteControlServer,
   });
 
   const toggleTakeover = () => {

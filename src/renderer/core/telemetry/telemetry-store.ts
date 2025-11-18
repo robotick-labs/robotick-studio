@@ -123,11 +123,14 @@ async function fetchRaw(
         cache: "no-store",
       }
     );
+    if (!response.ok) {
+      throw new Error(`telemetry raw request failed: ${response.status}`);
+    }
     const raw = await response.arrayBuffer();
     const sid = response.headers.get("x-robotick-session-id") || "";
     return { raw, sid };
   } catch (err) {
     console.warn("[telemetry-store] fetchRaw failed", err);
-    return { raw: new ArrayBuffer(0), sid: "" };
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }

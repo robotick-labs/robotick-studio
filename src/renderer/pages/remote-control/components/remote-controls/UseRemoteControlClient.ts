@@ -16,8 +16,6 @@ interface StickController {
   movePointerToCenter: () => void;
 }
 
-const remoteControlServer = "http://localhost:7080"; // TODO - add this as a config setting on module "overlay/remote-controls" - just fail to use RC if not set - no fallback
-
 type JoystickState = {
   use_web_inputs: boolean;
   left: Vector2;
@@ -49,6 +47,7 @@ type UseRemoteControlClientOptions = {
   rightArea: HTMLDivElement | null;
   rightKnob: HTMLDivElement | null;
   useWebInputs: boolean;
+  remoteControlServer?: string | null;
 };
 
 function cloneState(state: JoystickState): JoystickState {
@@ -59,6 +58,7 @@ class RemoteControlClient {
   private leftStick: StickController;
   private rightStick: StickController;
   private joystickState: JoystickState;
+  private readonly remoteControlServer: string;
   private readonly localState = {
     left: { x: 0.0, y: 0.0 },
     right: { x: 0.0, y: 0.0 },
@@ -77,7 +77,9 @@ class RemoteControlClient {
     leftKnob: HTMLDivElement;
     rightArea: HTMLDivElement;
     rightKnob: HTMLDivElement;
+    remoteControlServer: string;
   }) {
+    this.remoteControlServer = options.remoteControlServer;
     this.joystickState = {
       use_web_inputs: true,
       left: { x: 0.0, y: 0.0 },
@@ -531,7 +533,7 @@ class RemoteControlClient {
     this.lastSentState = nextState;
     this.dirtyKeys.clear();
 
-    fetch(`${remoteControlServer}/api/rc_state`, {
+    fetch(`${this.remoteControlServer}/api/rc_state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(nextState),
@@ -541,7 +543,7 @@ class RemoteControlClient {
   private sendFullState() {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
-    fetch(`${remoteControlServer}/api/rc_state`, {
+    fetch(`${this.remoteControlServer}/api/rc_state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(nextState),
@@ -555,17 +557,26 @@ export function useRemoteControlClient({
   rightArea,
   rightKnob,
   useWebInputs,
+  remoteControlServer,
 }: UseRemoteControlClientOptions) {
   const clientRef = useRef<RemoteControlClient | null>(null);
 
   useEffect(() => {
-    if (!leftArea || !leftKnob || !rightArea || !rightKnob) return;
+    if (
+      !remoteControlServer ||
+      !leftArea ||
+      !leftKnob ||
+      !rightArea ||
+      !rightKnob
+    )
+      return;
 
     const client = new RemoteControlClient({
       leftArea,
       leftKnob,
       rightArea,
       rightKnob,
+      remoteControlServer,
     });
     client.setUseWebInputs(useWebInputs);
     clientRef.current = client;
@@ -574,7 +585,7 @@ export function useRemoteControlClient({
       client.dispose();
       clientRef.current = null;
     };
-  }, [leftArea, leftKnob, rightArea, rightKnob]);
+  }, [leftArea, leftKnob, rightArea, rightKnob, remoteControlServer]);
 
   useEffect(() => {
     if (clientRef.current) {
