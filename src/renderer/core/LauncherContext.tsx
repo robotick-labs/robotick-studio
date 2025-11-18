@@ -14,7 +14,7 @@ import {
   requestLauncherRun,
   requestLauncherStop,
 } from "./launcher-interface";
-import { waitForProjectModelsLoaded } from "./LauncherDataContext";
+import { getProjectModelsStateSnapshot } from "./LauncherDataContext";
 
 export type LauncherStatus = "stopped" | "launching" | "running";
 
@@ -87,11 +87,6 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             }
             if (skipNextRobotCheckRef.current) {
               skipNextRobotCheckRef.current = false;
-            } else {
-              const nextRobotAlive = await checkRobotAlive();
-              setRobotAlive((prev) =>
-                prev === nextRobotAlive ? prev : nextRobotAlive
-              );
             }
           } else {
             skipNextRobotCheckRef.current = false;
@@ -221,10 +216,15 @@ async function readLauncherStatus(): Promise<LauncherStatus> {
 }
 
 async function checkRobotAlive(): Promise<boolean> {
-  const state = await waitForProjectModelsLoaded();
-  const models = state.data;
-  if (models.length === 0) {
-    return false;
+  const snapshot = getProjectModelsStateSnapshot();
+  const models =
+    snapshot.loading && snapshot.data.length === 0
+      ? null
+      : snapshot.data.length > 0
+        ? snapshot.data
+        : null;
+  if (!models) {
+    return true;
   }
 
   for (const model of models) {

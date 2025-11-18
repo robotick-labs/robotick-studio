@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import currentProject from "./launcher-interface";
+import { loadCachedProjectMetas } from "./project-cache";
 
 export type ProjectContextValue = {
   projectPath: string;
@@ -18,9 +19,12 @@ export type ProjectContextValue = {
 const ProjectContext = createContext<ProjectContextValue | undefined>(undefined);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
-  const [projectPath, setProjectPathState] = useState(
-    () => currentProject.getProjectPath() ?? ""
-  );
+  const [projectPath, setProjectPathState] = useState(() => {
+    const stored = currentProject.getProjectPath();
+    if (stored) return stored;
+    const cachedMetas = loadCachedProjectMetas();
+    return cachedMetas[0]?.path ?? "";
+  });
   const [launcherProfile, setLauncherProfileState] = useState(
     () => currentProject.getLauncherProfile() ?? "local:ALL"
   );
