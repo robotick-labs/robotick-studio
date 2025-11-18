@@ -1,11 +1,9 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
+import { AnsiUp } from "ansi_up";
 import { launcherEvents } from "../../core/LauncherContext";
 import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
 import styles from "./TerminalPage.module.css";
-
-// ansi_up loader (global, loads once)
-let AnsiUpClass: any = null;
 
 export default function TerminalPage() {
   const [messages, setMessages] = useState<string[]>([]);
@@ -14,27 +12,16 @@ export default function TerminalPage() {
   const [clearOnRun, setClearOnRun] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  const [ansiReady, setAnsiReady] = useState(false);
-
   const logRef = useRef<HTMLPreElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const ansiUpRef = useRef<AnsiUp | null>(null);
 
   const retryTimerRef = useRef<number | null>(null);
   const retryDelayRef = useRef(1000); // exponential backoff up to 8s
 
-  // ---------------------------------------------------------------------------
-  // Load ansi_up (correct esm.sh import) and notify React when ready
-  // ---------------------------------------------------------------------------
   useEffect(() => {
-    async function loadAnsi() {
-      if (!AnsiUpClass) {
-        const mod = await import("https://esm.sh/ansi_up@5.1.0?bundle");
-        AnsiUpClass = mod.default; // correct constructor
-      }
-      setAnsiReady(true);
-    }
-    loadAnsi();
+    ansiUpRef.current = new AnsiUp();
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -130,15 +117,14 @@ export default function TerminalPage() {
       const el = containerRef.current!;
       el.scrollTop = el.scrollHeight;
     });
-  }, [messages, filter, ansiReady, autoScroll]);
+  }, [messages, filter, autoScroll]);
 
   // ---------------------------------------------------------------------------
   // Render messages (ANSI → HTML conversion)
   // ---------------------------------------------------------------------------
   function renderMessages() {
-    if (!ansiReady || !AnsiUpClass) return null;
-
-    const ansiUp = new AnsiUpClass();
+    const ansiUp = ansiUpRef.current;
+    if (!ansiUp) return null;
 
     return messages
       .filter((msg) =>
