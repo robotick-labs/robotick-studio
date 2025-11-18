@@ -5,11 +5,11 @@ import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
-import { useProjectContext } from "../../core/ProjectContext";
-import { useLauncherData } from "../../core/LauncherDataContext";
-import { useLauncherContext } from "../../core/LauncherContext";
+import { useProjectContext } from "../../core/launcher/ProjectContext";
+import { useLauncherData } from "../../core/launcher/LauncherDataContext";
+import { useLauncherContext } from "../../core/launcher/LauncherContext";
 import styles from "./styles/RemoteControlPage.module.css";
-import type { RcModuleDescriptor } from "../../core/remote-control-types";
+import type { RcModuleDescriptor } from "../../core/launcher/remote-control-types";
 
 export default function RemoteControlPage() {
   const { projectPath } = useProjectContext();
@@ -23,10 +23,9 @@ export default function RemoteControlPage() {
   }>({ key: "none", module: null });
 
   const viewerSelection = React.useMemo(() => {
-    const module = modules.find((mod) => mod.type.startsWith("viewer/")) ?? null;
-    const serializedConfig = module
-      ? JSON.stringify(module.config ?? {})
-      : "";
+    const module =
+      modules.find((mod) => mod.type.startsWith("viewer/")) ?? null;
+    const serializedConfig = module ? JSON.stringify(module.config ?? {}) : "";
     const key = module ? `${module.type}:${serializedConfig}` : "none";
     if (viewerSelectionCache.current.key === key) {
       return viewerSelectionCache.current;

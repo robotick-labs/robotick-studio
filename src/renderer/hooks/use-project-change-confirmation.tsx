@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { useProjectContext } from "../core/ProjectContext";
-import { useLauncherContext } from "../core/LauncherContext";
+import { useProjectContext } from "../core/launcher/ProjectContext";
+import { useLauncherContext } from "../core/launcher/LauncherContext";
 import { GenericDialog } from "../components/dialog/GenericDialog";
 
 export function useProjectChangeConfirmation() {
@@ -47,8 +47,8 @@ export function useProjectChangeConfirmation() {
         <>
           Switching to{" "}
           <code>{pendingPath.split("/").pop() ?? pendingPath}</code> requires
-          stopping the active
-          launcher. Would you like to stop it now and switch projects?
+          stopping the active launcher. Would you like to stop it now and switch
+          projects?
         </>
       }
       onClose={cancelChange}

@@ -1,5 +1,5 @@
 import React from "react";
-import { useLauncherContext } from "../../core/LauncherContext";
+import { useLauncherContext } from "../../core/launcher/LauncherContext";
 import { LauncherDots } from "./LauncherDots";
 import styles from "./styles/LauncherControls.module.css";
 
@@ -9,7 +9,7 @@ export function LauncherControls() {
     reportedStatus,
     isBusy,
     isAwaitingStatus,
-    robotAlive,
+    isRobotAlive,
     lastError,
     run,
     stop,
@@ -64,7 +64,7 @@ export function LauncherControls() {
         <span className={`${styles.icon} ${styles.iconRestart}`}>↻</span>
       </button>
 
-      <LauncherDots status={status} robotAlive={robotAlive} />
+      <LauncherDots status={status} robotAlive={isRobotAlive} />
 
       {lastError ? (
         <span className={styles.error} role="alert">

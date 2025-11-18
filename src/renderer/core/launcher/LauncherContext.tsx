@@ -27,7 +27,9 @@ type LauncherContextValue = {
   lastError: string | null;
   isBusy: boolean;
   isAwaitingStatus: boolean;
-  robotAlive: boolean;
+  isRobotAlive: boolean;
+  robotAliveLoading: boolean;
+  robotAliveError: string | null;
   run: () => Promise<void>;
   stop: () => Promise<void>;
   restart: () => Promise<void>;
@@ -52,9 +54,12 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [reportedStatus, setReportedStatus] =
     useState<LauncherStatus>("stopped");
   const fastPollUntilRef = useRef(0);
-  const [robotAlive, setRobotAlive] = useState(true);
+  const [isRobotAlive, setIsRobotAlive] = useState(true);
+  const [robotAliveLoading, setRobotAliveLoading] = useState(false);
+  const [robotAliveError, setRobotAliveError] = useState<string | null>(null);
   const lastStatusRef = useRef<LauncherStatus>("stopped");
   const skipNextRobotCheckRef = useRef(false);
+  const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
 
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
@@ -82,14 +87,37 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
           if (launcherStatus === "running") {
             if (statusChanged) {
-              setRobotAlive(true);
+              setIsRobotAlive(true);
+              setRobotAliveLoading(true);
+              setRobotAliveError(null);
               skipNextRobotCheckRef.current = true;
             }
             if (skipNextRobotCheckRef.current) {
               skipNextRobotCheckRef.current = false;
             }
+            if (!robotCheckPromiseRef.current) {
+              setRobotAliveLoading(true);
+              robotCheckPromiseRef.current = checkRobotAlive()
+                .then((alive) => {
+                  setIsRobotAlive(alive);
+                  setRobotAliveError(null);
+                })
+                .catch((err) => {
+                  setRobotAliveError(
+                    err instanceof Error ? err.message : String(err)
+                  );
+                })
+                .finally(() => {
+                  robotCheckPromiseRef.current = null;
+                  setRobotAliveLoading(false);
+                });
+            }
           } else {
             skipNextRobotCheckRef.current = false;
+            robotCheckPromiseRef.current = null;
+            setIsRobotAlive(true);
+            setRobotAliveLoading(false);
+            setRobotAliveError(null);
           }
 
           setStatus((prev) =>
@@ -173,7 +201,9 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       lastError,
       isBusy,
       isAwaitingStatus,
-      robotAlive,
+      isRobotAlive,
+      robotAliveLoading,
+      robotAliveError,
       run,
       stop,
       restart,
@@ -184,7 +214,9 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       isAwaitingStatus,
       isBusy,
       lastError,
-      robotAlive,
+      isRobotAlive,
+      robotAliveLoading,
+      robotAliveError,
       restart,
       run,
       stop,

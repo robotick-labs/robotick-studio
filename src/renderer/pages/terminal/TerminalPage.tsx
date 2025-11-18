@@ -1,8 +1,8 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
-import { launcherEvents } from "../../core/LauncherContext";
-import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
+import { launcherEvents } from "../../core/launcher/LauncherContext";
+import { getLauncherLogStreamUrl } from "../../core/launcher/launcher-interface";
 import styles from "./TerminalPage.module.css";
 
 const MAX_MESSAGES = 5000;

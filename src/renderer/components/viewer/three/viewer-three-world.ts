@@ -18,7 +18,7 @@ import {
 
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import { waitForModelDescriptorByName } from "../../../core/LauncherDataContext";
+import { waitForModelDescriptorByName } from "../../../core/launcher/LauncherDataContext.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,

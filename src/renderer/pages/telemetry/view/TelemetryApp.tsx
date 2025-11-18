@@ -2,9 +2,9 @@
 import React, { useMemo } from "react";
 import { EngineModel } from "./types";
 import { TelemetryModel } from "./TelemetryModel";
-import { useProjectContext } from "../../../core/ProjectContext";
-import { useLauncherData } from "../../../core/LauncherDataContext";
-import { useLauncherContext } from "../../../core/LauncherContext";
+import { useProjectContext } from "../../../core/launcher/ProjectContext";
+import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
+import { useLauncherContext } from "../../../core/launcher/LauncherContext";
 import styles from "../Telemetry.module.css";
 
 export function TelemetryApp() {

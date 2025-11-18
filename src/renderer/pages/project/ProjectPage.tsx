@@ -1,8 +1,8 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import { useProjectContext } from "../../core/ProjectContext";
-import { fetchProjectSettingsData } from "../../core/launcher-interface";
+import { useProjectContext } from "../../core/launcher/ProjectContext";
+import { fetchProjectSettingsData } from "../../core/launcher/launcher-interface";
 import styles from "./styles/ProjectPage.module.css";
 
 import { StringField } from "./components/StringField";

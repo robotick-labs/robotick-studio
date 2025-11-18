@@ -6,7 +6,7 @@ import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import {
   findModelDescriptorInState,
   waitForProjectModelsLoaded,
-} from "../../../core/LauncherDataContext";
+} from "../../../core/launcher/LauncherDataContext";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
   sourceModel?: string; // legacy
@@ -136,8 +136,7 @@ async function resolveTelemetryBaseUrl(
 
   try {
     const state = await waitForProjectModelsLoaded();
-    const match =
-      findModelDescriptorInState(state, sourceModelName) ?? null;
+    const match = findModelDescriptorInState(state, sourceModelName) ?? null;
     if (!match) {
       if (state.error) {
         console.warn(

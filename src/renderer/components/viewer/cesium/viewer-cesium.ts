@@ -7,7 +7,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { ViewerConfig } from "../viewer-schema.js";
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import { waitForModelDescriptorByName } from "../../../core/LauncherDataContext";
+import { waitForModelDescriptorByName } from "../../../core/launcher/LauncherDataContext.js";
 
 type CesiumViewerConfig = ViewerConfig & {
   telemetryModelName?: string;

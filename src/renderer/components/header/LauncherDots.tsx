@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { LauncherStatus } from "../../core/LauncherContext";
+import { LauncherStatus } from "../../core/launcher/LauncherContext";
 import styles from "./styles/LauncherControls.module.css";
 
 type LauncherDotsProps = {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { useProjectContext } from "../../core/ProjectContext";
+import { useProjectContext } from "../../core/launcher/ProjectContext";
 
 import { DocumentStore } from "./document/documentStore";
 import {

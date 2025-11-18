@@ -1,4 +1,4 @@
-import currentProject from "../../../core/launcher-interface";
+import currentProject from "../../../core/launcher/launcher-interface";
 
 export interface Workload {
   name: string;
@@ -34,7 +34,9 @@ export interface LoadedModel {
   data: ModelData;
 }
 
-export async function loadAllModels(projectPath: string): Promise<LoadedModel[]> {
+export async function loadAllModels(
+  projectPath: string
+): Promise<LoadedModel[]> {
   if (!projectPath) {
     throw new Error("No project path set");
   }

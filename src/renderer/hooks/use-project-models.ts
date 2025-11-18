@@ -1,4 +1,4 @@
-import { useLauncherData } from "../core/LauncherDataContext";
+import { useLauncherData } from "../core/launcher/LauncherDataContext";
 
 export function useProjectModels(
   _projectPath: string | null | undefined,

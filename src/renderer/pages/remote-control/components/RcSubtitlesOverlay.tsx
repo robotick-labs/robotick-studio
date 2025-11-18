@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
-import { useLauncherData } from "../../../core/LauncherDataContext";
+import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
 
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;

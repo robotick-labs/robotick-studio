@@ -1,7 +1,7 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useRef, useState } from "react";
-import { useProjectContext } from "../../core/ProjectContext";
+import { useProjectContext } from "../../core/launcher/ProjectContext";
 import { useProjectMetas } from "../../hooks/use-project-metas";
 import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
 import styles from "./styles/HomePage.module.css";
@@ -66,9 +66,7 @@ export default function HomePage() {
         <div className={styles.projectList}>
           {projects.length === 0 && (
             <p style={{ color: "red" }}>
-              {error
-                ? error
-                : "No projects found. Is the backend running?"}
+              {error ? error : "No projects found. Is the backend running?"}
             </p>
           )}
 
@@ -87,9 +85,7 @@ export default function HomePage() {
               </div>
               <div
                 className={`${styles.selectedIndicator} ${
-                  selectedPath === p.path
-                    ? styles.selectedIndicatorVisible
-                    : ""
+                  selectedPath === p.path ? styles.selectedIndicatorVisible : ""
                 }`.trim()}
               >
                 ✓
