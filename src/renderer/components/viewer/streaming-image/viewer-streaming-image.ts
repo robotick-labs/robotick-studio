@@ -1,14 +1,23 @@
 // viewer-streaming-image.ts
 
 import type { ViewerConfig } from "../viewer-schema";
+import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
+import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
+import currentProject from "../../../core/launcher-interface";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  imageSourceUrl?: string;
+  sourceModel?: string;
+  sourceField?: string;
+  telemetryBaseUrl?: string;
+  telemetryIntervalMs?: number;
 }
 
-let videoInterval: ReturnType<typeof setInterval> | null = null;
 const BLACK_PIXEL =
   "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
+
+let telemetryDispose: (() => void) | null = null;
+let lastFrameBlobUrl: string | null = null;
+let activeImg: HTMLImageElement | null = null;
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
   console.log("Streaming Image Viewer initialized", viewerConfig);
@@ -23,65 +32,50 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   cameraImg.id = "camera-stream";
   cameraImg.src = BLACK_PIXEL;
   viewerContainer.appendChild(cameraImg);
+  activeImg = cameraImg;
 
-  let lastFrameBlobUrl: string | null = null;
   const streamingConfig = viewerConfig as StreamingImageViewerConfig;
-  const baseImageSourceUrl =
-    typeof streamingConfig.imageSourceUrl === "string"
-      ? streamingConfig.imageSourceUrl.trim()
-      : "";
-
-  function refreshCameraFrame() {
-    if (!baseImageSourceUrl) {
-      if (cameraImg.src !== BLACK_PIXEL) {
-        cameraImg.src = BLACK_PIXEL;
-      }
-      return;
-    }
-
-    const loaderImg = new Image();
-    loaderImg.onload = () => {
-      cameraImg.src = loaderImg.src;
-      if (lastFrameBlobUrl) {
-        URL.revokeObjectURL(lastFrameBlobUrl);
-        lastFrameBlobUrl = null;
-      }
-      if (loaderImg.src.startsWith("blob:")) {
-        lastFrameBlobUrl = loaderImg.src;
-      }
-    };
-    loaderImg.onerror = () => {
-      console.warn("Camera frame failed to load");
-      cameraImg.src = BLACK_PIXEL;
-    };
-
-    const cacheBustedUrl = `${baseImageSourceUrl}${
-      baseImageSourceUrl.includes("?") ? "&" : "?"
-    }t=${Date.now()}`;
-    fetch(cacheBustedUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error("HTTP error");
-        return res.blob();
-      })
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        loaderImg.src = blobUrl;
-      })
-      .catch((err) => {
-        console.warn("Camera fetch failed:", err);
-        cameraImg.src = BLACK_PIXEL;
-      });
+  const fieldPath = streamingConfig.sourceField?.trim();
+  if (!fieldPath) {
+    console.warn(
+      "[streaming-image] Missing sourceField in viewer configuration"
+    );
+    return;
   }
 
-  const intervalMs = 1000 / 15; // 15 fps
-  videoInterval = setInterval(refreshCameraFrame, intervalMs);
+  const telemetryBase = await resolveTelemetryBaseUrl(streamingConfig);
+  if (!telemetryBase) {
+    console.warn(
+      "[streaming-image] Unable to resolve telemetry base URL for viewer"
+    );
+    setBlackFrame();
+    return;
+  }
+
+  const interval = streamingConfig.telemetryIntervalMs ?? 100;
+  console.info(
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${interval}ms`
+  );
+  telemetryDispose = subscribeTelemetry(telemetryBase, interval, {
+    callback: (model) => handleTelemetryFrame(model, fieldPath),
+    error: (err) => {
+      console.warn(
+        `[streaming-image] Telemetry error for ${telemetryBase} (${fieldPath})`,
+        err
+      );
+      setBlackFrame();
+    },
+  });
 }
 
 export async function uninit(): Promise<void> {
-  if (videoInterval) {
-    clearInterval(videoInterval);
-    videoInterval = null;
+  telemetryDispose?.();
+  telemetryDispose = null;
+  if (lastFrameBlobUrl) {
+    URL.revokeObjectURL(lastFrameBlobUrl);
+    lastFrameBlobUrl = null;
   }
+  activeImg = null;
   const viewerContainer = document.getElementById("viewer-container");
   if (viewerContainer) {
     viewerContainer.innerHTML = "";
@@ -89,4 +83,92 @@ export async function uninit(): Promise<void> {
   console.log("Streaming Image Viewer unmounted");
 }
 
+function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
+  if (!activeImg) return;
+  const field = model.getField?.(fieldPath);
+  if (!field) {
+    setBlackFrame();
+    return;
+  }
+  const value = field.getValue?.();
+  if (!(value instanceof Uint8Array)) {
+    setBlackFrame();
+    return;
+  }
+
+  const mime = field.mime_type || "image/jpeg";
+  const blob = new Blob([value], { type: mime });
+  const blobUrl = URL.createObjectURL(blob);
+  activeImg.src = blobUrl;
+  if (lastFrameBlobUrl) {
+    URL.revokeObjectURL(lastFrameBlobUrl);
+  }
+  lastFrameBlobUrl = blobUrl;
+}
+
+function setBlackFrame() {
+  if (!activeImg) return;
+  if (activeImg.src !== BLACK_PIXEL) {
+    activeImg.src = BLACK_PIXEL;
+  }
+  if (lastFrameBlobUrl) {
+    URL.revokeObjectURL(lastFrameBlobUrl);
+    lastFrameBlobUrl = null;
+  }
+}
+
+async function resolveTelemetryBaseUrl(
+  config: StreamingImageViewerConfig
+): Promise<string | null> {
+  const direct = config.telemetryBaseUrl?.trim();
+  if (direct) return direct;
+
+  const sourceModel = config.sourceModel?.trim();
+  if (!sourceModel) return null;
+
+  try {
+    const projectPath = currentProject.getProjectPath();
+    if (!projectPath) {
+      console.warn(
+        "[streaming-image] No active project while resolving telemetry model"
+      );
+      return null;
+    }
+    const models = await currentProject.getProjectModels(projectPath);
+    const match =
+      models.find(
+        (model) => deriveModelSlug(model.modelPath) === sourceModel
+      ) ?? null;
+    if (!match) {
+      console.warn(
+        `[streaming-image] Model "${sourceModel}" not found in project ${projectPath}. Available models: ${models
+          .map((m) => deriveModelSlug(m.modelPath))
+          .join(", ")}`
+      );
+    } else {
+      console.info(
+        `[streaming-image] Using telemetry source "${match.modelName}" at ${match.telemetryBaseUrl}`
+      );
+    }
+    return match?.telemetryBaseUrl ?? null;
+  } catch (err) {
+    console.warn(
+      "[streaming-image] Failed to resolve telemetry base URL from model",
+      err
+    );
+    return null;
+  }
+}
+
 export default { init, uninit };
+
+function deriveModelSlug(modelPath: string): string {
+  const filename = modelPath.split("/").pop() ?? modelPath;
+  if (filename.endsWith(".model.yaml")) {
+    return filename.slice(0, -".model.yaml".length);
+  }
+  if (filename.endsWith(".yaml")) {
+    return filename.slice(0, -".yaml".length);
+  }
+  return filename;
+}
