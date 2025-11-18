@@ -1,9 +1,10 @@
 // viewer-streaming-image.ts
 
 import type { ViewerConfig } from "../viewer-schema";
+import { REMOTE_CONTROL_BASE } from "../../../core/config";
 
 let videoInterval: ReturnType<typeof setInterval> | null = null;
-const remoteControlServer = "http://localhost:7080";
+const remoteControlServer = REMOTE_CONTROL_BASE;
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
   console.log("Streaming Image Viewer initialized", viewerConfig);

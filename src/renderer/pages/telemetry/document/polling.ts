@@ -12,6 +12,8 @@ import {
   LayoutModel,
   ITelemetryModel,
 } from "./telemetry-client.js";
+import { HUB_API_BASE } from "../../../core/config";
+import { buildUrl, fetchJSON } from "../../../core/http";
 
 // Polling frequency (20 Hz UI cadence)
 const LIVE_SLEEP_MS = 50;
@@ -24,25 +26,6 @@ export function urlToId(url: string) {
   return url.replace(/[:/.]/g, "_");
 }
 
-export async function fetchJSON<T = any>(
-  urlBase: string,
-  path: string,
-  signal?: AbortSignal
-): Promise<T | null> {
-  try {
-    const res = await fetch(`${urlBase}${path}`, {
-      cache: "no-store",
-      signal,
-      headers: { Accept: "application/json" },
-    });
-
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
 // -----------------------------------------------------------------------------
 // Model discovery (needed by TelemetryApp)
 // -----------------------------------------------------------------------------
@@ -53,10 +36,12 @@ export async function fetchAllModelJSONs(): Promise<
   const projectPath = currentProject.getProjectPath();
   if (!projectPath) throw new Error("No project path set");
 
-  const modelPaths = await fetchJSON<string[]>(
-    "http://localhost:7081",
-    `/query/list-project-models?project_path=${encodeURIComponent(projectPath)}`
-  );
+  const modelPaths =
+    (await fetchJSON<string[]>(
+      buildUrl(HUB_API_BASE, "/query/list-project-models", {
+        project_path: projectPath,
+      })
+    ).catch(() => null)) ?? [];
 
   const results: {
     modelName: string;
@@ -65,15 +50,15 @@ export async function fetchAllModelJSONs(): Promise<
     json: any;
   }[] = [];
 
-  if (!modelPaths) return results;
-
   for (const modelPath of modelPaths) {
     const json = await fetchJSON<any>(
-      "http://localhost:7081",
-      `/query/get-model?project_path=${encodeURIComponent(
-        projectPath
-      )}&model_path=${encodeURIComponent(modelPath)}`
-    );
+      buildUrl(HUB_API_BASE, "/query/get-model", {
+        project_path: projectPath,
+        model_path: modelPath,
+      })
+    ).catch(() => null);
+
+    if (!json) continue;
 
     const modelName = json?.name
       ? json.name

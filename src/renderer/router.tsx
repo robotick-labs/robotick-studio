@@ -1,83 +1,59 @@
-// router.tsx
-// -------------------------------------------------------------
-// Robotick Hub — Dynamic React Router
-//
-// This router:
-//
-//   ✓ Discovers all page entrypoints dynamically (import.meta.glob)
-//   ✓ Each page must export a default React component
-//   ✓ No legacy JS init/uninit
-//   ✓ No HTML templates
-//   ✓ No static route table
-//
-// This is effectively a plugin architecture for React pages.
-//
-// Directory structure example:
-//   pages/models/models.tsx       → route /models
-//   pages/telemetry/telemetry.tsx → route /telemetry
-//   pages/home/home.tsx           → route /home
-//
-// -------------------------------------------------------------
-
 import React from "react";
-import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
-// Discover all TSX entrypoints in /pages/**/folderName.tsx
-const pageModules = import.meta.glob("./pages/*/*.tsx");
+type LazyComponent = React.LazyExoticComponent<
+  React.ComponentType<unknown>
+>;
 
-// Build dynamic React routes
-const dynamicRoutes = Object.entries(pageModules)
-  .map(([path, loader]) => {
-    //
-    // Extract folder name and file name for the route:
-    //
-    //   "./pages/models/models.tsx"
-    //     → folder = "models"
-    //     → routePath = "/models"
-    //
-    const match = path.match(/\.\/pages\/([^/]+)\/([^/]+)\.tsx$/);
-    if (!match) return null;
+const HomePage = React.lazy(() => import("./pages/home/home"));
+const HelpPage = React.lazy(() => import("./pages/help/help"));
+const ModelsPage = React.lazy(() => import("./pages/models/models"));
+const ProjectPage = React.lazy(() => import("./pages/project/project"));
+const RemoteControlPage = React.lazy(
+  () => import("./pages/remote-control/remote-control")
+);
+const TelemetryPage = React.lazy(() => import("./pages/telemetry/telemetry"));
+const TerminalPage = React.lazy(() => import("./pages/terminal/terminal"));
 
-    const [_, folderName, fileName] = match;
-    const route = "/" + folderName.toLowerCase();
+const routeConfig: { path: string; Component: LazyComponent }[] = [
+  { path: "/home", Component: HomePage },
+  { path: "/help", Component: HelpPage },
+  { path: "/models", Component: ModelsPage },
+  { path: "/project", Component: ProjectPage },
+  { path: "/remote-control", Component: RemoteControlPage },
+  { path: "/telemetry", Component: TelemetryPage },
+  { path: "/terminal", Component: TerminalPage },
+];
 
-    // Lazy load the component
-    const Component = React.lazy(() => loader());
-
-    return (
-      <Route
-        key={route}
-        path={route}
-        element={
-          <React.Suspense fallback={<div>Loading...</div>}>
-            <Component />
-          </React.Suspense>
-        }
-      />
-    );
-  })
-  .filter(Boolean);
-
-export function mountRouter(app: HTMLElement) {
-  const root = ReactDOM.createRoot(app);
-
-  root.render(
-    <React.StrictMode>
-      <BrowserRouter>
-        <Routes>
-          {/* Redirect plain root to /home if present */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
-
-          {/* All dynamically discovered pages */}
-          {dynamicRoutes}
-
-          {/* 404 fallback */}
-          <Route path="*" element={<div>Page not found</div>} />
-        </Routes>
-      </BrowserRouter>
-    </React.StrictMode>
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/home" replace />} />
+      {routeConfig.map(({ path, Component }) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <React.Suspense fallback={<RouteFallback />}>
+              <Component />
+            </React.Suspense>
+          }
+        />
+      ))}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
+}
 
-  return root;
+function RouteFallback() {
+  return <div className="route-loading">Loading…</div>;
+}
+
+function NotFound() {
+  return (
+    <div className="not-found">
+      <h2>Page not found</h2>
+      <p>We could not find that view.</p>
+    </div>
+  );
 }

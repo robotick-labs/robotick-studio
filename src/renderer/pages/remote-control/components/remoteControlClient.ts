@@ -1,3 +1,5 @@
+import { REMOTE_CONTROL_BASE } from "../../../core/config";
+
 type StickTopic = "left_stick" | "right_stick";
 type StickName = "left" | "right";
 
@@ -21,7 +23,7 @@ export interface RemoteControlOptions {
   rightKnob: HTMLDivElement;
 }
 
-const remoteControlServer = "http://localhost:7080";
+const remoteControlServer = REMOTE_CONTROL_BASE;
 
 type JoystickState = {
   use_web_inputs: boolean;

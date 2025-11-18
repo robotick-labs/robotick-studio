@@ -10,6 +10,7 @@ import {
   fetchRaw,
   createTelemetryModel,
 } from "../../../pages/telemetry/document/telemetry-client.js";
+import { ROBOT_TELEMETRY_BASE } from "../../../core/config";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
@@ -152,7 +153,7 @@ function startRocketTracking(): void {
 // ---------------------------------------------------------------------------
 
 async function updateRocketFromTelemetry(): Promise<void> {
-  const baseUrl = "http://localhost:7090";
+  const baseUrl = ROBOT_TELEMETRY_BASE;
   const workloadName = "jsb_sim";
 
   try {

@@ -1,6 +1,8 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { launcherEvents } from "../../components/header/launcher-controls";
+import { launcherEvents } from "../../core/launcher-context";
+import { HUB_API_BASE } from "../../core/config";
+import { buildWebSocketUrl } from "../../core/http";
 
 // ansi_up loader (global, loads once)
 let AnsiUpClass: any = null;
@@ -43,7 +45,8 @@ export default function TerminalPage() {
       let ws: WebSocket;
 
       try {
-        ws = new WebSocket("ws://localhost:7081/launcher/ws/log");
+        const socketUrl = buildWebSocketUrl(HUB_API_BASE, "/launcher/ws/log");
+        ws = new WebSocket(socketUrl);
         wsRef.current = ws;
       } catch (err) {
         console.warn("[terminal] WS creation failed:", err);

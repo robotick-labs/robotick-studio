@@ -1,83 +1,44 @@
 // src/js/pages/home/home.tsx
 
-import React, { useEffect, useState } from "react";
-import currentProject from "../../core/current-project";
-
-interface ProjectMeta {
-  path: string;
-  name: string;
-  description: string;
-}
+import React, { useEffect, useRef, useState } from "react";
+import { useProjectContext } from "../../core/project-context";
+import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const { projectPath, setProjectPath } = useProjectContext();
+  const initialProjectPathRef = useRef(projectPath);
+
+  useEffect(() => {
+    setSelectedPath(projectPath);
+  }, [projectPath]);
 
   useEffect(() => {
     async function loadProjects() {
       try {
-        // Get last selected project
-        const saved = currentProject.getProjectPath();
-        setSelectedPath(saved);
+        setError(null);
+        const metas = await fetchProjectMetas();
+        setProjects(metas);
 
-        const pathsRes = await fetch(
-          "http://localhost:7081/query/list-projects"
-        );
-        if (!pathsRes.ok) throw new Error("Failed to list projects");
-        const paths = await pathsRes.json();
-
-        // Fetch metadata for each project
-        const metaList = await Promise.all(
-          paths.map(async (path: string) => {
-            try {
-              const settingsRes = await fetch(
-                `http://localhost:7081/query/get-project-settings?project_path=${encodeURIComponent(
-                  path
-                )}`
-              );
-
-              if (!settingsRes.ok)
-                throw new Error(`Failed to fetch project: ${path}`);
-
-              const meta = await settingsRes.json();
-
-              return {
-                path,
-                name: meta.name?.trim() || "",
-                description: meta.description?.trim() || "",
-              };
-            } catch (err) {
-              console.warn("Skipping project due to fetch failure:", path);
-              return null;
-            }
-          })
-        );
-
-        const valid = metaList.filter(Boolean).sort((a, b) => {
-          const nameA = a!.name || a!.path.split("/").pop();
-          const nameB = b!.name || b!.path.split("/").pop();
-          return nameA.localeCompare(nameB);
-        }) as ProjectMeta[];
-
-        setProjects(valid);
-
-        // Default to first project if nothing selected
-        if (!saved && valid.length > 0) {
-          const defaultPath = valid[0].path;
-          setSelectedPath(defaultPath);
-          currentProject.setProjectPath(defaultPath);
+        if (!initialProjectPathRef.current && metas.length > 0) {
+          const defaultPath = metas[0].path;
+          setProjectPath(defaultPath);
         }
       } catch (err) {
         console.error("Failed to load projects:", err);
+        setError(
+          err instanceof Error ? err.message : "Failed to load projects"
+        );
       }
     }
 
     loadProjects();
-  }, []);
+  }, [setProjectPath]);
 
   function selectProject(path: string) {
-    setSelectedPath(path);
-    currentProject.setProjectPath(path);
+    setProjectPath(path);
   }
 
   return (
@@ -120,7 +81,9 @@ export default function HomePage() {
         <div className="project-list">
           {projects.length === 0 && (
             <p style={{ color: "red" }}>
-              No projects found. Is the backend running?
+              {error
+                ? error
+                : "No projects found. Is the backend running?"}
             </p>
           )}
 

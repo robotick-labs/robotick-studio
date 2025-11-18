@@ -2,8 +2,10 @@ const KEY_PROJECT_PATH = "robotick-hub.projectPath";
 const KEY_LAUNCHER_PROFILE = "robotick-hub.launcherProfile";
 
 type ProjectChangedListener = (path: string) => void;
+type LauncherProfileChangedListener = (profile: string) => void;
 
-const listeners = new Set<ProjectChangedListener>();
+const projectListeners = new Set<ProjectChangedListener>();
+const profileListeners = new Set<LauncherProfileChangedListener>();
 
 function setProjectPath(path: string) {
   localStorage.setItem(KEY_PROJECT_PATH, path);
@@ -16,6 +18,7 @@ function getProjectPath(): string {
 
 function setLauncherProfile(value: string) {
   localStorage.setItem(KEY_LAUNCHER_PROFILE, value);
+  notifyLauncherProfileChanged(value);
 }
 
 function getLauncherProfile(): string {
@@ -23,7 +26,7 @@ function getLauncherProfile(): string {
 }
 
 function notifyProjectChanged(path: string) {
-  for (const callback of listeners) {
+  for (const callback of projectListeners) {
     try {
       callback(path);
     } catch (err) {
@@ -32,9 +35,24 @@ function notifyProjectChanged(path: string) {
   }
 }
 
+function notifyLauncherProfileChanged(profile: string) {
+  for (const callback of profileListeners) {
+    try {
+      callback(profile);
+    } catch (err) {
+      console.error("Error in onLauncherProfileChanged listener:", err);
+    }
+  }
+}
+
 function onProjectChanged(callback: ProjectChangedListener) {
-  listeners.add(callback);
-  return () => listeners.delete(callback); // return unsubscribe function
+  projectListeners.add(callback);
+  return () => projectListeners.delete(callback);
+}
+
+function onLauncherProfileChanged(callback: LauncherProfileChangedListener) {
+  profileListeners.add(callback);
+  return () => profileListeners.delete(callback);
 }
 
 export default {
@@ -43,4 +61,5 @@ export default {
   setLauncherProfile,
   getLauncherProfile,
   onProjectChanged,
+  onLauncherProfileChanged,
 };

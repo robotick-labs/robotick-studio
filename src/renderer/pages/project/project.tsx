@@ -1,7 +1,9 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import currentProject from "../../core/current-project";
+import { useProjectContext } from "../../core/project-context";
+import { HUB_API_BASE } from "../../core/config";
+import { buildUrl, fetchJSON } from "../../core/http";
 
 import { StringField } from "./components/StringField";
 import { StringArrayField } from "./components/StringArrayField";
@@ -14,30 +16,37 @@ interface SchemaType {
 export default function ProjectPage() {
   const [schema, setSchema] = useState<SchemaType | null>(null);
   const [config, setConfig] = useState<Record<string, any>>({});
+  const { projectPath } = useProjectContext();
 
   useEffect(() => {
     async function load() {
-      // Load schema
-      const schema = await fetch(
-        "./static/schemas/project-config.schema.json"
-      ).then((r) => r.json());
+      if (!projectPath) {
+        setSchema(null);
+        setConfig({});
+        return;
+      }
 
-      // Load config
-      const projectPath = currentProject.getProjectPath();
-      const url = `http://localhost:7081/query/get-project-settings?project_path=${encodeURIComponent(
-        projectPath
-      )}`;
+      const [schemaResp, cfg] = await Promise.all([
+        fetch("./static/schemas/project-config.schema.json").then((r) =>
+          r.json()
+        ),
+        fetchJSON<Record<string, any>>(
+          buildUrl(HUB_API_BASE, "/query/get-project-settings", {
+            project_path: projectPath,
+          })
+        ).catch(() => ({} as Record<string, any>)),
+      ]);
 
-      const cfg = await fetch(url)
-        .then((r) => r.json())
-        .catch(() => ({}));
-
-      setSchema(schema);
+      setSchema(schemaResp);
       setConfig(cfg);
     }
 
     load();
-  }, []);
+  }, [projectPath]);
+
+  if (!projectPath) {
+    return <div className="project-container">Select a project to view.</div>;
+  }
 
   if (!schema) return <div>Loading…</div>;
 

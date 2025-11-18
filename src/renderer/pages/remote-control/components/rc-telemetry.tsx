@@ -1,82 +1,56 @@
-// rc-telemetry.tsx
-// Robotick Hub overlay for live telemetry JSON (Mind Test Outputs)
-
 import React, { useEffect, useState } from "react";
-import ReactDOM from "react-dom/client";
-
 import {
+  createTelemetryModel,
   fetchLayout,
   fetchRaw,
-  createTelemetryModel,
 } from "../../telemetry/document/telemetry-client";
+import { RC_TELEMETRY_BASE } from "../../../core/config";
 
-const TELEMETRY_BASE_URL = "http://localhost:7091";
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 
-let root: ReactDOM.Root | null = null;
-let intervalId: number | null = null;
-
-// Recursively build a nested JSON object from workload outputs
-function buildNestedFromStruct(struct: any): any {
-  if (!struct || !struct.fields) return {};
-
-  const result: any = {};
-  for (const f of struct.fields) {
-    if (f.fields && f.fields.length > 0) {
-      result[f.name] = buildNestedFromStruct(f);
-    } else {
-      const value = f.getValue?.();
-      result[f.name] = value;
-    }
-  }
-  return result;
-}
-
-function RcTelemetryView() {
+export function RcTelemetryOverlay() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cachedLayout: any | null = null;
     let telemetryModel: any | null = null;
+    let intervalId: number | undefined;
+    let cancelled = false;
 
     async function poll() {
       try {
-        // 1) Fetch layout once
         if (!cachedLayout) {
-          cachedLayout = await fetchLayout(TELEMETRY_BASE_URL);
+          cachedLayout = await fetchLayout(RC_TELEMETRY_BASE);
           if (!cachedLayout) return;
           telemetryModel = createTelemetryModel(cachedLayout);
         }
 
-        // 2) Fetch raw buffer only each frame
-        const { raw: raw } = await fetchRaw(TELEMETRY_BASE_URL);
-        if (!raw) return;
+        const { raw } = await fetchRaw(RC_TELEMETRY_BASE);
+        if (!raw || !telemetryModel || cancelled) return;
         telemetryModel.raw = raw;
 
-        // 3) Locate target workload
         const workload = telemetryModel.workloads.find(
           (w: any) => w.name === TELEMETRY_WORKLOAD_ID
         );
-        if (!workload || !workload.outputs) return;
+        if (!workload || !workload.outputs) {
+          setError("No telemetry workload found");
+          return;
+        }
 
-        // 4) Recursively nest outputs
         const nested = buildNestedFromStruct(workload.outputs);
-
         setData(nested);
         setError(null);
-      } catch (err: any) {
-        setError(err.message || "Fetch failed");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Fetch failed");
       }
     }
 
     poll();
-    intervalId = window.setInterval(poll, 100); // 10 Hz
+    intervalId = window.setInterval(poll, 100);
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
+      cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
     };
   }, []);
 
@@ -94,45 +68,17 @@ function RcTelemetryView() {
   );
 }
 
-// -------------------------------------------------------------
+function buildNestedFromStruct(struct: any): any {
+  if (!struct || !struct.fields) return {};
 
-function mountReact(container: HTMLElement) {
-  if (!root) {
-    root = ReactDOM.createRoot(container);
-    root.render(<RcTelemetryView />);
+  const result: any = {};
+  for (const f of struct.fields) {
+    if (f.fields && f.fields.length > 0) {
+      result[f.name] = buildNestedFromStruct(f);
+    } else {
+      const value = f.getValue?.();
+      result[f.name] = value;
+    }
   }
-}
-
-function unmountReact() {
-  if (root) {
-    root.unmount();
-    root = null;
-  }
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
-  }
-}
-
-export function init() {
-  const content = document.getElementById("rc-ui");
-  if (!content) return;
-
-  let container = document.getElementById("rc-telemetry-container");
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "rc-telemetry-container";
-    content.appendChild(container);
-  }
-
-  mountReact(container);
-}
-
-export function uninit() {
-  unmountReact();
-
-  const container = document.getElementById("rc-telemetry-container");
-  if (container && container.parentElement) {
-    container.parentElement.removeChild(container);
-  }
+  return result;
 }

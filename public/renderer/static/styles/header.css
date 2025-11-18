@@ -111,11 +111,18 @@ header nav a:focus {
   font-size: 14px;
   line-height: 0; /* kill baseline padding */
   text-decoration: none;
+  border: none;
 
   /* ease back after release */
   transition: background-color 180ms ease-out, transform 120ms ease-out;
   -webkit-tap-highlight-color: transparent; /* nicer on mobile */
   touch-action: manipulation;
+}
+
+.launcher-control:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .launcher-control-dots {
@@ -238,6 +245,22 @@ header nav a:focus {
 
 .dot.heartbeat-off {
   opacity: 0;
+}
+
+.launcher-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.launcher-status-text {
+  font-size: 12px;
+  color: white;
+}
+
+.launcher-error {
+  font-size: 12px;
+  color: #ff6b6b;
 }
 
 .project-combo {

@@ -1,49 +1,65 @@
 // src/renderer/pages/remote-control/remote-control.tsx
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import viewer from "../../components/viewer/viewer";
-import * as RcSubtitles from "./components/rc-subtitles";
-import * as RcTelemetry from "./components/rc-telemetry";
-import currentProject from "../../core/current-project";
+import { RcSubtitlesOverlay } from "./components/rc-subtitles";
+import { RcTelemetryOverlay } from "./components/rc-telemetry";
 import RemoteControlsPanel from "./components/RemoteControlsPanel";
+import { useProjectContext } from "../../core/project-context";
+import { HUB_API_BASE } from "../../core/config";
+import { buildUrl, fetchJSON } from "../../core/http";
 
 export default function RemoteControlPage() {
+  const { projectPath } = useProjectContext();
+
   useEffect(() => {
+    if (!projectPath) return;
     const abortController = new AbortController();
-    initRemoteControl(abortController.signal);
+    initRemoteControl(projectPath, abortController.signal);
 
     return () => {
       abortController.abort();
       cleanupRemoteControl();
     };
-  }, []);
+  }, [projectPath]);
+
+  const showOverlays = useMemo(
+    () => Boolean(projectPath && projectPath.includes("pip-e")),
+    [projectPath]
+  );
+
+  if (!projectPath) {
+    return (
+      <div className="rc-ui">
+        <p style={{ padding: "1rem" }}>Select a project to begin.</p>
+      </div>
+    );
+  }
 
   return (
     <div id="rc-ui" className="rc-ui">
       <div id="viewer-container" className="viewer-container" />
       <RemoteControlsPanel />
+      {showOverlays ? (
+        <>
+          <RcSubtitlesOverlay />
+          <RcTelemetryOverlay />
+        </>
+      ) : null}
     </div>
   );
 }
 
-function initRemoteControl(signal: AbortSignal) {
-  const projectPath = currentProject.getProjectPath();
-
-  if (projectPath?.includes("pip-e")) {
-    RcSubtitles.init();
-    RcTelemetry.init();
-  }
-
+function initRemoteControl(projectPath: string, signal: AbortSignal) {
   loadViewerConfig(projectPath, signal);
 }
 
 function cleanupRemoteControl() {
-  RcSubtitles.uninit();
-  RcTelemetry.uninit();
   viewer.uninit();
 }
 
 async function loadViewerConfig(projectPath: string, signal: AbortSignal) {
+  if (!projectPath) return;
   let config: Record<string, unknown> = {};
 
   try {
@@ -75,21 +91,8 @@ async function loadViewerConfig(projectPath: string, signal: AbortSignal) {
 }
 
 async function fetchRCSettings(projectPath: string, signal: AbortSignal) {
-  const url = `http://localhost:7081/query/get-project-rc-settings?project_path=${encodeURIComponent(
-    projectPath
-  )}`;
-
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    throw new Error(
-      `Failed to fetch project-rc settings: ${res.status} ${res.statusText}`
-    );
-  }
-
-  const json = await res.json();
-  if (typeof json !== "object" || json === null) {
-    throw new Error("Invalid JSON received");
-  }
-
-  return json;
+  const url = buildUrl(HUB_API_BASE, "/query/get-project-rc-settings", {
+    project_path: projectPath,
+  });
+  return await fetchJSON<Record<string, unknown>>(url, { signal });
 }

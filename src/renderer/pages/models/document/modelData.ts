@@ -1,4 +1,6 @@
 import currentProject from "../../../core/current-project";
+import { HUB_API_BASE } from "../../../core/config";
+import { buildUrl, fetchJSON } from "../../../core/http";
 
 export interface Workload {
   name: string;
@@ -34,29 +36,23 @@ export interface LoadedModel {
   data: ModelData;
 }
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${url}`);
-  return (await res.json()) as T;
-}
-
 export async function loadAllModels(): Promise<LoadedModel[]> {
   const projectPath = (currentProject as any).getProjectPath?.();
   if (!projectPath) throw new Error("No project path set");
 
-  const base = "http://localhost:7081";
   const models = await fetchJSON<string[]>(
-    `${base}/query/list-project-models?project_path=${encodeURIComponent(
-      projectPath
-    )}`
+    buildUrl(HUB_API_BASE, "/query/list-project-models", {
+      project_path: projectPath,
+    })
   );
 
   const out: LoadedModel[] = [];
   for (const modelPath of models) {
     const data = await fetchJSON<ModelData>(
-      `${base}/query/get-model?project_path=${encodeURIComponent(
-        projectPath
-      )}&model_path=${encodeURIComponent(modelPath)}`
+      buildUrl(HUB_API_BASE, "/query/get-model", {
+        project_path: projectPath,
+        model_path: modelPath,
+      })
     );
     out.push({ modelPath, data });
   }
