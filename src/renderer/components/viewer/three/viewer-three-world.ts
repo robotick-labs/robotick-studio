@@ -16,8 +16,10 @@ import {
   ResponseType,
 } from "../viewer-schema.js";
 
-import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
-import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
+import {
+  ITelemetryModel,
+  subscribeTelemetry,
+} from "../../../core/telemetry";
 import { waitForModelDescriptorByName } from "../../../core/launcher/LauncherDataContext.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {

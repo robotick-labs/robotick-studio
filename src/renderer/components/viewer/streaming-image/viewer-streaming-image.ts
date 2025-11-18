@@ -1,8 +1,10 @@
 // viewer-streaming-image.ts
 
 import type { ViewerConfig } from "../viewer-schema";
-import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
+import {
+  subscribeTelemetry,
+  ITelemetryModel,
+} from "../../../core/telemetry";
 import {
   findModelDescriptorInState,
   waitForProjectModelsLoaded,

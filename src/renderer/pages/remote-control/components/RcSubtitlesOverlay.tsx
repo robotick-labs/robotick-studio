@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
-import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
+import { useTelemetryStream } from "../../../core/telemetry";
 import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
 
 type RcSubtitlesConfig = {

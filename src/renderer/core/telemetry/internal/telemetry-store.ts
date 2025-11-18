@@ -1,3 +1,8 @@
+/**
+ * Internal: shared polling store that fans out raw telemetry updates to any
+ * subscriber. Consumers should call `subscribeTelemetry` via
+ * `core/telemetry/index.ts` instead of importing this file directly.
+ */
 import {
   createTelemetryModel,
   ITelemetryModel,

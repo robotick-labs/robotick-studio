@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styles from "./styles/RcTelemetryOverlay.module.css";
-import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
+import { useTelemetryStream } from "../../../core/telemetry";
 import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
 
 type RcTelemetryConfig = {
