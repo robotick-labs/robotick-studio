@@ -18,10 +18,6 @@ import {
   RcSettingsResponse,
   normalizeRcModules,
 } from "./remote-control-types";
-import {
-  loadCachedProjectMetas,
-  saveCachedProjectMetas,
-} from "./project-cache";
 
 type LoadState<T> = {
   data: T;
@@ -151,11 +147,9 @@ export function LauncherDataProvider({
     };
   }, []);
 
-  const cachedProjectMetas = useMemo(() => loadCachedProjectMetas(), []);
-
   const [projectMetas, setProjectMetas] = useState<LoadState<ProjectMeta[]>>({
-    data: cachedProjectMetas,
-    loading: cachedProjectMetas.length === 0,
+    data: [],
+    loading: true,
     error: null,
   });
 
@@ -190,7 +184,6 @@ export function LauncherDataProvider({
         return;
       }
       setProjectMetas({ data: metas, loading: false, error: null });
-      saveCachedProjectMetas(metas);
     } catch (err) {
       if (!isMountedRef.current || metasRequestRef.current !== requestId) {
         return;
