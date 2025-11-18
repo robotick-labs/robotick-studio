@@ -6,14 +6,19 @@ import {
   fetchRaw,
 } from "./telemetry-client";
 
-type Subscriber = {
+type SubscriberCallbacks = {
   callback: (model: ITelemetryModel) => void;
   error?: (err: unknown) => void;
 };
 
+type SubscriberEntry = SubscriberCallbacks & {
+  intervalMs: number;
+  lastNotified: number;
+};
+
 type StoreEntry = {
   baseUrl: string;
-  subscribers: Set<Subscriber>;
+  subscribers: Set<SubscriberEntry>;
   layout: LayoutModel | null;
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
   pollingTimer: ReturnType<typeof setInterval> | null;
@@ -21,31 +26,34 @@ type StoreEntry = {
 };
 
 const stores = new Map<string, StoreEntry>();
+const DEFAULT_POLLING_INTERVAL_MS = 200;
 
 export function subscribeTelemetry(
   baseUrl: string,
   intervalMs: number,
-  subscriber: Subscriber
+  subscriber: SubscriberCallbacks
 ): () => void {
   const entry = getOrCreateEntry(baseUrl);
-  entry.subscribers.add(subscriber);
-  entry.pollingIntervalMs = Math.min(entry.pollingIntervalMs, intervalMs);
-  if (!entry.pollingTimer) {
-    startPolling(entry);
-  }
+  const subscriberEntry: SubscriberEntry = {
+    ...subscriber,
+    intervalMs: Math.max(1, Math.floor(intervalMs)),
+    lastNotified: 0,
+  };
+  entry.subscribers.add(subscriberEntry);
+  updatePollingTimer(entry);
 
   if (entry.layout && entry.lastRaw) {
     const model = createTelemetryModel(entry.layout);
     model.raw = entry.lastRaw.buffer;
-    subscriber.callback(model);
+    deliverToSubscriber(subscriberEntry, model, true);
   }
 
   return () => {
     const current = stores.get(baseUrl);
     if (!current) return;
-    current.subscribers.delete(subscriber);
+    current.subscribers.delete(subscriberEntry);
+    updatePollingTimer(current);
     if (current.subscribers.size === 0) {
-      stopPolling(current);
       stores.delete(baseUrl);
     }
   };
@@ -60,7 +68,7 @@ function getOrCreateEntry(baseUrl: string): StoreEntry {
       layout: null,
       lastRaw: null,
       pollingTimer: null,
-      pollingIntervalMs: 200,
+      pollingIntervalMs: DEFAULT_POLLING_INTERVAL_MS,
     };
     stores.set(baseUrl, entry);
   }
@@ -68,24 +76,9 @@ function getOrCreateEntry(baseUrl: string): StoreEntry {
 }
 
 function startPolling(entry: StoreEntry) {
-  const poll = async () => {
-    try {
-      if (!entry.layout) {
-        const layout = await fetchLayout(entry.baseUrl);
-        if (layout) {
-          entry.layout = layout;
-        }
-      }
-      if (!entry.layout) return;
-
-      const { raw, sid } = await fetchRaw(entry.baseUrl);
-      entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
-      const model = createTelemetryModel(entry.layout);
-      model.raw = raw;
-      entry.subscribers.forEach((sub) => sub.callback(model));
-    } catch (err) {
-      entry.subscribers.forEach((sub) => sub.error?.(err));
-    }
+  if (entry.pollingTimer) return;
+  const poll = () => {
+    void pollEntry(entry);
   };
 
   poll();
@@ -97,4 +90,66 @@ function stopPolling(entry: StoreEntry) {
     clearInterval(entry.pollingTimer);
   }
   entry.pollingTimer = null;
+}
+
+async function pollEntry(entry: StoreEntry) {
+  try {
+    if (!entry.layout) {
+      const layout = await fetchLayout(entry.baseUrl);
+      if (layout) {
+        entry.layout = layout;
+      }
+    }
+    if (!entry.layout) return;
+
+    const { raw, sid } = await fetchRaw(entry.baseUrl);
+    entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+    const model = createTelemetryModel(entry.layout);
+    model.raw = raw;
+    notifySubscribers(entry, model);
+  } catch (err) {
+    entry.subscribers.forEach((sub) => sub.error?.(err));
+  }
+}
+
+function updatePollingTimer(entry: StoreEntry) {
+  if (entry.subscribers.size === 0) {
+    stopPolling(entry);
+    entry.pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS;
+    return;
+  }
+
+  const fastestInterval = Math.min(
+    ...Array.from(entry.subscribers, (sub) => sub.intervalMs)
+  );
+
+  if (entry.pollingTimer && entry.pollingIntervalMs === fastestInterval) {
+    return;
+  }
+
+  entry.pollingIntervalMs = fastestInterval;
+  stopPolling(entry);
+  startPolling(entry);
+}
+
+function notifySubscribers(entry: StoreEntry, model: ITelemetryModel) {
+  entry.subscribers.forEach((sub) => {
+    deliverToSubscriber(sub, model);
+  });
+}
+
+function deliverToSubscriber(
+  subscriber: SubscriberEntry,
+  model: ITelemetryModel,
+  force = false
+) {
+  const now = Date.now();
+  if (
+    force ||
+    subscriber.lastNotified === 0 ||
+    now - subscriber.lastNotified >= subscriber.intervalMs
+  ) {
+    subscriber.lastNotified = now;
+    subscriber.callback(model);
+  }
 }

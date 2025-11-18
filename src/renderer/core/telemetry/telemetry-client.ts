@@ -96,9 +96,11 @@ export interface ITelemetryModel {
 // Core endpoints
 // -----------------------------------------------------------------------------
 
-export async function fetchLayout(url: string): Promise<LayoutModel | null> {
+export async function fetchLayout(
+  base_url: string
+): Promise<LayoutModel | null> {
   try {
-    const r = await fetch(`${url}/api/telemetry/workloads_buffer/layout`, {
+    const r = await fetch(`${base_url}/api/telemetry/workloads_buffer/layout`, {
       cache: "no-store",
     });
     if (!r.ok) return null;
@@ -111,9 +113,8 @@ export async function fetchLayout(url: string): Promise<LayoutModel | null> {
 export async function fetchRaw(
   base_url: string
 ): Promise<{ raw: ArrayBuffer; sid: string }> {
-  const url = `${base_url}/api/telemetry/workloads_buffer/raw`;
   try {
-    const r = await fetch(url, {
+    const r = await fetch(`${base_url}/api/telemetry/workloads_buffer/raw`, {
       cache: "no-store",
     });
     if (!r.ok) {
