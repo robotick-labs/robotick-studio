@@ -1,0 +1,95 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: #1b1f29;
+  border-radius: 12px;
+  padding: 24px 24px 28px;
+  width: min(440px, 90vw);
+  box-shadow: 0 12px 45px rgba(0, 0, 0, 0.4);
+  color: #e4e8ff;
+  position: relative;
+  word-wrap: break-word;
+}
+
+.dialog h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.35rem;
+}
+
+.message {
+  margin-bottom: 1rem;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.message code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  word-break: break-all;
+  white-space: normal;
+}
+
+.closeButton {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.primary,
+.secondary {
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1.3rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+
+.primary {
+  background: #ff6b6b;
+  color: #fff;
+}
+
+.secondary {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ffbbbb;
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+

@@ -1,15 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
 import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
 import styles from "./styles/ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
 
 export function ProjectPicker() {
-  const { projectPath, setProjectPath } = useProjectContext();
+  const { projectPath } = useProjectContext();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { requestProjectChange, confirmationDialog } =
+    useProjectChangeConfirmation();
 
   useEffect(() => {
     let cancelled = false;
@@ -53,36 +56,39 @@ export function ProjectPicker() {
       alert("Add project flow not implemented yet.");
       return;
     }
-    setProjectPath(value);
+    requestProjectChange(value);
   }
 
   const selectValue = projectPath || "";
 
   return (
-    <select
-      className={styles.select}
-      aria-label="Select project"
-      value={selectValue}
-      onChange={(event) => handleChange(event.target.value)}
-      disabled={loading}
-    >
-      <option value="" disabled={Boolean(selectValue)}>
-        {loading ? "Loading projects..." : "Select a Project"}
-      </option>
-
-      {options.map((project) => (
-        <option key={project.path} value={project.path}>
-          {project.name}
+    <>
+      <select
+        className={styles.select}
+        aria-label="Select project"
+        value={selectValue}
+        onChange={(event) => handleChange(event.target.value)}
+        disabled={loading}
+      >
+        <option value="" disabled={Boolean(selectValue)}>
+          {loading ? "Loading projects..." : "Select a Project"}
         </option>
-      ))}
 
-      <option value={ADD_PROJECT_VALUE}>Add Project...</option>
+        {options.map((project) => (
+          <option key={project.path} value={project.path}>
+            {project.name}
+          </option>
+        ))}
 
-      {error ? (
-        <option value="__error" disabled>
-          Failed to load projects
-        </option>
-      ) : null}
-    </select>
+        <option value={ADD_PROJECT_VALUE}>Add Project...</option>
+
+        {error ? (
+          <option value="__error" disabled>
+            Failed to load projects
+          </option>
+        ) : null}
+      </select>
+      {confirmationDialog}
+    </>
   );
 }

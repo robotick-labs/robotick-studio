@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
 import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
 import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {
@@ -10,6 +11,8 @@ export default function HomePage() {
   const [selectedPath, setSelectedPath] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const { projectPath, setProjectPath } = useProjectContext();
+  const { requestProjectChange, confirmationDialog } =
+    useProjectChangeConfirmation();
   const initialProjectPathRef = useRef(projectPath);
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function HomePage() {
   }, [setProjectPath]);
 
   function selectProject(path: string) {
-    setProjectPath(path);
+    requestProjectChange(path);
   }
 
   return (
@@ -111,6 +114,7 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+      {confirmationDialog}
     </div>
   );
 }
