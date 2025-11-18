@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
-import { LAUNCHER_LOCAL_API_BASE } from "../../core/config";
-import { buildUrl, fetchJSON } from "../../core/http";
+import { fetchProjectSettingsData } from "../../core/launcher-interface";
 import styles from "./styles/ProjectPage.module.css";
 
 import { StringField } from "./components/StringField";
@@ -31,11 +30,9 @@ export default function ProjectPage() {
         fetch("./static/schemas/project-config.schema.json").then((r) =>
           r.json()
         ),
-        fetchJSON<Record<string, any>>(
-          buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
-            project_path: projectPath,
-          })
-        ).catch(() => ({} as Record<string, any>)),
+        fetchProjectSettingsData<Record<string, any>>(projectPath).catch(
+          () => ({} as Record<string, any>)
+        ),
       ]);
 
       setSchema(schemaResp);

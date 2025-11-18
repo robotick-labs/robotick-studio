@@ -1,5 +1,8 @@
-import { LAUNCHER_LOCAL_API_BASE } from "./config";
-import { buildUrl, fetchJSON } from "./http";
+import {
+  fetchProjectModelPaths,
+  fetchProjectPaths as fetchLauncherProjectPaths,
+  fetchProjectSettingsData,
+} from "./launcher-interface";
 
 export type ProjectMeta = {
   path: string;
@@ -13,17 +16,13 @@ type ProjectSettingsResponse = {
 };
 
 export async function fetchProjectPaths(): Promise<string[]> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
-  return await fetchJSON<string[]>(url);
+  return await fetchLauncherProjectPaths();
 }
 
 export async function fetchProjectSettings(
   projectPath: string
 ): Promise<ProjectSettingsResponse> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
-    project_path: projectPath,
-  });
-  return await fetchJSON<ProjectSettingsResponse>(url);
+  return await fetchProjectSettingsData<ProjectSettingsResponse>(projectPath);
 }
 
 export async function fetchProjectMetas(): Promise<ProjectMeta[]> {
@@ -52,9 +51,5 @@ export async function fetchProjectMetas(): Promise<ProjectMeta[]> {
 export async function fetchProjectModels(
   projectPath: string
 ): Promise<string[]> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
-    project_path: projectPath,
-  });
-  const models = await fetchJSON<string[]>(url);
-  return models.sort();
+  return await fetchProjectModelPaths(projectPath);
 }

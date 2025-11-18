@@ -7,16 +7,19 @@ import React, {
   useRef,
   useState,
 } from "react";
-import {
-  LAUNCHER_LOCAL_API_BASE,
-  POLLING_DEFAULT_INTERVAL_MS,
-  POLLING_FAST_INTERVAL_MS,
-} from "./config";
-import { buildUrl, fetchJSON, tryFetchJSON } from "./http";
 import { useProjectContext } from "./ProjectContext";
-import { getPrimaryTelemetryBase } from "./current-project";
+import {
+  fetchLauncherStatus,
+  getPrimaryTelemetryBase,
+  requestLauncherRun,
+  requestLauncherStop,
+} from "./launcher-interface";
+import { buildUrl } from "./http";
 
 export type LauncherStatus = "stopped" | "starting" | "running";
+
+const POLLING_DEFAULT_INTERVAL_MS = 1000;
+const POLLING_FAST_INTERVAL_MS = 200;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -105,11 +108,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     launcherEvents.dispatchEvent(new Event("run-requested"));
 
     try {
-      const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
-        project_path: projectPath,
-        profile: launcherProfile || "local:ALL",
-      });
-      await fetchJSON(url, { method: "POST" });
+      await requestLauncherRun(projectPath, launcherProfile || "local:ALL");
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
       setPendingTarget(null);
@@ -127,8 +126,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     wakeFastPolling();
     launcherEvents.dispatchEvent(new Event("stop-requested"));
     try {
-      const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
-      await fetchJSON(url, { method: "POST" });
+      await requestLauncherStop();
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
       setPendingTarget(null);
@@ -176,8 +174,7 @@ export function useLauncherContext(): LauncherContextValue {
 }
 
 async function checkLauncherActive(): Promise<boolean> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
-  const data = await tryFetchJSON<{ status: string }>(url);
+  const data = await fetchLauncherStatus();
   return data?.status === "running" || data?.status === "starting";
 }
 

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { REMOTE_CONTROL_BASE } from "../../../../core/config";
 
 type StickTopic = "left_stick" | "right_stick";
 type StickName = "left" | "right";
@@ -17,7 +16,7 @@ interface StickController {
   movePointerToCenter: () => void;
 }
 
-const remoteControlServer = REMOTE_CONTROL_BASE;
+const remoteControlServer = "http://localhost:7080"; // TODO - add this as a config setting on module "overlay/remote-controls" - just fail to use RC if not set - no fallback
 
 type JoystickState = {
   use_web_inputs: boolean;
@@ -271,9 +270,7 @@ class RemoteControlClient {
     this.cleanup.push(() =>
       document.removeEventListener("mousemove", onMouseMove)
     );
-    this.cleanup.push(() =>
-      document.removeEventListener("mouseup", onMouseUp)
-    );
+    this.cleanup.push(() => document.removeEventListener("mouseup", onMouseUp));
   }
 
   private setupGamepadPolling() {
@@ -480,7 +477,8 @@ class RemoteControlClient {
       if (!this.ticking) this.startTickLoop();
 
       if (updateLocalState) {
-        const local = this.localState[topic === "left_stick" ? "left" : "right"];
+        const local =
+          this.localState[topic === "left_stick" ? "left" : "right"];
         local.x = normX;
         local.y = normY;
       }
@@ -491,7 +489,8 @@ class RemoteControlClient {
       this.sendJoystickInput(topic, 0, 0);
       if (!this.ticking) this.startTickLoop();
       if (updateLocalState) {
-        const local = this.localState[topic === "left_stick" ? "left" : "right"];
+        const local =
+          this.localState[topic === "left_stick" ? "left" : "right"];
         local.x = 0;
         local.y = 0;
       }

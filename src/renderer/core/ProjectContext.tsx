@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import currentProject from "./current-project";
+import currentProject from "./launcher-interface";
 
 export type ProjectContextValue = {
   projectPath: string;

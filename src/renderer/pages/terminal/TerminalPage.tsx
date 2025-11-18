@@ -1,8 +1,7 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { launcherEvents } from "../../core/LauncherContext";
-import { LAUNCHER_LOCAL_API_BASE } from "../../core/config";
-import { buildWebSocketUrl } from "../../core/http";
+import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
 
 // ansi_up loader (global, loads once)
 let AnsiUpClass: any = null;
@@ -45,10 +44,7 @@ export default function TerminalPage() {
       let ws: WebSocket;
 
       try {
-        const socketUrl = buildWebSocketUrl(
-          LAUNCHER_LOCAL_API_BASE,
-          "/launcher/ws/log"
-        );
+        const socketUrl = getLauncherLogStreamUrl();
         ws = new WebSocket(socketUrl);
         wsRef.current = ws;
       } catch (err) {

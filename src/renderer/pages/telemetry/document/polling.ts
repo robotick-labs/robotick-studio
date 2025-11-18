@@ -3,7 +3,7 @@
 // Robotick unified telemetry polling (global-coordinated, smooth cadence)
 // -----------------------------------------------------------------------------
 
-import currentProject from "../../../core/current-project";
+import currentProject from "../../../core/launcher-interface";
 import { EngineModel } from "../view/types.js";
 
 // -----------------------------------------------------------------------------

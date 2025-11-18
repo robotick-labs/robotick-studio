@@ -1,4 +1,4 @@
-import currentProject from "../../../core/current-project";
+import currentProject from "../../../core/launcher-interface";
 
 export interface Workload {
   name: string;

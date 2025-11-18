@@ -7,7 +7,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { ViewerConfig } from "../viewer-schema.js";
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import { getPrimaryTelemetryBase } from "../../../core/current-project";
+import { getPrimaryTelemetryBase } from "../../../core/launcher-interface";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;

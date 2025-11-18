@@ -1,10 +1,11 @@
 import { LAUNCHER_LOCAL_API_BASE } from "./config";
-import { buildUrl, fetchJSON } from "./http";
+import { buildUrl, buildWebSocketUrl, fetchJSON, tryFetchJSON } from "./http";
 
 const KEY_PROJECT_PATH = "robotick-hub.projectPath";
 const KEY_LAUNCHER_PROFILE = "robotick-hub.launcherProfile";
 const DEFAULT_MODEL_HOST = "localhost";
 const DEFAULT_TELEMETRY_PORT = 7090;
+const LAUNCHER_LOCAL_API_BASE = "http://localhost:7081";
 
 type ProjectChangedListener = (path: string) => void;
 type LauncherProfileChangedListener = (profile: string) => void;
@@ -93,7 +94,62 @@ function buildTelemetryBaseUrl(port: number) {
   return `http://${getModelHostName()}:${port}`;
 }
 
-async function fetchProjectModelPaths(projectPath: string) {
+export async function fetchProjectPaths(): Promise<string[]> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
+  const projects = await fetchJSON<string[]>(url);
+  return projects.sort();
+}
+
+export async function fetchProjectSettingsData<T = Record<string, unknown>>(
+  projectPath: string
+): Promise<T> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
+    project_path: projectPath,
+  });
+  return await fetchJSON<T>(url);
+}
+
+export async function fetchProjectRemoteControlSettings<
+  T = Record<string, unknown>
+>(projectPath: string, signal?: AbortSignal): Promise<T> {
+  const url = buildUrl(
+    LAUNCHER_LOCAL_API_BASE,
+    "/query/get-project-rc-settings",
+    {
+      project_path: projectPath,
+    }
+  );
+  return await fetchJSON<T>(url, { signal });
+}
+
+export async function requestLauncherRun(
+  projectPath: string,
+  launcherProfile: string
+): Promise<void> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
+    project_path: projectPath,
+    profile: launcherProfile,
+  });
+  await fetchJSON(url, { method: "POST" });
+}
+
+export async function requestLauncherStop(): Promise<void> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
+  await fetchJSON(url, { method: "POST" });
+}
+
+export async function fetchLauncherStatus(): Promise<{
+  status: string;
+} | null> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
+  return await tryFetchJSON<{ status: string }>(url);
+}
+
+export function getLauncherLogStreamUrl(): string {
+  return buildWebSocketUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/ws/log");
+}
+
+export async function fetchProjectModelPaths(projectPath: string) {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
     project_path: projectPath,
   });
@@ -125,7 +181,10 @@ async function buildModelDescriptors<T = unknown>(
 
       const modelName =
         (data as { name?: string })?.name?.trim() ||
-        modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") ||
+        modelPath
+          .split("/")
+          .pop()
+          ?.replace(/\.model\.yaml$/, "") ||
         modelPath;
 
       const telemetryPort = normalizePort(
@@ -141,7 +200,7 @@ async function buildModelDescriptors<T = unknown>(
       });
     } catch (err) {
       console.warn(
-        `[current-project] Failed to load model definition ${modelPath}`,
+        `[launcher-interface] Failed to load model definition ${modelPath}`,
         err
       );
     }
@@ -217,11 +276,19 @@ const currentProject = {
   getLauncherProfile,
   onProjectChanged,
   onLauncherProfileChanged,
+  fetchProjectPaths,
+  fetchProjectSettingsData,
+  fetchProjectRemoteControlSettings,
+  fetchProjectModelPaths,
   getProjectModels,
   refreshProjectModels,
   clearProjectModelCache: invalidateModelCache,
   getPrimaryTelemetryBase,
   getModelHostName,
+  requestLauncherRun,
+  requestLauncherStop,
+  fetchLauncherStatus,
+  getLauncherLogStreamUrl,
 };
 
 export default currentProject;
