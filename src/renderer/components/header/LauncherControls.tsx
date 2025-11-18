@@ -9,17 +9,16 @@ export function LauncherControls() {
     reportedStatus,
     isBusy,
     isAwaitingStatus,
+    robotAlive,
     lastError,
     run,
     stop,
     restart,
   } = useLauncherContext();
   const isRunning = status === "running";
-  const isStarting = status === "starting";
   const serverRunning = reportedStatus === "running";
-  const serverStarting = reportedStatus === "starting";
-  const serverActive = serverRunning || serverStarting;
-  const isActive = serverActive || isRunning || isStarting;
+  const serverLaunching = reportedStatus === "launching";
+  const serverActive = serverRunning || serverLaunching;
   const canRestart = isRunning && !isBusy;
   const controlsDisabled = isBusy || isAwaitingStatus;
   const toggleDisabled = serverActive ? isBusy : controlsDisabled;
@@ -65,7 +64,7 @@ export function LauncherControls() {
         <span className={`${styles.icon} ${styles.iconRestart}`}>↻</span>
       </button>
 
-      <LauncherDots status={status} />
+      <LauncherDots status={status} robotAlive={robotAlive} />
 
       {lastError ? (
         <span className={styles.error} role="alert">

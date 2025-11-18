@@ -4,9 +4,10 @@ import styles from "./styles/LauncherControls.module.css";
 
 type LauncherDotsProps = {
   status: LauncherStatus;
+  robotAlive: boolean;
 };
 
-export function LauncherDots({ status }: LauncherDotsProps) {
+export function LauncherDots({ status, robotAlive }: LauncherDotsProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
@@ -14,7 +15,7 @@ export function LauncherDots({ status }: LauncherDotsProps) {
   }, [status]);
 
   useEffect(() => {
-    if (status !== "starting") return;
+    if (status !== "launching") return;
     const id = window.setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % 3);
     }, 500);
@@ -23,13 +24,21 @@ export function LauncherDots({ status }: LauncherDotsProps) {
     };
   }, [status]);
 
+  if (status === "running" && !robotAlive) {
+    return (
+      <span className={styles.controlDots} aria-hidden>
+        <span className={styles.flatline} />
+      </span>
+    );
+  }
+
   return (
     <span className={styles.controlDots} aria-hidden>
       <span className={styles.dots}>
         {[0, 1, 2].map((index) => {
           const dotClasses = [styles.dot];
 
-          if (status === "starting" && index === activeIndex) {
+          if (status === "launching" && index === activeIndex) {
             dotClasses.push(styles.dotActive);
           } else if (status === "running") {
             dotClasses.push(

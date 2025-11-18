@@ -16,11 +16,10 @@ import {
 } from "./launcher-interface";
 import { waitForProjectModelsLoaded } from "./LauncherDataContext";
 
-export type LauncherStatus = "stopped" | "starting" | "running";
+export type LauncherStatus = "stopped" | "launching" | "running";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
-const HEALTH_FAILURE_GRACE_MS = 2000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -28,6 +27,7 @@ type LauncherContextValue = {
   lastError: string | null;
   isBusy: boolean;
   isAwaitingStatus: boolean;
+  robotAlive: boolean;
   run: () => Promise<void>;
   stop: () => Promise<void>;
   restart: () => Promise<void>;
@@ -52,7 +52,9 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [reportedStatus, setReportedStatus] =
     useState<LauncherStatus>("stopped");
   const fastPollUntilRef = useRef(0);
-  const lastRobotAliveAtRef = useRef<number | null>(null);
+  const [robotAlive, setRobotAlive] = useState(true);
+  const lastStatusRef = useRef<LauncherStatus>("stopped");
+  const skipNextRobotCheckRef = useRef(false);
 
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
@@ -73,29 +75,36 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
-          const launcherActive = launcherStatus !== "stopped";
-          const robotAlive = launcherActive ? await checkRobotAlive() : false;
 
-          let nextStatus: LauncherStatus = launcherStatus;
+          const prevStatus = lastStatusRef.current;
+          const statusChanged = prevStatus !== launcherStatus;
+          lastStatusRef.current = launcherStatus;
+
           if (launcherStatus === "running") {
-            if (robotAlive) {
-              lastRobotAliveAtRef.current = Date.now();
+            if (statusChanged) {
+              setRobotAlive(true);
+              skipNextRobotCheckRef.current = true;
             }
-            const lastAlive = lastRobotAliveAtRef.current;
-            const aliveRecently =
-              typeof lastAlive === "number" &&
-              Date.now() - lastAlive <= HEALTH_FAILURE_GRACE_MS;
-            nextStatus = aliveRecently ? "running" : "starting";
+            if (skipNextRobotCheckRef.current) {
+              skipNextRobotCheckRef.current = false;
+            } else {
+              const nextRobotAlive = await checkRobotAlive();
+              setRobotAlive((prev) =>
+                prev === nextRobotAlive ? prev : nextRobotAlive
+              );
+            }
           } else {
-            lastRobotAliveAtRef.current = null;
+            skipNextRobotCheckRef.current = false;
           }
 
-          setStatus((prev) => (prev === nextStatus ? prev : nextStatus));
+          setStatus((prev) =>
+            prev === launcherStatus ? prev : launcherStatus
+          );
           setPendingTarget((target) =>
-            target && nextStatus === target ? null : target
+            target && launcherStatus === target ? null : target
           );
           setOptimisticStatus((current) =>
-            current && nextStatus !== "starting" ? null : current
+            current && launcherStatus !== "launching" ? null : current
           );
         } catch (err) {
           console.warn("[launcher] poll failed", err);
@@ -120,7 +129,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     setIsBusy(true);
     setLastError(null);
     setPendingTarget("running");
-    setOptimisticStatus("starting");
+    setOptimisticStatus("launching");
     wakeFastPolling();
     launcherEvents.dispatchEvent(new Event("run-requested"));
 
@@ -169,6 +178,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       lastError,
       isBusy,
       isAwaitingStatus,
+      robotAlive,
       run,
       stop,
       restart,
@@ -179,6 +189,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       isAwaitingStatus,
       isBusy,
       lastError,
+      robotAlive,
       restart,
       run,
       stop,
@@ -204,7 +215,8 @@ async function readLauncherStatus(): Promise<LauncherStatus> {
   const data = await fetchLauncherStatus();
   if (!data?.status) return "stopped";
   if (data.status === "running") return "running";
-  if (data.status === "starting") return "starting";
+  if (data.status === "launching" || data.status === "starting")
+    return "launching";
   return "stopped";
 }
 
