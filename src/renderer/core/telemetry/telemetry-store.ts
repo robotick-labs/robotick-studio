@@ -27,6 +27,33 @@ type StoreEntry = {
 
 const stores = new Map<string, StoreEntry>();
 const DEFAULT_POLLING_INTERVAL_MS = 200;
+const MAX_CONCURRENT_FETCHES = 4;
+
+let activeFetches = 0;
+const fetchQueue: Array<() => void> = [];
+
+function enqueueFetch<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      activeFetches++;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          activeFetches--;
+          const next = fetchQueue.shift();
+          if (next) {
+            next();
+          }
+        });
+    };
+
+    if (activeFetches < MAX_CONCURRENT_FETCHES) {
+      run();
+    } else {
+      fetchQueue.push(run);
+    }
+  });
+}
 
 export function subscribeTelemetry(
   baseUrl: string,
@@ -95,14 +122,14 @@ function stopPolling(entry: StoreEntry) {
 async function pollEntry(entry: StoreEntry) {
   try {
     if (!entry.layout) {
-      const layout = await fetchLayout(entry.baseUrl);
+      const layout = await enqueueFetch(() => fetchLayout(entry.baseUrl));
       if (layout) {
         entry.layout = layout;
       }
     }
     if (!entry.layout) return;
 
-    const { raw, sid } = await fetchRaw(entry.baseUrl);
+    const { raw, sid } = await enqueueFetch(() => fetchRaw(entry.baseUrl));
     entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
     const model = createTelemetryModel(entry.layout);
     model.raw = raw;

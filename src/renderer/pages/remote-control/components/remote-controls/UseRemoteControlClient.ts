@@ -58,7 +58,8 @@ class RemoteControlClient {
   private leftStick: StickController;
   private rightStick: StickController;
   private joystickState: JoystickState;
-  private readonly remoteControlServer: string;
+  private readonly remoteControlServer: string | null;
+  private readonly controlsEnabled: boolean;
   private readonly localState = {
     left: { x: 0.0, y: 0.0 },
     right: { x: 0.0, y: 0.0 },
@@ -77,9 +78,15 @@ class RemoteControlClient {
     leftKnob: HTMLDivElement;
     rightArea: HTMLDivElement;
     rightKnob: HTMLDivElement;
-    remoteControlServer: string;
+    remoteControlServer: string | null;
   }) {
     this.remoteControlServer = options.remoteControlServer;
+    this.controlsEnabled = Boolean(this.remoteControlServer);
+    if (!this.controlsEnabled) {
+      console.warn(
+        "[remote-controls] remoteControlServer is not configured; controls disabled."
+      );
+    }
     this.joystickState = {
       use_web_inputs: true,
       left: { x: 0.0, y: 0.0 },
@@ -165,6 +172,7 @@ class RemoteControlClient {
 
     const onTouchStart = (e: TouchEvent) => {
       this.allowReadGamePad = false;
+      if (!this.controlsEnabled) return;
       for (const touch of Array.from(e.changedTouches)) {
         if (touchStartedInArea(touch, this.leftStick.area)) {
           activeTouches[touch.identifier] = {
@@ -183,6 +191,7 @@ class RemoteControlClient {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (!this.controlsEnabled) return;
       for (const touch of Array.from(e.changedTouches)) {
         const data = activeTouches[touch.identifier];
         if (!data) continue;
@@ -198,6 +207,7 @@ class RemoteControlClient {
 
     const handleTouchEnd = (e: TouchEvent) => {
       this.allowReadGamePad = true;
+      if (!this.controlsEnabled) return;
       for (const touch of Array.from(e.changedTouches)) {
         const data = activeTouches[touch.identifier];
         if (!data) continue;
@@ -233,6 +243,7 @@ class RemoteControlClient {
 
     const onMouseDown = (e: MouseEvent) => {
       this.allowReadGamePad = false;
+      if (!this.controlsEnabled) return;
       if (this.leftStick.area.contains(e.target as Node)) {
         mouseActive = "left";
         mouseStartX = e.clientX;
@@ -246,6 +257,7 @@ class RemoteControlClient {
 
     const onMouseMove = (e: MouseEvent) => {
       if (!mouseActive) return;
+      if (!this.controlsEnabled) return;
       const dx = e.clientX - mouseStartX;
       const dy = e.clientY - mouseStartY;
       const stick = mouseActive === "left" ? this.leftStick : this.rightStick;
@@ -257,6 +269,7 @@ class RemoteControlClient {
 
     const onMouseUp = () => {
       this.allowReadGamePad = true;
+      if (!this.controlsEnabled) return;
       if (mouseActive === "left") this.leftStick.resetKnob();
       else if (mouseActive === "right") this.rightStick.resetKnob();
       mouseActive = null;
@@ -324,6 +337,10 @@ class RemoteControlClient {
       }
 
       if (!this.allowReadGamePad) {
+        this.rafId = requestAnimationFrame(loop);
+        return;
+      }
+      if (!this.controlsEnabled) {
         this.rafId = requestAnimationFrame(loop);
         return;
       }
@@ -410,6 +427,7 @@ class RemoteControlClient {
   }
 
   private sendJoystickInput(topic: StickTopic, x: number, y: number) {
+    if (!this.controlsEnabled) return;
     const clampedX = Math.max(-1, Math.min(1, x));
     const clampedY = Math.max(-1, Math.min(1, y));
 
@@ -423,6 +441,7 @@ class RemoteControlClient {
   }
 
   private updateTrigger(key: keyof JoystickState, value: number) {
+    if (!this.controlsEnabled) return;
     const clamped = Math.max(0, Math.min(1, value));
     if (this.joystickState[key] !== clamped) {
       // @ts-ignore
@@ -432,6 +451,7 @@ class RemoteControlClient {
   }
 
   private moveStickVisual(stick: StickController, x: number, y: number) {
+    if (!this.controlsEnabled) return;
     const radius = stick.area.clientWidth / 2;
     stick.knob.style.transform = `translate(-50%, -50%) translate(${
       x * radius
@@ -439,6 +459,7 @@ class RemoteControlClient {
   }
 
   private moveStickState(stick: StickController, x: number, y: number) {
+    if (!this.controlsEnabled) return;
     const rect = stick.area.getBoundingClientRect();
     const centerX = rect.left + stick.area.clientWidth / 2;
     const centerY = rect.top + stick.area.clientHeight / 2;
@@ -487,6 +508,7 @@ class RemoteControlClient {
     };
 
     const resetKnob = () => {
+      if (!this.controlsEnabled) return;
       knob.style.transform = `translate(-50%, -50%)`;
       this.sendJoystickInput(topic, 0, 0);
       if (!this.ticking) this.startTickLoop();
@@ -499,6 +521,7 @@ class RemoteControlClient {
     };
 
     const movePointerToCenter = () => {
+      if (!this.controlsEnabled) return;
       this.moveStickVisual(stick, 0, 0);
       this.sendJoystickInput(topic, 0, 0);
     };
@@ -518,6 +541,7 @@ class RemoteControlClient {
   }
 
   private startTickLoop() {
+    if (!this.controlsEnabled) return;
     this.ticking = true;
     const tick = () => {
       if (!this.ticking) return;
@@ -533,6 +557,9 @@ class RemoteControlClient {
     this.lastSentState = nextState;
     this.dirtyKeys.clear();
 
+    if (!this.controlsEnabled || !this.remoteControlServer) {
+      return;
+    }
     fetch(`${this.remoteControlServer}/api/rc_state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -543,6 +570,9 @@ class RemoteControlClient {
   private sendFullState() {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
+    if (!this.controlsEnabled || !this.remoteControlServer) {
+      return;
+    }
     fetch(`${this.remoteControlServer}/api/rc_state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -562,21 +592,16 @@ export function useRemoteControlClient({
   const clientRef = useRef<RemoteControlClient | null>(null);
 
   useEffect(() => {
-    if (
-      !remoteControlServer ||
-      !leftArea ||
-      !leftKnob ||
-      !rightArea ||
-      !rightKnob
-    )
+    if (!leftArea || !leftKnob || !rightArea || !rightKnob) {
       return;
+    }
 
     const client = new RemoteControlClient({
       leftArea,
       leftKnob,
       rightArea,
       rightKnob,
-      remoteControlServer,
+      remoteControlServer: remoteControlServer ?? null,
     });
     client.setUseWebInputs(useWebInputs);
     clientRef.current = client;
