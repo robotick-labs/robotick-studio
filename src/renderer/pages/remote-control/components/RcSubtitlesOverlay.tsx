@@ -1,10 +1,13 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
+import { useLauncherData } from "../../../core/LauncherDataContext";
 
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
   fieldPath?: string;
+  modelName?: string;
+  telemetryModelName?: string;
 };
 
 type RcSubtitlesProps = {
@@ -12,12 +15,50 @@ type RcSubtitlesProps = {
 };
 
 export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
-  const telemetryBaseUrl = config?.telemetryBaseUrl;
+  const { projectModels, findModelByName } = useLauncherData();
   const fieldPath = config?.fieldPath;
+  const configuredBaseUrl = config?.telemetryBaseUrl?.trim();
+  const configuredModelName =
+    config?.telemetryModelName?.trim() ?? config?.modelName?.trim();
 
-  if (!telemetryBaseUrl || !fieldPath) {
+  const telemetryBaseUrl = useMemo(() => {
+    if (configuredBaseUrl) {
+      return configuredBaseUrl;
+    }
+    if (!configuredModelName) return null;
+    const descriptor = findModelByName(configuredModelName);
+    return descriptor?.telemetryBaseUrl ?? null;
+  }, [configuredBaseUrl, configuredModelName, findModelByName]);
+
+  useEffect(() => {
+    if (
+      !telemetryBaseUrl &&
+      configuredModelName &&
+      !projectModels.loading &&
+      !projectModels.error
+    ) {
+      console.warn(
+        `[rc-subtitles] Model "${configuredModelName}" not found in project telemetry.`
+      );
+    }
+  }, [
+    configuredModelName,
+    projectModels.error,
+    projectModels.loading,
+    telemetryBaseUrl,
+  ]);
+
+  if (!fieldPath) {
     console.warn(
-      "[rc-subtitles] Missing module configuration (telemetryBaseUrl + fieldPath required)",
+      "[rc-subtitles] Missing fieldPath in module configuration",
+      config
+    );
+    return null;
+  }
+
+  if (!telemetryBaseUrl) {
+    console.warn(
+      "[rc-subtitles] Missing telemetry source. Provide telemetryBaseUrl or modelName.",
       config
     );
     return null;

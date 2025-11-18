@@ -93,7 +93,8 @@ export type ResponseType = "json" | "blob" | "png" | "jpeg";
 
 export interface RestPoller {
   id: string;
-  baseUrl: string;
+  baseUrl?: string;
+  modelName?: string;
   workloadName: string;
   headers?: Record<string, string>;
   bodyJson?: Record<string, unknown>; // for POST

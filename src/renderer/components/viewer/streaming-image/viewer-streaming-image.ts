@@ -3,10 +3,15 @@
 import type { ViewerConfig } from "../viewer-schema";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
 import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
-import { waitForProjectModelsLoaded } from "../../../core/LauncherDataContext";
+import {
+  findModelDescriptorInState,
+  waitForProjectModelsLoaded,
+} from "../../../core/LauncherDataContext";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  sourceModel?: string;
+  sourceModel?: string; // legacy
+  modelName?: string;
+  telemetryModelName?: string;
   sourceField?: string;
   telemetryBaseUrl?: string;
   telemetryIntervalMs?: number;
@@ -123,13 +128,16 @@ async function resolveTelemetryBaseUrl(
   const direct = config.telemetryBaseUrl?.trim();
   if (direct) return direct;
 
-  const sourceModel = config.sourceModel?.trim();
-  if (!sourceModel) return null;
+  const sourceModelName =
+    config.telemetryModelName?.trim() ??
+    config.modelName?.trim() ??
+    config.sourceModel?.trim();
+  if (!sourceModelName) return null;
 
   try {
     const state = await waitForProjectModelsLoaded();
     const match =
-      state.data.find((model) => model.modelShortName === sourceModel) ?? null;
+      findModelDescriptorInState(state, sourceModelName) ?? null;
     if (!match) {
       if (state.error) {
         console.warn(
@@ -138,7 +146,7 @@ async function resolveTelemetryBaseUrl(
       } else {
         const available = state.data.map((m) => m.modelShortName).join(", ");
         console.warn(
-          `[streaming-image] Model "${sourceModel}" not found. Available models: ${available}`
+          `[streaming-image] Model "${sourceModelName}" not found. Available models: ${available}`
         );
       }
     } else {

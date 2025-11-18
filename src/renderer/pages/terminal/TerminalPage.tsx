@@ -1,6 +1,6 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { launcherEvents, useLauncherContext } from "../../core/LauncherContext";
+import { launcherEvents } from "../../core/LauncherContext";
 import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
 import styles from "./TerminalPage.module.css";
 
@@ -22,7 +22,6 @@ export default function TerminalPage() {
 
   const retryTimerRef = useRef<number | null>(null);
   const retryDelayRef = useRef(1000); // exponential backoff up to 8s
-  const { status } = useLauncherContext();
 
   // ---------------------------------------------------------------------------
   // Load ansi_up (correct esm.sh import) and notify React when ready

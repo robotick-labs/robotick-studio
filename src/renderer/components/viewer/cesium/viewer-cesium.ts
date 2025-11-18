@@ -8,6 +8,11 @@ import type { ViewerConfig } from "../viewer-schema.js";
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
 import { getPrimaryTelemetryBase } from "../../../core/launcher-interface";
+import { waitForModelDescriptorByName } from "../../../core/LauncherDataContext";
+
+type CesiumViewerConfig = ViewerConfig & {
+  telemetryModelName?: string;
+};
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
@@ -34,7 +39,7 @@ const secretsPromise: Promise<void> = (async () => {
 
 // ---------------------------------------------------------------------------
 
-async function init(_config: ViewerConfig): Promise<void> {
+async function init(config: ViewerConfig): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
     return;
@@ -103,7 +108,7 @@ async function init(_config: ViewerConfig): Promise<void> {
   );
 
   lookAtRocket(rocketPosition);
-  await startRocketTracking();
+  await startRocketTracking(config as CesiumViewerConfig);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,14 +133,16 @@ function lookAtRocket(position: Cesium.Cartesian3): void {
 
 // ---------------------------------------------------------------------------
 
-async function startRocketTracking(): Promise<void> {
+async function startRocketTracking(
+  viewerConfig?: CesiumViewerConfig
+): Promise<void> {
   exitRequested = false;
   telemetryUnsubscribe?.();
-  let telemetryBaseUrl: string;
-  try {
-    telemetryBaseUrl = await getPrimaryTelemetryBase();
-  } catch (err) {
-    console.warn("[Cesium viewer] Unable to resolve telemetry endpoint", err);
+  const telemetryBaseUrl = await resolveCesiumTelemetryBase(viewerConfig);
+  if (!telemetryBaseUrl) {
+    console.warn(
+      "[Cesium viewer] Unable to resolve telemetry endpoint; telemetry disabled."
+    );
     return;
   }
 
@@ -216,3 +223,32 @@ function uninit(): void {
 // ---------------------------------------------------------------------------
 
 export default { init, uninit };
+
+async function resolveCesiumTelemetryBase(
+  config?: CesiumViewerConfig
+): Promise<string | null> {
+  const modelName = config?.telemetryModelName?.trim();
+  if (modelName) {
+    try {
+      const descriptor = await waitForModelDescriptorByName(modelName);
+      if (descriptor) {
+        return descriptor.telemetryBaseUrl;
+      }
+      console.warn(
+        `[Cesium viewer] Telemetry model "${modelName}" not found. Falling back to default endpoint.`
+      );
+    } catch (err) {
+      console.warn(
+        `[Cesium viewer] Failed to resolve telemetry model "${modelName}"`,
+        err
+      );
+    }
+  }
+
+  try {
+    return await getPrimaryTelemetryBase();
+  } catch (err) {
+    console.warn("[Cesium viewer] Unable to resolve telemetry endpoint", err);
+    return null;
+  }
+}

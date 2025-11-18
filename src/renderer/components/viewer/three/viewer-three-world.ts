@@ -18,6 +18,7 @@ import {
 
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
+import { waitForModelDescriptorByName } from "../../../core/LauncherDataContext";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -218,7 +219,7 @@ export class ViewerWorld {
     }
 
     // pollers
-    this.installPollers();
+    await this.installPollers();
 
     // ground
     if (this.worldConfig.addGroundPlane ?? true) {
@@ -471,24 +472,56 @@ export class ViewerWorld {
   }
 
   // ---------- polling ----------
-  private installPollers() {
+  private async installPollers() {
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     if (!this.worldConfig.telemetryAnimators) return;
 
     for (const config of this.worldConfig.telemetryAnimators) {
-      const unsubscribe = subscribeTelemetry(
-        config.baseUrl,
-        config.intervalMs,
-        {
-          callback: (model) => {
-            void this.executePoller(config, model);
-          },
-          error: (err) =>
-            console.warn(`[viewer] telemetry poller ${config.id} failed`, err),
-        }
-      );
+      const baseUrl = await this.resolvePollerBaseUrl(config);
+      if (!baseUrl) {
+        console.warn(
+          `[viewer] telemetry poller ${config.id} missing telemetry base URL`
+        );
+        continue;
+      }
+
+      const unsubscribe = subscribeTelemetry(baseUrl, config.intervalMs, {
+        callback: (model) => {
+          void this.executePoller(config, model);
+        },
+        error: (err) =>
+          console.warn(`[viewer] telemetry poller ${config.id} failed`, err),
+      });
       this.telemetrySubscriptions.set(config.id, unsubscribe);
+    }
+  }
+
+  private async resolvePollerBaseUrl(
+    poller: RestPoller
+  ): Promise<string | null> {
+    if (poller.baseUrl?.trim()) {
+      return poller.baseUrl.trim();
+    }
+    const modelName = poller.modelName?.trim();
+    if (!modelName) {
+      return null;
+    }
+    try {
+      const descriptor = await waitForModelDescriptorByName(modelName);
+      if (!descriptor) {
+        console.warn(
+          `[viewer] telemetry model "${modelName}" not found in project data`
+        );
+        return null;
+      }
+      return descriptor.telemetryBaseUrl;
+    } catch (err) {
+      console.warn(
+        `[viewer] Failed to resolve telemetry model "${modelName}"`,
+        err
+      );
+      return null;
     }
   }
 

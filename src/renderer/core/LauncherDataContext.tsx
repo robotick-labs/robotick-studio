@@ -32,8 +32,8 @@ type LauncherDataValue = {
   refreshProjectMetas: () => Promise<void>;
   refreshProjectModels: () => Promise<void>;
   refreshRcModules: () => Promise<void>;
-  findModelByShortName: (
-    shortName: string
+  findModelByName: (
+    modelName: string
   ) => ProjectModelDescriptor | undefined;
 };
 
@@ -85,6 +85,44 @@ export async function waitForProjectModelsLoaded(): Promise<ProjectModelsState> 
       }
     });
   });
+}
+
+function normalizeModelKey(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase();
+}
+
+function findModelByNameInList(
+  models: ProjectModelDescriptor[],
+  modelName?: string | null
+): ProjectModelDescriptor | undefined {
+  const key = normalizeModelKey(modelName);
+  if (!key) return undefined;
+  return models.find((model) => {
+    const shortKey = normalizeModelKey(model.modelShortName);
+    if (shortKey && shortKey === key) {
+      return true;
+    }
+    const friendlyKey = normalizeModelKey(model.modelName);
+    return Boolean(friendlyKey && friendlyKey === key);
+  });
+}
+
+export function findModelDescriptorInState(
+  state: ProjectModelsState,
+  modelName: string
+): ProjectModelDescriptor | undefined {
+  return findModelByNameInList(state.data, modelName);
+}
+
+export async function waitForModelDescriptorByName(
+  modelName: string
+): Promise<ProjectModelDescriptor | null> {
+  if (!modelName) return null;
+  const state = await waitForProjectModelsLoaded();
+  return findModelByNameInList(state.data, modelName) ?? null;
 }
 
 const PROJECT_METAS_POLL_MS = 5000;
@@ -259,14 +297,6 @@ export function LauncherDataProvider({
     notifyProjectModelsListeners(projectModels);
   }, [projectModels]);
 
-  const modelByShortName = useMemo(() => {
-    const map = new Map<string, ProjectModelDescriptor>();
-    for (const model of projectModels.data) {
-      map.set(model.modelShortName, model);
-    }
-    return map;
-  }, [projectModels.data]);
-
   const value = useMemo<LauncherDataValue>(
     () => ({
       projectMetas,
@@ -275,11 +305,11 @@ export function LauncherDataProvider({
       refreshProjectMetas,
       refreshProjectModels,
       refreshRcModules,
-      findModelByShortName: (shortName: string) =>
-        modelByShortName.get(shortName),
+      findModelByName: (name: string) =>
+        findModelByNameInList(projectModels.data, name),
     }),
     [
-      modelByShortName,
+      projectModels.data,
       projectMetas,
       projectModels,
       rcModules,
