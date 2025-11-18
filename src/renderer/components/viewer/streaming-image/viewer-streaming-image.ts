@@ -16,7 +16,7 @@ interface StreamingImageViewerConfig extends ViewerConfig {
   telemetryModelName?: string;
   sourceField?: string;
   telemetryBaseUrl?: string;
-  telemetryIntervalMs?: number;
+  telemetryPollingRateHz?: number;
 }
 
 const BLACK_PIXEL =
@@ -59,11 +59,11 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     return;
   }
 
-  const interval = streamingConfig.telemetryIntervalMs ?? 100;
+  const pollingRateHz = streamingConfig.telemetryPollingRateHz ?? 20;
   console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${interval}ms`
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${pollingRateHz}Hz`
   );
-  telemetryDispose = subscribeTelemetry(telemetryBase, interval, {
+  telemetryDispose = subscribeTelemetry(telemetryBase, pollingRateHz, {
     callback: (model) => handleTelemetryFrame(model, fieldPath),
     error: (err) => {
       console.warn(

@@ -3,7 +3,7 @@ import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry";
 import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
 
-const SUBTITLES_POLL_INTERVAL_MS = 200; // every 0.2 seconds
+const SUBTITLES_POLL_RATE_HZ = 5; // poll 5x per second (every 200ms)
 
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
@@ -50,7 +50,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 
   const { model } = useTelemetryStream(
     telemetryBaseUrl ?? "",
-    SUBTITLES_POLL_INTERVAL_MS
+    SUBTITLES_POLL_RATE_HZ
   );
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);

@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { EngineModel } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
-import {
-  useTelemetryStream,
-  ITelemetryModel,
-} from "../../../core/telemetry";
+import { useTelemetryStream, ITelemetryModel } from "../../../core/telemetry";
 import styles from "../Telemetry.module.css";
 
 export function urlToId(url: string) {
@@ -50,7 +47,7 @@ export function TelemetryModel({
 
   const { model: telemetryModel, error } = useTelemetryStream(
     isExpanded ? model.instanceURL : "",
-    100
+    20
   );
   const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
 

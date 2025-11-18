@@ -7,7 +7,7 @@ import { subscribeTelemetry } from "./telemetry-store";
  * errors) for a given base URL. This is the primary entry point that UI code
  * should consume, re-exported via `core/telemetry`.
  */
-export function useTelemetryStream(baseUrl: string, intervalMs = 200) {
+export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
   const [model, setModel] = useState<ITelemetryModel | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -17,7 +17,7 @@ export function useTelemetryStream(baseUrl: string, intervalMs = 200) {
       return;
     }
 
-    const unsubscribe = subscribeTelemetry(baseUrl, intervalMs, {
+    const unsubscribe = subscribeTelemetry(baseUrl, pollingRateHz, {
       callback: (next) => {
         setModel(next);
         setError(null);
@@ -26,7 +26,7 @@ export function useTelemetryStream(baseUrl: string, intervalMs = 200) {
     });
 
     return () => unsubscribe();
-  }, [baseUrl, intervalMs]);
+  }, [baseUrl, pollingRateHz]);
 
   return { model, error };
 }

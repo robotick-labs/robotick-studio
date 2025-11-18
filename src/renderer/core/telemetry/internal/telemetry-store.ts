@@ -62,13 +62,15 @@ function enqueueFetch<T>(task: () => Promise<T>): Promise<T> {
 
 export function subscribeTelemetry(
   baseUrl: string,
-  intervalMs: number,
+  pollingRateHz = 20,
   subscriber: SubscriberCallbacks
 ): () => void {
   const entry = getOrCreateEntry(baseUrl);
+  const safeRate = Math.max(1, pollingRateHz);
+  const intervalMs = Math.max(1, Math.floor(1000 / safeRate));
   const subscriberEntry: SubscriberEntry = {
     ...subscriber,
-    intervalMs: Math.max(1, Math.floor(intervalMs)),
+    intervalMs,
     lastNotified: 0,
   };
   entry.subscribers.add(subscriberEntry);

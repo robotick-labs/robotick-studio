@@ -99,7 +99,7 @@ export interface RestPoller {
   headers?: Record<string, string>;
   bodyJson?: Record<string, unknown>; // for POST
   responseType?: ResponseType; // default "json"
-  intervalMs: number;
+  pollingRateHz?: number; // default 20Hz
   // Map response to scene changes:
   fields?: PollFieldMap[];
   defaultSpace?: "local" | "world";

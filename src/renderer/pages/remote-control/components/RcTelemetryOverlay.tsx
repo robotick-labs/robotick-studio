@@ -48,7 +48,7 @@ export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
     telemetryBaseUrl,
   ]);
 
-  const { model, error } = useTelemetryStream(telemetryBaseUrl ?? "", 100);
+  const { model, error } = useTelemetryStream(telemetryBaseUrl ?? "", 20); // 20 Hz default for RC telemetry
 
   const data = useMemo(() => {
     if (!telemetryBaseUrl || !model) return null;

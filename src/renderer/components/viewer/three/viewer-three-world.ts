@@ -67,6 +67,15 @@ export class ViewerWorld {
 
   // telemetry
   private telemetrySubscriptions = new Map<string, () => void>();
+  private telemetryStats = new Map<
+    string,
+    {
+      lastTimestamp: number | null;
+      count: number;
+      sum: number;
+      sumSq: number;
+    }
+  >();
 
   // render loop
   private animReq: number | null = null;
@@ -477,6 +486,7 @@ export class ViewerWorld {
   private async installPollers() {
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
+    this.telemetryStats.clear();
     if (!this.worldConfig.telemetryAnimators) return;
 
     for (const config of this.worldConfig.telemetryAnimators) {
@@ -488,8 +498,10 @@ export class ViewerWorld {
         continue;
       }
 
-      const unsubscribe = subscribeTelemetry(baseUrl, config.intervalMs, {
+      const pollingRate = config.pollingRateHz ?? 20;
+      const unsubscribe = subscribeTelemetry(baseUrl, pollingRate, {
         callback: (model) => {
+          this.logTelemetryStats(config.id);
           void this.executePoller(config, model);
         },
         error: (err) =>
@@ -497,6 +509,39 @@ export class ViewerWorld {
       });
       this.telemetrySubscriptions.set(config.id, unsubscribe);
     }
+  }
+
+  private logTelemetryStats(pollerId: string) {
+    const now = Date.now();
+    let stats = this.telemetryStats.get(pollerId);
+    if (!stats) {
+      stats = { lastTimestamp: now, count: 0, sum: 0, sumSq: 0 };
+      this.telemetryStats.set(pollerId, stats);
+      return;
+    }
+
+    if (stats.lastTimestamp !== null) {
+      const interval = now - stats.lastTimestamp;
+      stats.count += 1;
+      stats.sum += interval;
+      stats.sumSq += interval * interval;
+
+      if (stats.count % 50 === 0) {
+        const mean = stats.sum / stats.count;
+        const variance = Math.max(
+          0,
+          stats.sumSq / stats.count - mean * mean
+        );
+        const stddev = Math.sqrt(variance);
+        console.log(
+          `[viewer] telemetry ${pollerId}: avg ${mean.toFixed(
+            1
+          )}ms, jitter ${stddev.toFixed(1)}ms (samples ${stats.count})`
+        );
+      }
+    }
+
+    stats.lastTimestamp = now;
   }
 
   private async resolvePollerBaseUrl(
