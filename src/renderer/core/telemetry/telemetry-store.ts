@@ -1,7 +1,9 @@
 import {
   createTelemetryModel,
-  LayoutModel,
   ITelemetryModel,
+  LayoutModel,
+  fetchLayout,
+  fetchRaw,
 } from "./telemetry-client";
 
 type Subscriber = {
@@ -95,42 +97,4 @@ function stopPolling(entry: StoreEntry) {
     clearInterval(entry.pollingTimer);
   }
   entry.pollingTimer = null;
-}
-
-async function fetchLayout(baseUrl: string): Promise<LayoutModel | null> {
-  try {
-    const response = await fetch(
-      `${baseUrl}/api/telemetry/workloads_buffer/layout`,
-      {
-        cache: "no-store",
-      }
-    );
-    if (!response.ok) return null;
-    return (await response.json()) as LayoutModel;
-  } catch (err) {
-    console.warn("[telemetry-store] fetchLayout failed", err);
-    return null;
-  }
-}
-
-async function fetchRaw(
-  baseUrl: string
-): Promise<{ raw: ArrayBuffer; sid: string }> {
-  try {
-    const response = await fetch(
-      `${baseUrl}/api/telemetry/workloads_buffer/raw`,
-      {
-        cache: "no-store",
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`telemetry raw request failed: ${response.status}`);
-    }
-    const raw = await response.arrayBuffer();
-    const sid = response.headers.get("x-robotick-session-id") || "";
-    return { raw, sid };
-  } catch (err) {
-    console.warn("[telemetry-store] fetchRaw failed", err);
-    throw err instanceof Error ? err : new Error(String(err));
-  }
 }
