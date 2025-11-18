@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
-import {
-  fetchProjectMetas,
-  ProjectMeta,
-} from "../../core/projects-api";
+import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import styles from "./ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
 
@@ -62,7 +60,7 @@ export function ProjectPicker() {
 
   return (
     <select
-      className="project-combo"
+      className={styles.select}
       aria-label="Select project"
       value={selectValue}
       onChange={(event) => handleChange(event.target.value)}

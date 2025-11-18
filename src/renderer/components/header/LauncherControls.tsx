@@ -1,6 +1,7 @@
 import React from "react";
 import { useLauncherContext } from "../../core/launcher-context";
 import { LauncherDots } from "./LauncherDots";
+import styles from "./LauncherControls.module.css";
 
 export function LauncherControls() {
   const { status, isBusy, isAwaitingStatus, lastError, run, stop, restart } =
@@ -25,33 +26,37 @@ export function LauncherControls() {
   }
 
   return (
-    <div className="launcher-control-group">
+    <div className={styles.controlGroup}>
       <button
         type="button"
-        className="launcher-control"
+        className={styles.control}
         aria-label={isActive ? "Stop launcher" : "Start launcher"}
         onClick={handleToggle}
         disabled={controlsDisabled}
       >
-        <span className={isActive ? "icon-stop" : "icon-play"}>
+        <span
+          className={`${styles.icon} ${
+            isActive ? styles.iconStop : styles.iconPlay
+          }`}
+        >
           {isActive ? "⏹" : "▶"}
         </span>
       </button>
 
       <button
         type="button"
-        className="launcher-control"
+        className={styles.control}
         aria-label="Restart launcher"
         onClick={handleRestart}
         disabled={!canRestart || controlsDisabled}
       >
-        <span className="icon-restart">↻</span>
+        <span className={`${styles.icon} ${styles.iconRestart}`}>↻</span>
       </button>
 
       <LauncherDots status={status} />
 
       {lastError ? (
-        <span className="launcher-error" role="alert">
+        <span className={styles.error} role="alert">
           {lastError}
         </span>
       ) : null}

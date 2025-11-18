@@ -1,0 +1,84 @@
+.help-page {
+  max-width: 1100px;
+  margin: 2.5rem auto;
+  padding: 2.5rem 2rem 3rem;
+  color: #e4ecff;
+  line-height: 1.6;
+}
+
+.help-hero {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.help-hero .eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  font-size: 0.75rem;
+  color: #7dd3fc;
+  margin-bottom: 0.3rem;
+}
+
+.help-hero h1 {
+  margin-bottom: 0.5rem;
+}
+
+.help-cards {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-bottom: 2.5rem;
+}
+
+.help-card {
+  background: rgba(14, 23, 38, 0.75);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 18px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+
+.help-card h3 {
+  margin-bottom: 0.75rem;
+}
+
+.help-card a {
+  color: #7dd3fc;
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.link-row a {
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+}
+
+.help-section {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  background: rgba(14, 23, 38, 0.6);
+  border: 1px solid rgba(125, 211, 252, 0.15);
+  border-radius: 20px;
+  padding: 2rem;
+}
+
+.help-section ul {
+  padding-left: 1.25rem;
+}
+
+.help-section li {
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .help-page {
+    padding: 2rem 1.25rem;
+  }
+}

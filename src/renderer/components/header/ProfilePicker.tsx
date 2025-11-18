@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
 import { fetchProjectModels } from "../../core/projects-api";
+import styles from "./ProfilePicker.module.css";
 
 type ProfileOption = {
   value: string;
@@ -104,7 +105,7 @@ export function ProfilePicker() {
 
   return (
     <select
-      className="launcher-combo"
+      className={styles.select}
       aria-label="Select launcher profile"
       value={launcherProfile || ""}
       onChange={(event) => handleChange(event.target.value)}

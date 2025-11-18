@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
 import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
+import styles from "./HomePage.module.css";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -42,10 +43,9 @@ export default function HomePage() {
   }
 
   return (
-    <div className="hub-home">
-      {/* Welcome Section */}
-      <section className="welcome-section">
-        <h1>Welcome to Robotick Hub</h1>
+    <div className={styles.home}>
+      <section>
+        <h1 className={styles.welcomeSectionTitle}>Welcome to Robotick Hub</h1>
         <p>
           Your creative control center for real-time robotics!
           <br />
@@ -54,9 +54,8 @@ export default function HomePage() {
         </p>
       </section>
 
-      {/* Overview Video */}
-      <section className="video-section">
-        <div className="video-wrapper">
+      <section>
+        <div className={styles.videoWrapper}>
           <iframe
             width="800"
             height="450"
@@ -69,16 +68,15 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Project Cards */}
-      <section className="projects-section">
-        <h2>Select a Project</h2>
+      <section>
+        <h2 className={styles.projectsSectionTitle}>Select a Project</h2>
         <p>
           TODO - add simple info on how to run the Launcher and create your
           first project.
         </p>
         <p>pip install robotick-launcher && robotick-launcher listen</p>
 
-        <div className="project-list">
+        <div className={styles.projectList}>
           {projects.length === 0 && (
             <p style={{ color: "red" }}>
               {error
@@ -90,17 +88,25 @@ export default function HomePage() {
           {projects.map((p) => (
             <div
               key={p.path}
-              className={`project-card ${
-                selectedPath === p.path ? "selected" : ""
-              }`}
+              className={`${styles.projectCard} ${
+                selectedPath === p.path ? styles.selected : ""
+              }`.trim()}
               data-project={p.path}
               onClick={() => selectProject(p.path)}
             >
-              <div className="project-content">
+              <div>
                 <h3>{p.name || "(Unnamed Project)"}</h3>
                 <p>{p.description || "No description provided."}</p>
               </div>
-              <div className="selected-indicator">✓</div>
+              <div
+                className={`${styles.selectedIndicator} ${
+                  selectedPath === p.path
+                    ? styles.selectedIndicatorVisible
+                    : ""
+                }`.trim()}
+              >
+                ✓
+              </div>
             </div>
           ))}
         </div>

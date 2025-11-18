@@ -1,0 +1,12 @@
+.select {
+  min-width: 180px;
+  font-size: 18px;
+  padding: 4px 4px;
+  color: white;
+  background: #2b2b42;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  text-align: center;
+  text-align-last: center;
+  appearance: none;
+}

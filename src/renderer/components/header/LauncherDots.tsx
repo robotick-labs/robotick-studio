@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { LauncherStatus } from "../../core/launcher-context";
+import styles from "./LauncherControls.module.css";
 
 type LauncherDotsProps = {
   status: LauncherStatus;
@@ -23,18 +24,20 @@ export function LauncherDots({ status }: LauncherDotsProps) {
   }, [status]);
 
   return (
-    <span className="launcher-control-dots" aria-hidden>
-      <span className="launcher-dots">
+    <span className={styles.controlDots} aria-hidden>
+      <span className={styles.dots}>
         {[0, 1, 2].map((index) => {
-          let className = "dot";
+          const dotClasses = [styles.dot];
 
           if (status === "starting" && index === activeIndex) {
-            className += " active";
+            dotClasses.push(styles.dotActive);
           } else if (status === "running") {
-            className += index === 1 ? " heartbeat-on" : " heartbeat-off";
+            dotClasses.push(
+              index === 1 ? styles.dotHeartbeatOn : styles.dotHeartbeatOff
+            );
           }
 
-          return <span key={index} className={className}></span>;
+          return <span key={index} className={dotClasses.join(" ")}></span>;
         })}
       </span>
     </span>

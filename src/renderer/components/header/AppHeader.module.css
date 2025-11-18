@@ -1,0 +1,95 @@
+.header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  position: relative;
+  padding: 1rem 2rem;
+  background: #070a12;
+  color: white;
+  border-bottom: 1px solid #444;
+  gap: 1rem;
+}
+
+.logo {
+  width: 150px;
+  height: auto;
+  border-radius: 5px;
+  box-shadow: 0 0 8px #0c93e1;
+  z-index: 1;
+}
+
+.nav {
+  grid-column: 2;
+  justify-self: center;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  min-width: max-content;
+  overflow: visible;
+  z-index: 2;
+}
+
+.navMenuDev,
+.navMenuTest {
+  display: flex;
+  gap: 0.5rem;
+  border-radius: 12px;
+  padding: 4px 6px;
+  align-items: center;
+}
+
+.navMenuDev {
+  padding: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.navMenuTest {
+  padding: 0;
+  border: 2px solid rgba(150, 255, 150, 0.4);
+}
+
+.navSubmenuControl {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(150, 255, 150, 0.4);
+}
+
+.navSubmenuPages {
+  display: flex;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 10px;
+}
+
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: #eee;
+  text-decoration: none;
+  background: #2b2b42;
+  padding: 6px 10px;
+  border-radius: 10px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.navLink:hover,
+.navLink:focus {
+  background: #343450;
+  color: #fff;
+}
+
+.navLinkActive {
+  background: rgba(150, 255, 150, 0.3);
+  color: white;
+}
+
+.headerRight {
+  grid-column: 3;
+  justify-self: end;
+}
