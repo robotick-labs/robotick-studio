@@ -1,4 +1,5 @@
-import { REMOTE_CONTROL_BASE } from "../../../core/config";
+import { useEffect, useRef } from "react";
+import { REMOTE_CONTROL_BASE } from "../../../../core/config";
 
 type StickTopic = "left_stick" | "right_stick";
 type StickName = "left" | "right";
@@ -14,13 +15,6 @@ interface StickController {
   movePointer: (globalX: number, globalY: number) => void;
   resetKnob: () => void;
   movePointerToCenter: () => void;
-}
-
-export interface RemoteControlOptions {
-  leftArea: HTMLDivElement;
-  leftKnob: HTMLDivElement;
-  rightArea: HTMLDivElement;
-  rightKnob: HTMLDivElement;
 }
 
 const remoteControlServer = REMOTE_CONTROL_BASE;
@@ -50,11 +44,19 @@ type JoystickState = {
   dpad_right: boolean;
 };
 
+type UseRemoteControlClientOptions = {
+  leftArea: HTMLDivElement | null;
+  leftKnob: HTMLDivElement | null;
+  rightArea: HTMLDivElement | null;
+  rightKnob: HTMLDivElement | null;
+  useWebInputs: boolean;
+};
+
 function cloneState(state: JoystickState): JoystickState {
   return JSON.parse(JSON.stringify(state));
 }
 
-export class RemoteControlClient {
+class RemoteControlClient {
   private leftStick: StickController;
   private rightStick: StickController;
   private joystickState: JoystickState;
@@ -71,7 +73,12 @@ export class RemoteControlClient {
   private lastSentState: JoystickState;
   private cleanup: Array<() => void> = [];
 
-  constructor(options: RemoteControlOptions) {
+  constructor(options: {
+    leftArea: HTMLDivElement;
+    leftKnob: HTMLDivElement;
+    rightArea: HTMLDivElement;
+    rightKnob: HTMLDivElement;
+  }) {
     this.joystickState = {
       use_web_inputs: true,
       left: { x: 0.0, y: 0.0 },
@@ -229,12 +236,10 @@ export class RemoteControlClient {
         mouseActive = "left";
         mouseStartX = e.clientX;
         mouseStartY = e.clientY;
-        this.leftStick.movePointerToCenter();
       } else if (this.rightStick.area.contains(e.target as Node)) {
         mouseActive = "right";
         mouseStartX = e.clientX;
         mouseStartY = e.clientY;
-        this.rightStick.movePointerToCenter();
       }
     };
 
@@ -405,201 +410,176 @@ export class RemoteControlClient {
     this.rafId = requestAnimationFrame(loop);
   }
 
-  private updateTrigger(
-    key: "left_trigger" | "right_trigger",
-    value: number
-  ) {
-    if (Math.abs(this.joystickState[key] - value) > 0.001) {
-      this.joystickState[key] = value;
+  private sendJoystickInput(topic: StickTopic, x: number, y: number) {
+    const clampedX = Math.max(-1, Math.min(1, x));
+    const clampedY = Math.max(-1, Math.min(1, y));
+
+    if (topic === "left_stick") {
+      this.joystickState.left = { x: clampedX, y: clampedY };
+    } else {
+      this.joystickState.right = { x: clampedX, y: clampedY };
+    }
+
+    this.dirtyKeys.add(topic === "left_stick" ? "left" : "right");
+  }
+
+  private updateTrigger(key: keyof JoystickState, value: number) {
+    const clamped = Math.max(0, Math.min(1, value));
+    if (this.joystickState[key] !== clamped) {
+      // @ts-ignore
+      this.joystickState[key] = clamped;
       this.dirtyKeys.add(key);
     }
   }
 
-  private startTickLoop() {
-    if (this.ticking) return;
-    this.ticking = true;
+  private moveStickVisual(stick: StickController, x: number, y: number) {
+    const radius = stick.area.clientWidth / 2;
+    stick.knob.style.transform = `translate(-50%, -50%) translate(${
+      x * radius
+    }px, ${-y * radius}px)`;
+  }
 
-    const tick = () => {
-      if (this.disposed) return;
-      if (this.dirtyKeys.size === 0) {
-        this.ticking = false;
-        this.tickTimeout = null;
-        return;
-      }
-
-      const payload: Record<string, unknown> = {
-        use_web_inputs: this.joystickState.use_web_inputs,
-      };
-
-      const joystickRecord = this.joystickState as Record<string, any>;
-      const lastRecord = this.lastSentState as Record<string, any>;
-      const payloadRecord = payload as Record<string, any>;
-
-      for (const key of Array.from(this.dirtyKeys)) {
-        const current = joystickRecord[key as string];
-        const last = lastRecord[key as string];
-
-        if (
-          typeof current === "object" &&
-          current !== null &&
-          typeof (current as Vector2).x === "number"
-        ) {
-          const currentVec = current as Vector2;
-          const lastVec = last as Vector2;
-          if (
-            Math.abs(currentVec.x - lastVec.x) > 0.001 ||
-            Math.abs(currentVec.y - lastVec.y) > 0.001
-          ) {
-            payloadRecord[key as string] = {
-              x: currentVec.x,
-              y: currentVec.y,
-            };
-            lastVec.x = currentVec.x;
-            lastVec.y = currentVec.y;
-          }
-        } else if (typeof current === "number") {
-          if (Math.abs((current as number) - (last as number)) > 0.001) {
-            payloadRecord[key as string] = current;
-            lastRecord[key as string] = current;
-          }
-        } else if (typeof current === "boolean") {
-          if (current !== last) {
-            payloadRecord[key as string] = current;
-            lastRecord[key as string] = current;
-          }
-        } else {
-          payloadRecord[key as string] = current;
-          lastRecord[key as string] = current;
-        }
-      }
-
-      this.dirtyKeys.clear();
-
-      fetch(`${remoteControlServer}/api/joystick_input`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch((err) => console.error("POST error:", err));
-
-      this.tickTimeout = window.setTimeout(tick, 33);
-    };
-
-    tick();
+  private moveStickState(stick: StickController, x: number, y: number) {
+    const rect = stick.area.getBoundingClientRect();
+    const centerX = rect.left + stick.area.clientWidth / 2;
+    const centerY = rect.top + stick.area.clientHeight / 2;
+    stick.movePointer(centerX + x, centerY + y);
   }
 
   private createStick(
     area: HTMLDivElement,
     knob: HTMLDivElement,
     topic: StickTopic,
-    autoCenterX: boolean,
-    autoCenterY: boolean
+    clampCircular: boolean,
+    updateLocalState: boolean
   ): StickController {
-    const setKnob = (x: number, y: number) => {
-      knob.style.left = `${x}px`;
-      knob.style.top = `${y}px`;
-    };
-
+    const radius = area.clientWidth / 2;
     const movePointer = (globalX: number, globalY: number) => {
       const rect = area.getBoundingClientRect();
-      const originX = rect.width / 2;
-      const originY = rect.height / 2;
-      let dx = globalX - rect.left - originX;
-      let dy = globalY - rect.top - originY;
+      const dx = globalX - (rect.left + radius);
+      const dy = globalY - (rect.top + radius);
+      let normX = dx / radius;
+      let normY = -(dy / radius);
 
-      const maxRangeX = rect.width / 2 - knob.offsetWidth / 2;
-      const maxRangeY = rect.height / 2 - knob.offsetHeight / 2;
-      dx = Math.max(-maxRangeX, Math.min(maxRangeX, dx));
-      dy = Math.max(-maxRangeY, Math.min(maxRangeY, dy));
+      if (clampCircular) {
+        const length = Math.hypot(normX, normY);
+        if (length > 1) {
+          normX /= length;
+          normY /= length;
+        }
+      } else {
+        normX = Math.max(-1, Math.min(1, normX));
+        normY = Math.max(-1, Math.min(1, normY));
+      }
 
-      setKnob(originX + dx, originY + dy);
+      knob.style.transform = `translate(-50%, -50%) translate(${
+        normX * radius
+      }px, ${-normY * radius}px)`;
 
-      const normX = dx / maxRangeX;
-      const normY = -dy / maxRangeY;
       this.sendJoystickInput(topic, normX, normY);
+      if (!this.ticking) this.startTickLoop();
+
+      if (updateLocalState) {
+        const local = this.localState[topic === "left_stick" ? "left" : "right"];
+        local.x = normX;
+        local.y = normY;
+      }
     };
 
     const resetKnob = () => {
-      const rect = area.getBoundingClientRect();
-      const originX = rect.width / 2;
-      const originY = rect.height / 2;
-      const x = autoCenterX ? originX : knob.offsetLeft;
-      const y = autoCenterY ? originY : knob.offsetTop;
-
-      setKnob(x, y);
-
-      const normX = autoCenterX
-        ? 0
-        : (x - originX) / (rect.width / 2 - knob.offsetWidth / 2);
-      const normY = autoCenterY
-        ? 0
-        : -(y - originY) / (rect.height / 2 - knob.offsetHeight / 2);
-      this.sendJoystickInput(topic, normX, normY);
+      knob.style.transform = `translate(-50%, -50%)`;
+      this.sendJoystickInput(topic, 0, 0);
+      if (!this.ticking) this.startTickLoop();
+      if (updateLocalState) {
+        const local = this.localState[topic === "left_stick" ? "left" : "right"];
+        local.x = 0;
+        local.y = 0;
+      }
     };
 
     const movePointerToCenter = () => {
-      const rect = area.getBoundingClientRect();
-      movePointer(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      this.moveStickVisual(stick, 0, 0);
+      this.sendJoystickInput(topic, 0, 0);
     };
 
     return { area, knob, movePointer, resetKnob, movePointerToCenter };
   }
 
-  private moveStickVisual(stick: StickController, normX: number, normY: number) {
-    const rect = stick.area.getBoundingClientRect();
-    const originX = rect.width / 2;
-    const originY = rect.height / 2;
-    const maxRangeX = rect.width / 2 - stick.knob.offsetWidth / 2;
-    const maxRangeY = rect.height / 2 - stick.knob.offsetHeight / 2;
-
-    const dx = normX * maxRangeX;
-    const dy = -normY * maxRangeY;
-
-    stick.knob.style.left = `${originX + dx}px`;
-    stick.knob.style.top = `${originY + dy}px`;
-  }
-
-  private applyDeadZone(value: number, threshold: number) {
-    if (Math.abs(value) < threshold) return 0.0;
-    const sign = value > 0 ? 1 : -1;
-    return ((Math.abs(value) - threshold) / (1.0 - threshold)) * sign;
-  }
-
   private expandCircularToSquare(x: number, y: number) {
-    const x2 = x * x;
-    const y2 = y * y;
-    return {
-      x: x / Math.sqrt(1 - y2 / 2),
-      y: y / Math.sqrt(1 - x2 / 2),
-    };
+    const newX = x * Math.sqrt(1 - (y * y) / 2);
+    const newY = y * Math.sqrt(1 - (x * x) / 2);
+    return { x: newX, y: newY };
   }
 
-  private sendJoystickInput(topic: StickTopic, normX: number, normY: number) {
-    const mapping: Record<StickTopic, StickName> = {
-      left_stick: "left",
-      right_stick: "right",
+  private applyDeadZone(value: number, deadZone: number) {
+    if (Math.abs(value) < deadZone) return 0;
+    return ((value - Math.sign(value) * deadZone) / (1 - deadZone)) * 1;
+  }
+
+  private startTickLoop() {
+    this.ticking = true;
+    const tick = () => {
+      if (!this.ticking) return;
+      this.sendDirtyKeys();
+      this.tickTimeout = window.setTimeout(tick, 50);
     };
+    tick();
+  }
 
-    const key = mapping[topic];
-    const dz =
-      this.joystickState[key === "left" ? "dead_zone_left" : "dead_zone_right"];
-    const filteredX = this.applyDeadZone(normX, dz.x);
-    const filteredY = this.applyDeadZone(normY, dz.y);
+  private sendDirtyKeys() {
+    if (this.dirtyKeys.size === 0) return;
+    const nextState = cloneState(this.joystickState);
+    this.lastSentState = nextState;
+    this.dirtyKeys.clear();
 
-    this.localState[key].x = filteredX;
-    this.localState[key].y = filteredY;
-
-    this.joystickState[key].x = filteredX;
-    this.joystickState[key].y = filteredY;
-    this.dirtyKeys.add(key);
-
-    if (!this.ticking) this.startTickLoop();
+    fetch(`${remoteControlServer}/api/rc_state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextState),
+    }).catch((err) => console.warn("Failed to send joystick state", err));
   }
 
   private sendFullState() {
-    fetch(`${remoteControlServer}/api/joystick_input`, {
+    const nextState = cloneState(this.joystickState);
+    this.lastSentState = nextState;
+    fetch(`${remoteControlServer}/api/rc_state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(this.joystickState),
-    }).catch((err) => console.error("POST error:", err));
+      body: JSON.stringify(nextState),
+    }).catch((err) => console.warn("Failed to send joystick state", err));
   }
+}
+
+export function useRemoteControlClient({
+  leftArea,
+  leftKnob,
+  rightArea,
+  rightKnob,
+  useWebInputs,
+}: UseRemoteControlClientOptions) {
+  const clientRef = useRef<RemoteControlClient | null>(null);
+
+  useEffect(() => {
+    if (!leftArea || !leftKnob || !rightArea || !rightKnob) return;
+
+    const client = new RemoteControlClient({
+      leftArea,
+      leftKnob,
+      rightArea,
+      rightKnob,
+    });
+    client.setUseWebInputs(useWebInputs);
+    clientRef.current = client;
+
+    return () => {
+      client.dispose();
+      clientRef.current = null;
+    };
+  }, [leftArea, leftKnob, rightArea, rightKnob]);
+
+  useEffect(() => {
+    if (clientRef.current) {
+      clientRef.current.setUseWebInputs(useWebInputs);
+    }
+  }, [useWebInputs]);
 }

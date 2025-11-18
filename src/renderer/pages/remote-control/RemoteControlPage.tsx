@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
-import RemoteControlsPanel from "./components/RemoteControlsPanel";
+import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
 import { useProjectContext } from "../../core/ProjectContext";
 import { HUB_API_BASE } from "../../core/config";
 import { buildUrl, fetchJSON } from "../../core/http";
@@ -34,7 +34,10 @@ export default function RemoteControlPage() {
 
     async function loadSettings() {
       try {
-        const config = await fetchRCSettings(projectPath, abortController.signal);
+        const config = await fetchRCSettings(
+          projectPath,
+          abortController.signal
+        );
         if (!abortController.signal.aborted) {
           setModules(normalizeModules(config));
           setError(null);
@@ -85,6 +88,10 @@ export default function RemoteControlPage() {
     () => modules.find((mod) => mod.type === "overlay/telemetry"),
     [modules]
   );
+  const controlsModule = useMemo(
+    () => modules.find((mod) => mod.type === "overlay/remote-controls"),
+    [modules]
+  );
 
   if (!projectPath) {
     return (
@@ -97,7 +104,9 @@ export default function RemoteControlPage() {
   return (
     <div id="rc-ui" className={styles.rcUi}>
       <div id="viewer-container" className={styles.viewerContainer} />
-      <RemoteControlsPanel />
+      {controlsModule ? (
+        <RemoteControlsPanel config={controlsModule.config} />
+      ) : null}
       {subtitlesModule ? (
         <RcSubtitlesOverlay config={subtitlesModule.config} />
       ) : null}
@@ -105,7 +114,9 @@ export default function RemoteControlPage() {
         <RcTelemetryOverlay config={telemetryModule.config} />
       ) : null}
       {error ? (
-        <div style={{ position: "absolute", top: 16, left: 16, color: "#ff6b6b" }}>
+        <div
+          style={{ position: "absolute", top: 16, left: 16, color: "#ff6b6b" }}
+        >
           Failed to load RC modules: {error}
         </div>
       ) : null}
@@ -113,7 +124,9 @@ export default function RemoteControlPage() {
   );
 }
 
-function normalizeModules(settings: RcSettingsResponse | null): RcModuleDescriptor[] {
+function normalizeModules(
+  settings: RcSettingsResponse | null
+): RcModuleDescriptor[] {
   if (!settings) return [];
   const modules: RcModuleDescriptor[] = [];
 
