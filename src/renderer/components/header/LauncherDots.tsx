@@ -2,13 +2,15 @@ import React, { useEffect, useState } from "react";
 import { LauncherStatus } from "../../core/launcher/LauncherContext";
 import styles from "./styles/LauncherControls.module.css";
 
-type LauncherDotsProps = {
+export function LauncherDots({
+  status,
+  robotAlive,
+}: {
   status: LauncherStatus;
   robotAlive: boolean;
-};
-
-export function LauncherDots({ status, robotAlive }: LauncherDotsProps) {
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [runningSince, setRunningSince] = useState<number | null>(null);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -24,7 +26,21 @@ export function LauncherDots({ status, robotAlive }: LauncherDotsProps) {
     };
   }, [status]);
 
-  if (status === "running" && !robotAlive) {
+  useEffect(() => {
+    if (status === "running") {
+      setRunningSince((prev) => prev ?? Date.now());
+    } else {
+      setRunningSince(null);
+    }
+  }, [status]);
+
+  const showFlatline =
+    status === "running" &&
+    !robotAlive &&
+    runningSince !== null &&
+    Date.now() - runningSince >= 5000;
+
+  if (showFlatline) {
     return (
       <span className={styles.controlDots} aria-hidden>
         <span className={styles.flatline} />

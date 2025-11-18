@@ -60,6 +60,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const lastStatusRef = useRef<LauncherStatus>("stopped");
   const skipNextRobotCheckRef = useRef(false);
   const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
+  const lastRunningAtRef = useRef<number | null>(null);
 
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
@@ -91,11 +92,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
               setRobotAliveLoading(true);
               setRobotAliveError(null);
               skipNextRobotCheckRef.current = true;
+              lastRunningAtRef.current = Date.now();
             }
             if (skipNextRobotCheckRef.current) {
               skipNextRobotCheckRef.current = false;
             }
-            if (!robotCheckPromiseRef.current) {
+            if (
+              !robotCheckPromiseRef.current &&
+              typeof lastRunningAtRef.current === "number" &&
+              Date.now() - lastRunningAtRef.current >= 5000
+            ) {
               setRobotAliveLoading(true);
               robotCheckPromiseRef.current = checkRobotAlive()
                 .then((alive) => {
