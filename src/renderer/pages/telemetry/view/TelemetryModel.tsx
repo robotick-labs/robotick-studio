@@ -3,6 +3,7 @@ import { EngineModel } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
 import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
 import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
+import styles from "../Telemetry.module.css";
 
 export function urlToId(url: string) {
   return url.replace(/[:/.]/g, "_");
@@ -65,10 +66,10 @@ export function TelemetryModel({
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
-    <div className="telemetry-model" onClick={handleToggle}>
+    <div className={styles.model} onClick={handleToggle}>
       <h3 style={{ margin: 0 }}>{model.modelName}</h3>
 
-      <div className="telemetry-model-label" style={{ marginBottom: "4px" }}>
+      <div className={styles.modelLabel} style={{ marginBottom: "4px" }}>
         {model.modelPath} | {model.instanceURL}
         {isExpanded && (
           <>
@@ -89,7 +90,7 @@ export function TelemetryModel({
           ) : null}
           <table
             id={`table-${urlToId(model.instanceURL)}`}
-            className="telemetry"
+            className={styles.table}
           >
             <thead>
               <tr>

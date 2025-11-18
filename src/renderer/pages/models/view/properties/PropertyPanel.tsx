@@ -1,6 +1,7 @@
 import React from "react";
 import { DocumentStore } from "../../document/documentStore";
 import { useSelection } from "../../document/editorSelectionStore";
+import styles from "../../styles/ModelsPage.module.css";
 
 type PropertyPanelProps = { store: DocumentStore };
 
@@ -68,7 +69,7 @@ type PropertySectionProps = {
 
 const PropertySection: React.FC<PropertySectionProps> = ({ title, fields }) => {
   return (
-    <div className="prop-section">
+    <div className={styles.propSection}>
       <h4>{title}</h4>
       {Object.entries(fields).map(([key, val]) => (
         <label key={key}>

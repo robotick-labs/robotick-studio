@@ -1,6 +1,8 @@
 // TelemetryWorkload.tsx
 import React from "react";
 import { TelemetryStructFields } from "./TelemetryStructFields";
+import styles from "../Telemetry.module.css";
+import type { ITelemetryWorkload } from "../../../core/telemetry/telemetry-client";
 
 function getStat(w: ITelemetryWorkload, fieldName: string) {
   const s = w.stats;
@@ -10,9 +12,9 @@ function getStat(w: ITelemetryWorkload, fieldName: string) {
 }
 
 function usageClass(usagePercent: number): string {
-  if (usagePercent < 102) return "usage-blue";
-  if (usagePercent < 110) return "usage-yellow";
-  return "usage-red";
+  if (usagePercent < 102) return styles.usageBlue;
+  if (usagePercent < 110) return styles.usageYellow;
+  return styles.usageRed;
 }
 
 export function TelemetryWorkload({ w }) {

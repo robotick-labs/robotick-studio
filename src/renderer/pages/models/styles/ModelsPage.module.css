@@ -1,13 +1,11 @@
-/* === Layout Styles === */
-
-#layout {
+.layout {
   display: flex;
-  height: calc(100vh - 100px); /* leave room for info-box */
+  height: calc(100vh - 100px);
   width: 100vw;
   overflow: hidden;
 }
 
-#main-panel {
+.mainPanel {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -16,43 +14,22 @@
   border-right: 1px solid #444;
 }
 
-#graph-panel {
+.graphPanel {
   flex: 1;
   overflow: auto;
   background-color: #111;
   border-bottom: 1px solid #444;
 }
 
-#graph {
+.graph {
   width: 100%;
   height: auto;
   min-height: 800px;
-}
-
-#info-box {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-
-  height: 100px;
-  background: #12121d;
-  color: #ddd;
-  font-size: 13px;
-  padding: 10px 16px;
-  border-top: 1px solid #444;
-  overflow-y: auto;
-  z-index: 1000;
-}
-
-#graph {
   background-color: #070a12;
-  display: block; /* Prevent inline spacing */
-  width: 100%;
-  height: auto;
+  display: block;
 }
 
-#property-panel {
+.propertyPanel {
   width: 25%;
   background: #12121d;
   color: #ccc;
@@ -63,82 +40,77 @@
   gap: 24px;
 }
 
-#property-panel h3 {
+.propertyPanel h3 {
   margin: 0 0 8px;
   font-size: 16px;
   color: #fff;
 }
 
-.prop-section {
+.propSection {
   border-top: 1px solid #0a0e16;
   padding-top: 8px;
 }
 
-.prop-section label {
+.propSection label {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px; /* ← or whatever feels right */
+  gap: 12px;
   margin-bottom: 8px;
   font-size: 14px;
 }
 
-.prop-section input[type="text"],
-.prop-section input[type="number"] {
+.propSection input[type="text"],
+.propSection input[type="number"] {
   margin-left: auto;
   background: #1c1f2c;
   border: 1px solid #555;
   color: #eee;
   padding: 4px 6px;
-
   flex: 1;
   min-width: 120px;
   max-width: 100%;
 }
 
-.prop-section input[type="checkbox"] {
+.propSection input[type="checkbox"] {
   margin-left: auto;
   transform: scale(1.1);
 }
 
-.prop-section input:hover {
+.propSection input:hover {
   border-color: #888;
 }
 
-/* === Additional SVG Styling === */
-
-.connection {
+:global(.connection) {
   fill: none;
   stroke-width: 2;
-  pointer-events: none; /* disable direct hover */
+  pointer-events: none;
 }
 
-/* Hover zone path */
-.connection-hover-area {
+:global(.connection-hover-area) {
   fill: none;
   stroke: transparent;
-  stroke-width: 12; /* makes hover hit area wider */
-  pointer-events: stroke; /* only reacts to hovering over stroke */
+  stroke-width: 12;
+  pointer-events: stroke;
 }
 
-/* Visible lines */
-.local-connection {
+:global(.local-connection) {
   stroke: orange;
   stroke-dasharray: 4 4;
   animation: pulse 2s infinite linear;
 }
 
-.remote-connection {
+:global(.remote-connection) {
   stroke: green;
   stroke-dasharray: 1 3 6 3;
   animation: dash-shift 2s linear infinite;
 }
 
-.connection-group:hover .connection {
+:global(.connection-group:hover .connection) {
   stroke-width: 3;
 }
 
-.connection-group:hover .connection-hover-area {
+:global(.connection-group:hover .connection-hover-area) {
   stroke: rgba(128, 128, 255, 0.35);
 }
 
@@ -154,18 +126,18 @@
   }
 }
 
-.swimlane {
+:global(.swimlane) {
   fill: #0a0e16;
   stroke: #494970;
   stroke-width: 0.5;
 }
 
-.label {
+:global(.label) {
   fill: #999;
   font-size: 12px;
 }
 
-.workload-node rect.workload {
+:global(.workload-node rect.workload) {
   fill: #2266aa;
   stroke: #88ccff;
   stroke-width: 2;
@@ -173,13 +145,13 @@
   cursor: move;
 }
 
-.workload-node text {
+:global(.workload-node text) {
   fill: #bbe0fc;
   font-size: 12px;
   pointer-events: none;
 }
 
-.group {
+:global(.group) {
   fill: none;
   stroke: #666;
   stroke-width: 1;
@@ -188,13 +160,13 @@
   ry: 8;
 }
 
-.model-label {
+:global(.model-label) {
   fill: #b4b3b3;
   font-size: 14px;
   font-weight: bold;
 }
 
-.project-button {
+:global(.project-button) {
   fill: #333;
   stroke: #777;
   rx: 6;
@@ -202,32 +174,31 @@
   cursor: pointer;
 }
 
-.project-button:hover {
+:global(.project-button:hover) {
   fill: #555;
   stroke: #aaa;
 }
 
-/* --- Add-button --- */
-.plus-slot {
+:global(.plus-slot) {
   cursor: pointer;
 }
 
-.plus-slot .workload.plus {
-  fill: rgba(60, 60, 60, 0.5); /* medium grey fill */
-  stroke: rgba(180, 180, 180, 0.5); /* light grey stroke */
+:global(.plus-slot .workload.plus) {
+  fill: rgba(60, 60, 60, 0.5);
+  stroke: rgba(180, 180, 180, 0.5);
   stroke-width: 2;
-  rx: 6; /* match node rounding */
+  rx: 6;
 }
 
-.plus-slot text {
-  fill: rgba(220, 220, 220, 0.5); /* very light grey text */
+:global(.plus-slot text) {
+  fill: rgba(220, 220, 220, 0.5);
   font-weight: 700;
   font-size: 18px;
   dominant-baseline: middle;
-  pointer-events: none; /* group gets the click */
+  pointer-events: none;
 }
 
-.plus-slot:hover .workload.plus {
-  fill: rgba(85, 85, 85, 0.5); /* slightly lighter on hover */
-  stroke: rgba(220, 220, 220, 0.5); /* brighter grey stroke */
+:global(.plus-slot:hover .workload.plus) {
+  fill: rgba(85, 85, 85, 0.5);
+  stroke: rgba(220, 220, 220, 0.5);
 }

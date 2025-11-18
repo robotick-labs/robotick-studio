@@ -10,12 +10,13 @@ export type PropertyPanelAPI = {
 };
 
 export function initPropertyPanel(
-  panelSelector: string,
+  hostElement: HTMLElement | null,
   store: DocumentStore
 ): PropertyPanelAPI {
-  const host = document.querySelector(panelSelector) as HTMLElement | null;
-  if (!host) throw new Error(`${panelSelector} not found`);
-  const root: Root = createRoot(host);
+  if (!hostElement) {
+    throw new Error("initPropertyPanel requires a host element");
+  }
+  const root: Root = createRoot(hostElement);
 
   const render = () => {
     root.render(<PropertyPanel store={store} />);

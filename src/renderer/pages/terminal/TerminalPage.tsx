@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { launcherEvents, useLauncherContext } from "../../core/LauncherContext";
 import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
+import styles from "./TerminalPage.module.css";
 
 // ansi_up loader (global, loads once)
 let AnsiUpClass: any = null;
@@ -154,17 +155,8 @@ export default function TerminalPage() {
   // UI layout
   // ---------------------------------------------------------------------------
   return (
-    <div
-      className="terminal-page"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        width: "100%",
-      }}
-    >
-      {/* Toolbar */}
-      <div className="terminal-toolbar">
+    <div className={styles.terminalPage}>
+      <div className={styles.toolbar}>
         <input
           id="log-filter"
           type="text"
@@ -204,8 +196,7 @@ export default function TerminalPage() {
         </label>
       </div>
 
-      {/* Log view */}
-      <div className="terminal-container" ref={containerRef}>
+      <div className={styles.container} ref={containerRef}>
         <pre
           id="log"
           ref={logRef}

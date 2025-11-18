@@ -5,6 +5,7 @@ import { TelemetryModel } from "./TelemetryModel";
 import { useProjectContext } from "../../../core/ProjectContext";
 import { useLauncherData } from "../../../core/LauncherDataContext";
 import { useLauncherContext } from "../../../core/LauncherContext";
+import styles from "../Telemetry.module.css";
 
 export function TelemetryApp() {
   const { projectPath } = useProjectContext();
@@ -42,7 +43,7 @@ export function TelemetryApp() {
 
   if (status !== "running") {
     return (
-      <div className="telemetry-status">
+      <div className={styles.status}>
         <p>Launch your robot to enable telemetry.</p>
       </div>
     );

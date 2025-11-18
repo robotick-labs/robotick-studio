@@ -27,12 +27,11 @@ export type NodeGraphAPI = {
 };
 
 export function initNodeGraph(
-  svgSelector: string,
+  svgElement: SVGSVGElement | null,
   store: DocumentStore
 ): NodeGraphAPI {
-  const svgEl = document.querySelector(svgSelector);
-  if (!svgEl || !(svgEl instanceof SVGSVGElement)) {
-    throw new Error(`${svgSelector} not found or not an SVGSVGElement`);
+  if (!svgElement) {
+    throw new Error("initNodeGraph requires an SVGSVGElement");
   }
 
   // Keep the graph's state local to this instance
@@ -41,18 +40,18 @@ export function initNodeGraph(
   // Initial build (so we know sizes before first paint)
   buildGraphDocFromModel(store, doc);
 
-  const layers = createSvgLayers(svgEl);
+  const layers = createSvgLayers(svgElement);
 
   const router = new RectilinearRouter();
-  const view = new SvgView(svgEl, layers, router);
+  const view = new SvgView(svgElement, layers, router);
 
   const render = () => {
     view.render(doc);
   };
 
   const attachControllers = () => {
-    new SelectionController(svgEl).attach();
-    new SlotDragController(svgEl, doc, view, store).attachAll();
+    new SelectionController(svgElement).attach();
+    new SlotDragController(svgElement, doc, view, store).attachAll();
   };
 
   // ——— Store subscription (render on any store mutation) ———
@@ -117,7 +116,7 @@ export function initNodeGraph(
   const getDoc = () => doc;
 
   return {
-    svg: svgEl,
+    svg: svgElement,
     view,
     render,
     attachControllers,

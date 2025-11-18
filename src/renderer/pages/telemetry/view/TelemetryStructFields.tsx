@@ -8,6 +8,7 @@
 
 import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
+import styles from "../Telemetry.module.css";
 
 // -------------------------------------------------------------
 // Number formatting
@@ -38,7 +39,7 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
   const [panels, setPanels] = useState<Record<string, boolean>>({});
 
   if (!struct || !struct.fields || struct.fields.length === 0) {
-    return <div className="multiline">–</div>;
+    return <div className={styles.multiline}>–</div>;
   }
 
   function renderField(f: any): React.ReactNode {
@@ -87,7 +88,7 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
     );
   }
 
-  return <div className="multiline">{struct.fields.map(renderField)}</div>;
+  return <div className={styles.multiline}>{struct.fields.map(renderField)}</div>;
 }
 
 // -------------------------------------------------------------
@@ -126,7 +127,7 @@ function ImageField({
           <img
             src={url}
             alt={label}
-            className="telemetry-thumb"
+            className={styles.thumb}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
@@ -212,7 +213,7 @@ function ImagePanel({
 
   return (
     <div
-      className="telemetry-image-panel"
+      className={styles.imagePanel}
       style={{
         left: pos.x,
         top: pos.y,
@@ -221,12 +222,9 @@ function ImagePanel({
         display: "block",
       }}
     >
-      <div
-        className="telemetry-image-panel-title"
-        onMouseDown={onTitleMouseDown}
-      >
+      <div className={styles.imagePanelTitle} onMouseDown={onTitleMouseDown}>
         <span>{path}</span>
-        <span className="telemetry-image-panel-close" onClick={onClose}>
+        <span className={styles.imagePanelClose} onClick={onClose}>
           ✕
         </span>
       </div>
@@ -244,7 +242,7 @@ function ImagePanel({
       )}
 
       <div
-        className="telemetry-image-panel-resize-handle"
+        className={styles.imagePanelResizeHandle}
         onMouseDown={onResizeMouseDown}
       />
     </div>
