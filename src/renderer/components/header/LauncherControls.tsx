@@ -4,16 +4,28 @@ import { LauncherDots } from "./LauncherDots";
 import styles from "./styles/LauncherControls.module.css";
 
 export function LauncherControls() {
-  const { status, isBusy, isAwaitingStatus, lastError, run, stop, restart } =
-    useLauncherContext();
+  const {
+    status,
+    reportedStatus,
+    isBusy,
+    isAwaitingStatus,
+    lastError,
+    run,
+    stop,
+    restart,
+  } = useLauncherContext();
   const isRunning = status === "running";
   const isStarting = status === "starting";
-  const isActive = isRunning || isStarting;
+  const serverRunning = reportedStatus === "running";
+  const serverStarting = reportedStatus === "starting";
+  const serverActive = serverRunning || serverStarting;
+  const isActive = serverActive || isRunning || isStarting;
   const canRestart = isRunning && !isBusy;
   const controlsDisabled = isBusy || isAwaitingStatus;
+  const toggleDisabled = serverActive ? isBusy : controlsDisabled;
 
   async function handleToggle() {
-    if (isActive) {
+    if (serverActive) {
       await stop();
     } else {
       await run();
@@ -30,16 +42,16 @@ export function LauncherControls() {
       <button
         type="button"
         className={styles.control}
-        aria-label={isActive ? "Stop launcher" : "Start launcher"}
+        aria-label={serverActive ? "Stop launcher" : "Start launcher"}
         onClick={handleToggle}
-        disabled={controlsDisabled}
+        disabled={toggleDisabled}
       >
         <span
           className={`${styles.icon} ${
-            isActive ? styles.iconStop : styles.iconPlay
+            serverActive ? styles.iconStop : styles.iconPlay
           }`}
         >
-          {isActive ? "⏹" : "▶"}
+          {serverActive ? "⏹" : "▶"}
         </span>
       </button>
 

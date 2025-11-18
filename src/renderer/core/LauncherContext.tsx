@@ -23,6 +23,7 @@ const POLLING_FAST_INTERVAL_MS = 200;
 
 type LauncherContextValue = {
   status: LauncherStatus;
+  reportedStatus: LauncherStatus;
   lastError: string | null;
   isBusy: boolean;
   isAwaitingStatus: boolean;
@@ -47,6 +48,8 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [pendingTarget, setPendingTarget] = useState<LauncherStatus | null>(
     null
   );
+  const [reportedStatus, setReportedStatus] =
+    useState<LauncherStatus>("stopped");
   const fastPollUntilRef = useRef(0);
 
   const wakeFastPolling = useCallback(() => {
@@ -64,14 +67,17 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             : POLLING_DEFAULT_INTERVAL_MS;
 
         try {
-          const launcherActive = await checkLauncherActive();
+          const launcherStatus = await readLauncherStatus();
+          setReportedStatus((prev) =>
+            prev === launcherStatus ? prev : launcherStatus
+          );
+          const launcherActive = launcherStatus !== "stopped";
           const robotAlive = launcherActive ? await checkRobotAlive() : false;
 
-          const nextStatus: LauncherStatus = robotAlive
-            ? "running"
-            : launcherActive
-            ? "starting"
-            : "stopped";
+          const nextStatus: LauncherStatus =
+            robotAlive && launcherStatus === "running"
+              ? "running"
+              : launcherStatus;
 
           setStatus((prev) => (prev === nextStatus ? prev : nextStatus));
           setPendingTarget((target) =>
@@ -148,6 +154,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       status: effectiveStatus,
+      reportedStatus,
       lastError,
       isBusy,
       isAwaitingStatus,
@@ -155,7 +162,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       stop,
       restart,
     }),
-    [effectiveStatus, isAwaitingStatus, isBusy, lastError, restart, run, stop]
+    [
+      effectiveStatus,
+      reportedStatus,
+      isAwaitingStatus,
+      isBusy,
+      lastError,
+      restart,
+      run,
+      stop,
+    ]
   );
 
   return (
@@ -173,9 +189,12 @@ export function useLauncherContext(): LauncherContextValue {
   return ctx;
 }
 
-async function checkLauncherActive(): Promise<boolean> {
+async function readLauncherStatus(): Promise<LauncherStatus> {
   const data = await fetchLauncherStatus();
-  return data?.status === "running" || data?.status === "starting";
+  if (!data?.status) return "stopped";
+  if (data.status === "running") return "running";
+  if (data.status === "starting") return "starting";
+  return "stopped";
 }
 
 async function checkRobotAlive(): Promise<boolean> {
