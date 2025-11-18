@@ -22,13 +22,11 @@ let telemetryUnsubscribe: (() => void) | null = null;
 
 const secretsPromise: Promise<void> = (async () => {
   try {
-    const { CESIUM_TOKEN: LOCAL } = await import(
-      "../../../pages/secrets_LOCAL.js"
-    );
+    const { CESIUM_TOKEN: LOCAL } = await import("./secrets_LOCAL.js");
     CESIUM_TOKEN = LOCAL;
     console.log("✅ Loaded CESIUM_TOKEN from secrets_LOCAL.js");
   } catch {
-    const { CESIUM_TOKEN: DEFAULT } = await import("../../../pages/secrets.js");
+    const { CESIUM_TOKEN: DEFAULT } = await import("./secrets.js");
     CESIUM_TOKEN = DEFAULT;
     console.log("ℹ️ Loaded CESIUM_TOKEN from secrets.js");
   }

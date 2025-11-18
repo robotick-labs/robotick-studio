@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { EngineModel } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
-import { urlToId } from "../document/polling";
 import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
 import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
+
+export function urlToId(url: string) {
+  return url.replace(/[:/.]/g, "_");
+}
 
 /**
  * Format a byte count with comma thousands separators.
