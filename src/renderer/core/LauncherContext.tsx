@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import {
-  HUB_API_BASE,
+  LAUNCHER_LOCAL_API_BASE,
   POLLING_DEFAULT_INTERVAL_MS,
   POLLING_FAST_INTERVAL_MS,
   ROBOT_TELEMETRY_BASE,
@@ -105,7 +105,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     launcherEvents.dispatchEvent(new Event("run-requested"));
 
     try {
-      const url = buildUrl(HUB_API_BASE, "/launcher/run", {
+      const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
         project_path: projectPath,
         profile: launcherProfile || "local:ALL",
       });
@@ -127,7 +127,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     wakeFastPolling();
     launcherEvents.dispatchEvent(new Event("stop-requested"));
     try {
-      const url = buildUrl(HUB_API_BASE, "/launcher/stop");
+      const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
       await fetchJSON(url, { method: "POST" });
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
@@ -176,7 +176,7 @@ export function useLauncherContext(): LauncherContextValue {
 }
 
 async function checkLauncherActive(): Promise<boolean> {
-  const url = buildUrl(HUB_API_BASE, "/launcher/status");
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
   const data = await tryFetchJSON<{ status: string }>(url);
   return data?.status === "running" || data?.status === "starting";
 }

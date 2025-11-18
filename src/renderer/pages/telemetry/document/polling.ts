@@ -5,7 +5,7 @@
 
 import currentProject from "../../../core/current-project";
 import { EngineModel } from "../view/types.js";
-import { HUB_API_BASE } from "../../../core/config";
+import { LAUNCHER_LOCAL_API_BASE } from "../../../core/config";
 import { buildUrl, fetchJSON } from "../../../core/http";
 
 // -----------------------------------------------------------------------------
@@ -28,7 +28,7 @@ export async function fetchAllModelJSONs(): Promise<
 
   const modelPaths =
     (await fetchJSON<string[]>(
-      buildUrl(HUB_API_BASE, "/query/list-project-models", {
+      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
         project_path: projectPath,
       })
     ).catch(() => null)) ?? [];
@@ -42,7 +42,7 @@ export async function fetchAllModelJSONs(): Promise<
 
   for (const modelPath of modelPaths) {
     const json = await fetchJSON<any>(
-      buildUrl(HUB_API_BASE, "/query/get-model", {
+      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
         project_path: projectPath,
         model_path: modelPath,
       })

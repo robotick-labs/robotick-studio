@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useProjectContext } from "../../core/ProjectContext";
-import { HUB_API_BASE } from "../../core/config";
+import { LAUNCHER_LOCAL_API_BASE } from "../../core/config";
 import { buildUrl, fetchJSON } from "../../core/http";
 import styles from "./styles/ProjectPage.module.css";
 
@@ -32,7 +32,7 @@ export default function ProjectPage() {
           r.json()
         ),
         fetchJSON<Record<string, any>>(
-          buildUrl(HUB_API_BASE, "/query/get-project-settings", {
+          buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
             project_path: projectPath,
           })
         ).catch(() => ({} as Record<string, any>)),

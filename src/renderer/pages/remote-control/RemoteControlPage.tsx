@@ -6,7 +6,7 @@ import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
 import { useProjectContext } from "../../core/ProjectContext";
-import { HUB_API_BASE } from "../../core/config";
+import { LAUNCHER_LOCAL_API_BASE } from "../../core/config";
 import { buildUrl, fetchJSON } from "../../core/http";
 import styles from "./styles/RemoteControlPage.module.css";
 
@@ -143,8 +143,12 @@ function normalizeModules(
 }
 
 async function fetchRCSettings(projectPath: string, signal: AbortSignal) {
-  const url = buildUrl(HUB_API_BASE, "/query/get-project-rc-settings", {
-    project_path: projectPath,
-  });
+  const url = buildUrl(
+    LAUNCHER_LOCAL_API_BASE,
+    "/query/get-project-rc-settings",
+    {
+      project_path: projectPath,
+    }
+  );
   return await fetchJSON<RcSettingsResponse>(url, { signal });
 }

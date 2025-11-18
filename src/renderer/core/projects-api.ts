@@ -1,4 +1,4 @@
-import { HUB_API_BASE } from "./config";
+import { LAUNCHER_LOCAL_API_BASE } from "./config";
 import { buildUrl, fetchJSON } from "./http";
 
 export type ProjectMeta = {
@@ -13,14 +13,14 @@ type ProjectSettingsResponse = {
 };
 
 export async function fetchProjectPaths(): Promise<string[]> {
-  const url = buildUrl(HUB_API_BASE, "/query/list-projects");
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
   return await fetchJSON<string[]>(url);
 }
 
 export async function fetchProjectSettings(
   projectPath: string
 ): Promise<ProjectSettingsResponse> {
-  const url = buildUrl(HUB_API_BASE, "/query/get-project-settings", {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
     project_path: projectPath,
   });
   return await fetchJSON<ProjectSettingsResponse>(url);
@@ -52,7 +52,7 @@ export async function fetchProjectMetas(): Promise<ProjectMeta[]> {
 export async function fetchProjectModels(
   projectPath: string
 ): Promise<string[]> {
-  const url = buildUrl(HUB_API_BASE, "/query/list-project-models", {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
     project_path: projectPath,
   });
   const models = await fetchJSON<string[]>(url);

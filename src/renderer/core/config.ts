@@ -1,10 +1,10 @@
 const env = import.meta.env ?? {};
 
 const withDefault = (value: string | undefined, fallback: string) =>
-  (value && value.length > 0 ? value : fallback);
+  value && value.length > 0 ? value : fallback;
 
-export const HUB_API_BASE = withDefault(
-  env.VITE_HUB_API_BASE,
+export const LAUNCHER_LOCAL_API_BASE = withDefault(
+  env.VITE_LAUNCHER_LOCAL_API_BASE,
   "http://localhost:7081"
 );
 export const ROBOT_TELEMETRY_BASE = withDefault(

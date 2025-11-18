@@ -1,5 +1,5 @@
 import currentProject from "../../../core/current-project";
-import { HUB_API_BASE } from "../../../core/config";
+import { LAUNCHER_LOCAL_API_BASE } from "../../../core/config";
 import { buildUrl, fetchJSON } from "../../../core/http";
 
 export interface Workload {
@@ -41,7 +41,7 @@ export async function loadAllModels(): Promise<LoadedModel[]> {
   if (!projectPath) throw new Error("No project path set");
 
   const models = await fetchJSON<string[]>(
-    buildUrl(HUB_API_BASE, "/query/list-project-models", {
+    buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
       project_path: projectPath,
     })
   );
@@ -49,7 +49,7 @@ export async function loadAllModels(): Promise<LoadedModel[]> {
   const out: LoadedModel[] = [];
   for (const modelPath of models) {
     const data = await fetchJSON<ModelData>(
-      buildUrl(HUB_API_BASE, "/query/get-model", {
+      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
         project_path: projectPath,
         model_path: modelPath,
       })
