@@ -11,10 +11,10 @@ import { useProjectContext } from "./ProjectContext";
 import {
   buildUrl,
   fetchLauncherStatus,
-  getPrimaryTelemetryBase,
   requestLauncherRun,
   requestLauncherStop,
 } from "./launcher-interface";
+import { waitForProjectModelsLoaded } from "./LauncherDataContext";
 
 export type LauncherStatus = "stopped" | "starting" | "running";
 
@@ -75,8 +75,10 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           const robotAlive = launcherActive ? await checkRobotAlive() : false;
 
           const nextStatus: LauncherStatus =
-            robotAlive && launcherStatus === "running"
-              ? "running"
+            launcherStatus === "running"
+              ? robotAlive
+                ? "running"
+                : "starting"
               : launcherStatus;
 
           setStatus((prev) => (prev === nextStatus ? prev : nextStatus));
@@ -198,10 +200,29 @@ async function readLauncherStatus(): Promise<LauncherStatus> {
 }
 
 async function checkRobotAlive(): Promise<boolean> {
-  const telemetryBaseUrl = await getPrimaryTelemetryBase();
-  const url = buildUrl(telemetryBaseUrl, "/api/telemetry/health");
-  const res = await fetch(url);
-  return res.ok;
+  const state = await waitForProjectModelsLoaded();
+  const models = state.data;
+  if (models.length === 0) {
+    return false;
+  }
+
+  for (const model of models) {
+    const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        return false;
+      }
+    } catch (err) {
+      console.warn(
+        `[launcher] telemetry health check failed for ${model.modelShortName}`,
+        err
+      );
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function sleep(ms: number) {

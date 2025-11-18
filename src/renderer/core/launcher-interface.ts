@@ -315,16 +315,6 @@ export async function refreshProjectModels<T = unknown>(
   return resolveProjectModels<T>(projectPath, { force: true });
 }
 
-export async function getPrimaryTelemetryBase(
-  projectPath?: string
-): Promise<string> {
-  const models = await resolveProjectModels(projectPath);
-  if (models.length === 0) {
-    return buildTelemetryBaseUrl(DEFAULT_TELEMETRY_PORT);
-  }
-  return models[0].telemetryBaseUrl;
-}
-
 const currentProject = {
   setProjectPath,
   getProjectPath,
@@ -339,7 +329,6 @@ const currentProject = {
   getProjectModels,
   refreshProjectModels,
   clearProjectModelCache: invalidateModelCache,
-  getPrimaryTelemetryBase,
   getModelHostName,
   requestLauncherRun,
   requestLauncherStop,

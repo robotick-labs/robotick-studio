@@ -7,7 +7,6 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { ViewerConfig } from "../viewer-schema.js";
 import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import { getPrimaryTelemetryBase } from "../../../core/launcher-interface";
 import { waitForModelDescriptorByName } from "../../../core/LauncherDataContext";
 
 type CesiumViewerConfig = ViewerConfig & {
@@ -228,27 +227,27 @@ async function resolveCesiumTelemetryBase(
   config?: CesiumViewerConfig
 ): Promise<string | null> {
   const modelName = config?.telemetryModelName?.trim();
-  if (modelName) {
-    try {
-      const descriptor = await waitForModelDescriptorByName(modelName);
-      if (descriptor) {
-        return descriptor.telemetryBaseUrl;
-      }
-      console.warn(
-        `[Cesium viewer] Telemetry model "${modelName}" not found. Falling back to default endpoint.`
-      );
-    } catch (err) {
-      console.warn(
-        `[Cesium viewer] Failed to resolve telemetry model "${modelName}"`,
-        err
-      );
-    }
+  if (!modelName) {
+    console.warn(
+      "[Cesium viewer] Missing telemetryModelName in configuration; telemetry disabled."
+    );
+    return null;
   }
 
   try {
-    return await getPrimaryTelemetryBase();
+    const descriptor = await waitForModelDescriptorByName(modelName);
+    if (!descriptor) {
+      console.warn(
+        `[Cesium viewer] Telemetry model "${modelName}" not found in project data.`
+      );
+      return null;
+    }
+    return descriptor.telemetryBaseUrl;
   } catch (err) {
-    console.warn("[Cesium viewer] Unable to resolve telemetry endpoint", err);
+    console.warn(
+      `[Cesium viewer] Failed to resolve telemetry model "${modelName}"`,
+      err
+    );
     return null;
   }
 }
