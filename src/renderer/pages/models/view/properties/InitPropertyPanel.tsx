@@ -6,6 +6,7 @@ import type { DocumentStore } from "../../document/documentStore";
 
 export type PropertyPanelAPI = {
   render: () => void;
+  dispose?: () => void;
 };
 
 export function initPropertyPanel(
@@ -21,5 +22,8 @@ export function initPropertyPanel(
   };
 
   render();
-  return { render };
+  return {
+    render,
+    dispose: () => root.unmount(),
+  };
 }

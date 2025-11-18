@@ -24,10 +24,16 @@ export class DocumentStore {
   private models = new Map<string, ModelData>();
   version = 0;
 
-  async load() {
-    const loadedModels = await loadAllModels();
-
+  async load(projectPath: string | null | undefined) {
     this.models.clear();
+
+    if (!projectPath) {
+      this.version++;
+      this.notify();
+      return;
+    }
+
+    const loadedModels = await loadAllModels(projectPath);
 
     for (const m of loadedModels)
       this.models.set(m.modelPath, structuredClone(m.data));

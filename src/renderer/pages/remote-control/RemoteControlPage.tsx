@@ -32,6 +32,8 @@ export default function RemoteControlPage() {
     const abortController = new AbortController();
 
     async function loadSettings() {
+      setModules([]);
+      setError(null);
       try {
         const config = await fetchRCSettings(
           projectPath,
@@ -77,7 +79,7 @@ export default function RemoteControlPage() {
     return () => {
       void viewer.uninit();
     };
-  }, [modules]);
+  }, [modules, projectPath]);
 
   const subtitlesModule = useMemo(
     () => modules.find((mod) => mod.type === "overlay/subtitles"),

@@ -18,10 +18,11 @@ export function urlToId(url: string) {
 // Model discovery (needed by TelemetryApp)
 // -----------------------------------------------------------------------------
 
-export async function fetchAllModelJSONs(): Promise<
+export async function fetchAllModelJSONs(
+  projectPath: string
+): Promise<
   { modelName: string; engineURL: string; modelPath: string; json: any }[]
 > {
-  const projectPath = currentProject.getProjectPath();
   if (!projectPath) throw new Error("No project path set");
 
   const models =
@@ -34,8 +35,10 @@ export async function fetchAllModelJSONs(): Promise<
   }));
 }
 
-export async function getEngineModels(): Promise<EngineModel[]> {
-  const models = await fetchAllModelJSONs();
+export async function getEngineModels(
+  projectPath: string
+): Promise<EngineModel[]> {
+  const models = await fetchAllModelJSONs(projectPath);
 
   const extractPort = (url?: string): number => {
     if (!url) return 0;

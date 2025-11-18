@@ -34,8 +34,7 @@ export interface LoadedModel {
   data: ModelData;
 }
 
-export async function loadAllModels(): Promise<LoadedModel[]> {
-  const projectPath = currentProject.getProjectPath();
+export async function loadAllModels(projectPath: string): Promise<LoadedModel[]> {
   if (!projectPath) {
     throw new Error("No project path set");
   }
