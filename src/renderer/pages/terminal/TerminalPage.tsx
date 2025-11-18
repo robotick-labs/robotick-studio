@@ -5,6 +5,8 @@ import { launcherEvents } from "../../core/LauncherContext";
 import { getLauncherLogStreamUrl } from "../../core/launcher-interface";
 import styles from "./TerminalPage.module.css";
 
+const MAX_MESSAGES = 5000;
+
 export default function TerminalPage() {
   const [messages, setMessages] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
@@ -58,7 +60,13 @@ export default function TerminalPage() {
 
       ws.onmessage = (event) => {
         const text = event.data;
-        setMessages((prev) => [...prev, text]);
+        setMessages((prev) => {
+          const next = [...prev, text];
+          if (next.length > MAX_MESSAGES) {
+            return next.slice(next.length - MAX_MESSAGES);
+          }
+          return next;
+        });
       };
     }
 

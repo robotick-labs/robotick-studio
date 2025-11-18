@@ -26,10 +26,17 @@ export default function ProjectPage() {
         return;
       }
 
+      const baseUrl = new URL(
+        import.meta.env.BASE_URL ?? "/",
+        window.location.origin
+      );
+      const schemaUrl = new URL(
+        "static/schemas/project-config.schema.json",
+        baseUrl
+      );
+
       const [schemaResp, cfg] = await Promise.all([
-        fetch("./static/schemas/project-config.schema.json").then((r) =>
-          r.json()
-        ),
+        fetch(schemaUrl).then((r) => r.json()),
         fetchProjectSettingsData<Record<string, any>>(projectPath).catch(
           () => ({} as Record<string, any>)
         ),

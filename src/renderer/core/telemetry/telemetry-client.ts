@@ -113,8 +113,9 @@ export async function fetchLayout(
 export async function fetchRaw(
   base_url: string
 ): Promise<{ raw: ArrayBuffer; sid: string }> {
+  const requestUrl = `${base_url}/api/telemetry/workloads_buffer/raw`;
   try {
-    const r = await fetch(`${base_url}/api/telemetry/workloads_buffer/raw`, {
+    const r = await fetch(requestUrl, {
       cache: "no-store",
     });
     if (!r.ok) {
@@ -124,7 +125,7 @@ export async function fetchRaw(
     const sid = r.headers.get("x-robotick-session-id") || "";
     return { raw: buf, sid };
   } catch (error) {
-    console.warn(`fetchRaw() failed for '${url}'`, error);
+    console.warn(`fetchRaw() failed for '${requestUrl}'`, error);
     throw error instanceof Error ? error : new Error(String(error));
   }
 }
