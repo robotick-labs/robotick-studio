@@ -1,5 +1,6 @@
 // src/js/pages/project/components/StringField.tsx
 import React from "react";
+import styles from "../styles/ProjectPage.module.css";
 
 interface Props {
   field: string;
@@ -11,15 +12,16 @@ interface Props {
 
 export function StringField({ field, label, tooltip, value, onChange }: Props) {
   return (
-    <div className="project-table-row">
-      <div className="project-key" title={tooltip}>
+    <div className={styles.row}>
+      <div className={styles.key} title={tooltip}>
         {label}
       </div>
-      <div className="project-value">
+      <div className={styles.value}>
         <input
           type="text"
           value={value}
           title={tooltip}
+          className={styles.textInput}
           onChange={(e) => onChange(field, e.target.value)}
         />
       </div>

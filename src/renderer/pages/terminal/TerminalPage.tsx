@@ -1,6 +1,6 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
-import { launcherEvents } from "../../core/launcher-context";
+import { launcherEvents } from "../../core/LauncherContext";
 import { HUB_API_BASE } from "../../core/config";
 import { buildWebSocketUrl } from "../../core/http";
 

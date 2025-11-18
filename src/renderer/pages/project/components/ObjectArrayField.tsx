@@ -1,5 +1,6 @@
 // src/js/pages/project/components/ObjectArrayField.tsx
 import React from "react";
+import styles from "../styles/ProjectPage.module.css";
 
 interface Props {
   field: string;
@@ -39,37 +40,45 @@ export function ObjectArrayField({
   }
 
   return (
-    <div className="project-table-row">
-      <div className="project-key" title={tooltip}>
+    <div className={styles.row}>
+      <div className={styles.key} title={tooltip}>
         {label}
       </div>
 
-      <div className="project-value">
+      <div className={styles.value}>
         {values.map((obj, idx) => (
-          <div className="object-item-wrapper" key={idx}>
+          <div className={styles.objectItemWrapper} key={idx}>
             {Object.entries(properties).map(([propKey, propDef]) => (
               <label
                 key={propKey}
                 title={propDef.description || ""}
-                style={{ display: "block", marginBottom: 4 }}
+                className={styles.objectLabel}
               >
                 {formatLabel(propKey)}
                 <input
                   type="text"
                   value={obj[propKey] ?? ""}
-                  style={{ width: "100%", marginTop: 2 }}
+                  className={styles.textInput}
                   onChange={(e) => updateItem(idx, propKey, e.target.value)}
                 />
               </label>
             ))}
 
-            <button className="btn-remove" onClick={() => remove(idx)}>
+            <button
+              className={styles.removeButton}
+              type="button"
+              onClick={() => remove(idx)}
+            >
               ×
             </button>
           </div>
         ))}
 
-        <button className="btn-add-item" onClick={add}>
+        <button
+          className={styles.addItemButton}
+          type="button"
+          onClick={add}
+        >
           + Add Group
         </button>
       </div>

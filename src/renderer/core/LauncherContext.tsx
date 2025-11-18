@@ -14,7 +14,7 @@ import {
   ROBOT_TELEMETRY_BASE,
 } from "./config";
 import { buildUrl, fetchJSON, tryFetchJSON } from "./http";
-import { useProjectContext } from "./project-context";
+import { useProjectContext } from "./ProjectContext";
 
 export type LauncherStatus = "stopped" | "starting" | "running";
 

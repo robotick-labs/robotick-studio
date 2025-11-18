@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 
 import { DocumentStore } from "./document/documentStore";
 import { initNodeGraph } from "./view/node-graph/initNodeGraph";
-import { initPropertyPanel } from "./view/properties/initPropertyPanel";
+import { initPropertyPanel } from "./view/properties/InitPropertyPanel";
 
 export default function ModelsPage() {
   useEffect(() => {

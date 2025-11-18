@@ -1,5 +1,6 @@
 // src/js/pages/project/components/StringArrayField.tsx
 import React from "react";
+import styles from "../styles/ProjectPage.module.css";
 
 interface Props {
   field: string;
@@ -34,27 +35,36 @@ export function StringArrayField({
   }
 
   return (
-    <div className="project-table-row">
-      <div className="project-key" title={tooltip}>
+    <div className={styles.row}>
+      <div className={styles.key} title={tooltip}>
         {label}
       </div>
 
-      <div className="project-value">
+      <div className={styles.value}>
         {values.map((v, i) => (
-          <div className="array-input-wrapper" key={i}>
+          <div className={styles.arrayInputWrapper} key={i}>
             <input
               type="text"
               value={v}
               title={tooltip}
+              className={styles.textInput}
               onChange={(e) => update(i, e.target.value)}
             />
-            <button className="btn-remove" onClick={() => remove(i)}>
+            <button
+              className={styles.removeButton}
+              type="button"
+              onClick={() => remove(i)}
+            >
               ×
             </button>
           </div>
         ))}
 
-        <button className="btn-add-item" onClick={add}>
+        <button
+          className={styles.addItemButton}
+          type="button"
+          onClick={add}
+        >
           + Add Item
         </button>
       </div>

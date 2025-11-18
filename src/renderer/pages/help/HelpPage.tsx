@@ -1,32 +1,33 @@
 // src/renderer/pages/help/help.tsx
 
 import React from "react";
+import styles from "./styles/HelpPage.module.css";
 
 export default function HelpPage() {
   return (
-    <div className="help-page">
-      <header className="help-hero">
-        <p className="eyebrow">Support</p>
+    <div className={styles.helpPage}>
+      <header className={styles.helpHero}>
+        <p className={styles.eyebrow}>Support</p>
         <h1>Robotick Hub Help Center</h1>
         <p>Coming soon.</p>
       </header>
 
-      <section className="help-cards">
-        <article className="help-card">
+      <section className={styles.helpCards}>
+        <article className={styles.helpCard}>
           <h3>Getting Started</h3>
           <p>Coming soon.</p>
         </article>
-        <article className="help-card">
+        <article className={styles.helpCard}>
           <h3>Remote Operations</h3>
           <p>Coming soon.</p>
         </article>
-        <article className="help-card">
+        <article className={styles.helpCard}>
           <h3>Need Assistance?</h3>
           <p>Coming soon.</p>
         </article>
       </section>
 
-      <section className="help-section">
+      <section className={styles.helpSection}>
         <div>
           <h2>Checklist</h2>
           <p>Coming soon.</p>

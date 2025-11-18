@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useProjectContext } from "../../core/project-context";
+import { useProjectContext } from "../../core/ProjectContext";
 import { fetchProjectModels } from "../../core/projects-api";
 import styles from "./styles/ProfilePicker.module.css";
 

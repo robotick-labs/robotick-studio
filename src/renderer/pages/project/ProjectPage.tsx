@@ -1,9 +1,10 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import { useProjectContext } from "../../core/project-context";
+import { useProjectContext } from "../../core/ProjectContext";
 import { HUB_API_BASE } from "../../core/config";
 import { buildUrl, fetchJSON } from "../../core/http";
+import styles from "./styles/ProjectPage.module.css";
 
 import { StringField } from "./components/StringField";
 import { StringArrayField } from "./components/StringArrayField";
@@ -45,7 +46,9 @@ export default function ProjectPage() {
   }, [projectPath]);
 
   if (!projectPath) {
-    return <div className="project-container">Select a project to view.</div>;
+    return (
+      <div className={styles.projectContainer}>Select a project to view.</div>
+    );
   }
 
   if (!schema) return <div>Loading…</div>;
@@ -60,14 +63,14 @@ export default function ProjectPage() {
   }
 
   return (
-    <div className="project-container">
-      <div className="save-button-wrapper">
-        <button className="btn-primary btn-save-project" onClick={save}>
+    <div className={styles.projectContainer}>
+      <div className={styles.saveButtonWrapper}>
+        <button className={styles.saveButton} onClick={save}>
           💾 Save
         </button>
       </div>
 
-      <div className="project-table">
+      <div className={styles.projectTable}>
         {Object.entries(schema.properties).map(([key, def]) => {
           const label = formatLabel(key);
           const tooltip = def.description;

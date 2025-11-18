@@ -1,4 +1,4 @@
-.project-container {
+.projectContainer {
   margin: 2rem auto;
   padding: 1rem 2rem;
   border-radius: 12px;
@@ -7,7 +7,7 @@
   overflow-x: auto;
 }
 
-.project-table {
+.projectTable {
   display: table;
   width: 100%;
   color: #ddd;
@@ -15,25 +15,25 @@
   border-collapse: collapse;
 }
 
-.project-table-row {
+.row {
   display: table-row;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.project-key,
-.project-value {
+.key,
+.value {
   display: table-cell;
   padding: 8px 12px;
   vertical-align: top;
 }
 
-.project-key {
+.key {
   font-weight: bold;
   width: 160px;
   white-space: nowrap;
 }
 
-.project-value input[type="text"] {
+.textInput {
   width: 100%;
   background: #1a1f2c;
   color: #eee;
@@ -45,19 +45,14 @@
   box-sizing: border-box;
 }
 
-.array-input-wrapper {
+.arrayInputWrapper {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
 }
 
-.array-input-wrapper input[type="text"] {
-  flex: 1;
-  margin: 0;
-}
-
-.btn-add-item {
+.addItemButton {
   font-size: 18px;
   padding: 4px 8px;
   background: #27273d;
@@ -69,7 +64,7 @@
   font-weight: bold;
 }
 
-.btn-remove {
+.removeButton {
   font-size: 18px;
   height: 30px;
   width: 30px;
@@ -85,7 +80,7 @@
   justify-content: center;
 }
 
-.btn-primary {
+.primaryButton {
   font-size: 14px;
   font-weight: bold;
   padding: 6px 12px;
@@ -96,16 +91,42 @@
   cursor: pointer;
 }
 
-.save-button-wrapper {
+.saveButtonWrapper {
   display: flex;
   justify-content: left;
   margin-bottom: 24px;
 }
 
-.btn-save-project {
+.saveButton {
   font-size: 14px;
   padding: 8px 14px;
-  margin: 20px;
+  margin: 20px 0;
   color: white;
   background: #0c93e1;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.objectItemWrapper {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+.objectLabel {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.objectLabel input {
+  width: 100%;
+  margin-top: 2px;
+  background: #1a1f2c;
+  color: #eee;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 6px;
 }

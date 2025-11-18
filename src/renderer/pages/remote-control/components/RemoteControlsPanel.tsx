@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { RemoteControlClient } from "./remoteControlClient";
+import { RemoteControlClient } from "./remote-control-client";
 import styles from "./styles/RemoteControlsPanel.module.css";
 
 export default function RemoteControlsPanel() {
@@ -59,7 +59,9 @@ export default function RemoteControlsPanel() {
       <div className={styles.controls}>
         <button
           className={`${styles.toggleButton} ${
-            useWebInputs ? styles.toggleButtonActive : styles.toggleButtonInactive
+            useWebInputs
+              ? styles.toggleButtonActive
+              : styles.toggleButtonInactive
           }`.trim()}
           onClick={toggleTakeover}
         >

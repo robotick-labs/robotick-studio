@@ -5,15 +5,15 @@ type LazyComponent = React.LazyExoticComponent<
   React.ComponentType<unknown>
 >;
 
-const HomePage = React.lazy(() => import("./pages/home/home"));
-const HelpPage = React.lazy(() => import("./pages/help/help"));
-const ModelsPage = React.lazy(() => import("./pages/models/models"));
-const ProjectPage = React.lazy(() => import("./pages/project/project"));
+const HomePage = React.lazy(() => import("./pages/home/HomePage"));
+const HelpPage = React.lazy(() => import("./pages/help/HelpPage"));
+const ModelsPage = React.lazy(() => import("./pages/models/ModelsPage"));
+const ProjectPage = React.lazy(() => import("./pages/project/ProjectPage"));
 const RemoteControlPage = React.lazy(
-  () => import("./pages/remote-control/remote-control")
+  () => import("./pages/remote-control/RemoteControlPage")
 );
-const TelemetryPage = React.lazy(() => import("./pages/telemetry/telemetry"));
-const TerminalPage = React.lazy(() => import("./pages/terminal/terminal"));
+const TelemetryPage = React.lazy(() => import("./pages/telemetry/TelemetryPage"));
+const TerminalPage = React.lazy(() => import("./pages/terminal/TerminalPage"));
 
 const routeConfig: { path: string; Component: LazyComponent }[] = [
   { path: "/home", Component: HomePage },

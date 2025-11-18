@@ -4,17 +4,33 @@ import {
   fetchLayout,
   fetchRaw,
 } from "../../telemetry/document/telemetry-client";
-import { RC_TELEMETRY_BASE } from "../../../core/config";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 
-const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
-const FIELD_PATH = `${TELEMETRY_WORKLOAD_ID}.outputs.script.thought_text`;
+type RcSubtitlesConfig = {
+  telemetryBaseUrl?: string;
+  fieldPath?: string;
+};
 
-export function RcSubtitlesOverlay() {
+type RcSubtitlesProps = {
+  config?: RcSubtitlesConfig;
+};
+
+export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);
   const [animateKey, setAnimateKey] = useState(0);
   const lastTextRef = useRef("");
+
+  const telemetryBaseUrl = config?.telemetryBaseUrl;
+  const fieldPath = config?.fieldPath;
+
+  if (!telemetryBaseUrl || !fieldPath) {
+    console.warn(
+      "[rc-subtitles] Missing module configuration (telemetryBaseUrl + fieldPath required)",
+      config
+    );
+    return null;
+  }
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
@@ -27,16 +43,16 @@ export function RcSubtitlesOverlay() {
     async function poll() {
       try {
         if (!cachedLayout) {
-          cachedLayout = await fetchLayout(RC_TELEMETRY_BASE);
+          cachedLayout = await fetchLayout(telemetryBaseUrl);
           if (!cachedLayout) return;
           telemetryModel = createTelemetryModel(cachedLayout);
         }
 
-        const { raw } = await fetchRaw(RC_TELEMETRY_BASE);
+        const { raw } = await fetchRaw(telemetryBaseUrl);
         if (!raw || !telemetryModel || cancelled) return;
         telemetryModel.raw = raw;
 
-        const text = extractSubtitleText(telemetryModel);
+        const text = extractSubtitleText(telemetryModel, fieldPath);
         if (!text) return;
 
         const normalized = normalizeForDisplay(text);
@@ -57,7 +73,7 @@ export function RcSubtitlesOverlay() {
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, []);
+  }, [fieldPath, telemetryBaseUrl]);
 
   if (!safeSubtitle) {
     return null;
@@ -82,9 +98,9 @@ export function RcSubtitlesOverlay() {
   );
 }
 
-function extractSubtitleText(telemetryModel: any): string {
+function extractSubtitleText(telemetryModel: any, fieldPath: string): string {
   if (!telemetryModel || !telemetryModel.getField) return "";
-  const field = telemetryModel.getField(FIELD_PATH);
+  const field = telemetryModel.getField(fieldPath);
   if (!field) return "";
   const value = field.getValue?.();
   return typeof value === "string" ? value : "";

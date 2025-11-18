@@ -1,9 +1,9 @@
 import React from "react";
 import { BrowserRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
-import { LauncherProvider } from "./core/launcher-context";
-import { ProjectProvider } from "./core/project-context";
-import { AppRoutes } from "./router";
+import { LauncherProvider } from "./core/LauncherContext";
+import { ProjectProvider } from "./core/ProjectContext";
+import { AppRoutes } from "./Router";
 import styles from "./styles/App/App.module.css";
 
 export function App() {
