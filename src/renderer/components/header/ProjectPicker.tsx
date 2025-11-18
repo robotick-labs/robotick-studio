@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { useProjectContext } from "../../core/launcher";
-import { useProjectMetas } from "../../core/launcher";
+import { useProjectSettingsList } from "../../core/launcher";
 import { useProjectChangeConfirmation } from "../../core/launcher";
 import styles from "./styles/ProjectPicker.module.css";
 
@@ -8,7 +8,7 @@ const ADD_PROJECT_VALUE = "__add__";
 
 export function ProjectPicker() {
   const { projectPath } = useProjectContext();
-  const { projects, loading, error } = useProjectMetas(5000);
+  const { projects, loading, error } = useProjectSettingsList(5000);
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
 

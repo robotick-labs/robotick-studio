@@ -8,7 +8,10 @@ import React, {
   useState,
 } from "react";
 import { useProjectContext } from "./ProjectContext";
-import { fetchProjectMetas, ProjectMeta } from "./projects-api";
+import {
+  fetchProjectSettingsList,
+  ProjectSettingsSummary,
+} from "./projects-api";
 import currentProject, {
   ProjectModelDescriptor,
   fetchProjectRemoteControlSettings,
@@ -26,10 +29,10 @@ type LoadState<T> = {
 };
 
 type LauncherDataValue = {
-  projectMetas: LoadState<ProjectMeta[]>;
+  projectSettings: LoadState<ProjectSettingsSummary[]>;
   projectModels: LoadState<ProjectModelDescriptor[]>;
   rcModules: LoadState<RcModuleDescriptor[]>;
-  refreshProjectMetas: () => Promise<void>;
+  refreshProjectSettings: () => Promise<void>;
   refreshProjectModels: () => Promise<void>;
   refreshRcModules: () => Promise<void>;
   findModelByName: (
@@ -147,7 +150,9 @@ export function LauncherDataProvider({
     };
   }, []);
 
-  const [projectMetas, setProjectMetas] = useState<LoadState<ProjectMeta[]>>({
+  const [projectSettings, setProjectSettings] = useState<
+    LoadState<ProjectSettingsSummary[]>
+  >({
     data: [],
     loading: true,
     error: null,
@@ -171,24 +176,24 @@ export function LauncherDataProvider({
   const metasRequestRef = useRef(0);
   const rcRequestRef = useRef(0);
 
-  const refreshProjectMetas = useCallback(async () => {
+  const refreshProjectSettings = useCallback(async () => {
     const requestId = ++metasRequestRef.current;
-    setProjectMetas((prev) => ({
+    setProjectSettings((prev) => ({
       ...prev,
       loading: prev.data.length === 0,
       error: null,
     }));
     try {
-      const metas = await fetchProjectMetas();
+      const summaries = await fetchProjectSettingsList();
       if (!isMountedRef.current || metasRequestRef.current !== requestId) {
         return;
       }
-      setProjectMetas({ data: metas, loading: false, error: null });
+      setProjectSettings({ data: summaries, loading: false, error: null });
     } catch (err) {
       if (!isMountedRef.current || metasRequestRef.current !== requestId) {
         return;
       }
-      setProjectMetas((prev) => ({
+      setProjectSettings((prev) => ({
         ...prev,
         loading: false,
         error: err instanceof Error ? err.message : String(err),
@@ -261,13 +266,13 @@ export function LauncherDataProvider({
   }, [projectPath]);
 
   useEffect(() => {
-    void refreshProjectMetas();
+    void refreshProjectSettings();
     const intervalId = window.setInterval(
-      () => void refreshProjectMetas(),
+      () => void refreshProjectSettings(),
       PROJECT_METAS_POLL_MS
     );
     return () => window.clearInterval(intervalId);
-  }, [refreshProjectMetas]);
+  }, [refreshProjectSettings]);
 
   useEffect(() => {
     void refreshProjectModels();
@@ -299,10 +304,10 @@ export function LauncherDataProvider({
 
   const value = useMemo<LauncherDataValue>(
     () => ({
-      projectMetas,
+      projectSettings,
       projectModels,
       rcModules,
-      refreshProjectMetas,
+      refreshProjectSettings,
       refreshProjectModels,
       refreshRcModules,
       findModelByName: (name: string) =>
@@ -310,10 +315,10 @@ export function LauncherDataProvider({
     }),
     [
       projectModels.data,
-      projectMetas,
+      projectSettings,
       projectModels,
       rcModules,
-      refreshProjectMetas,
+      refreshProjectSettings,
       refreshProjectModels,
       refreshRcModules,
     ]

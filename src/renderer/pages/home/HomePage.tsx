@@ -1,14 +1,13 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useRef, useState } from "react";
-import { useProjectContext } from "../../core/launcher";
-import { useProjectMetas } from "../../core/launcher";
+import { useProjectContext, useProjectSettingsList } from "../../core/launcher";
 import { useProjectChangeConfirmation } from "../../core/launcher";
 import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {
   const { projectPath, setProjectPath } = useProjectContext();
-  const { projects, error } = useProjectMetas(5000);
+  const { projects, error } = useProjectSettingsList(5000);
   const [selectedPath, setSelectedPath] = useState<string>("");
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
