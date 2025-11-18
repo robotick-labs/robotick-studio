@@ -7,7 +7,7 @@ const ProjectProvider = Project.Context.Provider;
 const LauncherProvider = Launcher.Context.Provider;
 const LauncherDataProvider = ProjectData.Provider;
 import { AppRoutes } from "./Router";
-import styles from "./styles/App/App.module.css";
+import styles from "./styles/App.module.css";
 
 export function App() {
   return (
