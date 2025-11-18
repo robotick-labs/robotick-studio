@@ -50,18 +50,17 @@
   border: 2px solid rgb(60, 102, 60);
   gap: 0;
   align-items: stretch;
-  overflow: hidden;
 }
 
 .navSubmenuControl {
   display: flex;
   gap: 8px;
   padding: 8px;
-  border-radius: inherit;
+  border-radius: calc(12px - 2px);
   background: rgb(60, 102, 60);
   flex: 1 1 auto;
   align-self: stretch;
-  margin: -2px 0;
+  margin: -2px;
 }
 
 .navSubmenuPages {
