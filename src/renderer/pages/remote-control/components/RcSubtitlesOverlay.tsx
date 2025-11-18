@@ -3,11 +3,12 @@ import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry";
 import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
 
+const SUBTITLES_POLL_INTERVAL_MS = 200; // every 0.2 seconds
+
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
   fieldPath?: string;
   modelName?: string;
-  telemetryModelName?: string;
 };
 
 type RcSubtitlesProps = {
@@ -18,8 +19,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   const { projectModels, findModelByName } = useLauncherData();
   const fieldPath = config?.fieldPath;
   const configuredBaseUrl = config?.telemetryBaseUrl?.trim();
-  const configuredModelName =
-    config?.telemetryModelName?.trim() ?? config?.modelName?.trim();
+  const configuredModelName = config?.modelName?.trim();
 
   const telemetryBaseUrl = useMemo(() => {
     if (configuredBaseUrl) {
@@ -48,7 +48,10 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     telemetryBaseUrl,
   ]);
 
-  const { model } = useTelemetryStream(telemetryBaseUrl ?? "", 100);
+  const { model } = useTelemetryStream(
+    telemetryBaseUrl ?? "",
+    SUBTITLES_POLL_INTERVAL_MS
+  );
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);
   const [animateKey, setAnimateKey] = useState(0);
