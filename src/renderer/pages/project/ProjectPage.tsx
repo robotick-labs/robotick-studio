@@ -1,7 +1,7 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import { Project } from "../../core/launcher";
+import { Project } from "../../data-sources/launcher";
 
 const useProjectContext = Project.Context.use;
 const fetchProjectSettingsData = Project.Service.settings.raw;

@@ -1,7 +1,7 @@
 import React from "react";
 import { BrowserRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
-import { Launcher, Project, ProjectData } from "./core/launcher";
+import { Launcher, Project, ProjectData } from "./data-sources/launcher";
 
 const ProjectProvider = Project.Context.Provider;
 const LauncherProvider = Launcher.Context.Provider;

@@ -1,7 +1,7 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useRef, useState } from "react";
-import { Project } from "../../core/launcher";
+import { Project } from "../../data-sources/launcher";
 
 const useProjectContext = Project.Context.use;
 const useProjectSettingsList = Project.Hooks.useSettingsList;

@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
-import { useTelemetryStream } from "../../../core/telemetry";
-import { ProjectData } from "../../../core/launcher";
+import { useTelemetryStream } from "../../../data-sources/telemetry";
+import { ProjectData } from "../../../data-sources/launcher";
 
 const SUBTITLES_POLL_RATE_HZ = 5; // poll 5x per second (every 200ms)
 

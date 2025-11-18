@@ -2,7 +2,7 @@
 import React, { useMemo } from "react";
 import { EngineModel } from "./types";
 import { TelemetryModel } from "./TelemetryModel";
-import { Project, ProjectData, Launcher } from "../../../core/launcher";
+import { Project, ProjectData, Launcher } from "../../../data-sources/launcher";
 import styles from "../Telemetry.module.css";
 
 export function TelemetryApp() {

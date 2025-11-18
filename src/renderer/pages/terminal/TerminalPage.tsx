@@ -1,7 +1,7 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
-import { Launcher } from "../../core/launcher";
+import { Launcher } from "../../data-sources/launcher";
 import styles from "./TerminalPage.module.css";
 
 const MAX_MESSAGES = 5000;

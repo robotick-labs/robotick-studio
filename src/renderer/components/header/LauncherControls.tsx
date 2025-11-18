@@ -1,5 +1,5 @@
 import React from "react";
-import { Launcher } from "../../core/launcher";
+import { Launcher } from "../../data-sources/launcher";
 import { LauncherDots } from "./LauncherDots";
 import styles from "./styles/LauncherControls.module.css";
 

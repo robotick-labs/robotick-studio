@@ -2,7 +2,7 @@
 import React from "react";
 import { TelemetryStructFields } from "./TelemetryStructFields";
 import styles from "../Telemetry.module.css";
-import type { ITelemetryWorkload } from "../../../core/telemetry";
+import type { ITelemetryWorkload } from "../../../data-sources/telemetry";
 
 function getStat(w: ITelemetryWorkload, fieldName: string) {
   const s = w.stats;

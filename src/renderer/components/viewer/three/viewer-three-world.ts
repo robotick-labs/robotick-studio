@@ -16,8 +16,11 @@ import {
   ResponseType,
 } from "../viewer-schema.js";
 
-import { ITelemetryModel, subscribeTelemetry } from "../../../core/telemetry";
-import { ProjectData } from "../../../core/launcher";
+import {
+  ITelemetryModel,
+  subscribeTelemetry,
+} from "../../../data-sources/telemetry/index.js";
+import { ProjectData } from "../../../data-sources/launcher/index.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,

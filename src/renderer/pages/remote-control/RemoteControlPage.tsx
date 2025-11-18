@@ -5,8 +5,8 @@ import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
-import { Project, ProjectData, Launcher } from "../../core/launcher";
-import type { RcModuleDescriptor } from "../../core/launcher";
+import { Project, ProjectData, Launcher } from "../../data-sources/launcher";
+import type { RcModuleDescriptor } from "../../data-sources/launcher";
 import styles from "./styles/RemoteControlPage.module.css";
 
 export default function RemoteControlPage() {

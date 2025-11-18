@@ -8,8 +8,8 @@ import type { ViewerConfig } from "../viewer-schema.js";
 import {
   ITelemetryModel,
   subscribeTelemetry,
-} from "../../../core/telemetry";
-import { ProjectData } from "../../../core/launcher";
+} from "../../../data-sources/telemetry/index.js";
+import { ProjectData } from "../../../data-sources/launcher/index.js";
 
 type CesiumViewerConfig = ViewerConfig & {
   telemetryModelName?: string;
