@@ -5,6 +5,7 @@ import {
   fetchRaw,
 } from "../../telemetry/document/telemetry-client";
 import { RC_TELEMETRY_BASE } from "../../../core/config";
+import styles from "./styles/RcTelemetryOverlay.module.css";
 
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 
@@ -55,12 +56,12 @@ export function RcTelemetryOverlay() {
   }, []);
 
   return (
-    <div className="rc-telemetry-overlay">
-      <div className="rc-telemetry-header">Mind Test Outputs</div>
+    <div className={styles.overlay}>
+      <div className={styles.header}>Mind Test Outputs</div>
       {error ? (
-        <div className="rc-telemetry-error">⚠️ {error}</div>
+        <div className={styles.error}>⚠️ {error}</div>
       ) : (
-        <pre className="rc-telemetry-pre">
+        <pre className={styles.pre}>
           {data ? JSON.stringify(data, null, 2) : "Loading..."}
         </pre>
       )}

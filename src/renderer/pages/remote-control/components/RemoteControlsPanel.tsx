@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { RemoteControlClient } from "./remoteControlClient";
+import styles from "./styles/RemoteControlsPanel.module.css";
 
 export default function RemoteControlsPanel() {
   const leftAreaRef = useRef<HTMLDivElement>(null);
@@ -46,19 +47,20 @@ export default function RemoteControlsPanel() {
 
   return (
     <>
-      <div className="joystick-row">
-        <div id="left-area" className="stick-area" ref={leftAreaRef}>
-          <div id="left-knob" className="knob" ref={leftKnobRef} />
+      <div className={styles.joystickRow}>
+        <div className={styles.stickArea} ref={leftAreaRef}>
+          <div className={styles.knob} ref={leftKnobRef} />
         </div>
-        <div id="right-area" className="stick-area" ref={rightAreaRef}>
-          <div id="right-knob" className="knob" ref={rightKnobRef} />
+        <div className={styles.stickArea} ref={rightAreaRef}>
+          <div className={styles.knob} ref={rightKnobRef} />
         </div>
       </div>
 
-      <div className="controls">
+      <div className={styles.controls}>
         <button
-          id="takeover-button"
-          className={`toggle-button ${useWebInputs ? "active" : "inactive"}`}
+          className={`${styles.toggleButton} ${
+            useWebInputs ? styles.toggleButtonActive : styles.toggleButtonInactive
+          }`.trim()}
           onClick={toggleTakeover}
         >
           TAKEOVER

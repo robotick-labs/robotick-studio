@@ -4,7 +4,7 @@ import { AppHeader } from "./components/header/AppHeader";
 import { LauncherProvider } from "./core/launcher-context";
 import { ProjectProvider } from "./core/project-context";
 import { AppRoutes } from "./router";
-import styles from "./App.module.css";
+import styles from "./styles/App/App.module.css";
 
 export function App() {
   return (

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
 import { fetchProjectModels } from "../../core/projects-api";
-import styles from "./ProfilePicker.module.css";
+import styles from "./styles/ProfilePicker.module.css";
 
 type ProfileOption = {
   value: string;

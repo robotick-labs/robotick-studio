@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
 import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
-import styles from "./HomePage.module.css";
+import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);

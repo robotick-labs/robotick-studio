@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useProjectContext } from "../../core/project-context";
 import { fetchProjectMetas, ProjectMeta } from "../../core/projects-api";
-import styles from "./ProjectPicker.module.css";
+import styles from "./styles/ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
 

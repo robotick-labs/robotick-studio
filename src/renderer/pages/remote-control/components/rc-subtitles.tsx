@@ -5,6 +5,7 @@ import {
   fetchRaw,
 } from "../../telemetry/document/telemetry-client";
 import { RC_TELEMETRY_BASE } from "../../../core/config";
+import styles from "./styles/RcSubtitlesOverlay.module.css";
 
 const TELEMETRY_WORKLOAD_ID = "rsc_mind_test";
 const FIELD_PATH = `${TELEMETRY_WORKLOAD_ID}.outputs.script.thought_text`;
@@ -63,15 +64,15 @@ export function RcSubtitlesOverlay() {
   }
 
   return (
-    <div className="subtitles-overlay" aria-live="polite" aria-atomic="true">
+    <div className={styles.overlay} aria-live="polite" aria-atomic="true">
       <div
         key={animateKey}
-        className={`subtitles-bubble ${
-          visible && safeSubtitle ? "show" : "hide"
-        }`}
+        className={`${styles.bubble} ${
+          visible && safeSubtitle ? styles.show : styles.hide
+        }`.trim()}
       >
         {safeSubtitle.split("\n").map((line, idx, arr) => (
-          <span className="subtitles-line" key={idx}>
+          <span className={styles.line} key={idx}>
             {line}
             {idx < arr.length - 1 ? <br /> : null}
           </span>

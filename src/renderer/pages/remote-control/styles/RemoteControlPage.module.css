@@ -1,0 +1,33 @@
+.rcUi {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.viewerContainer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  border-radius: 10px;
+  z-index: 0;
+}
+
+:global(#camera-stream) {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  display: block;
+  background: transparent;
+}
+
+:global(#camera-stream:empty),
+:global(#camera-stream[src=""]) {
+  background: transparent;
+}

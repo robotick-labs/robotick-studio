@@ -8,6 +8,7 @@ import RemoteControlsPanel from "./components/RemoteControlsPanel";
 import { useProjectContext } from "../../core/project-context";
 import { HUB_API_BASE } from "../../core/config";
 import { buildUrl, fetchJSON } from "../../core/http";
+import styles from "./styles/RemoteControlPage.module.css";
 
 export default function RemoteControlPage() {
   const { projectPath } = useProjectContext();
@@ -30,15 +31,15 @@ export default function RemoteControlPage() {
 
   if (!projectPath) {
     return (
-      <div className="rc-ui">
+      <div className={styles.rcUi}>
         <p style={{ padding: "1rem" }}>Select a project to begin.</p>
       </div>
     );
   }
 
   return (
-    <div id="rc-ui" className="rc-ui">
-      <div id="viewer-container" className="viewer-container" />
+    <div id="rc-ui" className={styles.rcUi}>
+      <div id="viewer-container" className={styles.viewerContainer} />
       <RemoteControlsPanel />
       {showOverlays ? (
         <>

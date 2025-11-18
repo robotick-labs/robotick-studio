@@ -1,7 +1,7 @@
 import React from "react";
 import { useLauncherContext } from "../../core/launcher-context";
 import { LauncherDots } from "./LauncherDots";
-import styles from "./LauncherControls.module.css";
+import styles from "./styles/LauncherControls.module.css";
 
 export function LauncherControls() {
   const { status, isBusy, isAwaitingStatus, lastError, run, stop, restart } =

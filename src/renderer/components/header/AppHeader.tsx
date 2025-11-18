@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
 import { ProjectPicker } from "./ProjectPicker";
-import styles from "./AppHeader.module.css";
+import styles from "./styles/AppHeader.module.css";
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
   [styles.navLink, isActive ? styles.navLinkActive : ""]
