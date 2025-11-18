@@ -1,50 +1,35 @@
 // src/js/pages/telemetry/view/TelemetryApp.tsx
-import React, { useEffect, useRef, useState } from "react";
-import { EngineState } from "./types";
-import { getEngineModels, startLivePolling } from "../document/polling";
+import React, { useEffect, useState } from "react";
+import { EngineModel } from "./types";
+import { getEngineModels } from "../document/polling";
 import { TelemetryModel } from "./TelemetryModel";
 
 export function TelemetryApp() {
-  const [engines, setEngines] = useState<EngineState[]>([]);
-  const enginesRef = useRef<EngineState[]>([]);
-  enginesRef.current = engines;
+  const [models, setModels] = useState<EngineModel[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      const engineModels = await getEngineModels();
-
-      const initial: EngineState[] = engineModels.map((model) => ({
-        model,
-        workloads: [],
-        workloadIndex: 0,
-        pollingController: new AbortController(),
-        livePollingController: new AbortController(),
-        hasInitialWorkloads: false,
-        canLivePoll: false,
-      }));
-
-      if (cancelled) return;
-      setEngines(initial);
-
-      startLivePolling(initial, setEngines);
+      try {
+        const engineModels = await getEngineModels();
+        if (!cancelled) {
+          setModels(engineModels);
+        }
+      } catch (err) {
+        console.warn("Failed to load engine models:", err);
+      }
     })();
 
     return () => {
       cancelled = true;
-      for (const s of enginesRef.current) {
-        s.pollingController.abort();
-        s.livePollingController.abort();
-      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <>
-      {engines.map((s) => (
-        <TelemetryModel key={s.model.instanceURL} state={s} />
+      {models.map((model, index) => (
+        <TelemetryModel key={model.instanceURL} model={model} index={index} />
       ))}
     </>
   );

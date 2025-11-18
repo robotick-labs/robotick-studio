@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { EngineState } from "./types";
+import React, { useEffect, useState } from "react";
+import { EngineModel } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
 import { urlToId } from "../document/polling";
+import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
+import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 
 /**
  * Format a byte count with comma thousands separators.
@@ -23,32 +25,40 @@ export function formatBytesWithCommas(value: any): string {
 }
 
 export function TelemetryModel({
-  state,
+  model,
   index,
 }: {
-  state: EngineState;
+  model: EngineModel;
   index: number;
 }) {
-  const { model, workloads, workloadsMemoryUsed, processMemoryUsed } = state;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
-  const updateKey = `telemetry-update-${urlToId(model.instanceURL)}`;
-
-  // Initialise expanded state (persisted in localStorage)
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     const saved = localStorage.getItem(storageKey);
     if (saved !== null) return saved === "true";
     return index < 4; // default-open first 4 models
   });
 
-  // Persist expanded state + polling preference
   useEffect(() => {
     localStorage.setItem(storageKey, String(isExpanded));
-    localStorage.setItem(updateKey, String(isExpanded));
-  }, [isExpanded, storageKey, updateKey]);
+  }, [isExpanded, storageKey]);
+
+  const { model: telemetryModel, error } = useTelemetryStream(
+    isExpanded ? model.instanceURL : "",
+    100
+  );
+  const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
+
+  useEffect(() => {
+    if (telemetryModel) {
+      setLatestModel(telemetryModel);
+    }
+  }, [telemetryModel]);
+
+  const workloads = latestModel?.workloads ?? [];
+  const workloadsMemoryUsed = latestModel?.workloads_buffer_size_used ?? 0;
+  const processMemoryUsed = latestModel?.process_memory_used ?? 0;
 
   const handleToggle = () => setIsExpanded((prev) => !prev);
-
-  // Prevent clicks inside the table from toggling expansion
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -69,6 +79,11 @@ export function TelemetryModel({
 
       {isExpanded && (
         <div onClick={stopPropagation}>
+          {error ? (
+            <div style={{ color: "#ff6b6b", marginBottom: "0.5rem" }}>
+              Failed to load telemetry: {String(error)}
+            </div>
+          ) : null}
           <table
             id={`table-${urlToId(model.instanceURL)}`}
             className="telemetry"

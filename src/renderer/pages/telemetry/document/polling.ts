@@ -4,19 +4,9 @@
 // -----------------------------------------------------------------------------
 
 import currentProject from "../../../core/current-project";
-import { EngineModel, EngineState } from "../view/types.js";
-import {
-  fetchLayout,
-  fetchRaw,
-  createTelemetryModel,
-  LayoutModel,
-  ITelemetryModel,
-} from "../../../core/telemetry/telemetry-client";
+import { EngineModel } from "../view/types.js";
 import { HUB_API_BASE } from "../../../core/config";
 import { buildUrl, fetchJSON } from "../../../core/http";
-
-// Polling frequency (20 Hz UI cadence)
-const LIVE_SLEEP_MS = 50;
 
 // -----------------------------------------------------------------------------
 // Utilities
@@ -111,86 +101,3 @@ export async function getEngineModels(): Promise<EngineModel[]> {
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
-
-export function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// -----------------------------------------------------------------------------
-// GLOBAL polling loop
-// -----------------------------------------------------------------------------
-
-export async function startLivePolling(
-  engines: EngineState[],
-  setEngines: React.Dispatch<React.SetStateAction<EngineState[]>>
-) {
-  // Layout + session caches per engine
-  const layouts: Record<string, LayoutModel | null> = {};
-  const decodedModels: Record<string, ITelemetryModel | null> = {};
-  const sessionIds: Record<string, string | null> = {};
-
-  while (true) {
-    const activeEngines = engines.filter(
-      (e) =>
-        localStorage.getItem(
-          `telemetry-update-${urlToId(e.model.instanceURL)}`
-        ) === "true"
-    );
-
-    const results = await Promise.all(
-      activeEngines.map(async (engine) => {
-        const url = engine.model.instanceURL;
-
-        // Always fetch fresh raw buffer + identifying session-id
-        const { raw, sid } = await fetchRaw(url);
-
-        // If session changed → refresh layout
-        let layout = layouts[url];
-        let telemetryModel = decodedModels[url];
-        if (
-          !layout ||
-          !telemetryModel ||
-          (sessionIds[url] && sessionIds[url] !== sid)
-        ) {
-          layout = await fetchLayout(url);
-          layouts[url] = layout;
-          telemetryModel = layout ? createTelemetryModel(layout) : null;
-          decodedModels[url] = telemetryModel;
-        }
-        sessionIds[url] = sid;
-
-        if (telemetryModel) {
-          telemetryModel.raw = raw;
-        }
-
-        return { url, telemetryModel };
-      })
-    );
-
-    // Apply to React state in a single pass
-    setEngines((prev) =>
-      prev.map((engine) => {
-        const r = results.find((x) => x.url === engine.model.instanceURL);
-        if (
-          !r ||
-          !r.telemetryModel ||
-          !r.telemetryModel.raw ||
-          r.telemetryModel.raw.byteLength == 0
-        )
-          return engine;
-
-        return {
-          ...engine,
-          workloads: r.telemetryModel.workloads,
-          workloadsMemoryUsed: r.telemetryModel.workloads_buffer_size_used,
-          processMemoryUsed: r.telemetryModel.process_memory_used,
-          canLivePoll: true,
-          hasInitialWorkloads: true,
-        };
-      })
-    );
-
-    // Maintain stable cadence
-    await sleep(LIVE_SLEEP_MS);
-  }
-}
