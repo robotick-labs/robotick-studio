@@ -1,63 +1,26 @@
 // src/renderer/pages/remote-control/RemoteControlPage.tsx
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo } from "react";
 import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
 import { useProjectContext } from "../../core/ProjectContext";
-import { fetchProjectRemoteControlSettings } from "../../core/launcher-interface";
+import { useLauncherData } from "../../core/LauncherDataContext";
+import { useLauncherContext } from "../../core/LauncherContext";
 import styles from "./styles/RemoteControlPage.module.css";
-
-type RcModuleDescriptor = {
-  type: string;
-  config?: Record<string, unknown>;
-};
-
-type RcSettingsResponse = {
-  modules?: unknown;
-  viewer?: Record<string, unknown>;
-};
 
 export default function RemoteControlPage() {
   const { projectPath } = useProjectContext();
-  const [modules, setModules] = useState<RcModuleDescriptor[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { rcModules } = useLauncherData();
+  const { status } = useLauncherContext();
+  const modules = rcModules.data;
 
   useEffect(() => {
-    if (!projectPath) {
-      setModules([]);
+    if (status !== "running") {
+      void viewer.uninit();
       return;
     }
-    const abortController = new AbortController();
-
-    async function loadSettings() {
-      setModules([]);
-      setError(null);
-      try {
-        const config = await fetchRCSettings(
-          projectPath,
-          abortController.signal
-        );
-        if (!abortController.signal.aborted) {
-          setModules(normalizeModules(config));
-          setError(null);
-        }
-      } catch (err) {
-        if (abortController.signal.aborted) return;
-        console.warn("Failed to load RC settings:", err);
-        setModules([]);
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-
-    loadSettings();
-    return () => {
-      abortController.abort();
-    };
-  }, [projectPath]);
-
-  useEffect(() => {
     const viewerModule = modules.find((mod) => mod.type.startsWith("viewer/"));
     if (!viewerModule) {
       void viewer.uninit();
@@ -79,7 +42,7 @@ export default function RemoteControlPage() {
     return () => {
       void viewer.uninit();
     };
-  }, [modules, projectPath]);
+  }, [modules, projectPath, status]);
 
   const subtitlesModule = useMemo(
     () => modules.find((mod) => mod.type === "overlay/subtitles"),
@@ -102,6 +65,24 @@ export default function RemoteControlPage() {
     );
   }
 
+  if (status !== "running") {
+    return (
+      <div className={styles.rcUi}>
+        <p style={{ padding: "1rem", textAlign: "center" }}>
+          Launch your robot to enable remote control.
+        </p>
+      </div>
+    );
+  }
+
+  if (rcModules.loading && modules.length === 0) {
+    return (
+      <div className={styles.rcUi}>
+        <p style={{ padding: "1rem" }}>Loading remote control modules…</p>
+      </div>
+    );
+  }
+
   return (
     <div id="rc-ui" className={styles.rcUi}>
       <div id="viewer-container" className={styles.viewerContainer} />
@@ -114,38 +95,13 @@ export default function RemoteControlPage() {
       {telemetryModule ? (
         <RcTelemetryOverlay config={telemetryModule.config} />
       ) : null}
-      {error ? (
+      {rcModules.error ? (
         <div
           style={{ position: "absolute", top: 16, left: 16, color: "#ff6b6b" }}
         >
-          Failed to load RC modules: {error}
+          Failed to load RC modules: {rcModules.error}
         </div>
       ) : null}
     </div>
-  );
-}
-
-function normalizeModules(
-  settings: RcSettingsResponse | null
-): RcModuleDescriptor[] {
-  if (!settings) return [];
-  const modules: RcModuleDescriptor[] = [];
-
-  const rawModules = Array.isArray(settings.modules) ? settings.modules : [];
-  for (const raw of rawModules) {
-    if (!raw || typeof raw !== "object") continue;
-    const type = String((raw as { type?: unknown }).type ?? "").trim();
-    if (!type) continue;
-    const config = (raw as { config?: Record<string, unknown> }).config;
-    modules.push({ type, config });
-  }
-
-  return modules;
-}
-
-async function fetchRCSettings(projectPath: string, signal: AbortSignal) {
-  return await fetchProjectRemoteControlSettings<RcSettingsResponse>(
-    projectPath,
-    signal
   );
 }

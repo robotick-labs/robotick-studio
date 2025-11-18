@@ -3,7 +3,7 @@
 import type { ViewerConfig } from "../viewer-schema";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
 import type { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
-import currentProject from "../../../core/launcher-interface";
+import { waitForProjectModelsLoaded } from "../../../core/LauncherDataContext";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
   sourceModel?: string;
@@ -127,24 +127,20 @@ async function resolveTelemetryBaseUrl(
   if (!sourceModel) return null;
 
   try {
-    const projectPath = currentProject.getProjectPath();
-    if (!projectPath) {
-      console.warn(
-        "[streaming-image] No active project while resolving telemetry model"
-      );
-      return null;
-    }
-    const models = await currentProject.getProjectModels(projectPath);
+    const state = await waitForProjectModelsLoaded();
     const match =
-      models.find(
-        (model) => deriveModelSlug(model.modelPath) === sourceModel
-      ) ?? null;
+      state.data.find((model) => model.modelShortName === sourceModel) ?? null;
     if (!match) {
-      console.warn(
-        `[streaming-image] Model "${sourceModel}" not found in project ${projectPath}. Available models: ${models
-          .map((m) => deriveModelSlug(m.modelPath))
-          .join(", ")}`
-      );
+      if (state.error) {
+        console.warn(
+          `[streaming-image] Unable to resolve telemetry model due to error: ${state.error}`
+        );
+      } else {
+        const available = state.data.map((m) => m.modelShortName).join(", ");
+        console.warn(
+          `[streaming-image] Model "${sourceModel}" not found. Available models: ${available}`
+        );
+      }
     } else {
       console.info(
         `[streaming-image] Using telemetry source "${match.modelName}" at ${match.telemetryBaseUrl}`
@@ -161,14 +157,3 @@ async function resolveTelemetryBaseUrl(
 }
 
 export default { init, uninit };
-
-function deriveModelSlug(modelPath: string): string {
-  const filename = modelPath.split("/").pop() ?? modelPath;
-  if (filename.endsWith(".model.yaml")) {
-    return filename.slice(0, -".model.yaml".length);
-  }
-  if (filename.endsWith(".yaml")) {
-    return filename.slice(0, -".yaml".length);
-  }
-  return filename;
-}

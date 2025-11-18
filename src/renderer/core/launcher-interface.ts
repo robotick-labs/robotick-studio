@@ -55,6 +55,7 @@ type LauncherProfileChangedListener = (profile: string) => void;
 
 export interface ProjectModelDescriptor<T = unknown> {
   modelPath: string;
+  modelShortName: string;
   modelName: string;
   telemetryPort: number;
   telemetryBaseUrl: string;
@@ -135,6 +136,17 @@ function normalizePort(portValue: unknown): number {
 
 function buildTelemetryBaseUrl(port: number) {
   return `http://${getModelHostName()}:${port}`;
+}
+
+function buildModelShortName(modelPath: string): string {
+  const filename = modelPath.split("/").pop() ?? modelPath;
+  if (filename.endsWith(".model.yaml")) {
+    return filename.slice(0, -".model.yaml".length);
+  }
+  if (filename.endsWith(".yaml")) {
+    return filename.slice(0, -".yaml".length);
+  }
+  return filename;
 }
 
 export async function fetchProjectPaths(): Promise<string[]> {
@@ -236,6 +248,7 @@ async function buildModelDescriptors<T = unknown>(
 
       descriptors.push({
         modelPath,
+        modelShortName: buildModelShortName(modelPath),
         modelName,
         telemetryPort,
         telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
