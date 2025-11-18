@@ -5,18 +5,14 @@ import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
-import {
-  useProjectContext,
-  useLauncherData,
-  useLauncherContext,
-  RcModuleDescriptor,
-} from "../../core/launcher";
+import { Project, ProjectData, Launcher } from "../../core/launcher";
+import type { RcModuleDescriptor } from "../../core/launcher";
 import styles from "./styles/RemoteControlPage.module.css";
 
 export default function RemoteControlPage() {
-  const { projectPath } = useProjectContext();
-  const { rcModules } = useLauncherData();
-  const { status } = useLauncherContext();
+  const { projectPath } = Project.Context.use();
+  const { rcModules } = ProjectData.use();
+  const { status } = Launcher.Context.use();
   const modules = rcModules.data;
 
   const viewerSelectionCache = React.useRef<{

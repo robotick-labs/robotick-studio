@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styles from "./styles/RcTelemetryOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry";
-import { useLauncherData } from "../../../core/launcher";
+import { ProjectData } from "../../../core/launcher";
 
 type RcTelemetryConfig = {
   telemetryBaseUrl?: string;
@@ -15,7 +15,7 @@ type RcTelemetryProps = {
 };
 
 export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
-  const { projectModels, findModelByName } = useLauncherData();
+  const { projectModels, findModelByName } = ProjectData.use();
   const configuredBaseUrl = config?.telemetryBaseUrl?.trim();
   const configuredModelName =
     config?.telemetryModelName?.trim() ?? config?.modelName?.trim();

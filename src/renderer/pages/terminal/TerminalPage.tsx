@@ -1,7 +1,7 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
-import { launcherEvents, getLauncherLogStreamUrl } from "../../core/launcher";
+import { Launcher } from "../../core/launcher";
 import styles from "./TerminalPage.module.css";
 
 const MAX_MESSAGES = 5000;
@@ -33,7 +33,7 @@ export default function TerminalPage() {
       let ws: WebSocket;
 
       try {
-        const socketUrl = getLauncherLogStreamUrl();
+        const socketUrl = Launcher.Service.logs.streamUrl();
         ws = new WebSocket(socketUrl);
         wsRef.current = ws;
       } catch (err) {
@@ -108,8 +108,9 @@ export default function TerminalPage() {
       }
     };
 
-    launcherEvents.addEventListener("run-requested", handler);
-    return () => launcherEvents.removeEventListener("run-requested", handler);
+    Launcher.Context.events.addEventListener("run-requested", handler);
+    return () =>
+      Launcher.Context.events.removeEventListener("run-requested", handler);
   }, [clearOnRun]);
 
   // ---------------------------------------------------------------------------

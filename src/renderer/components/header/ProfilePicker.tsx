@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
-import { useProjectContext } from "../../core/launcher";
-import { useProjectModels } from "../../core/launcher";
+import { Project } from "../../core/launcher";
+
+const useProjectContext = Project.Context.use;
+const useProjectModels = Project.Hooks.useModels;
 import styles from "./styles/ProfilePicker.module.css";
 
 type ProfileOption = {

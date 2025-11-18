@@ -20,7 +20,7 @@ import {
   ITelemetryModel,
   subscribeTelemetry,
 } from "../../../core/telemetry";
-import { waitForModelDescriptorByName } from "../../../core/launcher";
+import { ProjectData } from "../../../core/launcher";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -555,7 +555,9 @@ export class ViewerWorld {
       return null;
     }
     try {
-      const descriptor = await waitForModelDescriptorByName(modelName);
+      const descriptor = await ProjectData.waitForModelDescriptorByName(
+        modelName
+      );
       if (!descriptor) {
         console.warn(
           `[viewer] telemetry model "${modelName}" not found in project data`

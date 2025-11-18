@@ -1,11 +1,11 @@
 import React from "react";
 import { BrowserRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
-import {
-  LauncherProvider,
-  ProjectProvider,
-  LauncherDataProvider,
-} from "./core/launcher";
+import { Launcher, Project, ProjectData } from "./core/launcher";
+
+const ProjectProvider = Project.Context.Provider;
+const LauncherProvider = Launcher.Context.Provider;
+const LauncherDataProvider = ProjectData.Provider;
 import { AppRoutes } from "./Router";
 import styles from "./styles/App/App.module.css";
 

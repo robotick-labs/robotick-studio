@@ -9,7 +9,7 @@ import {
   ITelemetryModel,
   subscribeTelemetry,
 } from "../../../core/telemetry";
-import { waitForModelDescriptorByName } from "../../../core/launcher";
+import { ProjectData } from "../../../core/launcher";
 
 type CesiumViewerConfig = ViewerConfig & {
   telemetryModelName?: string;
@@ -237,7 +237,9 @@ async function resolveCesiumTelemetryBase(
   }
 
   try {
-    const descriptor = await waitForModelDescriptorByName(modelName);
+    const descriptor = await ProjectData.waitForModelDescriptorByName(
+      modelName
+    );
     if (!descriptor) {
       console.warn(
         `[Cesium viewer] Telemetry model "${modelName}" not found in project data.`

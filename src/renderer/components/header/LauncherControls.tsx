@@ -1,7 +1,9 @@
 import React from "react";
-import { useLauncherContext } from "../../core/launcher";
+import { Launcher } from "../../core/launcher";
 import { LauncherDots } from "./LauncherDots";
 import styles from "./styles/LauncherControls.module.css";
+
+const useLauncherContext = Launcher.Context.use;
 
 export function LauncherControls() {
   const {

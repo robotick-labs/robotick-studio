@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
-import { useProjectContext } from "../../core/launcher";
+import { Project } from "../../core/launcher";
+
+const useProjectContext = Project.Context.use;
 
 import { DocumentStore } from "./document/documentStore";
 import {

@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry";
-import { useLauncherData } from "../../../core/launcher";
+import { ProjectData } from "../../../core/launcher";
 
 const SUBTITLES_POLL_RATE_HZ = 5; // poll 5x per second (every 200ms)
 
@@ -16,7 +16,7 @@ type RcSubtitlesProps = {
 };
 
 export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
-  const { projectModels, findModelByName } = useLauncherData();
+  const { projectModels, findModelByName } = ProjectData.use();
   const fieldPath = config?.fieldPath;
   const configuredBaseUrl = config?.telemetryBaseUrl?.trim();
   const configuredModelName = config?.modelName?.trim();

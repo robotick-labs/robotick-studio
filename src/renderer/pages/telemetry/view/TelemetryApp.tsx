@@ -2,17 +2,13 @@
 import React, { useMemo } from "react";
 import { EngineModel } from "./types";
 import { TelemetryModel } from "./TelemetryModel";
-import {
-  useProjectContext,
-  useLauncherData,
-  useLauncherContext,
-} from "../../../core/launcher";
+import { Project, ProjectData, Launcher } from "../../../core/launcher";
 import styles from "../Telemetry.module.css";
 
 export function TelemetryApp() {
-  const { projectPath } = useProjectContext();
-  const { status } = useLauncherContext();
-  const { projectModels } = useLauncherData();
+  const { projectPath } = Project.Context.use();
+  const { status } = Launcher.Context.use();
+  const { projectModels } = ProjectData.use();
 
   const engineModels = useMemo<EngineModel[]>(() => {
     const extractPort = (url?: string): number => {

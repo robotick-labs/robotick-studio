@@ -1,8 +1,11 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useRef, useState } from "react";
-import { useProjectContext, useProjectSettingsList } from "../../core/launcher";
-import { useProjectChangeConfirmation } from "../../core/launcher";
+import { Project } from "../../core/launcher";
+
+const useProjectContext = Project.Context.use;
+const useProjectSettingsList = Project.Hooks.useSettingsList;
+const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
 import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {

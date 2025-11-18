@@ -1,7 +1,9 @@
 import React, { useMemo } from "react";
-import { useProjectContext } from "../../core/launcher";
-import { useProjectSettingsList } from "../../core/launcher";
-import { useProjectChangeConfirmation } from "../../core/launcher";
+import { Project } from "../../core/launcher";
+
+const useProjectContext = Project.Context.use;
+const useProjectSettingsList = Project.Hooks.useSettingsList;
+const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
 import styles from "./styles/ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
