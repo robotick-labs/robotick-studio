@@ -1,12 +1,55 @@
-import { LAUNCHER_LOCAL_API_BASE } from "./config";
-import { buildUrl, buildWebSocketUrl, fetchJSON, tryFetchJSON } from "./http";
+function ensureTrailingSlash(url: string) {
+  return url.endsWith("/") ? url : `${url}/`;
+}
+
+export function buildUrl(
+  baseUrl: string,
+  path: string,
+  params?: Record<string, string | number | undefined>
+): string {
+  const url = new URL(path, ensureTrailingSlash(baseUrl));
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined) continue;
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url.toString();
+}
+
+export function buildWebSocketUrl(baseUrl: string, path: string): string {
+  const url = new URL(path, ensureTrailingSlash(baseUrl));
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
+async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Request failed ${response.status} ${response.statusText}: ${text}`
+    );
+  }
+  return (await response.json()) as T;
+}
+
+async function tryFetchJSON<T>(
+  url: string,
+  init?: RequestInit
+): Promise<T | null> {
+  try {
+    return await fetchJSON<T>(url, init);
+  } catch {
+    return null;
+  }
+}
 
 const KEY_PROJECT_PATH = "robotick-hub.projectPath";
 const KEY_LAUNCHER_PROFILE = "robotick-hub.launcherProfile";
 const DEFAULT_MODEL_HOST = "localhost";
 const DEFAULT_TELEMETRY_PORT = 7090;
 const LAUNCHER_LOCAL_API_BASE = "http://localhost:7081";
-
 type ProjectChangedListener = (path: string) => void;
 type LauncherProfileChangedListener = (profile: string) => void;
 

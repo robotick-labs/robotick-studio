@@ -9,12 +9,12 @@ import React, {
 } from "react";
 import { useProjectContext } from "./ProjectContext";
 import {
+  buildUrl,
   fetchLauncherStatus,
   getPrimaryTelemetryBase,
   requestLauncherRun,
   requestLauncherStop,
 } from "./launcher-interface";
-import { buildUrl } from "./http";
 
 export type LauncherStatus = "stopped" | "starting" | "running";
 
