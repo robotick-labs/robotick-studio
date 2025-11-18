@@ -9,6 +9,7 @@ import { useProjectContext } from "../../core/ProjectContext";
 import { useLauncherData } from "../../core/LauncherDataContext";
 import { useLauncherContext } from "../../core/LauncherContext";
 import styles from "./styles/RemoteControlPage.module.css";
+import type { RcModuleDescriptor } from "../../core/remote-control-types";
 
 export default function RemoteControlPage() {
   const { projectPath } = useProjectContext();
@@ -16,14 +17,33 @@ export default function RemoteControlPage() {
   const { status } = useLauncherContext();
   const modules = rcModules.data;
 
+  const viewerSelectionCache = React.useRef<{
+    key: string;
+    module: RcModuleDescriptor | null;
+  }>({ key: "none", module: null });
+
+  const viewerSelection = React.useMemo(() => {
+    const module = modules.find((mod) => mod.type.startsWith("viewer/")) ?? null;
+    const serializedConfig = module
+      ? JSON.stringify(module.config ?? {})
+      : "";
+    const key = module ? `${module.type}:${serializedConfig}` : "none";
+    if (viewerSelectionCache.current.key === key) {
+      return viewerSelectionCache.current;
+    }
+    const next = { key, module };
+    viewerSelectionCache.current = next;
+    return next;
+  }, [modules]);
+
   useEffect(() => {
+    const { module: viewerModule, key: viewerKey } = viewerSelection;
     if (status !== "running") {
-      void viewer.uninit();
+      void viewer.uninit(`launcher status ${status}`);
       return;
     }
-    const viewerModule = modules.find((mod) => mod.type.startsWith("viewer/"));
     if (!viewerModule) {
-      void viewer.uninit();
+      void viewer.uninit("no viewer module configured");
       return;
     }
 
@@ -40,9 +60,9 @@ export default function RemoteControlPage() {
     }
 
     return () => {
-      void viewer.uninit();
+      void viewer.uninit("remote control viewer effect cleanup");
     };
-  }, [modules, projectPath, status]);
+  }, [projectPath, status, viewerSelection.key]);
 
   const subtitlesModule = useMemo(
     () => modules.find((mod) => mod.type === "overlay/subtitles"),

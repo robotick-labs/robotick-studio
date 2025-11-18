@@ -20,6 +20,7 @@ export type LauncherStatus = "stopped" | "starting" | "running";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
+const HEALTH_FAILURE_GRACE_MS = 2000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -51,6 +52,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [reportedStatus, setReportedStatus] =
     useState<LauncherStatus>("stopped");
   const fastPollUntilRef = useRef(0);
+  const lastRobotAliveAtRef = useRef<number | null>(null);
 
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
@@ -74,12 +76,19 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           const launcherActive = launcherStatus !== "stopped";
           const robotAlive = launcherActive ? await checkRobotAlive() : false;
 
-          const nextStatus: LauncherStatus =
-            launcherStatus === "running"
-              ? robotAlive
-                ? "running"
-                : "starting"
-              : launcherStatus;
+          let nextStatus: LauncherStatus = launcherStatus;
+          if (launcherStatus === "running") {
+            if (robotAlive) {
+              lastRobotAliveAtRef.current = Date.now();
+            }
+            const lastAlive = lastRobotAliveAtRef.current;
+            const aliveRecently =
+              typeof lastAlive === "number" &&
+              Date.now() - lastAlive <= HEALTH_FAILURE_GRACE_MS;
+            nextStatus = aliveRecently ? "running" : "starting";
+          } else {
+            lastRobotAliveAtRef.current = null;
+          }
 
           setStatus((prev) => (prev === nextStatus ? prev : nextStatus));
           setPendingTarget((target) =>

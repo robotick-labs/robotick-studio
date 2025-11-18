@@ -58,7 +58,6 @@ export default function TerminalPage() {
 
       ws.onmessage = (event) => {
         const text = event.data;
-        console.log("[terminal] message:", text);
         setMessages((prev) => [...prev, text]);
       };
     }

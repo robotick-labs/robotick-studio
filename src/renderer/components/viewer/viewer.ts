@@ -44,13 +44,16 @@ export function init(
  * Teardown any active viewer and invalidate in-flight loads
  * by bumping the token. Returns a promise you may await if desired.
  */
-export async function uninit(): Promise<void> {
+export async function uninit(reason?: string): Promise<void> {
   // Invalidate any in-flight loads or future 'late' completions.
   const token = ++loadSeq;
   currentToken = token;
 
   // Snapshot existing module; clear references immediately.
   const prev = viewerModule;
+  if (prev && reason) {
+    console.info(`[viewer] Uninitializing due to: ${reason}`);
+  }
   viewerType = null;
   viewerModule = null;
 
