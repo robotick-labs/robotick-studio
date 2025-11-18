@@ -48,30 +48,14 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     telemetryBaseUrl,
   ]);
 
-  if (!fieldPath) {
-    console.warn(
-      "[rc-subtitles] Missing fieldPath in module configuration",
-      config
-    );
-    return null;
-  }
-
-  if (!telemetryBaseUrl) {
-    console.warn(
-      "[rc-subtitles] Missing telemetry source. Provide telemetryBaseUrl or modelName.",
-      config
-    );
-    return null;
-  }
-
-  const { model } = useTelemetryStream(telemetryBaseUrl, 100);
+  const { model } = useTelemetryStream(telemetryBaseUrl ?? "", 100);
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);
   const [animateKey, setAnimateKey] = useState(0);
   const lastTextRef = useRef("");
 
   useEffect(() => {
-    if (!model || !model.getField) return;
+    if (!fieldPath || !telemetryBaseUrl || !model?.getField) return;
     const field = model.getField(fieldPath);
     const value = field?.getValue?.();
     if (typeof value !== "string") return;
@@ -82,11 +66,19 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       setVisible(Boolean(normalized));
       setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
-  }, [model, fieldPath]);
+  }, [model, fieldPath, telemetryBaseUrl]);
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
-  if (!safeSubtitle) {
+  if (!fieldPath) {
+    console.warn(
+      "[rc-subtitles] Missing fieldPath in module configuration",
+      config
+    );
+    return null;
+  }
+
+  if (!telemetryBaseUrl || !model) {
     return null;
   }
 
@@ -95,7 +87,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       <div
         key={animateKey}
         className={`${styles.bubble} ${
-          visible && safeSubtitle ? styles.show : styles.hide
+          visible ? styles.show : styles.hide
         }`.trim()}
       >
         {safeSubtitle.split("\n").map((line, idx, arr) => (

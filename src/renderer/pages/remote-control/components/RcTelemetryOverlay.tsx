@@ -48,20 +48,18 @@ export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
     telemetryBaseUrl,
   ]);
 
-  if (!telemetryBaseUrl) {
-    console.warn(
-      "[rc-telemetry] Missing telemetry source. Provide telemetryBaseUrl or modelName."
-    );
-    return null;
-  }
+  const { model, error } = useTelemetryStream(telemetryBaseUrl ?? "", 100);
 
-  const { model, error } = useTelemetryStream(telemetryBaseUrl, 100);
   const data = useMemo(() => {
-    if (!model) return null;
+    if (!telemetryBaseUrl || !model) return null;
     const workload = model.workloads.find((w) => w.name === workloadId);
     if (!workload || !workload.outputs) return null;
     return buildNestedFromStruct(workload.outputs);
-  }, [model, workloadId]);
+  }, [model, telemetryBaseUrl, workloadId]);
+
+  if (!telemetryBaseUrl || !model) {
+    return null;
+  }
 
   return (
     <div className={styles.overlay}>
