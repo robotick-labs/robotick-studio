@@ -60,7 +60,9 @@
   background: rgb(60, 102, 60);
   flex: 1 1 auto;
   align-self: stretch;
-  margin: -2px;
+  margin-top: -2px;
+  margin-bottom: -2px;
+  margin-right: 2px;
 }
 
 .navSubmenuPages {
