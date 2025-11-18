@@ -16,11 +16,8 @@ import {
   ResponseType,
 } from "../viewer-schema.js";
 
-import {
-  fetchLayout,
-  fetchRaw,
-  createTelemetryModel,
-} from "../../../pages/telemetry/document/telemetry-client.js";
+import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
+import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -31,32 +28,6 @@ const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
 };
 
 type NodeIndex = Map<string, THREE.Object3D>;
-
-class IntervalPoller {
-  private timer: number | null = null;
-  constructor(private cb: () => Promise<void>, private intervalMs: number) {}
-  start() {
-    if (this.timer !== null) return;
-    const tick = async () => {
-      const t0 = performance.now();
-      try {
-        await this.cb();
-      } catch (e) {
-        console.warn(e);
-      }
-      const elapsed = performance.now() - t0;
-      const wait = Math.max(0, this.intervalMs - elapsed);
-      this.timer = window.setTimeout(tick, wait);
-    };
-    this.timer = window.setTimeout(tick, this.intervalMs);
-  }
-  stop() {
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-  }
-}
 
 export class ViewerWorld {
   // temp scratch
@@ -92,7 +63,7 @@ export class ViewerWorld {
   private nodeIndex = new Map<string, NodeIndex>(); // per model id
 
   // telemetry
-  private telemetryAnimators = new Map<string, IntervalPoller>();
+  private telemetrySubscriptions = new Map<string, () => void>();
 
   // render loop
   private animReq: number | null = null;
@@ -268,8 +239,8 @@ export class ViewerWorld {
 
   dispose() {
     window.removeEventListener("resize", this.onResize);
-    this.telemetryAnimators.forEach((p) => p.stop());
-    this.telemetryAnimators.clear();
+    this.telemetrySubscriptions.forEach((dispose) => dispose());
+    this.telemetrySubscriptions.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
     this.controls?.dispose();
     this.pmrem?.dispose();
@@ -501,56 +472,47 @@ export class ViewerWorld {
 
   // ---------- polling ----------
   private installPollers() {
+    this.telemetrySubscriptions.forEach((dispose) => dispose());
+    this.telemetrySubscriptions.clear();
     if (!this.worldConfig.telemetryAnimators) return;
-    this.telemetryAnimators.forEach((p) => p.stop());
-    this.telemetryAnimators.clear();
 
-    for (const p of this.worldConfig.telemetryAnimators) {
-      const poller = new IntervalPoller(async () => {
-        await this.executePoller(p);
-      }, p.intervalMs);
-      this.telemetryAnimators.set(p.id, poller);
-      poller.start();
+    for (const config of this.worldConfig.telemetryAnimators) {
+      const unsubscribe = subscribeTelemetry(
+        config.baseUrl,
+        config.intervalMs,
+        {
+          callback: (model) => {
+            void this.executePoller(config, model);
+          },
+          error: (err) =>
+            console.warn(`[viewer] telemetry poller ${config.id} failed`, err),
+        }
+      );
+      this.telemetrySubscriptions.set(config.id, unsubscribe);
     }
   }
 
-  // New: fetch telemetryModel model (layout + raw), set raw, return telemetryModel.
-  private async fetchTelemetryModel(baseUrl: string): Promise<any | null> {
-    try {
-      const layout = await fetchLayout(baseUrl);
-      if (!layout) return;
-
-      const { raw } = await fetchRaw(baseUrl);
-      if (!raw) return;
-
-      const telemetryModel = createTelemetryModel(layout);
-      if (!telemetryModel) return null;
-
-      telemetryModel.raw = raw;
-
-      return telemetryModel;
-    } catch (err) {
-      console.warn("[viewer] telemetry fetch failed:", err);
-      return null;
+  private async executePoller(
+    poller: RestPoller,
+    telemetryModel: ITelemetryModel
+  ) {
+    const workload = telemetryModel.workloads.find(
+      (w) => w.name === poller.workloadName
+    );
+    if (!workload) {
+      return;
     }
-  }
 
-  private async executePoller(poller: RestPoller) {
-    const telemetryModel = await this.fetchTelemetryModel(poller.baseUrl);
-    if (!telemetryModel) return;
-
-    // Fields → drive scene from scalar/vec/quats
     if (poller.fields?.length) {
       this.applyFieldsData(
         poller.workloadName,
-        poller.fields!,
+        poller.fields,
         telemetryModel,
         poller.defaultSpace,
         poller.sourceUp
       );
     }
 
-    // Textures → expect binary payloads (Uint8Array / ArrayBuffer)
     if (poller.textureFields?.length) {
       for (const t of poller.textureFields) {
         const fieldPath = `${poller.workloadName}.${t.fieldId}`;
@@ -618,7 +580,7 @@ export class ViewerWorld {
   private applyFieldsData(
     workloadName: string,
     maps: Required<RestPoller>["fields"],
-    telemetryModel: any,
+    telemetryModel: ITelemetryModel,
     defaultSpace?: "local" | "world",
     defaultSourceUp?: "Y" | "Z"
   ) {

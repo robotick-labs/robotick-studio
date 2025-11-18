@@ -11,7 +11,7 @@ import {
   createTelemetryModel,
   LayoutModel,
   ITelemetryModel,
-} from "./telemetry-client.js";
+} from "../../../core/telemetry/telemetry-client";
 import { HUB_API_BASE } from "../../../core/config";
 import { buildUrl, fetchJSON } from "../../../core/http";
 

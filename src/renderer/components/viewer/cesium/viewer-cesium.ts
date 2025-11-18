@@ -6,10 +6,9 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 
 import type { ViewerConfig } from "../viewer-schema.js";
 import {
-  fetchLayout,
-  fetchRaw,
-  createTelemetryModel,
-} from "../../../pages/telemetry/document/telemetry-client.js";
+  ITelemetryModel,
+} from "../../../core/telemetry/telemetry-client";
+import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
 import { ROBOT_TELEMETRY_BASE } from "../../../core/config";
 
 let CESIUM_TOKEN: string | null = null;
@@ -17,6 +16,7 @@ let viewer: Cesium.Viewer | null = null;
 let rocketEntity: Cesium.Entity | null = null;
 let exitRequested = false;
 let cameraOffset: Cesium.Cartesian3 | null = null;
+let telemetryUnsubscribe: (() => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Token loading
@@ -133,71 +133,55 @@ function lookAtRocket(position: Cesium.Cartesian3): void {
 // ---------------------------------------------------------------------------
 
 function startRocketTracking(): void {
-  async function fetchAndUpdate() {
-    try {
-      await updateRocketFromTelemetry();
-    } catch (err) {
-      console.warn("Rocket tracking update failed:", err);
-    } finally {
-      if (!exitRequested) {
-        setTimeout(fetchAndUpdate, 33); // ~30Hz updates
+  exitRequested = false;
+  telemetryUnsubscribe?.();
+  telemetryUnsubscribe = subscribeTelemetry(ROBOT_TELEMETRY_BASE, 33, {
+    callback: (model) => {
+      if (exitRequested) return;
+      try {
+        updateRocketFromTelemetry(model);
+      } catch (err) {
+        console.warn("Rocket tracking update failed:", err);
       }
-    }
-  }
-
-  fetchAndUpdate();
+    },
+    error: (err) => console.warn("[Cesium viewer] telemetry error:", err),
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Full fetch-decode-update path (no caching)
 // ---------------------------------------------------------------------------
 
-async function updateRocketFromTelemetry(): Promise<void> {
-  const baseUrl = ROBOT_TELEMETRY_BASE;
+function updateRocketFromTelemetry(model: ITelemetryModel): void {
   const workloadName = "jsb_sim";
 
-  try {
-    // Fetch fresh layout + raw buffer every time
-    const layout = await fetchLayout(baseUrl);
-    if (!layout) return;
-
-    const telemetryModel = createTelemetryModel(layout);
-    const { raw: raw } = await fetchRaw(baseUrl);
-    if (!raw) return;
-    telemetryModel.raw = raw;
-
-    // Access fields directly via getField()
-    const get = (fieldPath: string): number =>
-      parseFloat(
-        telemetryModel
-          .getField(`${workloadName}.outputs.${fieldPath}`)
-          ?.getValue?.() ?? "0"
-      );
-
-    const lat = get("fcs_position_lat_deg");
-    const lon = get("fcs_position_long_deg");
-    const alt = get("fcs_position_alt_sl_ft") * 0.3048 + 100;
-
-    const roll = Cesium.Math.toRadians(get("fcs_attitude_roll_deg"));
-    const pitch = Cesium.Math.toRadians(get("fcs_attitude_pitch_deg"));
-    const yaw = Cesium.Math.toRadians(get("fcs_attitude_yaw_deg"));
-
-    const position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
-    const orientation = Cesium.Transforms.headingPitchRollQuaternion(
-      position,
-      new Cesium.HeadingPitchRoll(yaw, pitch, roll)
+  const get = (fieldPath: string): number =>
+    parseFloat(
+      model.getField(`${workloadName}.outputs.${fieldPath}`)?.getValue?.() ??
+        "0"
     );
 
-    if (rocketEntity) {
-      rocketEntity.position = new Cesium.ConstantPositionProperty(position);
-      rocketEntity.orientation = new Cesium.ConstantProperty(orientation);
-    }
+  const lat = get("fcs_position_lat_deg");
+  const lon = get("fcs_position_long_deg");
+  const alt = get("fcs_position_alt_sl_ft") * 0.3048 + 100;
 
-    if (viewer && !viewer.isDestroyed()) {
-      lookAtRocket(position);
-    }
-  } catch (err) {
-    console.warn("[Cesium viewer] telemetry fetch failed:", err);
+  const roll = Cesium.Math.toRadians(get("fcs_attitude_roll_deg"));
+  const pitch = Cesium.Math.toRadians(get("fcs_attitude_pitch_deg"));
+  const yaw = Cesium.Math.toRadians(get("fcs_attitude_yaw_deg"));
+
+  const position = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+  const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+    position,
+    new Cesium.HeadingPitchRoll(yaw, pitch, roll)
+  );
+
+  if (rocketEntity) {
+    rocketEntity.position = new Cesium.ConstantPositionProperty(position);
+    rocketEntity.orientation = new Cesium.ConstantProperty(orientation);
+  }
+
+  if (viewer && !viewer.isDestroyed()) {
+    lookAtRocket(position);
   }
 }
 
@@ -208,6 +192,10 @@ function uninit(): void {
 
   console.log("Visualizer uninitializing");
   exitRequested = true;
+  if (telemetryUnsubscribe) {
+    telemetryUnsubscribe();
+    telemetryUnsubscribe = null;
+  }
 
   if (!viewer.isDestroyed()) {
     viewer.destroy();

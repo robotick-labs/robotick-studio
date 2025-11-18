@@ -1,10 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  createTelemetryModel,
-  fetchLayout,
-  fetchRaw,
-} from "../../telemetry/document/telemetry-client";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
+import { useTelemetryStream } from "../../../core/telemetry/useTelemetryStream";
 
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
@@ -16,11 +12,6 @@ type RcSubtitlesProps = {
 };
 
 export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
-  const [subtitle, setSubtitle] = useState("");
-  const [visible, setVisible] = useState(false);
-  const [animateKey, setAnimateKey] = useState(0);
-  const lastTextRef = useRef("");
-
   const telemetryBaseUrl = config?.telemetryBaseUrl;
   const fieldPath = config?.fieldPath;
 
@@ -32,48 +23,27 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     return null;
   }
 
-  const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
+  const { model } = useTelemetryStream(telemetryBaseUrl, 100);
+  const [subtitle, setSubtitle] = useState("");
+  const [visible, setVisible] = useState(false);
+  const [animateKey, setAnimateKey] = useState(0);
+  const lastTextRef = useRef("");
 
   useEffect(() => {
-    let cachedLayout: any | null = null;
-    let telemetryModel: any | null = null;
-    let intervalId: number | undefined;
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        if (!cachedLayout) {
-          cachedLayout = await fetchLayout(telemetryBaseUrl);
-          if (!cachedLayout) return;
-          telemetryModel = createTelemetryModel(cachedLayout);
-        }
-
-        const { raw } = await fetchRaw(telemetryBaseUrl);
-        if (!raw || !telemetryModel || cancelled) return;
-        telemetryModel.raw = raw;
-
-        const text = extractSubtitleText(telemetryModel, fieldPath);
-        if (!text) return;
-
-        const normalized = normalizeForDisplay(text);
-        if (normalized !== lastTextRef.current) {
-          lastTextRef.current = normalized;
-          setSubtitle(normalized);
-          setVisible(true);
-          setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
-        }
-      } catch (err) {
-        console.warn("[rc-subtitles] poll failed", err);
-      }
+    if (!model || !model.getField) return;
+    const field = model.getField(fieldPath);
+    const value = field?.getValue?.();
+    if (typeof value !== "string") return;
+    const normalized = normalizeForDisplay(value);
+    if (normalized !== lastTextRef.current) {
+      lastTextRef.current = normalized;
+      setSubtitle(normalized);
+      setVisible(Boolean(normalized));
+      setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
+  }, [model, fieldPath]);
 
-    poll();
-    intervalId = window.setInterval(poll, 100);
-    return () => {
-      cancelled = true;
-      if (intervalId) window.clearInterval(intervalId);
-    };
-  }, [fieldPath, telemetryBaseUrl]);
+  const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
   if (!safeSubtitle) {
     return null;
@@ -96,14 +66,6 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       </div>
     </div>
   );
-}
-
-function extractSubtitleText(telemetryModel: any, fieldPath: string): string {
-  if (!telemetryModel || !telemetryModel.getField) return "";
-  const field = telemetryModel.getField(fieldPath);
-  if (!field) return "";
-  const value = field.getValue?.();
-  return typeof value === "string" ? value : "";
 }
 
 function normalizeForDisplay(s: string): string {
