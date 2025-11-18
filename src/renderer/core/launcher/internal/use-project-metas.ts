@@ -1,4 +1,4 @@
-import { useLauncherData } from "../core/launcher/LauncherDataContext";
+import { useLauncherData } from "./LauncherDataContext";
 
 export function useProjectMetas(_pollIntervalMs = 5000) {
   const { projectMetas } = useLauncherData();

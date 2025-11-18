@@ -5,11 +5,13 @@ import viewer from "../../components/viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
-import { useProjectContext } from "../../core/launcher/ProjectContext";
-import { useLauncherData } from "../../core/launcher/LauncherDataContext";
-import { useLauncherContext } from "../../core/launcher/LauncherContext";
+import {
+  useProjectContext,
+  useLauncherData,
+  useLauncherContext,
+  RcModuleDescriptor,
+} from "../../core/launcher";
 import styles from "./styles/RemoteControlPage.module.css";
-import type { RcModuleDescriptor } from "../../core/launcher/remote-control-types";
 
 export default function RemoteControlPage() {
   const { projectPath } = useProjectContext();

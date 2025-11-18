@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { useProjectContext } from "../core/launcher/ProjectContext";
-import { useLauncherContext } from "../core/launcher/LauncherContext";
-import { GenericDialog } from "../components/dialog/GenericDialog";
+import { useProjectContext } from "./ProjectContext";
+import { useLauncherContext } from "./LauncherContext";
+import { GenericDialog } from "../../../components/dialog/GenericDialog";
 
 export function useProjectChangeConfirmation() {
   const { projectPath, setProjectPath } = useProjectContext();

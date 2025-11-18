@@ -1,9 +1,9 @@
 // src/js/pages/home/home.tsx
 
 import React, { useEffect, useRef, useState } from "react";
-import { useProjectContext } from "../../core/launcher/ProjectContext";
-import { useProjectMetas } from "../../hooks/use-project-metas";
-import { useProjectChangeConfirmation } from "../../hooks/use-project-change-confirmation";
+import { useProjectContext } from "../../core/launcher";
+import { useProjectMetas } from "../../core/launcher";
+import { useProjectChangeConfirmation } from "../../core/launcher";
 import styles from "./styles/HomePage.module.css";
 
 export default function HomePage() {

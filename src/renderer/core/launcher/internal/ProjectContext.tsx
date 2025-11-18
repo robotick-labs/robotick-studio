@@ -66,3 +66,5 @@ export function useProjectContext(): ProjectContextValue {
   }
   return ctx;
 }
+
+export type { ProjectContextValue };

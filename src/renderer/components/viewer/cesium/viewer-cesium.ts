@@ -9,7 +9,7 @@ import {
   ITelemetryModel,
   subscribeTelemetry,
 } from "../../../core/telemetry";
-import { waitForModelDescriptorByName } from "../../../core/launcher/LauncherDataContext.js";
+import { waitForModelDescriptorByName } from "../../../core/launcher";
 
 type CesiumViewerConfig = ViewerConfig & {
   telemetryModelName?: string;

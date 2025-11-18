@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styles from "./styles/RcTelemetryOverlay.module.css";
 import { useTelemetryStream } from "../../../core/telemetry";
-import { useLauncherData } from "../../../core/launcher/LauncherDataContext";
+import { useLauncherData } from "../../../core/launcher";
 
 type RcTelemetryConfig = {
   telemetryBaseUrl?: string;

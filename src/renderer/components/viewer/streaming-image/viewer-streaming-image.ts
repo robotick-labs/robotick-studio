@@ -8,7 +8,7 @@ import {
 import {
   findModelDescriptorInState,
   waitForProjectModelsLoaded,
-} from "../../../core/launcher/LauncherDataContext";
+} from "../../../core/launcher";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
   sourceModel?: string; // legacy
