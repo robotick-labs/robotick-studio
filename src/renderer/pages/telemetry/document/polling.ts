@@ -5,8 +5,6 @@
 
 import currentProject from "../../../core/current-project";
 import { EngineModel } from "../view/types.js";
-import { LAUNCHER_LOCAL_API_BASE } from "../../../core/config";
-import { buildUrl, fetchJSON } from "../../../core/http";
 
 // -----------------------------------------------------------------------------
 // Utilities
@@ -26,49 +24,14 @@ export async function fetchAllModelJSONs(): Promise<
   const projectPath = currentProject.getProjectPath();
   if (!projectPath) throw new Error("No project path set");
 
-  const modelPaths =
-    (await fetchJSON<string[]>(
-      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
-        project_path: projectPath,
-      })
-    ).catch(() => null)) ?? [];
-
-  const results: {
-    modelName: string;
-    engineURL: string;
-    modelPath: string;
-    json: any;
-  }[] = [];
-
-  for (const modelPath of modelPaths) {
-    const json = await fetchJSON<any>(
-      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
-        project_path: projectPath,
-        model_path: modelPath,
-      })
-    ).catch(() => null);
-
-    if (!json) continue;
-
-    const modelName = json?.name
-      ? json.name
-      : modelPath
-          .split("/")
-          .pop()
-          ?.replace(/\.model\.yaml$/, "") ?? "Unnamed";
-
-    const telemetryPort = json?.telemetry?.port
-      ? String(json.telemetry.port)
-      : "7090";
-
-    results.push({
-      modelName,
-      engineURL: `http://localhost:${telemetryPort}`,
-      modelPath,
-      json,
-    });
-  }
-  return results;
+  const models =
+    (await currentProject.getProjectModels(projectPath)) ?? [];
+  return models.map((model) => ({
+    modelName: model.modelName,
+    engineURL: model.telemetryBaseUrl,
+    modelPath: model.modelPath,
+    json: model.data,
+  }));
 }
 
 export async function getEngineModels(): Promise<EngineModel[]> {

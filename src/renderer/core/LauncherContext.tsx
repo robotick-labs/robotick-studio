@@ -11,10 +11,10 @@ import {
   LAUNCHER_LOCAL_API_BASE,
   POLLING_DEFAULT_INTERVAL_MS,
   POLLING_FAST_INTERVAL_MS,
-  ROBOT_TELEMETRY_BASE,
 } from "./config";
 import { buildUrl, fetchJSON, tryFetchJSON } from "./http";
 import { useProjectContext } from "./ProjectContext";
+import { getPrimaryTelemetryBase } from "./current-project";
 
 export type LauncherStatus = "stopped" | "starting" | "running";
 
@@ -182,7 +182,8 @@ async function checkLauncherActive(): Promise<boolean> {
 }
 
 async function checkRobotAlive(): Promise<boolean> {
-  const url = buildUrl(ROBOT_TELEMETRY_BASE, "/api/telemetry/health");
+  const telemetryBaseUrl = await getPrimaryTelemetryBase();
+  const url = buildUrl(telemetryBaseUrl, "/api/telemetry/health");
   const res = await fetch(url);
   return res.ok;
 }

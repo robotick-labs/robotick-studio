@@ -5,11 +5,9 @@ import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
 import type { ViewerConfig } from "../viewer-schema.js";
-import {
-  ITelemetryModel,
-} from "../../../core/telemetry/telemetry-client";
+import { ITelemetryModel } from "../../../core/telemetry/telemetry-client";
 import { subscribeTelemetry } from "../../../core/telemetry/telemetry-store";
-import { ROBOT_TELEMETRY_BASE } from "../../../core/config";
+import { getPrimaryTelemetryBase } from "../../../core/current-project";
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
@@ -107,7 +105,7 @@ async function init(_config: ViewerConfig): Promise<void> {
   );
 
   lookAtRocket(rocketPosition);
-  startRocketTracking();
+  await startRocketTracking();
 }
 
 // ---------------------------------------------------------------------------
@@ -132,10 +130,18 @@ function lookAtRocket(position: Cesium.Cartesian3): void {
 
 // ---------------------------------------------------------------------------
 
-function startRocketTracking(): void {
+async function startRocketTracking(): Promise<void> {
   exitRequested = false;
   telemetryUnsubscribe?.();
-  telemetryUnsubscribe = subscribeTelemetry(ROBOT_TELEMETRY_BASE, 33, {
+  let telemetryBaseUrl: string;
+  try {
+    telemetryBaseUrl = await getPrimaryTelemetryBase();
+  } catch (err) {
+    console.warn("[Cesium viewer] Unable to resolve telemetry endpoint", err);
+    return;
+  }
+
+  telemetryUnsubscribe = subscribeTelemetry(telemetryBaseUrl, 33, {
     callback: (model) => {
       if (exitRequested) return;
       try {

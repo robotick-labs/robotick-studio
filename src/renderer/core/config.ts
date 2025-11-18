@@ -7,10 +7,6 @@ export const LAUNCHER_LOCAL_API_BASE = withDefault(
   env.VITE_LAUNCHER_LOCAL_API_BASE,
   "http://localhost:7081"
 );
-export const ROBOT_TELEMETRY_BASE = withDefault(
-  env.VITE_ROBOT_TELEMETRY_BASE,
-  "http://localhost:7090"
-);
 export const RC_TELEMETRY_BASE = withDefault(
   env.VITE_RC_TELEMETRY_BASE,
   "http://localhost:7091"

@@ -1,14 +1,36 @@
+import { LAUNCHER_LOCAL_API_BASE } from "./config";
+import { buildUrl, fetchJSON } from "./http";
+
 const KEY_PROJECT_PATH = "robotick-hub.projectPath";
 const KEY_LAUNCHER_PROFILE = "robotick-hub.launcherProfile";
+const DEFAULT_MODEL_HOST = "localhost";
+const DEFAULT_TELEMETRY_PORT = 7090;
 
 type ProjectChangedListener = (path: string) => void;
 type LauncherProfileChangedListener = (profile: string) => void;
 
+export interface ProjectModelDescriptor<T = unknown> {
+  modelPath: string;
+  modelName: string;
+  telemetryPort: number;
+  telemetryBaseUrl: string;
+  data: T;
+}
+
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
 
+type ModelCacheEntry = {
+  projectPath: string;
+  models: ProjectModelDescriptor[];
+};
+
+let cachedModels: ModelCacheEntry | null = null;
+let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
+
 function setProjectPath(path: string) {
   localStorage.setItem(KEY_PROJECT_PATH, path);
+  invalidateModelCache();
   notifyProjectChanged(path);
 }
 
@@ -55,11 +77,151 @@ function onLauncherProfileChanged(callback: LauncherProfileChangedListener) {
   return () => profileListeners.delete(callback);
 }
 
-export default {
+export function getModelHostName() {
+  return DEFAULT_MODEL_HOST;
+}
+
+function normalizePort(portValue: unknown): number {
+  const next = Number(portValue);
+  if (Number.isFinite(next) && next > 0) {
+    return next;
+  }
+  return DEFAULT_TELEMETRY_PORT;
+}
+
+function buildTelemetryBaseUrl(port: number) {
+  return `http://${getModelHostName()}:${port}`;
+}
+
+async function fetchProjectModelPaths(projectPath: string) {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
+    project_path: projectPath,
+  });
+  const models = await fetchJSON<string[]>(url);
+  return models.sort();
+}
+
+async function fetchProjectModelData<T>(
+  projectPath: string,
+  modelPath: string
+): Promise<T> {
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
+    project_path: projectPath,
+    model_path: modelPath,
+  });
+  return await fetchJSON<T>(url);
+}
+
+async function buildModelDescriptors<T = unknown>(
+  projectPath: string
+): Promise<ProjectModelDescriptor<T>[]> {
+  const modelPaths = await fetchProjectModelPaths(projectPath);
+  const descriptors: ProjectModelDescriptor<T>[] = [];
+
+  for (const modelPath of modelPaths) {
+    try {
+      const data = await fetchProjectModelData<T>(projectPath, modelPath);
+      if (!data) continue;
+
+      const modelName =
+        (data as { name?: string })?.name?.trim() ||
+        modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") ||
+        modelPath;
+
+      const telemetryPort = normalizePort(
+        (data as { telemetry?: { port?: number } })?.telemetry?.port
+      );
+
+      descriptors.push({
+        modelPath,
+        modelName,
+        telemetryPort,
+        telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
+        data,
+      });
+    } catch (err) {
+      console.warn(
+        `[current-project] Failed to load model definition ${modelPath}`,
+        err
+      );
+    }
+  }
+
+  return descriptors;
+}
+
+async function resolveProjectModels<T = unknown>(
+  projectPath?: string,
+  { force } = { force: false }
+): Promise<ProjectModelDescriptor<T>[]> {
+  const effectivePath = projectPath ?? getProjectPath();
+  if (!effectivePath) {
+    return [];
+  }
+
+  if (!force && cachedModels?.projectPath === effectivePath) {
+    return cachedModels.models as ProjectModelDescriptor<T>[];
+  }
+
+  if (!force && modelsPromise) {
+    return (await modelsPromise) as ProjectModelDescriptor<T>[];
+  }
+
+  const promise = buildModelDescriptors<T>(effectivePath);
+  modelsPromise = promise as Promise<ProjectModelDescriptor[]>;
+
+  try {
+    const models = await promise;
+    cachedModels = { projectPath: effectivePath, models };
+    return models;
+  } finally {
+    if (modelsPromise === promise) {
+      modelsPromise = null;
+    }
+  }
+}
+
+function invalidateModelCache(projectPath?: string) {
+  if (!cachedModels) return;
+  if (!projectPath || cachedModels.projectPath === projectPath) {
+    cachedModels = null;
+  }
+}
+
+export async function getProjectModels<T = unknown>(
+  projectPath?: string
+): Promise<ProjectModelDescriptor<T>[]> {
+  return resolveProjectModels<T>(projectPath);
+}
+
+export async function refreshProjectModels<T = unknown>(
+  projectPath?: string
+): Promise<ProjectModelDescriptor<T>[]> {
+  return resolveProjectModels<T>(projectPath, { force: true });
+}
+
+export async function getPrimaryTelemetryBase(
+  projectPath?: string
+): Promise<string> {
+  const models = await resolveProjectModels(projectPath);
+  if (models.length === 0) {
+    return buildTelemetryBaseUrl(DEFAULT_TELEMETRY_PORT);
+  }
+  return models[0].telemetryBaseUrl;
+}
+
+const currentProject = {
   setProjectPath,
   getProjectPath,
   setLauncherProfile,
   getLauncherProfile,
   onProjectChanged,
   onLauncherProfileChanged,
+  getProjectModels,
+  refreshProjectModels,
+  clearProjectModelCache: invalidateModelCache,
+  getPrimaryTelemetryBase,
+  getModelHostName,
 };
+
+export default currentProject;

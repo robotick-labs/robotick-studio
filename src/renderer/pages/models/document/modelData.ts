@@ -1,6 +1,4 @@
 import currentProject from "../../../core/current-project";
-import { LAUNCHER_LOCAL_API_BASE } from "../../../core/config";
-import { buildUrl, fetchJSON } from "../../../core/http";
 
 export interface Workload {
   name: string;
@@ -37,24 +35,14 @@ export interface LoadedModel {
 }
 
 export async function loadAllModels(): Promise<LoadedModel[]> {
-  const projectPath = (currentProject as any).getProjectPath?.();
-  if (!projectPath) throw new Error("No project path set");
-
-  const models = await fetchJSON<string[]>(
-    buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
-      project_path: projectPath,
-    })
-  );
-
-  const out: LoadedModel[] = [];
-  for (const modelPath of models) {
-    const data = await fetchJSON<ModelData>(
-      buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
-        project_path: projectPath,
-        model_path: modelPath,
-      })
-    );
-    out.push({ modelPath, data });
+  const projectPath = currentProject.getProjectPath();
+  if (!projectPath) {
+    throw new Error("No project path set");
   }
-  return out;
+  const models =
+    (await currentProject.getProjectModels<ModelData>(projectPath)) ?? [];
+  return models.map(({ modelPath, data }) => ({
+    modelPath,
+    data,
+  }));
 }

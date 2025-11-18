@@ -88,14 +88,14 @@
 .navLinkActive {
   background: rgba(12, 147, 225, 0.95);
   color: white;
-  box-shadow: 0 0 8px rgba(12, 147, 225, 0.7);
+  box-shadow: 0 0 8px rgba(12, 147, 225, 0.9);
 }
 
 .navLinkActive:hover,
 .navLinkActive:focus {
   background: rgba(12, 147, 225, 1);
   color: white;
-  box-shadow: 0 0 10px rgba(12, 147, 225, 0.9);
+  box-shadow: 0 0 10px rgba(12, 147, 225, 1);
 }
 
 .headerRight {
