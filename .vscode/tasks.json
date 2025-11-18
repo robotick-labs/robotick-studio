@@ -21,6 +21,18 @@
           "endsPattern": "ready in\\s+[0-9]+\\s*ms"
         }
       }
+    },
+    {
+      "label": "Build Electron Sources",
+      "type": "shell",
+      "command": "npm run build:electron",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Prepare Electron Dev Environment",
+      "dependsOn": ["Build Electron Sources", "Run Vite Dev Server"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
     }
   ]
 }

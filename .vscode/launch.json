@@ -18,14 +18,15 @@
       "outputCapture": "std",
       "skipFiles": ["<node_internals>/**"],
       "internalConsoleOptions": "neverOpen",
-      "stopOnEntry": false
+      "stopOnEntry": false,
+      "preLaunchTask": "Prepare Electron Dev Environment"
     },
     {
       "type": "pwa-chrome",
       "request": "attach",
       "name": "Electron: Renderer",
       "port": 9222,
-      "webRoot": "${workspaceFolder}/renderer",
+      "webRoot": "${workspaceFolder}/src/renderer",
       "timeout": 20000
     }
   ]
