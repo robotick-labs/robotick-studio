@@ -13,10 +13,41 @@ let viewerType: ViewerType | null = null;
 /** Only set after a successful init for the current token */
 let viewerModule: ViewerModule | null = null;
 
-/** Monotonic sequence for loads; every init/uninit bumps it. */
-let loadSeq = 0;
 /** The token that represents the latest requested viewer. */
-let currentToken = 0;
+let currentToken = Number.NaN;
+
+function normalizeConfig(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeConfig(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      const normalizedValue = normalizeConfig(record[key]);
+      if (normalizedValue !== undefined) {
+        normalized[key] = normalizedValue;
+      }
+    }
+    return normalized;
+  }
+
+  if (typeof value === "function") {
+    return undefined;
+  }
+
+  return value;
+}
+
+function computeViewerToken(config: ViewerConfig): number {
+  const serialized = JSON.stringify(normalizeConfig(config)) ?? "";
+  let hash = 0;
+  for (let i = 0; i < serialized.length; i += 1) {
+    hash = (hash * 31 + serialized.charCodeAt(i)) | 0;
+  }
+  return hash >>> 0;
+}
 
 export function init(
   viewerConfig: Partial<ViewerConfig> & { viewerType?: string }
@@ -32,12 +63,12 @@ export function init(
 
   viewerType = type as ViewerType;
 
-  // Generate a fresh token for this init and mark it current.
-  const token = ++loadSeq;
+  const resolvedConfig = viewerConfig as ViewerConfig;
+  const token = computeViewerToken(resolvedConfig);
   currentToken = token;
 
   // Fire-and-forget the async initializer (guarded by token checks).
-  void loadAndInitViewer(viewerType, viewerConfig as ViewerConfig, token);
+  void loadAndInitViewer(viewerType, resolvedConfig, token);
 }
 
 /**
@@ -46,8 +77,7 @@ export function init(
  */
 export async function uninit(reason?: string): Promise<void> {
   // Invalidate any in-flight loads or future 'late' completions.
-  const token = ++loadSeq;
-  currentToken = token;
+  currentToken = Number.NaN;
 
   // Snapshot existing module; clear references immediately.
   const prev = viewerModule;
@@ -97,41 +127,27 @@ async function loadAndInitViewer(
 
     // If this load has been superseded, ignore it.
     if (token !== currentToken) {
-      // Optional: best-effort cleanup of a just-loaded module we won't use.
+      // best-effort cleanup of a just-loaded module we won't use.
       try {
         await mod?.default?.uninit?.();
       } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    // Teardown any currently live viewer before re-init (still under the same token).
-    if (viewerModule?.default.uninit) {
-      try {
-        await viewerModule.default.uninit();
-      } catch (err) {
         console.error("Error uninitialising previous viewer:", err);
       }
-    }
-
-    // Still current? (A rapid uninit/init could have happened while we awaited)
-    if (token !== currentToken) {
-      try {
-        await mod?.default?.uninit?.();
-      } catch {
-        /* ignore */
-      }
       return;
     }
 
-    console.log(`Creating viewer of type "${type}"`);
-    await mod.default.init(config);
+    try {
+      console.log(`Creating viewer of type "${type}"`);
+      await mod.default.init(config);
+    } catch (err) {
+      console.error("Error initialising new viewer:", err);
+    }
 
     // After init completes, confirm we are still the latest request.
     if (token !== currentToken) {
       // We were superseded after successful init; tear down what we just made.
       try {
+        console.log(`Destroying superseded viewer`);
         await mod.default.uninit?.();
       } catch {
         /* ignore */

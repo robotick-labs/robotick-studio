@@ -16,10 +16,7 @@ import {
   ResponseType,
 } from "../viewer-schema.js";
 
-import {
-  ITelemetryModel,
-  subscribeTelemetry,
-} from "../../../core/telemetry";
+import { ITelemetryModel, subscribeTelemetry } from "../../../core/telemetry";
 import { ProjectData } from "../../../core/launcher";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
@@ -501,7 +498,7 @@ export class ViewerWorld {
       const pollingRate = config.pollingRateHz ?? 20;
       const unsubscribe = subscribeTelemetry(baseUrl, pollingRate, {
         callback: (model) => {
-          this.logTelemetryStats(config.id);
+          // this.logTelemetryStats(config.id);
           void this.executePoller(config, model);
         },
         error: (err) =>
@@ -528,10 +525,7 @@ export class ViewerWorld {
 
       if (stats.count % 50 === 0) {
         const mean = stats.sum / stats.count;
-        const variance = Math.max(
-          0,
-          stats.sumSq / stats.count - mean * mean
-        );
+        const variance = Math.max(0, stats.sumSq / stats.count - mean * mean);
         const stddev = Math.sqrt(variance);
         console.log(
           `[viewer] telemetry ${pollerId}: avg ${mean.toFixed(
