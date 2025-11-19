@@ -6,12 +6,10 @@ import {
   Project,
   ProjectData,
   LauncherServiceProvider,
-  createLauncherService,
+  launcherService,
 } from "./data-sources/launcher";
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
-
-const launcherService = createLauncherService();
 
 export function App() {
   return (

@@ -84,3 +84,5 @@ export function useLauncherService(): LauncherService {
   }
   return ctx;
 }
+
+export const launcherService = createLauncherService();

@@ -1,56 +1,13 @@
-import { ProjectProvider, useProjectContext } from "./internal/ProjectContext";
+import * as LauncherReact from "./internal/react-api";
+import * as LauncherRest from "./internal/rest-api";
+import * as LauncherServiceSurface from "./internal/LauncherService";
 
-import {
-  LauncherProvider,
-  useLauncherContext,
-  launcherEvents,
-} from "./internal/LauncherContext";
-import type { LauncherStatus } from "./internal/LauncherContext";
-
-import {
-  LauncherDataProvider,
-  useLauncherData,
-  waitForProjectModelsLoaded,
-  waitForModelDescriptorByName,
-  findModelDescriptorInState,
-  getProjectModelsStateSnapshot,
-} from "./internal/LauncherDataContext";
-
-import { useProjectSettingsList } from "./internal/use-project-settings-list";
-import { useProjectModels } from "./internal/use-project-models";
-import { useProjectChangeConfirmation } from "./internal/use-project-change-confirmation";
-
-import {
-  fetchProjectSettingsData,
-  fetchProjectRemoteControlSettings,
-  requestLauncherRun,
-  requestLauncherStop,
-  fetchLauncherStatus,
-  getLauncherLogStreamUrl,
-  fetchProjectModelPaths,
-  type ProjectModelDescriptor,
-} from "./internal/launcher-interface";
-
-import {
-  listProjectPaths,
-  getProjectSettings,
-  fetchProjectSettingsList,
-  fetchProjectModels,
-  type ProjectSettingsSummary,
-} from "./internal/projects-api";
-
-import type {
-  RcModuleDescriptor,
-  RcSettingsResponse,
-} from "./internal/remote-control-types";
-import {
-  LauncherServiceProvider,
-  useLauncherService,
-  createLauncherService,
-  type LauncherService,
-} from "./internal/LauncherService";
-
-const defaultLauncherService = createLauncherService();
+/**
+ * Shared launcher service instance.
+ * - React components should consume it via `LauncherServiceProvider` + `useLauncherService()`.
+ * - Non-React modules (e.g. utility loaders) can import `launcherService` directly.
+ */
+const launcherService = LauncherServiceSurface.launcherService;
 
 /**
  * ---------------------------------------------------------------------------
@@ -58,7 +15,7 @@ const defaultLauncherService = createLauncherService();
  *
  * This file groups the public surface by *concept*, not by file structure.
  * UI code should import everything from here. Everything under `internal/`
- * is implementation detail and not part of the external contract.
+ * is private implementation and not part of the external contract.
  * ---------------------------------------------------------------------------
  */
 export const Launcher = {
@@ -68,12 +25,12 @@ export const Launcher = {
    * subscribe to anything. Think “RPC over REST”.
    */
   Service: {
-    run: requestLauncherRun, // POST /launcher/run
-    stop: requestLauncherStop, // POST /launcher/stop
-    status: fetchLauncherStatus, // GET /launcher/status
+    run: LauncherRest.LauncherRest.run, // POST /launcher/run
+    stop: LauncherRest.LauncherRest.stop, // POST /launcher/stop
+    status: LauncherRest.LauncherRest.status, // GET /launcher/status
     logs: {
       // URL for live streamed logs; consumer chooses SSE/WebSocket/etc.
-      streamUrl: getLauncherLogStreamUrl,
+      streamUrl: LauncherRest.LauncherRest.logsStreamUrl,
     },
   },
 
@@ -84,9 +41,9 @@ export const Launcher = {
    * - events: event emitter for run success/fail transitions
    */
   Context: {
-    Provider: LauncherProvider,
-    use: useLauncherContext,
-    events: launcherEvents,
+    Provider: LauncherReact.LauncherReact.Provider,
+    use: LauncherReact.LauncherReact.use,
+    events: LauncherReact.LauncherReact.events,
   },
 };
 
@@ -100,25 +57,28 @@ export const Project = {
    * Everything here is stateless and always hits the backend directly.
    */
   Service: {
-    listPaths: listProjectPaths, // Enumerate project directories
+    listPaths: LauncherRest.ProjectRest.listPaths, // Enumerate project directories
 
     settings: {
-      get: getProjectSettings, // Load the active settings profile
-      list: fetchProjectSettingsList, // Discover available settings profiles
-      raw: fetchProjectSettingsData, // Raw settings.json blob
+      get: LauncherRest.ProjectRest.settings.get, // Load the active settings profile
+      list: LauncherRest.ProjectRest.settings.list, // Discover available settings profiles
+      raw: LauncherRest.ProjectRest.settings.raw, // Raw settings.json blob
     },
 
     remoteControl: {
-      getSettings: fetchProjectRemoteControlSettings, // RC config for project
+      getSettings: LauncherRest.ProjectRest.remoteControl.getSettings, // RC config for project
     },
 
     models: {
-      listPaths: fetchProjectModelPaths, // Model file paths on disk
-      listDescriptors: fetchProjectModels, // Full model descriptors (parsed)
+      listPaths: LauncherRest.ProjectRest.models.listPaths, // Model file paths on disk
+      listDescriptors: LauncherRest.ProjectRest.models.listDescriptors, // Full model descriptors (parsed)
     },
 
-    // Deprecated convenience; kept for backwards compatibility
-    current: defaultLauncherService,
+    /**
+     * @deprecated Prefer `useLauncherService()` within React or `launcherService`
+     * for non-React modules. This alias remains for legacy code paths.
+     */
+    current: launcherService,
   },
 
   /**
@@ -126,8 +86,8 @@ export const Project = {
    * Components read/write “which project is active” through here.
    */
   Context: {
-    Provider: ProjectProvider,
-    use: useProjectContext,
+    Provider: LauncherReact.ProjectReact.Provider,
+    use: LauncherReact.ProjectReact.use,
   },
 
   /**
@@ -135,9 +95,10 @@ export const Project = {
    * These wrap state, loading flags, sorting, confirmation prompts, etc.
    */
   Hooks: {
-    useSettingsList: useProjectSettingsList, // Settings profiles including loading states
-    useModels: useProjectModels, // Derived model descriptors
-    useChangeConfirmation: useProjectChangeConfirmation, // “Are you sure?” helper
+    useSettingsList: LauncherReact.ProjectReactHooks.useSettingsList, // Settings profiles including loading states
+    useModels: LauncherReact.ProjectReactHooks.useModels, // Derived model descriptors
+    useChangeConfirmation:
+      LauncherReact.ProjectReactHooks.useChangeConfirmation, // “Are you sure?” helper
   },
 };
 
@@ -156,13 +117,17 @@ export const ProjectData = {
    *      - getProjectModelsStateSnapshot()
    *   These return data immediately without going through React state.
    */
-  Provider: LauncherDataProvider,
-  use: useLauncherData,
+  Provider: LauncherReact.ProjectDataReact.Provider,
+  use: LauncherReact.ProjectDataReact.use,
 
-  waitForProjectModelsLoaded, // Resolve once *all* model descriptors are present
-  waitForModelDescriptorByName, // Resolve once the named model is available
-  findModelDescriptorInState, // Non-async lookup inside internal state
-  getProjectModelsStateSnapshot, // Snapshot of the internal model state
+  waitForProjectModelsLoaded:
+    LauncherReact.ProjectDataReact.waitForProjectModelsLoaded, // Resolve once *all* model descriptors are present
+  waitForModelDescriptorByName:
+    LauncherReact.ProjectDataReact.waitForModelDescriptorByName, // Resolve once the named model is available
+  findModelDescriptorInState:
+    LauncherReact.ProjectDataReact.findModelDescriptorInState, // Non-async lookup inside internal state
+  getProjectModelsStateSnapshot:
+    LauncherReact.ProjectDataReact.getProjectModelsStateSnapshot, // Snapshot of the internal model state
 };
 
 export const RemoteControl = {
@@ -179,11 +144,20 @@ export const RemoteControl = {
 /**
  * Re-export TS types for convenience. UI code can import everything from here.
  */
-export type { LauncherStatus, ProjectModelDescriptor, ProjectSettingsSummary };
+export type {
+  LauncherStatus,
+  ProjectModelDescriptor,
+  ProjectSettingsSummary,
+} from "./internal/react-api";
 export type {
   RcModuleDescriptor,
   RcSettingsResponse,
 } from "./internal/remote-control-types";
 
-export { LauncherServiceProvider, useLauncherService, createLauncherService };
-export type { LauncherService };
+export {
+  LauncherServiceProvider,
+  useLauncherService,
+  createLauncherService,
+  launcherService,
+} from "./internal/LauncherService";
+export type { LauncherService } from "./internal/LauncherService";

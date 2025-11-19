@@ -1,7 +1,7 @@
 // src/js/pages/terminal/terminal.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
-import { Launcher } from "../../data-sources/launcher";
+import { Launcher, useLauncherService } from "../../data-sources/launcher";
 import styles from "./TerminalPage.module.css";
 
 const MAX_MESSAGES = 5000;
@@ -23,7 +23,7 @@ export default function TerminalPage() {
 
   useEffect(() => {
     ansiUpRef.current = new AnsiUp();
-  }, []);
+  }, [launcherService]);
 
   // ---------------------------------------------------------------------------
   // WebSocket + automatic reconnect + debug logs
@@ -33,7 +33,7 @@ export default function TerminalPage() {
       let ws: WebSocket;
 
       try {
-        const socketUrl = Launcher.Service.logs.streamUrl();
+        const socketUrl = launcherService.getLauncherLogStreamUrl();
         ws = new WebSocket(socketUrl);
         wsRef.current = ws;
       } catch (err) {
@@ -223,3 +223,4 @@ async function normalizeEventData(data: unknown): Promise<string> {
     </div>
   );
 }
+  const launcherService = useLauncherService();

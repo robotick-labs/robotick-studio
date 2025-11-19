@@ -1,10 +1,12 @@
 // src/js/pages/project/project.tsx
 
 import React, { useEffect, useState } from "react";
-import { Project } from "../../data-sources/launcher";
+import {
+  Project,
+  useLauncherService,
+} from "../../data-sources/launcher";
 
 const useProjectContext = Project.Context.use;
-const fetchProjectSettingsData = Project.Service.settings.raw;
 import styles from "./styles/ProjectPage.module.css";
 
 import { StringField } from "./components/StringField";
@@ -19,6 +21,7 @@ export default function ProjectPage() {
   const [schema, setSchema] = useState<SchemaType | null>(null);
   const [config, setConfig] = useState<Record<string, any>>({});
   const { projectPath } = useProjectContext();
+  const launcherService = useLauncherService();
 
   useEffect(() => {
     async function load() {
@@ -39,9 +42,9 @@ export default function ProjectPage() {
 
       const [schemaResp, cfg] = await Promise.all([
         fetch(schemaUrl).then((r) => r.json()),
-        fetchProjectSettingsData<Record<string, any>>(projectPath).catch(
-          () => ({} as Record<string, any>)
-        ),
+        launcherService
+          .fetchProjectSettingsData<Record<string, any>>(projectPath)
+          .catch(() => ({} as Record<string, any>)),
       ]);
 
       setSchema(schemaResp);
@@ -49,7 +52,7 @@ export default function ProjectPage() {
     }
 
     load();
-  }, [projectPath]);
+  }, [launcherService, projectPath]);
 
   if (!projectPath) {
     return (

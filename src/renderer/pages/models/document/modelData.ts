@@ -1,4 +1,4 @@
-import { Project } from "../../../data-sources/launcher";
+import { launcherService } from "../../../data-sources/launcher";
 
 export interface Workload {
   name: string;
@@ -41,7 +41,7 @@ export async function loadAllModels(
     throw new Error("No project path set");
   }
   const models =
-    (await Project.Service.current.getProjectModels(projectPath)) ?? [];
+    (await launcherService.getProjectModels(projectPath)) ?? [];
   return models.map(({ modelPath, data }) => ({
     modelPath,
     data: data as ModelData,
