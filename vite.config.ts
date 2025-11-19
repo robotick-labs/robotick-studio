@@ -25,7 +25,10 @@ function collectEntries(dir: string, base = dir) {
   return entries;
 }
 
-const entryPoints = collectEntries(resolve(__dirname, "src/renderer"));
+const isVitest = Boolean(process.env.VITEST);
+const entryPoints = isVitest
+  ? {}
+  : collectEntries(resolve(__dirname, "src/renderer"));
 
 export default defineConfig({
   base: "./",
@@ -37,17 +40,19 @@ export default defineConfig({
     outDir: "../../dist/renderer",
     emptyOutDir: true,
 
-    rollupOptions: {
-      input: {
-        ...entryPoints,
-        index: resolve(__dirname, "src/renderer/index.html"),
-      },
-      output: {
-        entryFileNames: "js/[name].js",
-        chunkFileNames: "js/chunks/[name].js",
-        assetFileNames: "assets/[name][extname]",
-      },
-    },
+    rollupOptions: isVitest
+      ? undefined
+      : {
+          input: {
+            ...entryPoints,
+            index: resolve(__dirname, "src/renderer/index.html"),
+          },
+          output: {
+            entryFileNames: "js/[name].js",
+            chunkFileNames: "js/chunks/[name].js",
+            assetFileNames: "assets/[name][extname]",
+          },
+        },
   },
 
   resolve: {
