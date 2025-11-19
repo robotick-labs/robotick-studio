@@ -114,6 +114,7 @@ function ImageField({
   const mime = field.mime_type;
 
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const hasDims = Boolean(dims);
 
   if (!(raw instanceof Uint8Array)) {
     return <div>{label}: &lt;invalid image data&gt;</div>;
@@ -121,6 +122,10 @@ function ImageField({
 
   // URL managed by global cache + LRU
   const url = useBlobURL(raw, mime);
+  const handleThumbClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    toggle();
+  };
 
   return (
     <>
@@ -135,10 +140,13 @@ function ImageField({
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
             onLoad={(e) => {
-              const img = e.currentTarget as HTMLImageElement;
-              setDims({ w: img.naturalWidth, h: img.naturalHeight });
+              if (!hasDims) {
+                const img = e.currentTarget as HTMLImageElement;
+                setDims({ w: img.naturalWidth, h: img.naturalHeight });
+              }
             }}
-            onClick={toggle}
+            onClick={handleThumbClick}
+            onMouseDown={(e) => e.stopPropagation()}
           />
         )}
         {dims && ` (${dims.w}×${dims.h})`}

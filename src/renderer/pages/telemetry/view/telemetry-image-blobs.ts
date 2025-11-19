@@ -8,7 +8,7 @@
 // Robotick Labs 2025
 // -----------------------------------------------------------------------------
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // -----------------------------------------------------------------------------
 // Config
@@ -102,22 +102,29 @@ export function useBlobURL(raw: Uint8Array | null, mime: string | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   const localRef = useRef<string | null>(null);
 
+  const signature = useMemo(() => {
+    if (!raw || !mime) return null;
+    return {
+      key: `${mime}:${hashBytes(raw)}`,
+      raw,
+      mime,
+    };
+  }, [raw, mime]);
+
   useEffect(() => {
-    if (!raw || !mime) {
+    if (!signature) {
       setUrl(null);
       return;
     }
 
-    const newUrl = getOrCreateBlobURL(raw, mime);
+    const newUrl = getOrCreateBlobURL(signature.raw, signature.mime);
     setUrl(newUrl);
     localRef.current = newUrl;
 
     return () => {
-      // DO NOT revoke here!
-      // Global cache + LRU handle lifecycle.
       localRef.current = null;
     };
-  }, [raw, mime]);
+  }, [signature?.key]);
 
   return url;
 }

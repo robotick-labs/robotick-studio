@@ -187,7 +187,10 @@ export function GenericPanel({
   }, [position, size, storageKey]);
 
   useEffect(() => {
-    if (storageKey && typeof window !== "undefined") {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (storageKey) {
       const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
       if (raw) {
         try {
@@ -206,7 +209,13 @@ export function GenericPanel({
     }
     setPosition(initialPosition);
     setSize(initialSize);
-  }, [initialPosition, initialSize, storageKey]);
+  }, [
+    storageKey,
+    initialPosition.x,
+    initialPosition.y,
+    initialSize.width,
+    initialSize.height,
+  ]);
 
   return panelNode;
 }

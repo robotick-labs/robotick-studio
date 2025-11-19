@@ -14,7 +14,8 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
 
   useEffect(() => {
     if (!baseUrl) {
-      setModel(null);
+      setModel((prev) => (prev ? null : prev));
+      setError(null);
       return;
     }
 
@@ -23,7 +24,7 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
       pollingRateHz,
       {
         callback: (next) => {
-          setModel(next);
+          setModel((prev) => (prev === next ? prev : next));
           setError(null);
         },
         error: (err) => setError(err),

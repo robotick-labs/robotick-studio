@@ -34,6 +34,11 @@ const stores = new Map<string, StoreEntry>();
 const DEFAULT_POLLING_INTERVAL_MS = 200;
 const MAX_CONCURRENT_FETCHES = 4;
 
+const microtask =
+  typeof queueMicrotask === "function"
+    ? queueMicrotask
+    : (cb: () => void) => Promise.resolve().then(cb);
+
 let activeFetches = 0;
 const fetchQueue: Array<() => void> = [];
 
@@ -77,9 +82,11 @@ export function subscribeTelemetry(
   updatePollingTimer(entry);
 
   if (entry.layout && entry.lastRaw) {
-    const model = createTelemetryModel(entry.layout);
-    model.raw = entry.lastRaw.buffer;
-    deliverToSubscriber(subscriberEntry, model, true);
+    microtask(() => {
+      const model = createTelemetryModel(entry.layout as LayoutModel);
+      model.raw = entry.lastRaw?.buffer ?? null;
+      deliverToSubscriber(subscriberEntry, model, true);
+    });
   }
 
   return () => {
