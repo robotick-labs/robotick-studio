@@ -60,4 +60,23 @@ export default defineConfig({
       "@": resolve(__dirname, "src/renderer"),
     },
   },
+
+  test: {
+    projects: [
+      {
+        root: resolve(__dirname, "src/renderer"),
+        test: {
+          name: "renderer",
+          environment: "jsdom",
+        },
+      },
+      {
+        root: resolve(__dirname, "src/electron"),
+        test: {
+          name: "electron",
+          environment: "node",
+        },
+      },
+    ],
+  },
 });
