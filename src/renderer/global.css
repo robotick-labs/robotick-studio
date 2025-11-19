@@ -1,0 +1,62 @@
+:root {
+  color-scheme: dark;
+  --color-bg: #070a12;
+  --color-surface: #1a1f2c;
+  --color-accent: #96ff96;
+  --color-text: #f5f5f5;
+  --font-family-base: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family-base);
+  background: var(--color-bg);
+  color: #ccc;
+  line-height: 1.5;
+  min-height: 100%;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-surface);
+  border-radius: 6px;
+  border: 2px solid #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #1c1f2c;
+}
+
+.route-loading {
+  padding: 1rem;
+  text-align: center;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.not-found {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text);
+}

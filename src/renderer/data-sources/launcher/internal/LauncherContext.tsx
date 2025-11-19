@@ -1,0 +1,289 @@
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useProjectContext } from "./ProjectContext";
+import {
+  buildUrl,
+  fetchLauncherStatus,
+  requestLauncherRun,
+  requestLauncherStop,
+} from "./launcher-interface";
+import { getProjectModelsStateSnapshot } from "./LauncherDataContext";
+
+export type LauncherStatus = "stopped" | "launching" | "running";
+
+const POLLING_DEFAULT_INTERVAL_MS = 1000;
+const POLLING_FAST_INTERVAL_MS = 200;
+
+type LauncherContextValue = {
+  status: LauncherStatus;
+  reportedStatus: LauncherStatus;
+  lastError: string | null;
+  isBusy: boolean;
+  isAwaitingStatus: boolean;
+  isRobotAlive: boolean;
+  robotAliveLoading: boolean;
+  robotAliveError: string | null;
+  run: () => Promise<void>;
+  stop: () => Promise<void>;
+  restart: () => Promise<void>;
+};
+
+const LauncherContext = createContext<LauncherContextValue | undefined>(
+  undefined
+);
+
+export const launcherEvents = new EventTarget();
+
+export function LauncherProvider({ children }: { children: React.ReactNode }) {
+  const { projectPath, launcherProfile } = useProjectContext();
+  const [status, setStatus] = useState<LauncherStatus>("stopped");
+  const [isBusy, setIsBusy] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [optimisticStatus, setOptimisticStatus] =
+    useState<LauncherStatus | null>(null);
+  const [pendingTarget, setPendingTarget] = useState<LauncherStatus | null>(
+    null
+  );
+  const [reportedStatus, setReportedStatus] =
+    useState<LauncherStatus>("stopped");
+  const fastPollUntilRef = useRef(0);
+  const [isRobotAlive, setIsRobotAlive] = useState(true);
+  const [robotAliveLoading, setRobotAliveLoading] = useState(false);
+  const [robotAliveError, setRobotAliveError] = useState<string | null>(null);
+  const lastStatusRef = useRef<LauncherStatus>("stopped");
+  const skipNextRobotCheckRef = useRef(false);
+  const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
+  const lastRunningAtRef = useRef<number | null>(null);
+
+  const wakeFastPolling = useCallback(() => {
+    fastPollUntilRef.current = Date.now() + 1500;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pollLoop() {
+      while (!cancelled) {
+        const interval =
+          Date.now() < fastPollUntilRef.current
+            ? POLLING_FAST_INTERVAL_MS
+            : POLLING_DEFAULT_INTERVAL_MS;
+
+        try {
+          const launcherStatus = await readLauncherStatus();
+          setReportedStatus((prev) =>
+            prev === launcherStatus ? prev : launcherStatus
+          );
+
+          const prevStatus = lastStatusRef.current;
+          const statusChanged = prevStatus !== launcherStatus;
+          lastStatusRef.current = launcherStatus;
+
+          if (launcherStatus === "running") {
+            if (statusChanged) {
+              setIsRobotAlive(true);
+              setRobotAliveLoading(true);
+              setRobotAliveError(null);
+              skipNextRobotCheckRef.current = true;
+              lastRunningAtRef.current = Date.now();
+            }
+            if (skipNextRobotCheckRef.current) {
+              skipNextRobotCheckRef.current = false;
+            }
+            if (
+              !robotCheckPromiseRef.current &&
+              typeof lastRunningAtRef.current === "number" &&
+              Date.now() - lastRunningAtRef.current >= 5000
+            ) {
+              setRobotAliveLoading(true);
+              robotCheckPromiseRef.current = checkRobotAlive()
+                .then((alive) => {
+                  setIsRobotAlive(alive);
+                  setRobotAliveError(null);
+                })
+                .catch((err) => {
+                  setRobotAliveError(
+                    err instanceof Error ? err.message : String(err)
+                  );
+                })
+                .finally(() => {
+                  robotCheckPromiseRef.current = null;
+                  setRobotAliveLoading(false);
+                });
+            }
+          } else {
+            skipNextRobotCheckRef.current = false;
+            robotCheckPromiseRef.current = null;
+            setIsRobotAlive(true);
+            setRobotAliveLoading(false);
+            setRobotAliveError(null);
+          }
+
+          setStatus((prev) =>
+            prev === launcherStatus ? prev : launcherStatus
+          );
+          setPendingTarget((target) =>
+            target && launcherStatus === target ? null : target
+          );
+          setOptimisticStatus((current) =>
+            current && launcherStatus !== "launching" ? null : current
+          );
+        } catch (err) {
+          console.warn("[launcher] poll failed", err);
+        }
+
+        await sleep(interval);
+      }
+    }
+
+    pollLoop();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const run = useCallback(async () => {
+    if (!projectPath) {
+      setLastError("Select a project before running the launcher.");
+      return;
+    }
+
+    setIsBusy(true);
+    setLastError(null);
+    setPendingTarget("running");
+    setOptimisticStatus("launching");
+    wakeFastPolling();
+    launcherEvents.dispatchEvent(new Event("run-requested"));
+
+    try {
+      await requestLauncherRun(projectPath, launcherProfile || "local:ALL");
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : String(err));
+      setPendingTarget(null);
+      setOptimisticStatus(null);
+      throw err;
+    } finally {
+      setIsBusy(false);
+    }
+  }, [launcherProfile, projectPath, wakeFastPolling]);
+
+  const stop = useCallback(async () => {
+    setIsBusy(true);
+    setLastError(null);
+    setPendingTarget("stopped");
+    wakeFastPolling();
+    launcherEvents.dispatchEvent(new Event("stop-requested"));
+    try {
+      await requestLauncherStop();
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : String(err));
+      setPendingTarget(null);
+      throw err;
+    } finally {
+      setIsBusy(false);
+    }
+  }, [wakeFastPolling]);
+
+  const restart = useCallback(async () => {
+    await stop();
+    await sleep(500);
+    await run();
+  }, [run, stop]);
+
+  const effectiveStatus = optimisticStatus ?? status;
+  const isAwaitingStatus = pendingTarget !== null;
+
+  const value = useMemo(
+    () => ({
+      status: effectiveStatus,
+      reportedStatus,
+      lastError,
+      isBusy,
+      isAwaitingStatus,
+      isRobotAlive,
+      robotAliveLoading,
+      robotAliveError,
+      run,
+      stop,
+      restart,
+    }),
+    [
+      effectiveStatus,
+      reportedStatus,
+      isAwaitingStatus,
+      isBusy,
+      lastError,
+      isRobotAlive,
+      robotAliveLoading,
+      robotAliveError,
+      restart,
+      run,
+      stop,
+    ]
+  );
+
+  return (
+    <LauncherContext.Provider value={value}>
+      {children}
+    </LauncherContext.Provider>
+  );
+}
+
+export function useLauncherContext(): LauncherContextValue {
+  const ctx = useContext(LauncherContext);
+  if (!ctx) {
+    throw new Error("useLauncherContext must be used within LauncherProvider");
+  }
+  return ctx;
+}
+
+async function readLauncherStatus(): Promise<LauncherStatus> {
+  const data = await fetchLauncherStatus();
+  if (!data?.status) return "stopped";
+  if (data.status === "running") return "running";
+  if (data.status === "launching" || data.status === "starting")
+    return "launching";
+  return "stopped";
+}
+
+async function checkRobotAlive(): Promise<boolean> {
+  const snapshot = getProjectModelsStateSnapshot();
+  const models =
+    snapshot.loading && snapshot.data.length === 0
+      ? null
+      : snapshot.data.length > 0
+        ? snapshot.data
+        : null;
+  if (!models) {
+    return true;
+  }
+
+  for (const model of models) {
+    const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        return false;
+      }
+    } catch (err) {
+      console.warn(
+        `[launcher] telemetry health check failed for ${model.modelShortName}`,
+        err
+      );
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

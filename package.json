@@ -2,6 +2,7 @@
   "name": "robotick-hub",
   "version": "1.0.0",
   "description": "Robotick Hub Web IDE",
+  "main": "dist/electron/main/main.js",
   "directories": {
     "doc": "docs"
   },
@@ -9,7 +10,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "npm run test:renderer && npm run test:electron",
+    "test:renderer": "vitest --run --root src/renderer --environment jsdom",
+    "test:electron": "vitest --run --root src/electron --environment node",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "electron": "npm run build:electron && electron .",
+    "electron-dev": "npm run build:electron && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron . --remote-debugging-port=9222",
+    "dev:all": "concurrently \"npm:dev\" \"npm:electron-dev\""
   },
   "repository": {
     "type": "git",
@@ -26,15 +33,20 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",
+    "concurrently": "^9.2.1",
+    "electron": "^28.3.3",
+    "jsdom": "^27.2.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",
     "vite-plugin-cesium": "^1.2.23",
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "ansi_up": "^6.0.6",
+    "cesium": "^1.134.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "cesium": "^1.134.1",
+    "react-router-dom": "^7.9.6",
     "three": "^0.180.0",
     "three-stdlib": "^2.36.0"
   }

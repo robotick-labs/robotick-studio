@@ -1,0 +1,620 @@
+import { useEffect, useRef } from "react";
+
+type StickTopic = "left_stick" | "right_stick";
+type StickName = "left" | "right";
+
+interface Vector2 {
+  x: number;
+  y: number;
+}
+
+interface StickController {
+  area: HTMLDivElement;
+  knob: HTMLDivElement;
+  movePointer: (globalX: number, globalY: number) => void;
+  resetKnob: () => void;
+  movePointerToCenter: () => void;
+}
+
+type JoystickState = {
+  use_web_inputs: boolean;
+  left: Vector2;
+  right: Vector2;
+  left_trigger: number;
+  right_trigger: number;
+  dead_zone_left: Vector2;
+  dead_zone_right: Vector2;
+  a: boolean;
+  b: boolean;
+  x: boolean;
+  y: boolean;
+  left_bumper: boolean;
+  right_bumper: boolean;
+  back: boolean;
+  start: boolean;
+  guide: boolean;
+  left_stick_button: boolean;
+  right_stick_button: boolean;
+  dpad_up: boolean;
+  dpad_down: boolean;
+  dpad_left: boolean;
+  dpad_right: boolean;
+};
+
+type UseRemoteControlClientOptions = {
+  leftArea: HTMLDivElement | null;
+  leftKnob: HTMLDivElement | null;
+  rightArea: HTMLDivElement | null;
+  rightKnob: HTMLDivElement | null;
+  useWebInputs: boolean;
+  remoteControlServer?: string | null;
+};
+
+function cloneState(state: JoystickState): JoystickState {
+  return JSON.parse(JSON.stringify(state));
+}
+
+class RemoteControlClient {
+  private leftStick: StickController;
+  private rightStick: StickController;
+  private joystickState: JoystickState;
+  private readonly remoteControlServer: string | null;
+  private readonly controlsEnabled: boolean;
+  private readonly localState = {
+    left: { x: 0.0, y: 0.0 },
+    right: { x: 0.0, y: 0.0 },
+  };
+  private allowReadGamePad = true;
+  private dirtyKeys = new Set<keyof JoystickState>();
+  private ticking = false;
+  private tickTimeout: number | null = null;
+  private rafId: number | null = null;
+  private disposed = false;
+  private lastSentState: JoystickState;
+  private cleanup: Array<() => void> = [];
+
+  constructor(options: {
+    leftArea: HTMLDivElement;
+    leftKnob: HTMLDivElement;
+    rightArea: HTMLDivElement;
+    rightKnob: HTMLDivElement;
+    remoteControlServer: string | null;
+  }) {
+    this.remoteControlServer = options.remoteControlServer;
+    this.controlsEnabled = Boolean(this.remoteControlServer);
+    if (!this.controlsEnabled) {
+      console.warn(
+        "[remote-controls] remoteControlServer is not configured; controls disabled."
+      );
+    }
+    this.joystickState = {
+      use_web_inputs: true,
+      left: { x: 0.0, y: 0.0 },
+      right: { x: 0.0, y: 0.0 },
+      left_trigger: 0.0,
+      right_trigger: 0.0,
+      dead_zone_left: { x: 0.1, y: 0.1 },
+      dead_zone_right: { x: 0.1, y: 0.1 },
+      a: false,
+      b: false,
+      x: false,
+      y: false,
+      left_bumper: false,
+      right_bumper: false,
+      back: false,
+      start: false,
+      guide: false,
+      left_stick_button: false,
+      right_stick_button: false,
+      dpad_up: false,
+      dpad_down: false,
+      dpad_left: false,
+      dpad_right: false,
+    };
+    this.lastSentState = cloneState(this.joystickState);
+
+    this.leftStick = this.createStick(
+      options.leftArea,
+      options.leftKnob,
+      "left_stick",
+      true,
+      true
+    );
+    this.rightStick = this.createStick(
+      options.rightArea,
+      options.rightKnob,
+      "right_stick",
+      true,
+      true
+    );
+
+    this.setupTouchEvents();
+    this.setupMouseEvents();
+    this.setupGamepadPolling();
+    this.sendFullState();
+  }
+
+  dispose() {
+    this.disposed = true;
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    if (this.tickTimeout !== null) {
+      clearTimeout(this.tickTimeout);
+      this.tickTimeout = null;
+    }
+    for (const fn of this.cleanup) fn();
+    this.cleanup = [];
+  }
+
+  setUseWebInputs(enabled: boolean) {
+    this.joystickState.use_web_inputs = enabled;
+    this.dirtyKeys.add("use_web_inputs");
+    this.sendFullState();
+  }
+
+  private setupTouchEvents() {
+    const activeTouches: Record<
+      number,
+      { side: StickName; startX: number; startY: number }
+    > = {};
+
+    const touchStartedInArea = (touch: Touch, area: HTMLDivElement) => {
+      const rect = area.getBoundingClientRect();
+      return (
+        touch.clientX >= rect.left &&
+        touch.clientX <= rect.right &&
+        touch.clientY >= rect.top &&
+        touch.clientY <= rect.bottom
+      );
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      this.allowReadGamePad = false;
+      if (!this.controlsEnabled) return;
+      for (const touch of Array.from(e.changedTouches)) {
+        if (touchStartedInArea(touch, this.leftStick.area)) {
+          activeTouches[touch.identifier] = {
+            side: "left",
+            startX: touch.clientX,
+            startY: touch.clientY,
+          };
+        } else if (touchStartedInArea(touch, this.rightStick.area)) {
+          activeTouches[touch.identifier] = {
+            side: "right",
+            startX: touch.clientX,
+            startY: touch.clientY,
+          };
+        }
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!this.controlsEnabled) return;
+      for (const touch of Array.from(e.changedTouches)) {
+        const data = activeTouches[touch.identifier];
+        if (!data) continue;
+        const dx = touch.clientX - data.startX;
+        const dy = touch.clientY - data.startY;
+        const stick = data.side === "left" ? this.leftStick : this.rightStick;
+        const rect = stick.area.getBoundingClientRect();
+        const centerX = rect.left + stick.area.clientWidth / 2;
+        const centerY = rect.top + stick.area.clientHeight / 2;
+        stick.movePointer(centerX + dx, centerY + dy);
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      this.allowReadGamePad = true;
+      if (!this.controlsEnabled) return;
+      for (const touch of Array.from(e.changedTouches)) {
+        const data = activeTouches[touch.identifier];
+        if (!data) continue;
+        const stick = data.side === "left" ? this.leftStick : this.rightStick;
+        stick.resetKnob();
+        delete activeTouches[touch.identifier];
+      }
+    };
+
+    document.addEventListener("touchstart", onTouchStart);
+    document.addEventListener("touchmove", onTouchMove);
+    document.addEventListener("touchend", handleTouchEnd);
+    document.addEventListener("touchcancel", handleTouchEnd);
+
+    this.cleanup.push(() =>
+      document.removeEventListener("touchstart", onTouchStart)
+    );
+    this.cleanup.push(() =>
+      document.removeEventListener("touchmove", onTouchMove)
+    );
+    this.cleanup.push(() =>
+      document.removeEventListener("touchend", handleTouchEnd)
+    );
+    this.cleanup.push(() =>
+      document.removeEventListener("touchcancel", handleTouchEnd)
+    );
+  }
+
+  private setupMouseEvents() {
+    let mouseActive: StickName | null = null;
+    let mouseStartX = 0;
+    let mouseStartY = 0;
+
+    const onMouseDown = (e: MouseEvent) => {
+      this.allowReadGamePad = false;
+      if (!this.controlsEnabled) return;
+      if (this.leftStick.area.contains(e.target as Node)) {
+        mouseActive = "left";
+        mouseStartX = e.clientX;
+        mouseStartY = e.clientY;
+      } else if (this.rightStick.area.contains(e.target as Node)) {
+        mouseActive = "right";
+        mouseStartX = e.clientX;
+        mouseStartY = e.clientY;
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!mouseActive) return;
+      if (!this.controlsEnabled) return;
+      const dx = e.clientX - mouseStartX;
+      const dy = e.clientY - mouseStartY;
+      const stick = mouseActive === "left" ? this.leftStick : this.rightStick;
+      const rect = stick.area.getBoundingClientRect();
+      const centerX = rect.left + stick.area.clientWidth / 2;
+      const centerY = rect.top + stick.area.clientHeight / 2;
+      stick.movePointer(centerX + dx, centerY + dy);
+    };
+
+    const onMouseUp = () => {
+      this.allowReadGamePad = true;
+      if (!this.controlsEnabled) return;
+      if (mouseActive === "left") this.leftStick.resetKnob();
+      else if (mouseActive === "right") this.rightStick.resetKnob();
+      mouseActive = null;
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+
+    this.cleanup.push(() =>
+      document.removeEventListener("mousedown", onMouseDown)
+    );
+    this.cleanup.push(() =>
+      document.removeEventListener("mousemove", onMouseMove)
+    );
+    this.cleanup.push(() => document.removeEventListener("mouseup", onMouseUp));
+  }
+
+  private setupGamepadPolling() {
+    let activeGamepadIndex: number | null = null;
+
+    const onConnected = (e: GamepadEvent) => {
+      activeGamepadIndex = e.gamepad.index;
+      if (this.rafId !== null) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      this.pollGamepad(activeGamepadIndex!);
+    };
+
+    const onDisconnected = () => {
+      activeGamepadIndex = null;
+      if (this.rafId !== null) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+    };
+
+    window.addEventListener("gamepadconnected", onConnected);
+    window.addEventListener("gamepaddisconnected", onDisconnected);
+
+    this.cleanup.push(() =>
+      window.removeEventListener("gamepadconnected", onConnected)
+    );
+    this.cleanup.push(() =>
+      window.removeEventListener("gamepaddisconnected", onDisconnected)
+    );
+  }
+
+  private pollGamepad(index: number) {
+    let lxLast = 0;
+    let lyLast = 0;
+    let rxLast = 0;
+    let ryLast = 0;
+    let lastButtons = "";
+
+    const loop = () => {
+      if (this.disposed) return;
+      const pads = navigator.getGamepads();
+      const gp = pads[index];
+      if (!gp) {
+        this.allowReadGamePad = true;
+        this.rafId = requestAnimationFrame(loop);
+        return;
+      }
+
+      if (!this.allowReadGamePad) {
+        this.rafId = requestAnimationFrame(loop);
+        return;
+      }
+      if (!this.controlsEnabled) {
+        this.rafId = requestAnimationFrame(loop);
+        return;
+      }
+
+      let lx = gp.axes[0] || 0;
+      let ly = -(gp.axes[1] || 0);
+      let rx = gp.axes[2] || 0;
+      let ry = -(gp.axes[3] || 0);
+
+      ({ x: lx, y: ly } = this.expandCircularToSquare(lx, ly));
+      ({ x: rx, y: ry } = this.expandCircularToSquare(rx, ry));
+
+      const dzLeft = this.joystickState.dead_zone_left;
+      const dzRight = this.joystickState.dead_zone_right;
+
+      lx = this.applyDeadZone(lx, dzLeft.x);
+      ly = this.applyDeadZone(ly, dzLeft.y);
+      rx = this.applyDeadZone(rx, dzRight.x);
+      ry = this.applyDeadZone(ry, dzRight.y);
+
+      const lt = gp.buttons[6]?.value || 0;
+      const rt = gp.buttons[7]?.value || 0;
+
+      const buttonMap: Array<[keyof JoystickState, number]> = [
+        ["a", 0],
+        ["b", 1],
+        ["x", 2],
+        ["y", 3],
+        ["left_bumper", 4],
+        ["right_bumper", 5],
+        ["back", 8],
+        ["start", 9],
+        ["left_stick_button", 10],
+        ["right_stick_button", 11],
+        ["dpad_up", 12],
+        ["dpad_down", 13],
+        ["dpad_left", 14],
+        ["dpad_right", 15],
+        ["guide", 16],
+      ];
+
+      let currentButtons = "";
+      for (const [, idx] of buttonMap) {
+        currentButtons += gp.buttons[idx]?.pressed ? "1" : "0";
+      }
+
+      const axesChanged =
+        lx !== lxLast || ly !== lyLast || rx !== rxLast || ry !== ryLast;
+      const triggersChanged =
+        this.joystickState.left_trigger !== lt ||
+        this.joystickState.right_trigger !== rt;
+      const buttonsChanged = currentButtons !== lastButtons;
+
+      if (axesChanged || triggersChanged || buttonsChanged) {
+        lxLast = lx;
+        lyLast = ly;
+        rxLast = rx;
+        ryLast = ry;
+        lastButtons = currentButtons;
+
+        this.sendJoystickInput("left_stick", lx, ly);
+        this.sendJoystickInput("right_stick", rx, ry);
+        this.updateTrigger("left_trigger", lt);
+        this.updateTrigger("right_trigger", rt);
+
+        const joystickRecord = this.joystickState as Record<string, unknown>;
+        for (const [name, idx] of buttonMap) {
+          const pressed = !!gp.buttons[idx]?.pressed;
+          if (joystickRecord[name as string] !== pressed) {
+            joystickRecord[name as string] = pressed;
+            this.dirtyKeys.add(name);
+          }
+        }
+
+        this.moveStickVisual(this.leftStick, lx, ly);
+        this.moveStickVisual(this.rightStick, rx, ry);
+        if (!this.ticking) this.startTickLoop();
+      }
+
+      this.rafId = requestAnimationFrame(loop);
+    };
+
+    this.rafId = requestAnimationFrame(loop);
+  }
+
+  private sendJoystickInput(topic: StickTopic, x: number, y: number) {
+    if (!this.controlsEnabled) return;
+    const clampedX = Math.max(-1, Math.min(1, x));
+    const clampedY = Math.max(-1, Math.min(1, y));
+
+    if (topic === "left_stick") {
+      this.joystickState.left = { x: clampedX, y: clampedY };
+    } else {
+      this.joystickState.right = { x: clampedX, y: clampedY };
+    }
+
+    this.dirtyKeys.add(topic === "left_stick" ? "left" : "right");
+  }
+
+  private updateTrigger(key: keyof JoystickState, value: number) {
+    if (!this.controlsEnabled) return;
+    const clamped = Math.max(0, Math.min(1, value));
+    if (this.joystickState[key] !== clamped) {
+      // @ts-ignore
+      this.joystickState[key] = clamped;
+      this.dirtyKeys.add(key);
+    }
+  }
+
+  private moveStickVisual(stick: StickController, x: number, y: number) {
+    if (!this.controlsEnabled) return;
+    const radius = stick.area.clientWidth / 2;
+    stick.knob.style.transform = `translate(-50%, -50%) translate(${
+      x * radius
+    }px, ${-y * radius}px)`;
+  }
+
+  private moveStickState(stick: StickController, x: number, y: number) {
+    if (!this.controlsEnabled) return;
+    const rect = stick.area.getBoundingClientRect();
+    const centerX = rect.left + stick.area.clientWidth / 2;
+    const centerY = rect.top + stick.area.clientHeight / 2;
+    stick.movePointer(centerX + x, centerY + y);
+  }
+
+  private createStick(
+    area: HTMLDivElement,
+    knob: HTMLDivElement,
+    topic: StickTopic,
+    clampCircular: boolean,
+    updateLocalState: boolean
+  ): StickController {
+    const radius = area.clientWidth / 2;
+    const movePointer = (globalX: number, globalY: number) => {
+      const rect = area.getBoundingClientRect();
+      const dx = globalX - (rect.left + radius);
+      const dy = globalY - (rect.top + radius);
+      let normX = dx / radius;
+      let normY = -(dy / radius);
+
+      if (clampCircular) {
+        const length = Math.hypot(normX, normY);
+        if (length > 1) {
+          normX /= length;
+          normY /= length;
+        }
+      } else {
+        normX = Math.max(-1, Math.min(1, normX));
+        normY = Math.max(-1, Math.min(1, normY));
+      }
+
+      knob.style.transform = `translate(-50%, -50%) translate(${
+        normX * radius
+      }px, ${-normY * radius}px)`;
+
+      this.sendJoystickInput(topic, normX, normY);
+      if (!this.ticking) this.startTickLoop();
+
+      if (updateLocalState) {
+        const local =
+          this.localState[topic === "left_stick" ? "left" : "right"];
+        local.x = normX;
+        local.y = normY;
+      }
+    };
+
+    const resetKnob = () => {
+      if (!this.controlsEnabled) return;
+      knob.style.transform = `translate(-50%, -50%)`;
+      this.sendJoystickInput(topic, 0, 0);
+      if (!this.ticking) this.startTickLoop();
+      if (updateLocalState) {
+        const local =
+          this.localState[topic === "left_stick" ? "left" : "right"];
+        local.x = 0;
+        local.y = 0;
+      }
+    };
+
+    const movePointerToCenter = () => {
+      if (!this.controlsEnabled) return;
+      this.moveStickVisual(stick, 0, 0);
+      this.sendJoystickInput(topic, 0, 0);
+    };
+
+    return { area, knob, movePointer, resetKnob, movePointerToCenter };
+  }
+
+  private expandCircularToSquare(x: number, y: number) {
+    const newX = x * Math.sqrt(1 - (y * y) / 2);
+    const newY = y * Math.sqrt(1 - (x * x) / 2);
+    return { x: newX, y: newY };
+  }
+
+  private applyDeadZone(value: number, deadZone: number) {
+    if (Math.abs(value) < deadZone) return 0;
+    return ((value - Math.sign(value) * deadZone) / (1 - deadZone)) * 1;
+  }
+
+  private startTickLoop() {
+    if (!this.controlsEnabled) return;
+    this.ticking = true;
+    const tick = () => {
+      if (!this.ticking) return;
+      this.sendDirtyKeys();
+      this.tickTimeout = window.setTimeout(tick, 50);
+    };
+    tick();
+  }
+
+  private sendDirtyKeys() {
+    if (this.dirtyKeys.size === 0) return;
+    const nextState = cloneState(this.joystickState);
+    this.lastSentState = nextState;
+    this.dirtyKeys.clear();
+
+    if (!this.controlsEnabled || !this.remoteControlServer) {
+      return;
+    }
+    fetch(`${this.remoteControlServer}/api/rc_state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextState),
+    }).catch((err) => console.warn("Failed to send joystick state", err));
+  }
+
+  private sendFullState() {
+    const nextState = cloneState(this.joystickState);
+    this.lastSentState = nextState;
+    if (!this.controlsEnabled || !this.remoteControlServer) {
+      return;
+    }
+    fetch(`${this.remoteControlServer}/api/rc_state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextState),
+    }).catch((err) => console.warn("Failed to send joystick state", err));
+  }
+}
+
+export function useRemoteControlClient({
+  leftArea,
+  leftKnob,
+  rightArea,
+  rightKnob,
+  useWebInputs,
+  remoteControlServer,
+}: UseRemoteControlClientOptions) {
+  const clientRef = useRef<RemoteControlClient | null>(null);
+
+  useEffect(() => {
+    if (!leftArea || !leftKnob || !rightArea || !rightKnob) {
+      return;
+    }
+
+    const client = new RemoteControlClient({
+      leftArea,
+      leftKnob,
+      rightArea,
+      rightKnob,
+      remoteControlServer: remoteControlServer ?? null,
+    });
+    client.setUseWebInputs(useWebInputs);
+    clientRef.current = client;
+
+    return () => {
+      client.dispose();
+      clientRef.current = null;
+    };
+  }, [leftArea, leftKnob, rightArea, rightKnob, remoteControlServer]);
+
+  useEffect(() => {
+    if (clientRef.current) {
+      clientRef.current.setUseWebInputs(useWebInputs);
+    }
+  }, [useWebInputs]);
+}
