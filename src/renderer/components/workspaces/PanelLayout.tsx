@@ -615,6 +615,8 @@ function PanelLeaf({
     moveHandler: null,
     upHandler: null,
   });
+  const [editorPickerOpen, setEditorPickerOpen] = React.useState(false);
+  const selectRef = React.useRef<HTMLSelectElement | null>(null);
 
   const startSplitDrag = React.useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -711,17 +713,43 @@ function PanelLeaf({
       )}
 
       <div className={styles.panelOverlay}>
-        <select
-          className={styles.panelSelector}
-          value={node.editorId}
-          onChange={(event) => onAssign(node.id, event.target.value)}
-        >
-          {editorOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        {editorPickerOpen ? (
+          <select
+            ref={selectRef}
+            className={styles.panelSelector}
+            value={node.editorId}
+            onChange={(event) => {
+              onAssign(node.id, event.target.value);
+              setEditorPickerOpen(false);
+            }}
+            onBlur={() => setEditorPickerOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setEditorPickerOpen(false);
+                selectRef.current?.blur();
+              }
+            }}
+          >
+            {editorOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <button
+            className={styles.panelSelectorButton}
+            onClick={(event) => {
+              event.stopPropagation();
+              setEditorPickerOpen(true);
+              requestAnimationFrame(() => selectRef.current?.focus());
+            }}
+            aria-label="Open editor selector"
+            title="Switch editor"
+          >
+            ▾
+          </button>
+        )}
         <button
           className={styles.panelHandle}
           title={`Drag to split • Double-click to ${isMaximized ? "restore" : "maximize"}`}

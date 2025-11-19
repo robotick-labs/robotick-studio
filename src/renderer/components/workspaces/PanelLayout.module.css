@@ -60,12 +60,12 @@
 }
 
 .panelSelector {
-  background: rgba(0, 0, 0, 1);
+  background: rgba(0, 0, 0, 0.6);
   border: none;
   color: rgba(255, 255, 255, 0.95);
   font-size: 0.8rem;
   outline: none;
-  padding: 0 18px 0 4px;
+  padding: 0 18px 0 2px;
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -75,6 +75,41 @@
   background-position: right 4px center;
   background-size: 10px 6px;
   border-radius: 4px;
+  width: 30px;
+  height: 24px;
+  text-indent: -9999px;
+  font-size: 0;
+  transition: width 0.2s ease, font-size 0.2s ease, text-indent 0.2s ease,
+    color 0.2s ease;
+}
+
+.panelSelector:focus-visible,
+.panelSelector:active {
+  width: 120px;
+  font-size: 0.8rem;
+  text-indent: 0;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.panelSelectorButton {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  padding: 0;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.panelSelectorButton:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .panelHandle {
