@@ -219,9 +219,13 @@
 .splitResizer {
   position: absolute;
   z-index: 4;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 999px;
+}
+
+.splitResizer:hover {
+  background: rgba(12, 147, 225, 0.95);
+  box-shadow: 0 0 10px rgba(12, 147, 225, 0.9);
+  z-index: 10;
 }
 
 .resizerVertical {
