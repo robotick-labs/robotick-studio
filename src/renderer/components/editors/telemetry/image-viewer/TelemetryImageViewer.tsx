@@ -180,44 +180,6 @@ export default function TelemetryImageViewer() {
   }, [model, fieldPath]);
   const selectedImageField = fieldPath;
 
-  const [modelsWithImages, setModelsWithImages] = useState<Set<string>>(
-    () => new Set()
-  );
-
-  useEffect(() => {
-    if (selectedModel && imageFieldOptions.length > 0) {
-      setModelsWithImages((prev) => {
-        if (prev.has(selectedModel.modelPath)) return prev;
-        const next = new Set(prev);
-        next.add(selectedModel.modelPath);
-        return next;
-      });
-    }
-  }, [selectedModel, imageFieldOptions]);
-
-  const modelsToShow = useMemo(() => {
-    if (modelsWithImages.size === 0) return modelOptions;
-    const filtered = modelOptions.filter((entry) =>
-      modelsWithImages.has(entry.modelPath)
-    );
-    return filtered.length > 0 ? filtered : modelOptions;
-  }, [modelOptions, modelsWithImages]);
-
-  useEffect(() => {
-    if (modelsWithImages.size === 0) return;
-    if (selectedModel && modelsWithImages.has(selectedModel.modelPath)) {
-      return;
-    }
-    const next = modelsToShow[0];
-    if (next) {
-      updateSettings({
-        modelPath: next.modelPath,
-        modelName: next.modelName,
-        telemetryBaseUrl: next.telemetryBaseUrl,
-      });
-    }
-  }, [modelsWithImages, modelsToShow, selectedModel, updateSettings]);
-
   useEffect(() => {
     if (availableWorkloads.length === 0) return;
     if (!availableWorkloads.some((w) => w.name === workloadName)) {
@@ -238,13 +200,15 @@ export default function TelemetryImageViewer() {
 
   const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const modelPath = event.target.value;
-    const descriptor = modelsToShow.find(
+    const descriptor = modelOptions.find(
       (model) => model.modelPath === modelPath
     );
     updateSettings({
       modelPath,
       modelName: descriptor?.modelName,
       telemetryBaseUrl: descriptor?.telemetryBaseUrl,
+      workloadName: undefined,
+      fieldPath: undefined,
     });
   };
 
@@ -278,7 +242,7 @@ export default function TelemetryImageViewer() {
             value={selectedModel?.modelPath ?? ""}
             onChange={handleModelChange}
           >
-            {modelsToShow.map((model) => (
+            {modelOptions.map((model) => (
               <option value={model.modelPath} key={model.modelPath}>
                 {model.modelName}
               </option>
