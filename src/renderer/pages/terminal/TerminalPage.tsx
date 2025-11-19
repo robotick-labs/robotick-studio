@@ -12,6 +12,7 @@ export default function TerminalPage() {
   const [wrap, setWrap] = useState(true);
   const [clearOnRun, setClearOnRun] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
+  const launcherService = useLauncherService();
 
   const logRef = useRef<HTMLPreElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,7 +24,7 @@ export default function TerminalPage() {
 
   useEffect(() => {
     ansiUpRef.current = new AnsiUp();
-  }, [launcherService]);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // WebSocket + automatic reconnect + debug logs
@@ -96,7 +97,7 @@ export default function TerminalPage() {
         wsRef.current = null;
       }
     };
-  }, []);
+  }, [launcherService]);
 
 async function normalizeEventData(data: unknown): Promise<string> {
   if (typeof data === "string") {
@@ -223,4 +224,3 @@ async function normalizeEventData(data: unknown): Promise<string> {
     </div>
   );
 }
-  const launcherService = useLauncherService();
