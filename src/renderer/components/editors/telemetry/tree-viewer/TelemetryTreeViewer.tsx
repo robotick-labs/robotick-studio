@@ -49,33 +49,33 @@ function persistPreference(key: string, value: string | undefined) {
 
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
-  const storedLocalSettings = useMemo<PanelSettings>(() => ({
-    modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
-    workloadName: readPreference(TREE_STORAGE_KEYS.workload) ?? undefined,
-    fieldPath: readPreference(TREE_STORAGE_KEYS.field) ?? undefined,
-    dataKind: (readPreference(TREE_STORAGE_KEYS.dataKind) ??
-      undefined) as PanelSettings["dataKind"] | undefined,
-  }), []);
-  const [localSettings, setLocalSettings] = useState<PanelSettings>(
-    storedLocalSettings
-  );
-  const persistLocalSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if ("modelPath" in next) {
-        persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
-      }
-      if ("workloadName" in next) {
-        persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
-      }
-      if ("fieldPath" in next) {
-        persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
-      }
-      if ("dataKind" in next) {
-        persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
-      }
-    },
+  const storedLocalSettings = useMemo<PanelSettings>(
+    () => ({
+      modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
+      workloadName: readPreference(TREE_STORAGE_KEYS.workload) ?? undefined,
+      fieldPath: readPreference(TREE_STORAGE_KEYS.field) ?? undefined,
+      dataKind: (readPreference(TREE_STORAGE_KEYS.dataKind) ?? undefined) as
+        | PanelSettings["dataKind"]
+        | undefined,
+    }),
     []
   );
+  const [localSettings, setLocalSettings] =
+    useState<PanelSettings>(storedLocalSettings);
+  const persistLocalSettings = useCallback((next: Partial<PanelSettings>) => {
+    if ("modelPath" in next) {
+      persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
+    }
+    if ("workloadName" in next) {
+      persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
+    }
+    if ("fieldPath" in next) {
+      persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
+    }
+    if ("dataKind" in next) {
+      persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
+    }
+  }, []);
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const updateSettings = useCallback(
@@ -282,11 +282,11 @@ export default function TelemetryTreeViewer() {
           </select>
         </div>
         <div className={styles.control}>
-          <label htmlFor="tree-field">Field Name</label>
+          <label htmlFor="tree-field">Field</label>
           <input
             id="tree-field"
             type="text"
-            placeholder="camera"
+            placeholder="full or partial name"
             value={fieldFilterRaw}
             onChange={handleFieldChange}
           />
@@ -321,8 +321,7 @@ function TreeNode({
 }) {
   const value = field.getValue?.();
   const isArray = Array.isArray(value);
-  const hasChildren =
-    isArray || (field.fields && field.fields.length > 0);
+  const hasChildren = isArray || (field.fields && field.fields.length > 0);
   const expanded = expandedPaths.has(field.path);
 
   return (
