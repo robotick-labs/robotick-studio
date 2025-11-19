@@ -15,6 +15,7 @@ import {
 import styles from "../PanelLayout.module.css";
 import { PanelContextMenu } from "../PanelContextMenu";
 import type { PanelContextMenuState } from "../PanelContextMenu";
+import { PanelErrorBoundary } from "../PanelErrorBoundary";
 
 type FloatingPanelLayerProps = {
   scope: string;
@@ -194,11 +195,16 @@ function FloatingPanelWindow({
         >
           <div className={styles.floatingContent}>
             <div className={styles.panelBody}>
-              <React.Suspense
-                fallback={<div className={styles.panelLoading}>Loading…</div>}
+              <PanelErrorBoundary
+                editorId={entry.id}
+                onRetry={() => setSelectorOpen(false)}
               >
-                <Component />
-              </React.Suspense>
+                <React.Suspense
+                  fallback={<div className={styles.panelLoading}>Loading…</div>}
+                >
+                  <Component />
+                </React.Suspense>
+              </PanelErrorBoundary>
             </div>
             {editorOptions.length > 1 && (
               <div className={styles.panelOverlay}>

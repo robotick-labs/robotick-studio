@@ -124,7 +124,8 @@ export default function TelemetryTreeViewer() {
       ? settings.workloadName
       : "";
   const dataKind = settings.dataKind ?? "outputs";
-  const fieldPath = settings.fieldPath ?? "";
+  const fieldFilterRaw = settings.fieldPath ?? "";
+  const fieldFilter = fieldFilterRaw.trim().toLowerCase();
 
   const targetWorkload = workloads.find(
     (workload) => workload.name === workloadName
@@ -148,24 +149,32 @@ export default function TelemetryTreeViewer() {
 
   const rootNodes = useMemo(() => {
     if (!model) return [];
-    if (workloadName && fieldPath) {
-      const normalized = normalizeFieldPath(workloadName, fieldPath);
-      const field = model.getField(normalized);
-      return field ? [field] : [];
+    const workloadsToInspect =
+      workloadName && targetWorkload ? [targetWorkload] : workloads;
+    if (workloadsToInspect.length === 0) return [];
+
+    if (fieldFilter) {
+      const matches: ITelemetryField[] = [];
+      const seen = new Set<string>();
+      for (const workload of workloadsToInspect) {
+        const struct = getStruct(workload, dataKind);
+        if (!struct || !struct.fields) continue;
+        collectMatchingFields(struct.fields, fieldFilter, matches, seen);
+      }
+      return matches;
     }
+
     if (workloadName && targetWorkload) {
       const struct = getStruct(targetWorkload, dataKind);
-      if (struct) {
-        return struct.fields ?? [];
-      }
-      return [];
+      return struct?.fields ?? [];
     }
+
     return model.workloads.flatMap((workload) => {
       const struct = getStruct(workload, dataKind);
-      if (!struct) return [];
-      return struct.fields ?? [];
+      if (!struct || !struct.fields) return [];
+      return struct.fields;
     });
-  }, [model, workloadName, dataKind, fieldPath, targetWorkload]);
+  }, [model, workloads, workloadName, targetWorkload, dataKind, fieldFilter]);
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
     return new Set<string>();
@@ -273,12 +282,12 @@ export default function TelemetryTreeViewer() {
           </select>
         </div>
         <div className={styles.control}>
-          <label htmlFor="tree-field">Field Path</label>
+          <label htmlFor="tree-field">Field Name</label>
           <input
             id="tree-field"
             type="text"
-            placeholder="outputs.camera.pose"
-            value={fieldPath}
+            placeholder="camera"
+            value={fieldFilterRaw}
             onChange={handleFieldChange}
           />
         </div>
@@ -452,18 +461,6 @@ function formatJsonValue(value: unknown): string {
   return String(value);
 }
 
-function normalizeFieldPath(workloadName: string, fieldPath: string) {
-  const trimmed = fieldPath.trim().replace(/^\./, "");
-  if (
-    trimmed.startsWith("config.") ||
-    trimmed.startsWith("inputs.") ||
-    trimmed.startsWith("outputs.")
-  ) {
-    return `${workloadName}.${trimmed}`;
-  }
-  return `${workloadName}.outputs.${trimmed}`;
-}
-
 function getStruct(
   workload: ITelemetryWorkload,
   kind: "inputs" | "outputs" | "config"
@@ -471,4 +468,25 @@ function getStruct(
   if (kind === "config") return workload.config;
   if (kind === "inputs") return workload.inputs;
   return workload.outputs;
+}
+
+function collectMatchingFields(
+  fields: ITelemetryField[],
+  filter: string,
+  matches: ITelemetryField[],
+  seen: Set<string>
+) {
+  for (const field of fields) {
+    const name = field.name ?? "";
+    const match = name.toLowerCase().includes(filter);
+    if (match && !seen.has(field.path)) {
+      seen.add(field.path);
+      matches.push(field);
+      // include child tree for matched node; no need to continue filtering children here
+    }
+
+    if (field.fields && field.fields.length > 0) {
+      collectMatchingFields(field.fields, filter, matches, seen);
+    }
+  }
 }

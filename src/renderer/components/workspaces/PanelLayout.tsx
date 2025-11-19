@@ -9,6 +9,7 @@ import {
   PanelContextMenu,
   type PanelContextMenuState,
 } from "./PanelContextMenu";
+import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import styles from "./PanelLayout.module.css";
 
 type PanelLeafNode = {
@@ -790,9 +791,14 @@ function PanelLeaf({
       </div>
 
       <div className={styles.panelBody}>
-        <React.Suspense fallback={<div className={styles.panelLoading}>Loading…</div>}>
-          <Component />
-        </React.Suspense>
+        <PanelErrorBoundary
+          editorId={entry.id}
+          onRetry={() => setSplitPreview(null)}
+        >
+          <React.Suspense fallback={<div className={styles.panelLoading}>Loading…</div>}>
+            <Component />
+          </React.Suspense>
+        </PanelErrorBoundary>
       </div>
     </div>
   );
