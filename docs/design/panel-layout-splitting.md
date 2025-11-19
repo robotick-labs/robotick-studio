@@ -12,7 +12,7 @@
    - Releasing performs the split, creating two sibling panels that initially mirror the previous content.
 2. **Context menu**
    - Right-clicking inside a panel opens a menu scoped to the click location.
-   - Menu entries: `Split Horizontally`, `Split Vertically`, `Assign Tool…`, `Close Panel`, `Maximize Panel`.
+   - Menu entries: `Split Horizontally`, `Split Vertically`, `Assign Tool…`, `Close Panel`, `Maximize Panel`, `Reset Layout`.
    - Choosing a split option inserts the new divide that passes through the click position, so users can decide which sub-area becomes larger/smaller.
 3. **Assigning content**
    - Every panel header includes a compact dropdown showing the current tool (e.g., `Remote Control`, `Telemetry`, `Terminal`, `Models`).
@@ -31,6 +31,11 @@
 - Each workspace tracks its panel tree (split orientation, relative sizes, assigned tools).
 - Persist the serialized layout in `localStorage` using a key such as `panelLayout:<workspaceId>` so every workspace restores exactly how it was left across reloads.
 - When switching workspaces, restore the saved layout; initial defaults can define common setups (single panel for new workspaces, or curated layouts for “Remote Control,” “Telemetry,” etc.).
+
+### Editor registry
+- A new `src/renderer/config/app-editors.yaml` lists every available editor along with the module path that renders it.
+- Workspace entries in `app-workspaces.yaml` reference these editor IDs (rather than raw module paths) so layouts can mix-and-match any registered editor.
+- The panel selector shows this editor list, and assigning a panel simply swaps which editor ID it points to.
 
 ### Future considerations
 - Support dragging tabs/tools between panels as a secondary affordance.

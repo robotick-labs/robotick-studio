@@ -2,33 +2,9 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import type { WorkspaceConfig } from "./services/AppConfigService";
 import { WorkspacesConfig } from "./services/AppConfigService";
+import { WorkspaceView } from "./components/workspaces/WorkspaceView";
 
-type LazyComponent = React.LazyExoticComponent<
-  React.ComponentType<Record<string, never>>
->;
-
-type WorkspaceEntry = WorkspaceConfig & { Component: LazyComponent };
-
-const moduleMap = import.meta.glob("./components/editors/**/*.tsx");
-
-function createWorkspaceEntries(): WorkspaceEntry[] {
-  return WorkspacesConfig.map((workspace) => {
-    const loader = moduleMap[workspace.module];
-    if (!loader) {
-      throw new Error(
-        `Workspace '${workspace.id}' references unknown module: ${workspace.module}`
-      );
-    }
-    const Component = React.lazy(
-      loader as () => Promise<{
-        default: React.ComponentType<Record<string, never>>;
-      }>
-    );
-    return { ...workspace, Component };
-  });
-}
-
-export const resolvedWorkspaces = createWorkspaceEntries();
+export const resolvedWorkspaces = WorkspacesConfig;
 
 export function AppRoutes() {
   return (
@@ -42,13 +18,13 @@ export function AppRoutes() {
           />
         }
       />
-      {resolvedWorkspaces.map(({ path, id, Component }) => (
+      {resolvedWorkspaces.map((workspace) => (
         <Route
-          key={id}
-          path={path}
+          key={workspace.id}
+          path={workspace.path}
           element={
             <React.Suspense fallback={<WorkspaceFallback />}>
-              <Component />
+              <WorkspaceView workspace={workspace} />
             </React.Suspense>
           }
         />

@@ -4,34 +4,34 @@ workspaces:
     path: /home
     label: Home
     group: project-select
-    module: ./components/editors/home/HomePage.tsx
+    editor: home
   - id: project
     path: /project
     label: Project
     group: dev
-    module: ./components/editors/project/ProjectPage.tsx
+    editor: project
   - id: models
     path: /models
     label: Models
     group: dev
-    module: ./components/editors/models/ModelsPage.tsx
+    editor: models
   - id: remote-control
     path: /remote-control
     label: Remote Control
     group: test
-    module: ./components/editors/remote-control/RemoteControlPage.tsx
+    editor: remote-control
   - id: telemetry
     path: /telemetry
     label: Telemetry
     group: test
-    module: ./components/editors/telemetry/TelemetryPage.tsx
+    editor: telemetry
   - id: terminal
     path: /terminal
     label: Terminal
     group: test
-    module: ./components/editors/terminal/TerminalPage.tsx
+    editor: terminal
   - id: help
     path: /help
     label: Help
     group: help
-    module: ./components/editors/help/HelpPage.tsx
+    editor: help

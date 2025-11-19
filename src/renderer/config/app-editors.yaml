@@ -1,0 +1,23 @@
+# List of available editors/components that panels can host.
+editors:
+  - id: home
+    label: Home
+    module: ./components/editors/home/HomePage.tsx
+  - id: project
+    label: Project
+    module: ./components/editors/project/ProjectPage.tsx
+  - id: models
+    label: Models
+    module: ./components/editors/models/ModelsPage.tsx
+  - id: remote-control
+    label: Remote Control
+    module: ./components/editors/remote-control/RemoteControlPage.tsx
+  - id: telemetry
+    label: Telemetry
+    module: ./components/editors/telemetry/TelemetryPage.tsx
+  - id: terminal
+    label: Terminal
+    module: ./components/editors/terminal/TerminalPage.tsx
+  - id: help
+    label: Help
+    module: ./components/editors/help/HelpPage.tsx

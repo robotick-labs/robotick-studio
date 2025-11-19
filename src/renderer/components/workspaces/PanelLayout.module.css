@@ -1,0 +1,195 @@
+.panelLayout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: var(--panel-bg, #121316);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.splitHorizontal,
+.splitVertical {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+.splitHorizontal {
+  flex-direction: row;
+}
+
+.splitVertical {
+  flex-direction: column;
+}
+
+.splitPane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.panelLeaf {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 4px;
+  border-radius: 6px;
+  background: rgba(26, 29, 33, 0.9);
+  overflow: hidden;
+  position: relative;
+}
+
+.panelOverlay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  z-index: 3;
+}
+
+.panelSelector {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.panelHandle {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.panelHandle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.panelLoading {
+  padding: 1rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: rgba(15, 16, 20, 0.95);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  min-width: 180px;
+  gap: 4px;
+}
+
+.contextMenuItem {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.contextMenuItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.contextMenuItem:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.contextMenuDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+.contextMenuHeading {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  opacity: 0.6;
+  padding-left: 4px;
+}
+
+.contextMenuAssignments {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.splitPreview {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.previewHorizontal {
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed rgba(255, 255, 255, 0.5);
+}
+
+.previewVertical {
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.5);
+}
+
+.splitResizer {
+  position: absolute;
+  z-index: 4;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+}
+
+.resizerVertical {
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  transform: translateX(-3px);
+  cursor: col-resize;
+}
+
+.resizerHorizontal {
+  left: 0;
+  right: 0;
+  height: 6px;
+  transform: translateY(-3px);
+  cursor: row-resize;
+}

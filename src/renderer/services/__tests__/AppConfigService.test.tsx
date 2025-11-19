@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WorkspacesConfig } from "../../services/AppConfigService";
+import { EditorsConfig, WorkspacesConfig } from "../../services/AppConfigService";
 
 describe("AppConfigService", () => {
   it("loads workspace definitions from YAML", () => {
@@ -8,5 +8,13 @@ describe("AppConfigService", () => {
     expect(telemetry).toBeDefined();
     expect(telemetry?.path).toBe("/telemetry");
     expect(telemetry?.group).toBe("test");
+    expect(telemetry?.editor).toBeDefined();
+  });
+
+  it("loads editor definitions that workspaces can reference", () => {
+    expect(EditorsConfig.length).toBeGreaterThan(0);
+    const home = EditorsConfig.find((editor) => editor.id === "home");
+    expect(home).toBeDefined();
+    expect(home?.module).toMatch(/HomePage\.tsx$/);
   });
 });
