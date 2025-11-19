@@ -17,6 +17,7 @@ type CesiumViewerConfig = ViewerConfig & {
 
 let CESIUM_TOKEN: string | null = null;
 let viewer: Cesium.Viewer | null = null;
+let containerElement: HTMLElement | null = null;
 let rocketEntity: Cesium.Entity | null = null;
 let exitRequested = false;
 let cameraOffset: Cesium.Cartesian3 | null = null;
@@ -50,7 +51,16 @@ async function init(config: ViewerConfig): Promise<void> {
   await secretsPromise;
   Cesium.Ion.defaultAccessToken = CESIUM_TOKEN!;
 
-  viewer = new Cesium.Viewer("viewer-container", {
+  const container =
+    (config.container instanceof HTMLElement
+      ? config.container
+      : document.getElementById("viewer-container")) ?? null;
+  if (!container) {
+    console.warn("[cesium] No viewer container available");
+    return;
+  }
+  containerElement = container;
+  viewer = new Cesium.Viewer(container, {
     terrain: Cesium.Terrain.fromWorldTerrain({
       requestVertexNormals: true,
       requestWaterMask: true,
@@ -217,8 +227,10 @@ function uninit(): void {
   rocketEntity = null;
   cameraOffset = null;
 
-  const container = document.getElementById("viewer-container");
-  if (container) container.innerHTML = "";
+  if (containerElement) {
+    containerElement.innerHTML = "";
+    containerElement = null;
+  }
 }
 
 // ---------------------------------------------------------------------------

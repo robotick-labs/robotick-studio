@@ -9,15 +9,23 @@ declare global {
 }
 
 let worldInstance: ViewerWorld | null = null;
+let lastContainer: HTMLElement | null = null;
 
 async function init(viewerConfig: ViewerConfig): Promise<void> {
-  // Fill in container dynamically, if not provided
-  viewerConfig.container = document.getElementById("viewer-container");
+  const container =
+    viewerConfig.container ??
+    (document.getElementById("viewer-container") ?? null);
+  if (!container) {
+    console.warn("[three-js] No viewer container available");
+    return;
+  }
+  viewerConfig.container = container;
 
   const world = new ViewerWorld(viewerConfig);
   await world.start();
   worldInstance = world;
   window.world = world;
+  lastContainer = container;
 }
 
 async function uninit(): Promise<void> {
@@ -28,9 +36,9 @@ async function uninit(): Promise<void> {
   if (window.world) {
     delete window.world;
   }
-  const container = document.getElementById("viewer-container");
-  if (container) {
-    container.innerHTML = "";
+  if (lastContainer) {
+    lastContainer.innerHTML = "";
+    lastContainer = null;
   }
 }
 

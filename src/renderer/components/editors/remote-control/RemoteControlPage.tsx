@@ -33,6 +33,8 @@ export default function RemoteControlPage() {
     return next;
   }, [modules]);
 
+  const viewerContainerRef = React.useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     const { module: viewerModule, key: viewerKey } = viewerSelection;
     if (status !== "running") {
@@ -51,7 +53,11 @@ export default function RemoteControlPage() {
     }
 
     try {
-      viewer.init({ ...(viewerModule.config ?? {}), viewerType });
+      viewer.init({
+        ...(viewerModule.config ?? {}),
+        viewerType,
+        container: viewerContainerRef.current ?? undefined,
+      });
     } catch (err) {
       console.warn("Viewer init failed:", err);
     }
@@ -102,7 +108,7 @@ export default function RemoteControlPage() {
 
   return (
     <div id="rc-ui" className={styles.rcUi}>
-      <div id="viewer-container" className={styles.viewerContainer} />
+      <div ref={viewerContainerRef} className={styles.viewerContainer} />
       {controlsModule ? (
         <RemoteControlsPanel config={controlsModule.config} />
       ) : null}

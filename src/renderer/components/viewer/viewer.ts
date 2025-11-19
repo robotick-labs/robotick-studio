@@ -23,6 +23,7 @@ function normalizeConfig(value: unknown): unknown {
 
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
+    if (isDomNode(record)) return undefined;
     const normalized: Record<string, unknown> = {};
     for (const key of Object.keys(record).sort()) {
       const normalizedValue = normalizeConfig(record[key]);
@@ -37,7 +38,17 @@ function normalizeConfig(value: unknown): unknown {
     return undefined;
   }
 
+  if (isDomNode(value)) return undefined;
+
   return value;
+}
+
+function isDomNode(value: unknown): value is Node {
+  if (typeof window === "undefined") return false;
+  return (
+    typeof Node !== "undefined" &&
+    value instanceof Node
+  );
 }
 
 function computeViewerToken(config: ViewerConfig): number {
