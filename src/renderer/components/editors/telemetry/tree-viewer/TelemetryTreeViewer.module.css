@@ -1,0 +1,69 @@
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.control label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.control select,
+.control input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.node {
+  margin-left: 16px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.nodeValue {
+  color: #8fd7ff;
+}
+
+.nodeToggle {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  margin-right: 4px;
+  font-size: 0.85rem;
+}
+
+.message {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+}

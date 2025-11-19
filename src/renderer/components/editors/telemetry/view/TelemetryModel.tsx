@@ -119,7 +119,12 @@ export function TelemetryModel({
             </thead>
             <tbody>
               {workloads.map((w) => (
-                <TelemetryWorkload key={w.name} w={w} />
+                <TelemetryWorkload
+                  key={w.name}
+                  w={w}
+                  telemetryBaseUrl={model.instanceURL}
+                  modelName={model.modelName}
+                />
               ))}
             </tbody>
           </table>

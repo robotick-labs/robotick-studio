@@ -9,7 +9,7 @@
 import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
-import { GenericPanel } from "../../../dialog/GenericPanel";
+import { spawnTelemetryImagePanel } from "../panels";
 
 // -------------------------------------------------------------
 // Number formatting
@@ -36,8 +36,22 @@ function formatValue(value: any, type: string): string {
 // -------------------------------------------------------------
 // Main structured-field renderer
 // -------------------------------------------------------------
-export function TelemetryStructFields({ struct }: { struct?: any }) {
-  const [panels, setPanels] = useState<Record<string, boolean>>({});
+type StructFieldProps = {
+  struct?: any;
+  telemetryBaseUrl?: string;
+  workloadName?: string;
+  modelName?: string;
+  panelScope?: string;
+};
+
+export function TelemetryStructFields({
+  struct,
+  telemetryBaseUrl,
+  workloadName,
+  modelName,
+  panelScope,
+}: StructFieldProps) {
+  const floatingScope = panelScope ?? "global-floating-panels";
 
   if (!struct || !struct.fields || struct.fields.length === 0) {
     return <div className={styles.multiline}>–</div>;
@@ -64,19 +78,10 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
         <ImageField
           key={f.path}
           field={f}
-          isOpen={!!panels[f.path]}
-          toggle={() =>
-            setPanels((prev) => ({
-              ...prev,
-              [f.path]: !prev[f.path],
-            }))
-          }
-          close={() =>
-            setPanels((prev) => ({
-              ...prev,
-              [f.path]: false,
-            }))
-          }
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={workloadName}
+          modelName={modelName}
+          panelScope={floatingScope}
         />
       );
     }
@@ -99,14 +104,16 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
 // -------------------------------------------------------------
 function ImageField({
   field,
-  isOpen,
-  toggle,
-  close,
+  telemetryBaseUrl,
+  workloadName,
+  modelName,
+  panelScope,
 }: {
   field: any;
-  isOpen: boolean;
-  toggle: () => void;
-  close: () => void;
+  telemetryBaseUrl?: string;
+  workloadName?: string;
+  modelName?: string;
+  panelScope: string;
 }) {
   const raw: Uint8Array = field.getValue();
   const path = field.path;
@@ -124,7 +131,16 @@ function ImageField({
   const url = useBlobURL(raw, mime);
   const handleThumbClick = (event: React.MouseEvent) => {
     event.stopPropagation();
-    toggle();
+    spawnTelemetryImagePanel({
+      scope: panelScope,
+      settings: {
+        panelTitle: label,
+        telemetryBaseUrl,
+        workloadName,
+        modelName,
+        fieldPath: path,
+      },
+    });
   };
 
   return (
@@ -152,42 +168,7 @@ function ImageField({
         {dims && ` (${dims.w}×${dims.h})`}
       </div>
 
-      {isOpen && (
-        <ImagePanel raw={raw} mime_type={mime} path={path} onClose={close} />
-      )}
+      {/* Floating panel handles full image rendering */}
     </>
-  );
-}
-
-// -------------------------------------------------------------
-// ImagePanel — draggable, resizable large image viewer
-// -------------------------------------------------------------
-function ImagePanel({
-  raw,
-  mime_type,
-  path,
-  onClose,
-}: {
-  raw: Uint8Array;
-  mime_type: string;
-  path: string;
-  onClose: () => void;
-}) {
-  const url = useBlobURL(raw, mime_type);
-  return (
-    <GenericPanel
-      title={path}
-      onClose={onClose}
-      closable
-      initialPosition={{ x: 200, y: 200 }}
-      initialSize={{ width: 640, height: 420 }}
-      minSize={{ width: 320, height: 240 }}
-      className={styles.imagePanel}
-      headerClassName={styles.imagePanelHeader}
-      bodyClassName={styles.imagePanelBody}
-      storageKey={`telemetry-image:${path}`}
-    >
-      {url && <img src={url} alt={path} className={styles.imagePanelImage} />}
-    </GenericPanel>
   );
 }

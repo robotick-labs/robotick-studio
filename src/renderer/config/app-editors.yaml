@@ -15,6 +15,12 @@ editors:
   - id: telemetry
     label: Telemetry
     module: ./components/editors/telemetry/TelemetryPage.tsx
+  - id: telemetry-image-viewer
+    label: Telemetry Image Viewer
+    module: ./components/editors/telemetry/image-viewer/TelemetryImageViewer.tsx
+  - id: telemetry-tree-viewer
+    label: Telemetry Tree Viewer
+    module: ./components/editors/telemetry/tree-viewer/TelemetryTreeViewer.tsx
   - id: terminal
     label: Terminal
     module: ./components/editors/terminal/TerminalPage.tsx

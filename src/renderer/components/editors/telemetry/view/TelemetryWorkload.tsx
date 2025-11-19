@@ -3,12 +3,15 @@ import React from "react";
 import { TelemetryStructFields } from "./TelemetryStructFields";
 import styles from "../Telemetry.module.css";
 import type { ITelemetryWorkload } from "../../../../data-sources/telemetry";
+import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
 
 const USAGE_THRESHOLD_WARNING_YELLOW = 102;
 const USAGE_THRESHOLD_ERROR_RED = 110;
 
 interface TelemetryWorkloadProps {
   w: ITelemetryWorkload;
+  telemetryBaseUrl?: string;
+  modelName?: string;
 }
 
 function getStat(w: ITelemetryWorkload, fieldName: string): unknown {
@@ -24,7 +27,11 @@ function usageClass(usagePercent: number): string {
   return styles.usageRed;
 }
 
-export function TelemetryWorkload({ w }: TelemetryWorkloadProps) {
+export function TelemetryWorkload({
+  w,
+  telemetryBaseUrl,
+  modelName,
+}: TelemetryWorkloadProps) {
   const last_ns = getStat(w, "last_tick_duration_ns") ?? 0;
   const dt_ns = getStat(w, "last_time_delta_ns") ?? 0;
   const hz = getStat(w, "tick_rate_hz") ?? 0;
@@ -35,19 +42,38 @@ export function TelemetryWorkload({ w }: TelemetryWorkloadProps) {
 
   const usage_percent =
     goal_period_ms > 0 ? (100.0 * self_duration_ms) / goal_period_ms : 0;
+  const panelScope = useFloatingPanelsScope();
 
   return (
     <tr>
       <td>{w.name}</td>
       <td>{w.type}</td>
       <td>
-        <TelemetryStructFields struct={w.config} />
+        <TelemetryStructFields
+          struct={w.config}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
       </td>
       <td>
-        <TelemetryStructFields struct={w.inputs} />
+        <TelemetryStructFields
+          struct={w.inputs}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
       </td>
       <td>
-        <TelemetryStructFields struct={w.outputs} />
+        <TelemetryStructFields
+          struct={w.outputs}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
       </td>
       <td>{self_duration_ms.toFixed(3)}</td>
       <td>{time_delta_ms.toFixed(3)}</td>

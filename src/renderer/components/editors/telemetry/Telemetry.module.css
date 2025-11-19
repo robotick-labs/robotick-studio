@@ -104,28 +104,6 @@
   margin: 1rem 0;
 }
 
-.imagePanel {
-  background: rgba(18, 20, 32, 0.95);
-  color: #c9e8ff;
-}
-
-.imagePanelHeader {
-  background: rgba(0, 100, 160, 0.9);
-}
-
-.imagePanelBody {
-  padding: 0;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-}
-
-.imagePanelImage {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 .thumb {
   max-width: 50px;
   max-height: 50px;
@@ -136,11 +114,4 @@
   margin-left: 4px;
   cursor: pointer;
   border-radius: 4px;
-}
-
-.imagePanelBody {
-  padding: 0.5rem;
-  height: calc(100% - 32px);
-  display: flex;
-  flex-direction: column;
 }

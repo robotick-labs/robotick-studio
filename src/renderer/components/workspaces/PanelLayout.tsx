@@ -1,5 +1,14 @@
 import React from "react";
 import { getEditorEntry, listEditorEntries } from "../../services/EditorRegistry";
+import {
+  FloatingPanelLayer,
+  FloatingPanelsScopeProvider,
+  spawnFloatingPanel,
+} from "./floating-panels";
+import {
+  PanelContextMenu,
+  type PanelContextMenuState,
+} from "./PanelContextMenu";
 import styles from "./PanelLayout.module.css";
 
 type PanelLeafNode = {
@@ -29,13 +38,7 @@ type PanelLayoutProps = {
   allowedEditors?: string[];
 };
 
-type ContextMenuState = {
-  panelId: string;
-  x: number;
-  y: number;
-  horizontalRatio: number;
-  verticalRatio: number;
-};
+type ContextMenuState = PanelContextMenuState;
 
 type EditorOption = {
   id: string;
@@ -360,8 +363,25 @@ export function PanelLayout({
     setMaximizedPanelId(null);
   }, [fallbackEditorId, workspaceId]);
 
+  const handleCreateFloatingPanel = React.useCallback(
+    (editorId?: string) => {
+      const targetEditor =
+        editorId && allowedIdSet.has(editorId)
+          ? editorId
+          : fallbackEditorId;
+      spawnFloatingPanel(workspaceId, {
+        editorId: targetEditor,
+      });
+    },
+    [allowedIdSet, fallbackEditorId, workspaceId],
+  );
+
   const handleContextMenu = React.useCallback(
-    (panelId: string, event: React.MouseEvent<HTMLDivElement>) => {
+    (
+      panelId: string,
+      editorId: string,
+      event: React.MouseEvent<HTMLDivElement>,
+    ) => {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       const horizontalRatio = rect.width
@@ -376,6 +396,7 @@ export function PanelLayout({
         y: event.clientY,
         horizontalRatio: clampRatio(horizontalRatio),
         verticalRatio: clampRatio(verticalRatio),
+        editorId,
       });
     },
     [],
@@ -384,33 +405,40 @@ export function PanelLayout({
   const leafTotal = React.useMemo(() => countLeaves(layout), [layout]);
 
   return (
-    <div className={styles.panelLayout}>
-      <PanelNodeView
-        node={layout}
-        maximizedPanelId={maximizedPanelId}
-        editorOptions={editorOptions}
-        onContextMenu={handleContextMenu}
-        onAssign={onAssign}
-        onToggleMaximize={onToggleMaximize}
-        onSplit={onSplit}
-        onResizeSplit={onResizeSplit}
-      />
-
-      {contextMenu && (
-        <PanelContextMenu
-          state={contextMenu}
+    <FloatingPanelsScopeProvider scope={workspaceId}>
+      <div className={styles.panelLayout}>
+        <PanelNodeView
+          node={layout}
+          maximizedPanelId={maximizedPanelId}
           editorOptions={editorOptions}
-          canClose={leafTotal > 1}
-          isMaximized={maximizedPanelId === contextMenu.panelId}
+          onContextMenu={handleContextMenu}
+          onAssign={onAssign}
+          onToggleMaximize={onToggleMaximize}
           onSplit={onSplit}
-          onAssign={(editorId) => onAssign(contextMenu.panelId, editorId)}
-          onToggleMaximize={() => onToggleMaximize(contextMenu.panelId)}
-          onResetLayout={resetLayout}
-          onClose={() => setContextMenu(null)}
-          onClosePanel={() => onClosePanel(contextMenu.panelId)}
+          onResizeSplit={onResizeSplit}
         />
-      )}
-    </div>
+
+        {contextMenu && (
+          <PanelContextMenu
+            state={contextMenu}
+            editorOptions={editorOptions}
+            canClose={leafTotal > 1}
+            isMaximized={maximizedPanelId === contextMenu.panelId}
+            onSplit={onSplit}
+            onAssign={(editorId) => onAssign(contextMenu.panelId, editorId)}
+            onToggleMaximize={() => onToggleMaximize(contextMenu.panelId)}
+            onResetLayout={resetLayout}
+            onClose={() => setContextMenu(null)}
+            onClosePanel={() => onClosePanel(contextMenu.panelId)}
+            onCreateFloatingPanel={handleCreateFloatingPanel}
+          />
+        )}
+      </div>
+      <FloatingPanelLayer
+        scope={workspaceId}
+        editorEntries={editorEntries}
+      />
+    </FloatingPanelsScopeProvider>
   );
 }
 
@@ -420,6 +448,7 @@ type PanelNodeViewProps = {
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
+    editorId: string,
     event: React.MouseEvent<HTMLDivElement>,
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
@@ -695,7 +724,7 @@ function PanelLeaf({
     <div
       className={styles.panelLeaf}
       ref={panelRef}
-      onContextMenu={(event) => onContextMenu(node.id, event)}
+      onContextMenu={(event) => onContextMenu(node.id, node.editorId, event)}
     >
       {splitPreview && (
         <div
@@ -765,146 +794,6 @@ function PanelLeaf({
           <Component />
         </React.Suspense>
       </div>
-    </div>
-  );
-}
-
-type PanelContextMenuProps = {
-  state: ContextMenuState;
-  editorOptions: EditorOption[];
-  canClose: boolean;
-  isMaximized: boolean;
-  onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
-  onAssign: (editorId: string) => void;
-  onToggleMaximize: () => void;
-  onClosePanel: () => void;
-  onResetLayout: () => void;
-  onClose: () => void;
-};
-
-function PanelContextMenu({
-  state,
-  editorOptions,
-  canClose,
-  isMaximized,
-  onSplit,
-  onAssign,
-  onToggleMaximize,
-  onClosePanel,
-  onResetLayout,
-  onClose,
-}: PanelContextMenuProps) {
-  const [placement, setPlacement] = React.useState({ left: state.x, top: state.y });
-  const menuRef = React.useRef<HTMLDivElement | null>(null);
-
-  React.useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!menu) {
-      setPlacement({ left: state.x, top: state.y });
-      return;
-    }
-    const { offsetWidth: width, offsetHeight: height } = menu;
-    const buffer = 8;
-    const maxX = window.innerWidth - width - buffer;
-    const maxY = window.innerHeight - height - buffer;
-    const safeX = Math.max(buffer, Math.min(state.x, Math.max(buffer, maxX)));
-    const safeY = Math.max(buffer, Math.min(state.y, Math.max(buffer, maxY)));
-    setPlacement({ left: safeX, top: safeY });
-  }, [state.x, state.y]);
-
-  React.useEffect(() => {
-    const close = () => onClose();
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", handleKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", handleKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      className={styles.contextMenu}
-      ref={menuRef}
-      style={{ left: placement.left, top: placement.top }}
-      role="menu"
-    >
-      <button
-        className={styles.contextMenuItem}
-        onClick={() => {
-          onSplit(state.panelId, "vertical", state.verticalRatio);
-          onClose();
-        }}
-      >
-        Split Horizontally
-      </button>
-      <button
-        className={styles.contextMenuItem}
-        onClick={() => {
-          onSplit(state.panelId, "horizontal", state.horizontalRatio);
-          onClose();
-        }}
-      >
-        Split Vertically
-      </button>
-
-      <div className={styles.contextMenuDivider} />
-
-      <div className={styles.contextMenuHeading}>Assign Tool</div>
-      <div className={styles.contextMenuAssignments}>
-        {editorOptions.map((option) => (
-          <button
-            key={option.id}
-            className={styles.contextMenuItem}
-            onClick={() => {
-              onAssign(option.id);
-              onClose();
-            }}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      <div className={styles.contextMenuDivider} />
-
-      <button
-        className={styles.contextMenuItem}
-        onClick={() => {
-          onToggleMaximize();
-          onClose();
-        }}
-      >
-        {isMaximized ? "Restore Panel Size" : "Maximize Panel"}
-      </button>
-
-      <button
-        className={styles.contextMenuItem}
-        disabled={!canClose}
-        onClick={() => {
-          onClosePanel();
-          onClose();
-        }}
-      >
-        Close Panel
-      </button>
-
-      <div className={styles.contextMenuDivider} />
-
-      <button
-        className={styles.contextMenuItem}
-        onClick={() => {
-          onResetLayout();
-          onClose();
-        }}
-      >
-        Reset Layout
-      </button>
     </div>
   );
 }

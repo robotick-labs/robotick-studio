@@ -239,3 +239,11 @@
   transform: translateY(-3px);
   cursor: row-resize;
 }
+
+.floatingContent {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}

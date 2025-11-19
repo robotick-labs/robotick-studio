@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo } from "react";
 import viewer from "../../viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
-import { RcTelemetryOverlay } from "./components/RcTelemetryOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
 import { Project, ProjectData, Launcher } from "../../../data-sources/launcher";
 import type { RcModuleDescriptor } from "../../../data-sources/launcher";
@@ -71,10 +70,6 @@ export default function RemoteControlPage() {
     () => modules.find((mod) => mod.type === "overlay/subtitles"),
     [modules]
   );
-  const telemetryModule = useMemo(
-    () => modules.find((mod) => mod.type === "overlay/telemetry"),
-    [modules]
-  );
   const controlsModule = useMemo(
     () => modules.find((mod) => mod.type === "overlay/remote-controls"),
     [modules]
@@ -114,9 +109,6 @@ export default function RemoteControlPage() {
       ) : null}
       {subtitlesModule ? (
         <RcSubtitlesOverlay config={subtitlesModule.config} />
-      ) : null}
-      {telemetryModule ? (
-        <RcTelemetryOverlay config={telemetryModule.config} />
       ) : null}
       {rcModules.error ? (
         <div
