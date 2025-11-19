@@ -41,14 +41,6 @@ export function FloatingPanelLayer({
     }
   }, [contextMenu, panels]);
 
-  if (typeof document === "undefined") {
-    return null;
-  }
-
-  if (panels.length === 0) {
-    return null;
-  }
-
   const editorOptions = useMemo(
     () =>
       editorEntries.map((item) => ({
@@ -57,6 +49,14 @@ export function FloatingPanelLayer({
       })),
     [editorEntries]
   );
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  if (panels.length === 0) {
+    return null;
+  }
 
   const duplicatePanel = (panelId: string) => {
     const source = panels.find((panel) => panel.id === panelId);
