@@ -212,24 +212,24 @@ export async function fetchProjectModelPaths(projectPath: string) {
   return models.sort();
 }
 
-async function fetchProjectModelData<T>(
+async function fetchProjectModelData(
   projectPath: string,
   modelPath: string
-): Promise<T> {
+): Promise<unknown> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
     project_path: projectPath,
     model_path: modelPath,
   });
-  return await fetchJSON<T>(url);
+  return await fetchJSON(url);
 }
 
-async function buildModelDescriptors<T = unknown>(
+async function buildModelDescriptors(
   projectPath: string
-): Promise<ProjectModelDescriptor<T>[]> {
+): Promise<ProjectModelDescriptor[]> {
   const modelPaths = await fetchProjectModelPaths(projectPath);
   const descriptorPromises = modelPaths.map(async (modelPath) => {
     try {
-      const data = await fetchProjectModelData<T>(projectPath, modelPath);
+      const data = await fetchProjectModelData(projectPath, modelPath);
       if (!data) return null;
 
       const modelName =
@@ -251,7 +251,7 @@ async function buildModelDescriptors<T = unknown>(
         telemetryPort,
         telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
         data,
-      } as ProjectModelDescriptor<T>;
+      } as ProjectModelDescriptor;
     } catch (err) {
       console.warn(
         `[launcher-interface] Failed to load model definition ${modelPath}`,
@@ -263,29 +263,29 @@ async function buildModelDescriptors<T = unknown>(
 
   const descriptors = await Promise.all(descriptorPromises);
   return descriptors.filter(
-    (descriptor): descriptor is ProjectModelDescriptor<T> => descriptor !== null
+    (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
   );
 }
 
-async function resolveProjectModels<T = unknown>(
+async function resolveProjectModels(
   projectPath?: string,
   { force } = { force: false }
-): Promise<ProjectModelDescriptor<T>[]> {
+): Promise<ProjectModelDescriptor[]> {
   const effectivePath = projectPath ?? getProjectPath();
   if (!effectivePath) {
     return [];
   }
 
   if (!force && cachedModels?.projectPath === effectivePath) {
-    return cachedModels.models as ProjectModelDescriptor<T>[];
+    return cachedModels.models;
   }
 
   if (!force && modelsPromise) {
-    return (await modelsPromise) as ProjectModelDescriptor<T>[];
+    return await modelsPromise;
   }
 
-  const promise = buildModelDescriptors<T>(effectivePath);
-  modelsPromise = promise as Promise<ProjectModelDescriptor[]>;
+  const promise = buildModelDescriptors(effectivePath);
+  modelsPromise = promise;
 
   try {
     const models = await promise;
@@ -305,16 +305,16 @@ function invalidateModelCache(projectPath?: string) {
   }
 }
 
-export async function getProjectModels<T = unknown>(
+export async function getProjectModels(
   projectPath?: string
-): Promise<ProjectModelDescriptor<T>[]> {
-  return resolveProjectModels<T>(projectPath);
+): Promise<ProjectModelDescriptor[]> {
+  return resolveProjectModels(projectPath);
 }
 
-export async function refreshProjectModels<T = unknown>(
+export async function refreshProjectModels(
   projectPath?: string
-): Promise<ProjectModelDescriptor<T>[]> {
-  return resolveProjectModels<T>(projectPath, { force: true });
+): Promise<ProjectModelDescriptor[]> {
+  return resolveProjectModels(projectPath, { force: true });
 }
 
 const currentProject = {

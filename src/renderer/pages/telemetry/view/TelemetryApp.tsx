@@ -52,7 +52,11 @@ export function TelemetryApp() {
   }
 
   if (projectModels.error) {
-    return <p>Failed to load models: {projectModels.error}</p>;
+    const errorMessage =
+      projectModels.error instanceof Error
+        ? projectModels.error.message
+        : String(projectModels.error);
+    return <p>Failed to load models: {errorMessage}</p>;
   }
 
   if (engineModels.length === 0) {
@@ -61,9 +65,10 @@ export function TelemetryApp() {
 
   return (
     <>
-      {engineModels.map((model, index) => (
-        <TelemetryModel key={model.instanceURL} model={model} index={index} />
-      ))}
+      {engineModels.map((model, index) => {
+        const modelKey = `${model.instanceURL ?? "unknown"}|${model.modelPath}`;
+        return <TelemetryModel key={modelKey} model={model} index={index} />;
+      })}
     </>
   );
 }

@@ -15,7 +15,9 @@ export function urlToId(url: string) {
  * Format a byte count with comma thousands separators.
  * Example: 12345678 -> "12,345,678"
  */
-export function formatBytesWithCommas(value: any): string {
+export function formatBytesWithCommas(
+  value: number | null | undefined
+): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
   }
@@ -39,13 +41,21 @@ export function TelemetryModel({
 }) {
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved !== null) return saved === "true";
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved !== null) return saved === "true";
+    } catch {
+      // Storage may be unavailable (e.g., hardened Electron contexts)
+    }
     return index < 4; // default-open first 4 models
   });
 
   useEffect(() => {
-    localStorage.setItem(storageKey, String(isExpanded));
+    try {
+      localStorage.setItem(storageKey, String(isExpanded));
+    } catch {
+      // ignore storage failures so UI keeps working
+    }
   }, [isExpanded, storageKey]);
 
   const { model: telemetryModel, error } = useTelemetryStream(

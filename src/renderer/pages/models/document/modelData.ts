@@ -41,10 +41,9 @@ export async function loadAllModels(
     throw new Error("No project path set");
   }
   const models =
-    (await Project.Service.current.getProjectModels<ModelData>(projectPath)) ??
-    [];
+    (await Project.Service.current.getProjectModels(projectPath)) ?? [];
   return models.map(({ modelPath, data }) => ({
     modelPath,
-    data,
+    data: data as ModelData,
   }));
 }

@@ -6,7 +6,7 @@
 // Robotick Labs 2025
 // -----------------------------------------------------------------------------
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
 
@@ -164,20 +164,35 @@ function ImagePanel({
 }) {
   const [pos, setPos] = useState({ x: 200, y: 200 });
   const [size, setSize] = useState({ w: 640, h: 420 });
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   const url = useBlobURL(raw, mime_type);
+  const clampPosition = (value: number, min: number, max?: number) => {
+    if (typeof max === "number" && Number.isFinite(max)) {
+      return Math.min(Math.max(value, min), max);
+    }
+    return Math.max(value, min);
+  };
 
   function onTitleMouseDown(e: React.MouseEvent) {
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
     const orig = { ...pos };
+    const panelEl = panelRef.current;
+    const panelWidth = panelEl?.offsetWidth ?? size.w;
+    const panelHeight = panelEl?.offsetHeight ?? size.h;
+    const maxX = Number.isFinite(panelWidth)
+      ? Math.max(0, window.innerWidth - panelWidth)
+      : undefined;
+    const maxY = Number.isFinite(panelHeight)
+      ? Math.max(0, window.innerHeight - panelHeight)
+      : undefined;
 
     function move(ev: MouseEvent) {
-      setPos({
-        x: orig.x + (ev.clientX - startX),
-        y: orig.y + (ev.clientY - startY),
-      });
+      const nextX = clampPosition(orig.x + (ev.clientX - startX), 0, maxX);
+      const nextY = clampPosition(orig.y + (ev.clientY - startY), 0, maxY);
+      setPos({ x: nextX, y: nextY });
     }
 
     function up() {
@@ -214,6 +229,7 @@ function ImagePanel({
   return (
     <div
       className={styles.imagePanel}
+      ref={panelRef}
       style={{
         left: pos.x,
         top: pos.y,

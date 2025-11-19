@@ -2,18 +2,14 @@ import React from "react";
 import { BrowserRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
 import { Launcher, Project, ProjectData } from "./data-sources/launcher";
-
-const ProjectProvider = Project.Context.Provider;
-const LauncherProvider = Launcher.Context.Provider;
-const LauncherDataProvider = ProjectData.Provider;
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 
 export function App() {
   return (
-    <ProjectProvider>
-      <LauncherDataProvider>
-        <LauncherProvider>
+    <Project.Context.Provider>
+      <ProjectData.Provider>
+        <Launcher.Context.Provider>
           <BrowserRouter>
             <div className={styles.appShell}>
               <AppHeader />
@@ -22,8 +18,8 @@ export function App() {
               </main>
             </div>
           </BrowserRouter>
-        </LauncherProvider>
-      </LauncherDataProvider>
-    </ProjectProvider>
+        </Launcher.Context.Provider>
+      </ProjectData.Provider>
+    </Project.Context.Provider>
   );
 }

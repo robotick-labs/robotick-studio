@@ -120,7 +120,7 @@
   border-radius: 10px;
   color: #c9e8ff;
   font-size: 14px;
-  z-index: 100000;
+  z-index: 1500; /* stays above main UI chrome without hijacking entire stacking context */
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;

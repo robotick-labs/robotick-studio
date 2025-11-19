@@ -1,7 +1,9 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("path");
 
-app.commandLine.appendSwitch("remote-debugging-port", "9222");
+if (process.env.ELECTRON_DEV === "1") {
+  app.commandLine.appendSwitch("remote-debugging-port", "9222");
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -11,7 +13,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
     },
-    sandbox: false,
+    sandbox: true,
   });
 
   win.setMenuBarVisibility(false);
