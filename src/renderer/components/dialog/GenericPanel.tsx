@@ -66,13 +66,24 @@ export function GenericPanel({
   const [size, setSize] = useState<Size>(persistedState?.size ?? initialSize);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  function clamp(value: number, min: number, max?: number) {
-    if (typeof max === "number" && Number.isFinite(max)) {
-      return Math.min(Math.max(value, min), max);
-    }
-    return Math.max(value, min);
+function clamp(value: number, min: number, max?: number) {
+  if (typeof max === "number" && Number.isFinite(max)) {
+    return Math.min(Math.max(value, min), max);
   }
+  return Math.max(value, min);
+}
 
+function clampPositionToViewport(pos: Vec2, size: Size, viewport?: Size): Vec2 {
+  if (typeof window === "undefined") return pos;
+  const width = viewport?.width ?? window.innerWidth;
+  const height = viewport?.height ?? window.innerHeight;
+  const maxX = Math.max(0, width - size.width);
+  const maxY = Math.max(0, height - size.height);
+  return {
+    x: clamp(pos.x, 0, maxX),
+    y: clamp(pos.y, 0, maxY),
+  };
+}
   function handleDragStart(event: React.MouseEvent) {
     if (!draggable) return;
     event.preventDefault();
@@ -136,13 +147,19 @@ export function GenericPanel({
     .join(" ");
   const bodyClass = [styles.body, bodyClassName].filter(Boolean).join(" ");
 
+  const viewport = {
+    width: typeof window !== "undefined" ? window.innerWidth : size.width * 2,
+    height: typeof window !== "undefined" ? window.innerHeight : size.height * 2,
+  };
+  const clampedPosition = clampPositionToViewport(position, size, viewport);
+
   const panelNode = (
     <div
       ref={panelRef}
       className={rootClass}
       style={{
-        left: position.x,
-        top: position.y,
+        left: clampedPosition.x,
+        top: clampedPosition.y,
         width: size.width,
         height: size.height,
         ...style,
