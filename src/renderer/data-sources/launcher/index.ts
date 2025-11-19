@@ -28,22 +28,29 @@ import {
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
   fetchProjectModelPaths,
+  type ProjectModelDescriptor,
 } from "./internal/launcher-interface";
-import currentProject from "./internal/launcher-interface";
 
 import {
   listProjectPaths,
   getProjectSettings,
   fetchProjectSettingsList,
   fetchProjectModels,
+  type ProjectSettingsSummary,
 } from "./internal/projects-api";
 
-import type { ProjectSettingsSummary } from "./internal/projects-api";
-import type { ProjectModelDescriptor } from "./internal/launcher-interface";
 import type {
   RcModuleDescriptor,
   RcSettingsResponse,
 } from "./internal/remote-control-types";
+import {
+  LauncherServiceProvider,
+  useLauncherService,
+  createLauncherService,
+  type LauncherService,
+} from "./internal/LauncherService";
+
+const defaultLauncherService = createLauncherService();
 
 /**
  * ---------------------------------------------------------------------------
@@ -111,7 +118,7 @@ export const Project = {
     },
 
     // Deprecated convenience; kept for backwards compatibility
-    current: currentProject,
+    current: defaultLauncherService,
   },
 
   /**
@@ -172,10 +179,11 @@ export const RemoteControl = {
 /**
  * Re-export TS types for convenience. UI code can import everything from here.
  */
+export type { LauncherStatus, ProjectModelDescriptor, ProjectSettingsSummary };
 export type {
-  LauncherStatus,
-  ProjectModelDescriptor,
-  ProjectSettingsSummary,
   RcModuleDescriptor,
   RcSettingsResponse,
-};
+} from "./internal/remote-control-types";
+
+export { LauncherServiceProvider, useLauncherService, createLauncherService };
+export type { LauncherService };

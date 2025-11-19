@@ -1,3 +1,5 @@
+import type { LauncherService } from "./LauncherService";
+
 function ensureTrailingSlash(url: string) {
   return url.endsWith("/") ? url : `${url}/`;
 }
@@ -317,7 +319,7 @@ export async function refreshProjectModels(
   return resolveProjectModels(projectPath, { force: true });
 }
 
-const currentProject = {
+const currentProject: LauncherService = {
   setProjectPath,
   getProjectPath,
   setLauncherProfile,
