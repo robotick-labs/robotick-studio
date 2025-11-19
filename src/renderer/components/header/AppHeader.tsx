@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
 import { ProjectPicker } from "./ProjectPicker";
+import { useAppConfig } from "../../services/AppConfigService";
 import styles from "./styles/AppHeader.module.css";
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
@@ -11,6 +12,12 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
     .join(" ");
 
 export function AppHeader() {
+  const { routes } = useAppConfig();
+  const grouped = useMemo(
+    () => groupRoutes(routes),
+    [routes]
+  );
+
   return (
     <header className={styles.header}>
       <img
@@ -20,20 +27,13 @@ export function AppHeader() {
       />
 
       <nav className={styles.nav}>
-        <div className={styles.navMenuDev}>
-          <NavLink to="/home" className={navClassName}>
-            Home
-          </NavLink>
+        <div className={styles.navMenuProject}>
+          <div className={styles.navLinks}>{renderLinks(grouped.projectSelect)}</div>
           <ProjectPicker />
         </div>
 
         <div className={styles.navMenuDev}>
-          <NavLink to="/project" className={navClassName}>
-            Project
-          </NavLink>
-          <NavLink to="/models" className={navClassName}>
-            Models
-          </NavLink>
+          <div className={styles.navLinks}>{renderLinks(grouped.dev)}</div>
         </div>
 
         <div className={styles.navMenuTest}>
@@ -42,24 +42,53 @@ export function AppHeader() {
             <LauncherControls />
           </div>
           <div className={styles.navSubmenuPages}>
-            <NavLink to="/remote-control" className={navClassName}>
-              Remote Control
-            </NavLink>
-            <NavLink to="/telemetry" className={navClassName}>
-              Telemetry
-            </NavLink>
-            <NavLink to="/terminal" className={navClassName}>
-              Terminal
-            </NavLink>
+            {renderLinks(grouped.test)}
           </div>
         </div>
 
-        <NavLink to="/help" className={navClassName}>
-          Help
-        </NavLink>
+        <div className={styles.navMenuHelp}>{renderLinks(grouped.help)}</div>
       </nav>
 
       <div className={styles.headerRight}></div>
     </header>
   );
+}
+
+function renderLinks(routes: { id: string; path: string; label: string }[]) {
+  if (!routes.length) return null;
+  return routes.map((route) => (
+    <NavLink key={route.id} to={route.path} className={navClassName}>
+      {route.label}
+    </NavLink>
+  ));
+}
+
+function groupRoutes(
+  routes: { id: string; path: string; label: string; group: string }[]
+) {
+  const groups = {
+    projectSelect: [] as { id: string; path: string; label: string }[],
+    dev: [] as { id: string; path: string; label: string }[],
+    test: [] as { id: string; path: string; label: string }[],
+    help: [] as { id: string; path: string; label: string }[],
+  };
+  for (const route of routes) {
+    switch (route.group) {
+      case "project-select":
+        groups.projectSelect.push(route);
+        break;
+      case "dev":
+        groups.dev.push(route);
+        break;
+      case "test":
+        groups.test.push(route);
+        break;
+      case "help":
+        groups.help.push(route);
+        break;
+      default:
+        break;
+    }
+  }
+  return groups;
 }

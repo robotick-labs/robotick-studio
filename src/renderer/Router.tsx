@@ -1,37 +1,48 @@
 import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import type { RouteConfig } from "./services/AppConfigService";
+import { RoutesConfig } from "./services/AppConfigService";
 
 type LazyComponent = React.LazyExoticComponent<
   React.ComponentType<Record<string, never>>
 >;
 
-const HomePage = React.lazy(() => import("./pages/home/HomePage"));
-const HelpPage = React.lazy(() => import("./pages/help/HelpPage"));
-const ModelsPage = React.lazy(() => import("./pages/models/ModelsPage"));
-const ProjectPage = React.lazy(() => import("./pages/project/ProjectPage"));
-const RemoteControlPage = React.lazy(
-  () => import("./pages/remote-control/RemoteControlPage")
-);
-const TelemetryPage = React.lazy(() => import("./pages/telemetry/TelemetryPage"));
-const TerminalPage = React.lazy(() => import("./pages/terminal/TerminalPage"));
+type RouteEntry = RouteConfig & { Component: LazyComponent };
 
-const routeConfig: { path: string; Component: LazyComponent }[] = [
-  { path: "/home", Component: HomePage },
-  { path: "/help", Component: HelpPage },
-  { path: "/models", Component: ModelsPage },
-  { path: "/project", Component: ProjectPage },
-  { path: "/remote-control", Component: RemoteControlPage },
-  { path: "/telemetry", Component: TelemetryPage },
-  { path: "/terminal", Component: TerminalPage },
-];
+const moduleMap = import.meta.glob("./pages/**/*.tsx");
+
+function createRouteEntries(): RouteEntry[] {
+  return RoutesConfig.map((route) => {
+    const loader = moduleMap[route.module];
+    if (!loader) {
+      throw new Error(
+        `Route '${route.id}' references unknown module: ${route.module}`
+      );
+    }
+    const Component = React.lazy(
+      loader as () => Promise<{ default: React.ComponentType<Record<string, never>> }>
+    );
+    return { ...route, Component };
+  });
+}
+
+export const resolvedRoutes = createRouteEntries();
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/home" replace />} />
-      {routeConfig.map(({ path, Component }) => (
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to={(resolvedRoutes[0] && resolvedRoutes[0].path) || "/home"}
+            replace
+          />
+        }
+      />
+      {resolvedRoutes.map(({ path, id, Component }) => (
         <Route
-          key={path}
+          key={id}
           path={path}
           element={
             <React.Suspense fallback={<RouteFallback />}>

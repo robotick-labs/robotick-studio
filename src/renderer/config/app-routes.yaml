@@ -1,0 +1,37 @@
+# Top-level router configuration (YAML)
+routes:
+  - id: home
+    path: /home
+    label: Home
+    group: project-select
+    module: ./pages/home/HomePage.tsx
+  - id: project
+    path: /project
+    label: Project
+    group: dev
+    module: ./pages/project/ProjectPage.tsx
+  - id: models
+    path: /models
+    label: Models
+    group: dev
+    module: ./pages/models/ModelsPage.tsx
+  - id: remote-control
+    path: /remote-control
+    label: Remote Control
+    group: test
+    module: ./pages/remote-control/RemoteControlPage.tsx
+  - id: telemetry
+    path: /telemetry
+    label: Telemetry
+    group: test
+    module: ./pages/telemetry/TelemetryPage.tsx
+  - id: terminal
+    path: /terminal
+    label: Terminal
+    group: test
+    module: ./pages/terminal/TerminalPage.tsx
+  - id: help
+    path: /help
+    label: Help
+    group: help
+    module: ./pages/help/HelpPage.tsx
