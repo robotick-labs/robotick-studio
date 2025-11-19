@@ -23,9 +23,23 @@ export function GenericDialog({
   actions = [],
   error,
 }: GenericDialogProps) {
+  const titleId = React.useId();
+  const messageId = React.useId();
+  const errorId = React.useId();
+  const describedBy = [
+    message ? messageId : null,
+    error ? errorId : null,
+  ].filter(Boolean);
+
   return (
     <div className={styles.backdrop}>
-      <div className={styles.dialog} role="dialog" aria-modal="true">
+      <div
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={describedBy.length > 0 ? describedBy.join(" ") : undefined}
+      >
         <button
           type="button"
           className={styles.closeButton}
@@ -34,9 +48,17 @@ export function GenericDialog({
         >
           ×
         </button>
-        <h3>{title}</h3>
-        {message ? <div className={styles.message}>{message}</div> : null}
-        {error ? <div className={styles.error}>{error}</div> : null}
+        <h3 id={titleId}>{title}</h3>
+        {message ? (
+          <div id={messageId} className={styles.message}>
+            {message}
+          </div>
+        ) : null}
+        {error ? (
+          <div id={errorId} className={styles.error}>
+            {error}
+          </div>
+        ) : null}
         {actions.length > 0 ? (
           <div className={styles.actions}>
             {actions.map((action, index) => (

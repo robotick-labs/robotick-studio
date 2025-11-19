@@ -47,3 +47,16 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background-color: #1c1f2c;
 }
+
+.route-loading {
+  padding: 1rem;
+  text-align: center;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.not-found {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text);
+}

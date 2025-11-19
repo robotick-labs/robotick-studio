@@ -7,6 +7,12 @@ const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
 import styles from "./styles/ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
+const pathSeparatorRegex = /[/\\]/;
+
+function getBasename(filePath: string) {
+  const parts = filePath.split(pathSeparatorRegex);
+  return parts[parts.length - 1] || filePath;
+}
 
 export function ProjectPicker() {
   const { projectPath } = useProjectContext();
@@ -20,7 +26,7 @@ export function ProjectPicker() {
     if (projectPath && !knownPaths.has(projectPath)) {
       list.unshift({
         path: projectPath,
-        name: projectPath.split("/").pop() ?? projectPath,
+        name: getBasename(projectPath),
       });
     }
     return list;

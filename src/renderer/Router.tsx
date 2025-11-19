@@ -2,7 +2,7 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 type LazyComponent = React.LazyExoticComponent<
-  React.ComponentType<unknown>
+  React.ComponentType<Record<string, never>>
 >;
 
 const HomePage = React.lazy(() => import("./pages/home/HomePage"));

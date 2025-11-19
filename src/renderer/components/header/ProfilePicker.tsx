@@ -17,6 +17,12 @@ const DEFAULT_PROFILES: ProfileOption[] = [
 ];
 
 const EDIT_VALUE = "__edit__";
+const pathSeparatorRegex = /[/\\]/;
+
+function getBasename(filePath: string) {
+  const parts = filePath.split(pathSeparatorRegex);
+  return parts[parts.length - 1] || filePath;
+}
 
 export function ProfilePicker() {
   const { projectPath, launcherProfile, setLauncherProfile } =
@@ -26,7 +32,7 @@ export function ProfilePicker() {
   const options = useMemo<ProfileOption[]>(() => {
     const modelOptions: ProfileOption[] = projectPath
       ? models.flatMap((modelPath) => {
-          const basename = modelPath.split("/").pop() ?? modelPath;
+          const basename = getBasename(modelPath);
           const base = basename.replace(/\..*$/, "");
           return [
             { label: `${base} - Local`, value: `local:${modelPath}` },

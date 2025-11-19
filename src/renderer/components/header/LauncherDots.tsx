@@ -11,6 +11,7 @@ export function LauncherDots({
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [runningSince, setRunningSince] = useState<number | null>(null);
+  const [flatlineReady, setFlatlineReady] = useState(false);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -31,14 +32,33 @@ export function LauncherDots({
       setRunningSince((prev) => prev ?? Date.now());
     } else {
       setRunningSince(null);
+      setFlatlineReady(false);
     }
   }, [status]);
 
-  const showFlatline =
-    status === "running" &&
-    !robotAlive &&
-    runningSince !== null &&
-    Date.now() - runningSince >= 5000;
+  useEffect(() => {
+    if (status !== "running" || robotAlive || runningSince === null) {
+      setFlatlineReady(false);
+      return;
+    }
+
+    const elapsed = Date.now() - runningSince;
+    if (elapsed >= 5000) {
+      setFlatlineReady(true);
+      return;
+    }
+
+    setFlatlineReady(false);
+    const timeoutId = window.setTimeout(() => {
+      setFlatlineReady(true);
+    }, 5000 - elapsed);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [status, robotAlive, runningSince]);
+
+  const showFlatline = status === "running" && !robotAlive && flatlineReady;
 
   if (showFlatline) {
     return (

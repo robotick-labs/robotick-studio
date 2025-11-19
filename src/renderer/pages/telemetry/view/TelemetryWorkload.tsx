@@ -4,6 +4,9 @@ import { TelemetryStructFields } from "./TelemetryStructFields";
 import styles from "../Telemetry.module.css";
 import type { ITelemetryWorkload } from "../../../data-sources/telemetry";
 
+const USAGE_THRESHOLD_WARNING_YELLOW = 102;
+const USAGE_THRESHOLD_ERROR_RED = 110;
+
 function getStat(w: ITelemetryWorkload, fieldName: string) {
   const s = w.stats;
   if (!s) return undefined;
@@ -12,8 +15,8 @@ function getStat(w: ITelemetryWorkload, fieldName: string) {
 }
 
 function usageClass(usagePercent: number): string {
-  if (usagePercent < 102) return styles.usageBlue;
-  if (usagePercent < 110) return styles.usageYellow;
+  if (usagePercent < USAGE_THRESHOLD_WARNING_YELLOW) return styles.usageBlue;
+  if (usagePercent < USAGE_THRESHOLD_ERROR_RED) return styles.usageYellow;
   return styles.usageRed;
 }
 
