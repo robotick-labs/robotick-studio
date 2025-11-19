@@ -4,6 +4,7 @@
 - Allow any workspace body to be subdivided into multiple panels that can each host any tool.
 - Keep the split mechanic simple and repeatable so users quickly build muscle memory.
 - Ensure every arrangement is persistable per-workspace so the IDE opens exactly as it was left.
+- Provide a lightweight way to detach panels so users can float tools across displays or keep them visible while navigating other areas.
 
 ### Panel behaviors
 1. **Corner handle**
@@ -19,8 +20,15 @@
    - Selecting a new entry swaps just that panel’s content.
    - The context menu’s `Assign Tool…` item opens the same selector for users who prefer right-click workflows.
 4. **Joining panels**
-   - Dragging the corner handle across an adjacent panel, or choosing `Close Panel`, removes the current split and lets the neighboring panel reclaim the full space.
-   - When only one panel remains, its handle/menus still exist so users can start splitting again.
+  - Dragging the corner handle across an adjacent panel, or choosing `Close Panel`, removes the current split and lets the neighboring panel reclaim the full space.
+  - When only one panel remains, its handle/menus still exist so users can start splitting again.
+
+### Floating panels
+- The panel context menu exposes `Create Floating Panel`, which calls `spawnFloatingPanel` with the current editor so you can duplicate any tool into its own mode, optionally passing `initialPosition`, `initialSize`, or `minSize` hints.
+- Floating windows render through `FloatingPanelLayer`, which portals a `GenericPanel` per record and listens to `floating-panel-store`; dragging, resizing, and closing use `GenericPanel` so each floating panel saves its bounds under `generic-panel:floating-panel:<workspaceId>:<panelId>`, while the overall list persists via `floating-panels:<workspaceId>`.
+- Each floating window still surfaces an `Assign Tool…` dropdown (rendered outside the workbench grid) and reuses `PanelContextMenu` for duplicating the window (`Split…` buttons act as “duplicate”) plus the same close action, but it hides the float/maximize/reset entries since those don’t apply.
+- Editors rendered inside a floating panel can call `useFloatingPanel()` to update `title`, `settings`, or call `close()`, keeping metadata tied to that panel instead of the grid.
+- Closing a floating panel simply removes it from the `floating-panel-store`; docking back into the grid is not implemented yet, so the regular layout stays unchanged when a floating window lives or dies.
 
 ### Keyboard/mouse shortcuts
 - `Double-click` the corner handle: quick toggle between maximized and normal size for that panel.
