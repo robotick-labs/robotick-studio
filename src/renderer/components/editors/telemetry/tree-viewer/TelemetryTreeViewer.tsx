@@ -18,9 +18,64 @@ type PanelSettings = {
   dataKind?: "inputs" | "outputs" | "config";
 };
 
+const TREE_STORAGE_KEYS = {
+  model: "robotick-hub.telemetry.tree.model",
+  workload: "robotick-hub.telemetry.tree.workload",
+  field: "robotick-hub.telemetry.tree.field",
+  dataKind: "robotick-hub.telemetry.tree.dataKind",
+};
+
+function readPreference(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function persistPreference(key: string, value: string | undefined) {
+  if (typeof window === "undefined") return;
+  try {
+    if (value === undefined) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
-  const [localSettings, setLocalSettings] = useState<PanelSettings>({});
+  const storedLocalSettings = useMemo<PanelSettings>(() => ({
+    modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
+    workloadName: readPreference(TREE_STORAGE_KEYS.workload) ?? undefined,
+    fieldPath: readPreference(TREE_STORAGE_KEYS.field) ?? undefined,
+    dataKind: (readPreference(TREE_STORAGE_KEYS.dataKind) ??
+      undefined) as PanelSettings["dataKind"] | undefined,
+  }), []);
+  const [localSettings, setLocalSettings] = useState<PanelSettings>(
+    storedLocalSettings
+  );
+  const persistLocalSettings = useCallback(
+    (next: Partial<PanelSettings>) => {
+      if ("modelPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadName" in next) {
+        persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
+      }
+      if ("fieldPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
+      }
+      if ("dataKind" in next) {
+        persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
+      }
+    },
+    []
+  );
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const updateSettings = useCallback(
@@ -30,8 +85,9 @@ export default function TelemetryTreeViewer() {
       } else {
         setLocalSettings((prev) => ({ ...prev, ...next }));
       }
+      persistLocalSettings(next);
     },
-    [panel]
+    [panel, persistLocalSettings]
   );
   const { projectModels } = ProjectData.use();
 
