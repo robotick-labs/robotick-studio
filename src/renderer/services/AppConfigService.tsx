@@ -1,18 +1,18 @@
 import React, { createContext, useContext } from "react";
-import routesSource from "../config/app-routes.yaml?raw";
+import workspacesSource from "../config/app-workspaces.yaml?raw";
 
-type RouteGroup = "project-select" | "dev" | "test" | "help";
+type WorkspaceGroup = "project-select" | "dev" | "test" | "help";
 
-export type RouteConfig = {
+export type WorkspaceConfig = {
   id: string;
   path: string;
   label: string;
-  group: RouteGroup;
+  group: WorkspaceGroup;
   module: string;
 };
 
 export type AppConfig = {
-  routes: RouteConfig[];
+  workspaces: WorkspaceConfig[];
 };
 
 function parseValue(raw: string): string {
@@ -27,18 +27,18 @@ function parseValue(raw: string): string {
   return trimmed;
 }
 
-function parseYamlRoutes(raw: string): RouteConfig[] {
-  const routes: RouteConfig[] = [];
-  let current: Partial<RouteConfig> | null = null;
+function parseYamlWorkspaces(raw: string): WorkspaceConfig[] {
+  const workspaces: WorkspaceConfig[] = [];
+  let current: Partial<WorkspaceConfig> | null = null;
   const lines = raw.split(/\r?\n/);
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
-    if (trimmed === "routes:") continue;
+    if (trimmed === "workspaces:") continue;
 
     if (trimmed.startsWith("-")) {
-      if (current) routes.push(current as RouteConfig);
+      if (current) workspaces.push(current as WorkspaceConfig);
       current = {};
       const remainder = trimmed.slice(1).trim();
       if (remainder) {
@@ -51,7 +51,7 @@ function parseYamlRoutes(raw: string): RouteConfig[] {
     }
 
     if (!current) {
-      throw new Error("Malformed routes configuration");
+      throw new Error("Malformed workspaces configuration");
     }
 
     const [key, value] = trimmed.split(/:(.+)/);
@@ -60,11 +60,11 @@ function parseYamlRoutes(raw: string): RouteConfig[] {
   }
 
   if (current) {
-    routes.push(current as RouteConfig);
+    workspaces.push(current as WorkspaceConfig);
   }
 
-  return routes.map((route) => {
-    const required: (keyof RouteConfig)[] = [
+  return workspaces.map((workspace) => {
+    const required: (keyof WorkspaceConfig)[] = [
       "id",
       "path",
       "label",
@@ -72,17 +72,17 @@ function parseYamlRoutes(raw: string): RouteConfig[] {
       "module",
     ];
     for (const key of required) {
-      if (!route[key]) {
-        throw new Error(`Route '${route.id ?? "unknown"}' missing ${key}`);
+      if (!workspace[key]) {
+        throw new Error(`Workspace '${workspace.id ?? "unknown"}' missing ${key}`);
       }
     }
-    return route as RouteConfig;
+    return workspace as WorkspaceConfig;
   });
 }
 
 function loadConfig(): AppConfig {
-  const routes = parseYamlRoutes(routesSource);
-  return { routes };
+  const workspaces = parseYamlWorkspaces(workspacesSource);
+  return { workspaces };
 }
 
 const config = loadConfig();
@@ -101,4 +101,4 @@ export function useAppConfig(): AppConfig {
   return useContext(AppConfigContext);
 }
 
-export const RoutesConfig = config.routes;
+export const WorkspacesConfig = config.workspaces;

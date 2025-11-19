@@ -1,5 +1,5 @@
-# Top-level router configuration (YAML)
-routes:
+# Top-level workspace configuration (YAML)
+workspaces:
   - id: home
     path: /home
     label: Home

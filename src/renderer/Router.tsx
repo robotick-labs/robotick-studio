@@ -1,22 +1,22 @@
 import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import type { RouteConfig } from "./services/AppConfigService";
-import { RoutesConfig } from "./services/AppConfigService";
+import type { WorkspaceConfig } from "./services/AppConfigService";
+import { WorkspacesConfig } from "./services/AppConfigService";
 
 type LazyComponent = React.LazyExoticComponent<
   React.ComponentType<Record<string, never>>
 >;
 
-type RouteEntry = RouteConfig & { Component: LazyComponent };
+type WorkspaceEntry = WorkspaceConfig & { Component: LazyComponent };
 
 const moduleMap = import.meta.glob("./components/editors/**/*.tsx");
 
-function createRouteEntries(): RouteEntry[] {
-  return RoutesConfig.map((route) => {
-    const loader = moduleMap[route.module];
+function createWorkspaceEntries(): WorkspaceEntry[] {
+  return WorkspacesConfig.map((workspace) => {
+    const loader = moduleMap[workspace.module];
     if (!loader) {
       throw new Error(
-        `Route '${route.id}' references unknown module: ${route.module}`
+        `Workspace '${workspace.id}' references unknown module: ${workspace.module}`
       );
     }
     const Component = React.lazy(
@@ -24,11 +24,11 @@ function createRouteEntries(): RouteEntry[] {
         default: React.ComponentType<Record<string, never>>;
       }>
     );
-    return { ...route, Component };
+    return { ...workspace, Component };
   });
 }
 
-export const resolvedRoutes = createRouteEntries();
+export const resolvedWorkspaces = createWorkspaceEntries();
 
 export function AppRoutes() {
   return (
@@ -37,17 +37,17 @@ export function AppRoutes() {
         path="/"
         element={
           <Navigate
-            to={(resolvedRoutes[0] && resolvedRoutes[0].path) || "/home"}
+            to={(resolvedWorkspaces[0] && resolvedWorkspaces[0].path) || "/home"}
             replace
           />
         }
       />
-      {resolvedRoutes.map(({ path, id, Component }) => (
+      {resolvedWorkspaces.map(({ path, id, Component }) => (
         <Route
           key={id}
           path={path}
           element={
-            <React.Suspense fallback={<RouteFallback />}>
+            <React.Suspense fallback={<WorkspaceFallback />}>
               <Component />
             </React.Suspense>
           }
@@ -58,8 +58,8 @@ export function AppRoutes() {
   );
 }
 
-function RouteFallback() {
-  return <div className="route-loading">Loading…</div>;
+function WorkspaceFallback() {
+  return <div className="workspace-loading">Loading…</div>;
 }
 
 function NotFound() {

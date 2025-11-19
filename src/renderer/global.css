@@ -48,7 +48,7 @@ body {
   background-color: #1c1f2c;
 }
 
-.route-loading {
+.workspace-loading {
   padding: 1rem;
   text-align: center;
   color: var(--color-text);

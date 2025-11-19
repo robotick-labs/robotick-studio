@@ -12,10 +12,10 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
     .join(" ");
 
 export function AppHeader() {
-  const { routes } = useAppConfig();
+  const { workspaces } = useAppConfig();
   const grouped = useMemo(
-    () => groupRoutes(routes),
-    [routes]
+    () => groupWorkspaces(workspaces),
+    [workspaces]
   );
 
   return (
@@ -54,17 +54,17 @@ export function AppHeader() {
   );
 }
 
-function renderLinks(routes: { id: string; path: string; label: string }[]) {
-  if (!routes.length) return null;
-  return routes.map((route) => (
-    <NavLink key={route.id} to={route.path} className={navClassName}>
-      {route.label}
+function renderLinks(workspaces: { id: string; path: string; label: string }[]) {
+  if (!workspaces.length) return null;
+  return workspaces.map((workspace) => (
+    <NavLink key={workspace.id} to={workspace.path} className={navClassName}>
+      {workspace.label}
     </NavLink>
   ));
 }
 
-function groupRoutes(
-  routes: { id: string; path: string; label: string; group: string }[]
+function groupWorkspaces(
+  workspaces: { id: string; path: string; label: string; group: string }[]
 ) {
   const groups = {
     projectSelect: [] as { id: string; path: string; label: string }[],
@@ -72,19 +72,19 @@ function groupRoutes(
     test: [] as { id: string; path: string; label: string }[],
     help: [] as { id: string; path: string; label: string }[],
   };
-  for (const route of routes) {
-    switch (route.group) {
+  for (const workspace of workspaces) {
+    switch (workspace.group) {
       case "project-select":
-        groups.projectSelect.push(route);
+        groups.projectSelect.push(workspace);
         break;
       case "dev":
-        groups.dev.push(route);
+        groups.dev.push(workspace);
         break;
       case "test":
-        groups.test.push(route);
+        groups.test.push(workspace);
         break;
       case "help":
-        groups.help.push(route);
+        groups.help.push(workspace);
         break;
       default:
         break;
