@@ -89,7 +89,9 @@ export function TelemetryStructFields({ struct }: { struct?: any }) {
     );
   }
 
-  return <div className={styles.multiline}>{struct.fields.map(renderField)}</div>;
+  return (
+    <div className={styles.multiline}>{struct.fields.map(renderField)}</div>
+  );
 }
 
 // -------------------------------------------------------------
@@ -169,7 +171,6 @@ function ImagePanel({
       title={path}
       onClose={onClose}
       closable
-      modal={false}
       initialPosition={{ x: 200, y: 200 }}
       initialSize={{ width: 640, height: 420 }}
       minSize={{ width: 320, height: 240 }}
@@ -178,9 +179,7 @@ function ImagePanel({
       bodyClassName={styles.imagePanelBody}
       storageKey={`telemetry-image:${path}`}
     >
-      {url && (
-        <img src={url} alt={path} className={styles.imagePanelImage} />
-      )}
+      {url && <img src={url} alt={path} className={styles.imagePanelImage} />}
     </GenericPanel>
   );
 }

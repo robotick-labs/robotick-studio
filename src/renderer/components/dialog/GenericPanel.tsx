@@ -14,8 +14,6 @@ export type GenericPanelProps = {
   resizable?: boolean;
   closable?: boolean;
   onClose?: () => void;
-  modal?: boolean;
-  onBackdropClick?: () => void;
   className?: string;
   headerClassName?: string;
   bodyClassName?: string;
@@ -39,8 +37,6 @@ export function GenericPanel({
   resizable = true,
   closable = true,
   onClose,
-  modal = false,
-  onBackdropClick,
   className,
   headerClassName,
   bodyClassName,
@@ -53,9 +49,7 @@ export function GenericPanel({
       return null;
     }
     try {
-      const raw = window.localStorage.getItem(
-        `${STORAGE_PREFIX}${storageKey}`
-      );
+      const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
       if (!raw) return null;
       return JSON.parse(raw) as {
         position?: Vec2;
@@ -69,9 +63,7 @@ export function GenericPanel({
   const [position, setPosition] = useState<Vec2>(
     persistedState?.position ?? initialPosition
   );
-  const [size, setSize] = useState<Size>(
-    persistedState?.size ?? initialSize
-  );
+  const [size, setSize] = useState<Size>(persistedState?.size ?? initialSize);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   function clamp(value: number, min: number, max?: number) {
@@ -90,12 +82,14 @@ export function GenericPanel({
     const el = panelRef.current;
     const width = el?.offsetWidth ?? size.width;
     const height = el?.offsetHeight ?? size.height;
-    const maxX = typeof window !== "undefined"
-      ? Math.max(0, window.innerWidth - width)
-      : undefined;
-    const maxY = typeof window !== "undefined"
-      ? Math.max(0, window.innerHeight - height)
-      : undefined;
+    const maxX =
+      typeof window !== "undefined"
+        ? Math.max(0, window.innerWidth - width)
+        : undefined;
+    const maxY =
+      typeof window !== "undefined"
+        ? Math.max(0, window.innerHeight - height)
+        : undefined;
 
     function move(ev: MouseEvent) {
       setPosition({
@@ -141,8 +135,6 @@ export function GenericPanel({
     .filter(Boolean)
     .join(" ");
   const bodyClass = [styles.body, bodyClassName].filter(Boolean).join(" ");
-
-  const backdropClick = onBackdropClick ?? onClose;
 
   const panelNode = (
     <div
@@ -196,9 +188,7 @@ export function GenericPanel({
 
   useEffect(() => {
     if (storageKey && typeof window !== "undefined") {
-      const raw = window.localStorage.getItem(
-        `${STORAGE_PREFIX}${storageKey}`
-      );
+      const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
@@ -218,15 +208,5 @@ export function GenericPanel({
     setSize(initialSize);
   }, [initialPosition, initialSize, storageKey]);
 
-  return (
-    <>
-      {modal && (
-        <div
-          className={styles.backdrop}
-          onClick={() => backdropClick?.()}
-        />
-      )}
-      {panelNode}
-    </>
-  );
+  return panelNode;
 }
