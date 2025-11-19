@@ -50,21 +50,31 @@
   align-items: center;
   gap: 8px;
   position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  right: 20px;
+  bottom: 20px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   z-index: 3;
 }
 
 .panelSelector {
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 1);
   border: none;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.95);
   font-size: 0.8rem;
   outline: none;
+  padding: 0 18px 0 4px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23ffffff' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 10px 6px;
+  border-radius: 4px;
 }
 
 .panelHandle {

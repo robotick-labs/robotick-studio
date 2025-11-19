@@ -509,17 +509,18 @@ function PanelNodeView({
     );
   }
 
-  return (
-    <PanelLeaf
-      node={node}
-      editorOptions={editorOptions}
-      onContextMenu={onContextMenu}
-      onAssign={onAssign}
-      onToggleMaximize={onToggleMaximize}
-      onSplit={onSplit}
-    />
-  );
-}
+    return (
+      <PanelLeaf
+        node={node}
+        editorOptions={editorOptions}
+        onContextMenu={onContextMenu}
+        onAssign={onAssign}
+        onToggleMaximize={onToggleMaximize}
+        onSplit={onSplit}
+        isMaximized={maximizedPanelId === node.id}
+      />
+    );
+  }
 
 type SplitResizerProps = {
   splitId: string;
@@ -589,6 +590,7 @@ type PanelLeafProps = {
   onAssign: (panelId: string, editorId: string) => void;
   onToggleMaximize: (panelId: string) => void;
   onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
+  isMaximized: boolean;
 };
 
 function PanelLeaf({
@@ -598,6 +600,7 @@ function PanelLeaf({
   onAssign,
   onToggleMaximize,
   onSplit,
+  isMaximized,
 }: PanelLeafProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [splitPreview, setSplitPreview] = React.useState<{
@@ -721,7 +724,7 @@ function PanelLeaf({
         </select>
         <button
           className={styles.panelHandle}
-          title="Drag to split • Double-click to maximize"
+          title={`Drag to split • Double-click to ${isMaximized ? "restore" : "maximize"}`}
           onMouseDown={startSplitDrag}
           onDoubleClick={() => onToggleMaximize(node.id)}
         >
@@ -763,6 +766,24 @@ function PanelContextMenu({
   onResetLayout,
   onClose,
 }: PanelContextMenuProps) {
+  const [placement, setPlacement] = React.useState({ left: state.x, top: state.y });
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) {
+      setPlacement({ left: state.x, top: state.y });
+      return;
+    }
+    const { offsetWidth: width, offsetHeight: height } = menu;
+    const buffer = 8;
+    const maxX = window.innerWidth - width - buffer;
+    const maxY = window.innerHeight - height - buffer;
+    const safeX = Math.max(buffer, Math.min(state.x, Math.max(buffer, maxX)));
+    const safeY = Math.max(buffer, Math.min(state.y, Math.max(buffer, maxY)));
+    setPlacement({ left: safeX, top: safeY });
+  }, [state.x, state.y]);
+
   React.useEffect(() => {
     const close = () => onClose();
     const handleKey = (event: KeyboardEvent) => {
@@ -781,7 +802,8 @@ function PanelContextMenu({
   return (
     <div
       className={styles.contextMenu}
-      style={{ left: state.x, top: state.y }}
+      ref={menuRef}
+      style={{ left: placement.left, top: placement.top }}
       role="menu"
     >
       <button
