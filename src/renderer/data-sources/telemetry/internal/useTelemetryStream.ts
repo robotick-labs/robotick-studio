@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ITelemetryModel } from "./telemetry-client";
-import { subscribeTelemetry } from "./telemetry-store";
+import { useTelemetryService } from "./TelemetryService";
 
 /**
  * React hook that exposes the latest telemetry model (and any subscription
@@ -8,6 +8,7 @@ import { subscribeTelemetry } from "./telemetry-store";
  * should consume, re-exported via `core/telemetry`.
  */
 export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
+  const telemetryService = useTelemetryService();
   const [model, setModel] = useState<ITelemetryModel | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -17,16 +18,20 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
       return;
     }
 
-    const unsubscribe = subscribeTelemetry(baseUrl, pollingRateHz, {
-      callback: (next) => {
-        setModel(next);
-        setError(null);
-      },
-      error: (err) => setError(err),
-    });
+    const unsubscribe = telemetryService.subscribeTelemetry(
+      baseUrl,
+      pollingRateHz,
+      {
+        callback: (next) => {
+          setModel(next);
+          setError(null);
+        },
+        error: (err) => setError(err),
+      }
+    );
 
     return () => unsubscribe();
-  }, [baseUrl, pollingRateHz]);
+  }, [baseUrl, pollingRateHz, telemetryService]);
 
   return { model, error };
 }
