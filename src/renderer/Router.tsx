@@ -9,7 +9,7 @@ type LazyComponent = React.LazyExoticComponent<
 
 type RouteEntry = RouteConfig & { Component: LazyComponent };
 
-const moduleMap = import.meta.glob("./pages/**/*.tsx");
+const moduleMap = import.meta.glob("./components/editors/**/*.tsx");
 
 function createRouteEntries(): RouteEntry[] {
   return RoutesConfig.map((route) => {
@@ -20,7 +20,9 @@ function createRouteEntries(): RouteEntry[] {
       );
     }
     const Component = React.lazy(
-      loader as () => Promise<{ default: React.ComponentType<Record<string, never>> }>
+      loader as () => Promise<{
+        default: React.ComponentType<Record<string, never>>;
+      }>
     );
     return { ...route, Component };
   });
