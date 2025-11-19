@@ -1,6 +1,6 @@
 import React, { useLayoutEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { act } from "react-dom/test-utils";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Launcher,
