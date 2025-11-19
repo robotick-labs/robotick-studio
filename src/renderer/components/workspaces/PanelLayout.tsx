@@ -402,12 +402,7 @@ export function PanelLayout({
           editorOptions={editorOptions}
           canClose={leafTotal > 1}
           isMaximized={maximizedPanelId === contextMenu.panelId}
-          onSplitHorizontal={(ratio) =>
-            onSplit(contextMenu.panelId, "horizontal", ratio)
-          }
-          onSplitVertical={(ratio) =>
-            onSplit(contextMenu.panelId, "vertical", ratio)
-          }
+          onSplit={onSplit}
           onAssign={(editorId) => onAssign(contextMenu.panelId, editorId)}
           onToggleMaximize={() => onToggleMaximize(contextMenu.panelId)}
           onResetLayout={resetLayout}
@@ -748,8 +743,7 @@ type PanelContextMenuProps = {
   editorOptions: EditorOption[];
   canClose: boolean;
   isMaximized: boolean;
-  onSplitHorizontal: (ratio: number) => void;
-  onSplitVertical: (ratio: number) => void;
+  onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
   onAssign: (editorId: string) => void;
   onToggleMaximize: () => void;
   onClosePanel: () => void;
@@ -762,8 +756,7 @@ function PanelContextMenu({
   editorOptions,
   canClose,
   isMaximized,
-  onSplitHorizontal,
-  onSplitVertical,
+  onSplit,
   onAssign,
   onToggleMaximize,
   onClosePanel,
@@ -794,7 +787,7 @@ function PanelContextMenu({
       <button
         className={styles.contextMenuItem}
         onClick={() => {
-          onSplitHorizontal(state.horizontalRatio);
+          onSplit(state.panelId, "vertical", state.verticalRatio);
           onClose();
         }}
       >
@@ -803,7 +796,7 @@ function PanelContextMenu({
       <button
         className={styles.contextMenuItem}
         onClick={() => {
-          onSplitVertical(state.verticalRatio);
+          onSplit(state.panelId, "horizontal", state.horizontalRatio);
           onClose();
         }}
       >

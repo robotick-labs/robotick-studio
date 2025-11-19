@@ -4,6 +4,8 @@
   min-height: 0;
   background: var(--panel-bg, #121316);
   border: 1px solid rgba(255, 255, 255, 0.05);
+  width: 100%;
+  height: 100%;
 }
 
 .splitHorizontal,
@@ -58,7 +60,7 @@
 }
 
 .panelSelector {
-  background: transparent;
+  background: rgba(0, 0, 0, 0.45);
   border: none;
   color: rgba(255, 255, 255, 0.85);
   font-size: 0.8rem;
