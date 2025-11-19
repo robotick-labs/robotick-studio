@@ -227,12 +227,10 @@ async function buildModelDescriptors<T = unknown>(
   projectPath: string
 ): Promise<ProjectModelDescriptor<T>[]> {
   const modelPaths = await fetchProjectModelPaths(projectPath);
-  const descriptors: ProjectModelDescriptor<T>[] = [];
-
-  for (const modelPath of modelPaths) {
+  const descriptorPromises = modelPaths.map(async (modelPath) => {
     try {
       const data = await fetchProjectModelData<T>(projectPath, modelPath);
-      if (!data) continue;
+      if (!data) return null;
 
       const modelName =
         (data as { name?: string })?.name?.trim() ||
@@ -246,23 +244,27 @@ async function buildModelDescriptors<T = unknown>(
         (data as { telemetry?: { port?: number } })?.telemetry?.port
       );
 
-      descriptors.push({
+      return {
         modelPath,
         modelShortName: buildModelShortName(modelPath),
         modelName,
         telemetryPort,
         telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
         data,
-      });
+      } as ProjectModelDescriptor<T>;
     } catch (err) {
       console.warn(
         `[launcher-interface] Failed to load model definition ${modelPath}`,
         err
       );
+      return null;
     }
-  }
+  });
 
-  return descriptors;
+  const descriptors = await Promise.all(descriptorPromises);
+  return descriptors.filter(
+    (descriptor): descriptor is ProjectModelDescriptor<T> => descriptor !== null
+  );
 }
 
 async function resolveProjectModels<T = unknown>(

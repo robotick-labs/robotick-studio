@@ -7,9 +7,13 @@ import type { ITelemetryWorkload } from "../../../data-sources/telemetry";
 const USAGE_THRESHOLD_WARNING_YELLOW = 102;
 const USAGE_THRESHOLD_ERROR_RED = 110;
 
-function getStat(w: ITelemetryWorkload, fieldName: string) {
+interface TelemetryWorkloadProps {
+  w: ITelemetryWorkload;
+}
+
+function getStat(w: ITelemetryWorkload, fieldName: string): unknown {
   const s = w.stats;
-  if (!s) return undefined;
+  if (!s || !Array.isArray(s.fields)) return undefined;
   const f = s.fields.find((f) => f.name === fieldName);
   return f?.getValue();
 }
@@ -20,7 +24,7 @@ function usageClass(usagePercent: number): string {
   return styles.usageRed;
 }
 
-export function TelemetryWorkload({ w }) {
+export function TelemetryWorkload({ w }: TelemetryWorkloadProps) {
   const last_ns = getStat(w, "last_tick_duration_ns") ?? 0;
   const dt_ns = getStat(w, "last_time_delta_ns") ?? 0;
   const hz = getStat(w, "tick_rate_hz") ?? 0;

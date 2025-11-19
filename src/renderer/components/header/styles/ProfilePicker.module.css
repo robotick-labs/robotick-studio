@@ -1,9 +1,13 @@
 .select {
   min-width: 180px;
-  padding: 6px 12px;
-  background: rgb(85, 146, 85);
+  padding: 6px 36px 6px 12px;
+  background-color: rgb(85, 146, 85);
   color: white;
   border: 1px solid rgb(85, 146, 85);
   border-radius: 10px;
   appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='white' d='M1.41 0L6 4.58 10.59 0 12 1.41 6 7.41 0 1.41z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
 }

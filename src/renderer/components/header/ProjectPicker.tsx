@@ -62,13 +62,12 @@ export function ProjectPicker() {
         ))}
 
         <option value={ADD_PROJECT_VALUE}>Add Project...</option>
-
-        {error ? (
-          <option value="__error" disabled>
-            Failed to load projects
-          </option>
-        ) : null}
       </select>
+      {error ? (
+        <div role="alert" aria-live="polite" className={styles.errorMessage}>
+          Failed to load projects
+        </div>
+      ) : null}
       {confirmationDialog}
     </>
   );

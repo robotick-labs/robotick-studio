@@ -57,8 +57,8 @@ export default function TerminalPage() {
         scheduleReconnect();
       };
 
-      ws.onmessage = (event) => {
-        const text = event.data;
+      ws.onmessage = async (event) => {
+        const text = await normalizeEventData(event.data);
         setMessages((prev) => {
           const next = [...prev, text];
           if (next.length > MAX_MESSAGES) {
@@ -97,6 +97,26 @@ export default function TerminalPage() {
       }
     };
   }, []);
+
+async function normalizeEventData(data: unknown): Promise<string> {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data instanceof Blob) {
+    return data.text();
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new TextDecoder().decode(data.buffer);
+  }
+
+  return String(data);
+}
 
   // ---------------------------------------------------------------------------
   // Clear log on "run-requested"
