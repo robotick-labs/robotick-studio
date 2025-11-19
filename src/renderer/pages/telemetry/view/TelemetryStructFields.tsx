@@ -6,9 +6,10 @@
 // Robotick Labs 2025
 // -----------------------------------------------------------------------------
 
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
+import { GenericPanel } from "../../../components/dialog/GenericPanel";
 
 // -------------------------------------------------------------
 // Number formatting
@@ -162,105 +163,24 @@ function ImagePanel({
   path: string;
   onClose: () => void;
 }) {
-  const [pos, setPos] = useState({ x: 200, y: 200 });
-  const [size, setSize] = useState({ w: 640, h: 420 });
-  const panelRef = useRef<HTMLDivElement | null>(null);
-
   const url = useBlobURL(raw, mime_type);
-  const clampPosition = (value: number, min: number, max?: number) => {
-    if (typeof max === "number" && Number.isFinite(max)) {
-      return Math.min(Math.max(value, min), max);
-    }
-    return Math.max(value, min);
-  };
-
-  function onTitleMouseDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const orig = { ...pos };
-    const panelEl = panelRef.current;
-    const panelWidth = panelEl?.offsetWidth ?? size.w;
-    const panelHeight = panelEl?.offsetHeight ?? size.h;
-    const maxX = Number.isFinite(panelWidth)
-      ? Math.max(0, window.innerWidth - panelWidth)
-      : undefined;
-    const maxY = Number.isFinite(panelHeight)
-      ? Math.max(0, window.innerHeight - panelHeight)
-      : undefined;
-
-    function move(ev: MouseEvent) {
-      const nextX = clampPosition(orig.x + (ev.clientX - startX), 0, maxX);
-      const nextY = clampPosition(orig.y + (ev.clientY - startY), 0, maxY);
-      setPos({ x: nextX, y: nextY });
-    }
-
-    function up() {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    }
-
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  }
-
-  function onResizeMouseDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const orig = { ...size };
-
-    function move(ev: MouseEvent) {
-      setSize({
-        w: Math.max(200, orig.w + (ev.clientX - startX)),
-        h: Math.max(200, orig.h + (ev.clientY - startY)),
-      });
-    }
-
-    function up() {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    }
-
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  }
-
   return (
-    <div
+    <GenericPanel
+      title={path}
+      onClose={onClose}
+      closable
+      modal={false}
+      initialPosition={{ x: 200, y: 200 }}
+      initialSize={{ width: 640, height: 420 }}
+      minSize={{ width: 320, height: 240 }}
       className={styles.imagePanel}
-      ref={panelRef}
-      style={{
-        left: pos.x,
-        top: pos.y,
-        width: size.w,
-        height: size.h,
-        display: "block",
-      }}
+      headerClassName={styles.imagePanelHeader}
+      bodyClassName={styles.imagePanelBody}
+      storageKey={`telemetry-image:${path}`}
     >
-      <div className={styles.imagePanelTitle} onMouseDown={onTitleMouseDown}>
-        <span>{path}</span>
-        <span className={styles.imagePanelClose} onClick={onClose}>
-          ✕
-        </span>
-      </div>
-
       {url && (
-        <img
-          src={url}
-          alt={path}
-          style={{
-            width: "100%",
-            height: "calc(100% - 22px)",
-            objectFit: "contain",
-          }}
-        />
+        <img src={url} alt={path} className={styles.imagePanelImage} />
       )}
-
-      <div
-        className={styles.imagePanelResizeHandle}
-        onMouseDown={onResizeMouseDown}
-      />
-    </div>
+    </GenericPanel>
   );
 }

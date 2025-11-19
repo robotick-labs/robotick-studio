@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import styles from "./styles/RcTelemetryOverlay.module.css";
 import { useTelemetryStream } from "../../../data-sources/telemetry";
 import { ProjectData } from "../../../data-sources/launcher";
+import { GenericPanel } from "../../../components/dialog/GenericPanel";
 
 type RcTelemetryConfig = {
   telemetryBaseUrl?: string;
@@ -50,6 +51,16 @@ export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
 
   const { model, error } = useTelemetryStream(telemetryBaseUrl ?? "", 20); // 20 Hz default for RC telemetry
 
+  const initialPosition = useMemo(() => {
+    if (typeof window === "undefined") {
+      return { x: 1000, y: 120 };
+    }
+    return {
+      x: Math.max(40, window.innerWidth - 660),
+      y: 120,
+    };
+  }, []);
+
   const data = useMemo(() => {
     if (!telemetryBaseUrl || !model) return null;
     const workload = model.workloads.find((w) => w.name === workloadId);
@@ -62,8 +73,17 @@ export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
   }
 
   return (
-    <div className={styles.overlay}>
-      <div className={styles.header}>Mind Test Outputs</div>
+    <GenericPanel
+      title="Mind Test Outputs"
+      closable={false}
+      initialPosition={initialPosition}
+      initialSize={{ width: 600, height: 600 }}
+      minSize={{ width: 400, height: 320 }}
+      className={styles.panel}
+      headerClassName={styles.header}
+      bodyClassName={styles.body}
+      storageKey="rc-telemetry-overlay"
+    >
       {error ? (
         <div className={styles.error}>⚠️ {String(error)}</div>
       ) : (
@@ -71,7 +91,7 @@ export function RcTelemetryOverlay({ config }: RcTelemetryProps) {
           {data ? JSON.stringify(data, null, 2) : "Loading..."}
         </pre>
       )}
-    </div>
+    </GenericPanel>
   );
 }
 

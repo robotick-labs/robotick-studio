@@ -8,6 +8,7 @@
   color: white;
   border-bottom: 1px solid #444;
   gap: 1rem;
+  z-index: 200001;
 }
 
 .logo {
