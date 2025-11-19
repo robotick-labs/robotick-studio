@@ -52,6 +52,9 @@ export class ViewerWorld {
   private pmrem!: THREE.PMREMGenerator;
   private neutralEnvTex!: THREE.Texture;
   private containerElement!: HTMLElement;
+  private resizeObserver: ResizeObserver | null = null;
+  private pendingResize = false;
+  private lastSize = { width: 0, height: 0 };
 
   // lighting
   private ambient?: THREE.AmbientLight;
@@ -159,17 +162,23 @@ export class ViewerWorld {
     this.renderer.shadowMap.autoUpdate = true;
     const pxMax = rCfg.pixelRatioMax ?? 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pxMax));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
     if (typeof rCfg.clearColor === "number")
       this.renderer.setClearColor(rCfg.clearColor);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.containerElement.appendChild(this.renderer.domElement);
+    Object.assign(this.renderer.domElement.style, {
+      width: "100%",
+      height: "100%",
+      display: "block",
+    });
 
     // camera + controls
     const cam = this.worldConfig.camera;
+    const width = Math.max(1, Math.round(this.containerElement.clientWidth));
+    const height = Math.max(1, Math.round(this.containerElement.clientHeight));
     this.camera = new THREE.PerspectiveCamera(
       cam.fov,
-      window.innerWidth / window.innerHeight,
+      width / height,
       cam.near,
       cam.far
     );
@@ -245,12 +254,15 @@ export class ViewerWorld {
     }
 
     // loop
-    window.addEventListener("resize", this.onResize);
+    this.updateSize();
+    this.resizeObserver = new ResizeObserver(() => this.scheduleResize());
+    this.resizeObserver.observe(this.containerElement);
     this.animate();
   }
 
   dispose() {
-    window.removeEventListener("resize", this.onResize);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
@@ -894,9 +906,35 @@ export class ViewerWorld {
     this.renderer.render(this.scene, this.camera);
   };
 
-  private onResize = () => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+  private scheduleResize() {
+    if (this.pendingResize) return;
+    this.pendingResize = true;
+    requestAnimationFrame(() => {
+      this.pendingResize = false;
+      this.updateSize();
+    });
+  }
+
+  private updateSize = () => {
+    const width = Math.max(
+      1,
+      Math.round(this.containerElement.clientWidth),
+    );
+    const height = Math.max(
+      1,
+      Math.round(this.containerElement.clientHeight),
+    );
+    if (width === this.lastSize.width && height === this.lastSize.height) {
+      return;
+    }
+    this.lastSize.width = width;
+    this.lastSize.height = height;
+    this.renderer.setSize(width, height, false);
+    if (this.renderer.domElement) {
+      this.renderer.domElement.style.width = "100%";
+      this.renderer.domElement.style.height = "100%";
+    }
+    this.camera.aspect = width / height || 1;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 }

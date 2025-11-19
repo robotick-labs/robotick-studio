@@ -161,3 +161,7 @@ export {
   launcherService,
 } from "./internal/LauncherService";
 export type { LauncherService } from "./internal/LauncherService";
+export {
+  terminalLogService,
+  type TerminalLogService,
+} from "./internal/terminal-log-service";
