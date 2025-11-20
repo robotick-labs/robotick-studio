@@ -23,7 +23,7 @@ export type GenericPanelProps = {
 };
 
 const DEFAULT_POSITION: Vec2 = { x: 160, y: 160 };
-const DEFAULT_SIZE: Size = { width: 520, height: 360 };
+const DEFAULT_SIZE: Size = { width: 640, height: 400 };
 const DEFAULT_MIN_SIZE: Size = { width: 260, height: 180 };
 const STORAGE_PREFIX = "generic-panel:";
 
@@ -66,24 +66,28 @@ export function GenericPanel({
   const [size, setSize] = useState<Size>(persistedState?.size ?? initialSize);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-function clamp(value: number, min: number, max?: number) {
-  if (typeof max === "number" && Number.isFinite(max)) {
-    return Math.min(Math.max(value, min), max);
+  function clamp(value: number, min: number, max?: number) {
+    if (typeof max === "number" && Number.isFinite(max)) {
+      return Math.min(Math.max(value, min), max);
+    }
+    return Math.max(value, min);
   }
-  return Math.max(value, min);
-}
 
-function clampPositionToViewport(pos: Vec2, size: Size, viewport?: Size): Vec2 {
-  if (typeof window === "undefined") return pos;
-  const width = viewport?.width ?? window.innerWidth;
-  const height = viewport?.height ?? window.innerHeight;
-  const maxX = Math.max(0, width - size.width);
-  const maxY = Math.max(0, height - size.height);
-  return {
-    x: clamp(pos.x, 0, maxX),
-    y: clamp(pos.y, 0, maxY),
-  };
-}
+  function clampPositionToViewport(
+    pos: Vec2,
+    size: Size,
+    viewport?: Size
+  ): Vec2 {
+    if (typeof window === "undefined") return pos;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    const maxX = Math.max(0, width - size.width);
+    const maxY = Math.max(0, height - size.height);
+    return {
+      x: clamp(pos.x, 0, maxX),
+      y: clamp(pos.y, 0, maxY),
+    };
+  }
   function handleDragStart(event: React.MouseEvent) {
     if (!draggable) return;
     event.preventDefault();
@@ -149,7 +153,8 @@ function clampPositionToViewport(pos: Vec2, size: Size, viewport?: Size): Vec2 {
 
   const viewport = {
     width: typeof window !== "undefined" ? window.innerWidth : size.width * 2,
-    height: typeof window !== "undefined" ? window.innerHeight : size.height * 2,
+    height:
+      typeof window !== "undefined" ? window.innerHeight : size.height * 2,
   };
   const clampedPosition = clampPositionToViewport(position, size, viewport);
 

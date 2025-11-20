@@ -2,7 +2,7 @@
   margin: 2rem auto;
   padding: 1rem 2rem;
   border-radius: 12px;
-  color: #eee;
+  color: var(--app-text-primary);
   max-width: 90%;
   overflow: auto;
 }
@@ -12,7 +12,7 @@
 }
 
 .container::-webkit-scrollbar-thumb {
-  background: #444;
+  background: var(--app-surface-base);
   border-radius: 4px;
 }
 
@@ -20,7 +20,7 @@
   margin: 0 0 1rem 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--app-text-primary);
   padding-bottom: 0.5rem;
 }
 
@@ -29,25 +29,25 @@
 }
 
 .modelLabel {
-  color: #999;
+  color: var(--app-text-muted);
   font-size: 12px;
   font-weight: bold;
 }
 
 .tableContainer {
-  background: #0a0e16;
+  background: var(--app-panel-backdrop);
   border-radius: 10px;
 }
 
 .model {
   padding: 20px;
   border-radius: 20px;
-  border: 3px solid rgba(0, 0, 0, 0);
+  border: 3px solid transparent;
   cursor: pointer;
 }
 
 .model:hover {
-  border: 3px solid #2b3044;
+  border: 3px solid var(--app-model-hover-border);
 }
 
 .table {
@@ -61,19 +61,19 @@
 .table td {
   padding: 0.6rem 0.8rem;
   text-align: left;
-  border-bottom: 1px solid #334;
+  border-bottom: 1px solid var(--app-panel-border);
 }
 
 .table th {
   font-weight: 600;
-  color: #aaa;
+  color: var(--app-text-muted);
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
 }
 
 .table tbody tr:hover {
-  background: #1c1f2c;
+  background: var(--app-surface-highlight);
 }
 
 .multiline {
@@ -83,23 +83,23 @@
 }
 
 .usageBlue {
-  color: #6cf;
+  color: var(--app-usage-positive);
   font-weight: 600;
 }
 
 .usageYellow {
-  color: #fc6;
+  color: var(--app-usage-warning);
   font-weight: 600;
 }
 
 .usageRed {
-  color: #f66;
+  color: var(--app-usage-critical);
   font-weight: 700;
 }
 
 .status {
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--app-panel-soft);
   border-radius: 12px;
   margin: 1rem 0;
 }
@@ -110,7 +110,7 @@
   object-fit: contain;
   display: inline-block;
   vertical-align: middle;
-  border: 1px solid #444;
+  border: 1px solid var(--app-panel-border);
   margin-left: 4px;
   cursor: pointer;
   border-radius: 4px;

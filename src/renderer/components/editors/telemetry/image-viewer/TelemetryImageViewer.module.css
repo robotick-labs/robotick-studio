@@ -20,28 +20,29 @@
 
 .control label {
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--app-text-muted);
 }
 
 .control select,
 .control input {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--app-input-background);
+  border: 1px solid var(--app-input-border);
   border-radius: 4px;
   padding: 4px 8px;
-  color: #fff;
+  color: var(--app-text-primary);
   font-size: 0.9rem;
 }
 
 .preview {
   flex: 1;
   min-height: 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--app-panel-border);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--app-panel-overlay);
+  backdrop-filter: var(--app-panel-blur);
   overflow: hidden;
 }
 
@@ -52,6 +53,6 @@
 }
 
 .message {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--app-message-text);
   font-size: 0.9rem;
 }
