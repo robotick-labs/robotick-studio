@@ -4,10 +4,14 @@ import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
 import {
   ITelemetryField,
+  ITelemetryModel,
   ITelemetryStruct,
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
+
+type SectionKind = "inputs" | "outputs" | "config";
+type DataKindSelection = SectionKind | "all";
 
 type PanelSettings = {
   telemetryBaseUrl?: string;
@@ -15,8 +19,16 @@ type PanelSettings = {
   modelName?: string;
   workloadName?: string;
   fieldPath?: string;
-  dataKind?: "inputs" | "outputs" | "config";
+  dataKind?: DataKindSelection;
 };
+
+const SECTION_KINDS: SectionKind[] = ["config", "inputs", "outputs"];
+const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
+  { value: "all", label: "All Sections" },
+  { value: "config", label: "Config" },
+  { value: "inputs", label: "Inputs" },
+  { value: "outputs", label: "Outputs" },
+];
 
 const TREE_STORAGE_KEYS = {
   model: "robotick-hub.telemetry.tree.model",
@@ -123,7 +135,9 @@ export default function TelemetryTreeViewer() {
     settings.workloadName && settings.workloadName.length > 0
       ? settings.workloadName
       : "";
-  const dataKind = settings.dataKind ?? "outputs";
+  const sectionSelection: DataKindSelection = settings.dataKind ?? "outputs";
+  const activeSectionKinds: SectionKind[] =
+    sectionSelection === "all" ? SECTION_KINDS : [sectionSelection];
   const fieldFilterRaw = settings.fieldPath ?? "";
   const fieldFilter = fieldFilterRaw.trim().toLowerCase();
 
@@ -157,24 +171,38 @@ export default function TelemetryTreeViewer() {
       const matches: ITelemetryField[] = [];
       const seen = new Set<string>();
       for (const workload of workloadsToInspect) {
-        const struct = getStruct(workload, dataKind);
-        if (!struct || !struct.fields) continue;
-        collectMatchingFields(struct.fields, fieldFilter, matches, seen);
+        for (const kind of activeSectionKinds) {
+          const struct = getStruct(workload, kind);
+          if (!struct || !struct.fields) continue;
+          collectMatchingFields(struct.fields, fieldFilter, matches, seen);
+        }
       }
       return matches;
     }
 
     if (workloadName && targetWorkload) {
-      const struct = getStruct(targetWorkload, dataKind);
-      return struct?.fields ?? [];
+      if (activeSectionKinds.length === 1) {
+        const struct = getStruct(targetWorkload, activeSectionKinds[0]);
+        return struct?.fields ?? [];
+      }
+      return activeSectionKinds
+        .map((kind) => createSectionNode(model, targetWorkload, kind))
+        .filter((node): node is ITelemetryField => Boolean(node));
     }
 
-    return model.workloads.flatMap((workload) => {
-      const struct = getStruct(workload, dataKind);
-      if (!struct || !struct.fields) return [];
-      return struct.fields;
-    });
-  }, [model, workloads, workloadName, targetWorkload, dataKind, fieldFilter]);
+    return model.workloads
+      .map((workload) =>
+        createWorkloadNode(model, workload, activeSectionKinds)
+      )
+      .filter((node): node is ITelemetryField => Boolean(node));
+  }, [
+    model,
+    workloads,
+    workloadName,
+    targetWorkload,
+    fieldFilter,
+    sectionSelection,
+  ]);
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
     return new Set<string>();
@@ -273,12 +301,14 @@ export default function TelemetryTreeViewer() {
           <label htmlFor="tree-section">Section</label>
           <select
             id="tree-section"
-            value={dataKind}
+            value={sectionSelection}
             onChange={handleDataKindChange}
           >
-            <option value="config">Config</option>
-            <option value="inputs">Inputs</option>
-            <option value="outputs">Outputs</option>
+            {SECTION_OPTIONS.map((option) => (
+              <option value={option.value} key={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
         <div className={styles.control}>
@@ -435,7 +465,7 @@ function JsonNode({
 
 function formatValue(field: ITelemetryField) {
   const value = field.getValue?.();
-  if (value === null || value === undefined) return "<null>";
+  if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
   if (typeof value === "number") return value.toString();
   if (Array.isArray(value)) return `[${value.length} items]`;
@@ -450,7 +480,7 @@ function formatArraySummary(value: unknown): string {
 }
 
 function formatJsonValue(value: unknown): string {
-  if (value === null || value === undefined) return "<null>";
+  if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
   if (typeof value === "number") return value.toString();
   if (typeof value === "boolean") return value ? "true" : "false";
@@ -488,4 +518,50 @@ function collectMatchingFields(
       collectMatchingFields(field.fields, filter, matches, seen);
     }
   }
+}
+
+function createSectionNode(
+  model: ITelemetryModel,
+  workload: ITelemetryWorkload,
+  kind: SectionKind
+): ITelemetryField | null {
+  const struct = getStruct(workload, kind);
+  if (!struct || !struct.fields || struct.fields.length === 0) {
+    return null;
+  }
+  return {
+    name: capitalize(kind),
+    type: kind,
+    path: `${workload.name}.${kind}`,
+    offset: struct.offset,
+    model,
+    getValue: () => undefined,
+    fields: struct.fields,
+  };
+}
+
+function createWorkloadNode(
+  model: ITelemetryModel,
+  workload: ITelemetryWorkload,
+  kinds: SectionKind[]
+): ITelemetryField | null {
+  const sections = kinds
+    .map((kind) => createSectionNode(model, workload, kind))
+    .filter((node): node is ITelemetryField => Boolean(node));
+  if (!sections.length) return null;
+
+  return {
+    name: workload.name,
+    type: "workload",
+    path: `workload:${workload.name}`,
+    offset: sections[0].offset ?? 0,
+    model,
+    getValue: () => undefined,
+    fields: sections,
+  };
+}
+
+function capitalize(value: string) {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
