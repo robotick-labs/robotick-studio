@@ -13,6 +13,7 @@ import {
   clearFloatingPanels,
 } from "./floating-panel-store";
 import styles from "../PanelLayout.module.css";
+import { PanelInstanceProvider } from "../PanelInstanceContext";
 import { PanelContextMenu } from "../PanelContextMenu";
 import type { PanelContextMenuState } from "../PanelContextMenu";
 import { PanelErrorBoundary } from "../PanelErrorBoundary";
@@ -167,25 +168,26 @@ function FloatingPanelWindow({
   const closeSelector = () => setSelectorOpen(false);
 
   return (
-    <FloatingPanelContext.Provider
-      value={{
-        scope,
-        id: panel.id,
-        title: panel.title,
-        settings: panel.settings,
-        setTitle: (nextTitle) =>
-          updateFloatingPanel(scope, panel.id, { title: nextTitle }),
-        setSettings: (settings) =>
-          updateFloatingPanel(scope, panel.id, { settings }),
-        updateSettings: (partial) =>
-          updateFloatingPanel(scope, panel.id, {
-            settings: { ...panel.settings, ...partial },
-          }),
-        close: () => removeFloatingPanel(scope, panel.id),
-      }}
-    >
-      <div onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}>
-        <GenericPanel
+    <PanelInstanceProvider panelId={panel.id} workspaceId={scope}>
+      <FloatingPanelContext.Provider
+        value={{
+          scope,
+          id: panel.id,
+          title: panel.title,
+          settings: panel.settings,
+          setTitle: (nextTitle) =>
+            updateFloatingPanel(scope, panel.id, { title: nextTitle }),
+          setSettings: (settings) =>
+            updateFloatingPanel(scope, panel.id, { settings }),
+          updateSettings: (partial) =>
+            updateFloatingPanel(scope, panel.id, {
+              settings: { ...panel.settings, ...partial },
+            }),
+          close: () => removeFloatingPanel(scope, panel.id),
+        }}
+      >
+        <div onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}>
+          <GenericPanel
           title={title}
           onClose={() => removeFloatingPanel(scope, panel.id)}
           storageKey={`floating-panel:${scope}:${panel.id}`}
@@ -251,5 +253,6 @@ function FloatingPanelWindow({
         </GenericPanel>
       </div>
     </FloatingPanelContext.Provider>
+  </PanelInstanceProvider>
   );
 }

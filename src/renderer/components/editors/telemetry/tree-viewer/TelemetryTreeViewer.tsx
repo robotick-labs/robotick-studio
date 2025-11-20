@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { ProjectData } from "../../../../data-sources/launcher";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
@@ -9,6 +9,14 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
+import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
+import {
+  buildNamespacedKey,
+  createPanelInstanceId,
+  getFirstAvailableValue,
+  removeStorageValue,
+  setStorageValue,
+} from "../../../../services/storage";
 
 type SectionKind = "inputs" | "outputs" | "config";
 type DataKindSelection = SectionKind | "all";
@@ -37,30 +45,43 @@ const TREE_STORAGE_KEYS = {
   dataKind: "robotick-hub.telemetry.tree.dataKind",
 };
 
-function readPreference(key: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function persistPreference(key: string, value: string | undefined) {
-  if (typeof window === "undefined") return;
-  try {
-    if (value === undefined) {
-      window.localStorage.removeItem(key);
-    } else {
-      window.localStorage.setItem(key, value);
-    }
-  } catch {
-    // ignore
-  }
-}
-
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
+  const panelInstance = usePanelInstance();
+  const fallbackPanelIdRef = useRef<string>();
+  if (!fallbackPanelIdRef.current) {
+    fallbackPanelIdRef.current = createPanelInstanceId();
+  }
+  const panelInstanceId =
+    panelInstance.panelId ?? fallbackPanelIdRef.current;
+  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
+  const buildPanelKey = useCallback(
+    (base: string) =>
+      buildNamespacedKey(base, workspaceIdentifier, panelInstanceId),
+    [workspaceIdentifier, panelInstanceId]
+  );
+  const readPreference = useCallback(
+    (base: string) => {
+      const primaryKey = buildPanelKey(base);
+      const { value, key } = getFirstAvailableValue([primaryKey, base]);
+      if (value !== null && key && key !== primaryKey) {
+        setStorageValue(primaryKey, value);
+      }
+      return value;
+    },
+    [buildPanelKey]
+  );
+  const persistPreference = useCallback(
+    (base: string, value: string | undefined) => {
+      const key = buildPanelKey(base);
+      if (value === undefined) {
+        removeStorageValue(key);
+      } else {
+        setStorageValue(key, value);
+      }
+    },
+    [buildPanelKey]
+  );
   const storedLocalSettings = useMemo<PanelSettings>(
     () => ({
       modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
@@ -70,7 +91,7 @@ export default function TelemetryTreeViewer() {
         | PanelSettings["dataKind"]
         | undefined,
     }),
-    []
+    [readPreference]
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
@@ -87,7 +108,7 @@ export default function TelemetryTreeViewer() {
     if ("dataKind" in next) {
       persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
     }
-  }, []);
+  }, [persistPreference]);
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const updateSettings = useCallback(

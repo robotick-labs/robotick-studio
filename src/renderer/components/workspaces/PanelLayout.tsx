@@ -10,6 +10,7 @@ import {
   type PanelContextMenuState,
 } from "./PanelContextMenu";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
+import { PanelInstanceProvider } from "./PanelInstanceContext";
 import styles from "./PanelLayout.module.css";
 
 type PanelLeafNode = {
@@ -456,6 +457,7 @@ type PanelNodeViewProps = {
   onToggleMaximize: (panelId: string) => void;
   onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
+  workspaceId: string;
 };
 
 function PanelNodeView({
@@ -467,6 +469,7 @@ function PanelNodeView({
   onToggleMaximize,
   onSplit,
   onResizeSplit,
+  workspaceId,
 }: PanelNodeViewProps) {
   const splitContainerRef = React.useRef<HTMLDivElement | null>(null);
   if (node.kind === "split") {
@@ -500,6 +503,7 @@ function PanelNodeView({
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
+              workspaceId={workspaceId}
             />
           </div>
         )}
@@ -532,6 +536,7 @@ function PanelNodeView({
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
+              workspaceId={workspaceId}
             />
           </div>
         )}
@@ -548,6 +553,7 @@ function PanelNodeView({
         onToggleMaximize={onToggleMaximize}
         onSplit={onSplit}
         isMaximized={maximizedPanelId === node.id}
+        workspaceId={workspaceId}
       />
     );
   }
@@ -621,6 +627,7 @@ type PanelLeafProps = {
   onToggleMaximize: (panelId: string) => void;
   onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
   isMaximized: boolean;
+  workspaceId: string;
 };
 
 function PanelLeaf({
@@ -631,6 +638,7 @@ function PanelLeaf({
   onToggleMaximize,
   onSplit,
   isMaximized,
+  workspaceId,
 }: PanelLeafProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [splitPreview, setSplitPreview] = React.useState<{
@@ -722,84 +730,90 @@ function PanelLeaf({
   const Component = entry.Component;
 
   return (
-    <div
-      className={styles.panelLeaf}
-      ref={panelRef}
-      onContextMenu={(event) => onContextMenu(node.id, node.editorId, event)}
-    >
-      {splitPreview && (
-        <div
-          className={`${styles.splitPreview} ${
-            splitPreview.direction === "horizontal"
-              ? styles.previewHorizontal
-              : styles.previewVertical
-          }`}
-          style={
-            splitPreview.direction === "horizontal"
-              ? { left: `${splitPreview.ratio * 100}%` }
-              : { top: `${splitPreview.ratio * 100}%` }
-          }
-        />
-      )}
-
-      <div className={styles.panelOverlay}>
-        {editorPickerOpen ? (
-          <select
-            ref={selectRef}
-            className={styles.panelSelector}
-            value={node.editorId}
-            onChange={(event) => {
-              onAssign(node.id, event.target.value);
-              setEditorPickerOpen(false);
-            }}
-            onBlur={() => setEditorPickerOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setEditorPickerOpen(false);
-                selectRef.current?.blur();
-              }
-            }}
-          >
-            {editorOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <button
-            className={styles.panelSelectorButton}
-            onClick={(event) => {
-              event.stopPropagation();
-              setEditorPickerOpen(true);
-              requestAnimationFrame(() => selectRef.current?.focus());
-            }}
-            aria-label="Open editor selector"
-            title="Switch editor"
-          >
-            ▾
-          </button>
+    <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
+      <div
+        className={styles.panelLeaf}
+        ref={panelRef}
+        onContextMenu={(event) => onContextMenu(node.id, node.editorId, event)}
+      >
+        {splitPreview && (
+          <div
+            className={`${styles.splitPreview} ${
+              splitPreview.direction === "horizontal"
+                ? styles.previewHorizontal
+                : styles.previewVertical
+            }`}
+            style={
+              splitPreview.direction === "horizontal"
+                ? { left: `${splitPreview.ratio * 100}%` }
+                : { top: `${splitPreview.ratio * 100}%` }
+            }
+          />
         )}
-        <button
-          className={styles.panelHandle}
-          title={`Drag to split • Double-click to ${isMaximized ? "restore" : "maximize"}`}
-          onMouseDown={startSplitDrag}
-          onDoubleClick={() => onToggleMaximize(node.id)}
-        >
-          ▣
-        </button>
-      </div>
 
-      <div className={styles.panelBody}>
-        <PanelErrorBoundary
-          editorId={entry.id}
-          onRetry={() => setSplitPreview(null)}
-        >
-          <React.Suspense fallback={<div className={styles.panelLoading}>Loading…</div>}>
-            <Component />
-          </React.Suspense>
-        </PanelErrorBoundary>
+        <div className={styles.panelOverlay}>
+          {editorPickerOpen ? (
+            <select
+              ref={selectRef}
+              className={styles.panelSelector}
+              value={node.editorId}
+              onChange={(event) => {
+                onAssign(node.id, event.target.value);
+                setEditorPickerOpen(false);
+              }}
+              onBlur={() => setEditorPickerOpen(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setEditorPickerOpen(false);
+                  selectRef.current?.blur();
+                }
+              }}
+            >
+              {editorOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              className={styles.panelSelectorButton}
+              onClick={(event) => {
+                event.stopPropagation();
+                setEditorPickerOpen(true);
+                requestAnimationFrame(() => selectRef.current?.focus());
+              }}
+              aria-label="Open editor selector"
+              title="Switch editor"
+            >
+              ▾
+            </button>
+          )}
+          <button
+            className={styles.panelHandle}
+            title={`Drag to split • Double-click to ${
+              isMaximized ? "restore" : "maximize"
+            }`}
+            onMouseDown={startSplitDrag}
+            onDoubleClick={() => onToggleMaximize(node.id)}
+          >
+            ▣
+          </button>
+        </div>
+
+        <div className={styles.panelBody}>
+          <PanelErrorBoundary
+            editorId={entry.id}
+            onRetry={() => setSplitPreview(null)}
+          >
+            <React.Suspense
+              fallback={<div className={styles.panelLoading}>Loading…</div>}
+            >
+              <Component />
+            </React.Suspense>
+          </PanelErrorBoundary>
+        </div>
       </div>
-    </div>
+    </PanelInstanceProvider>
   );
 }

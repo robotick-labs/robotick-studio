@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { ProjectData } from "../../../../data-sources/launcher";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import {
@@ -9,6 +15,14 @@ import {
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
 import { useBlobURL } from "../view/telemetry-image-blobs";
 import styles from "./TelemetryImageViewer.module.css";
+import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
+import {
+  buildNamespacedKey,
+  createPanelInstanceId,
+  getFirstAvailableValue,
+  removeStorageValue,
+  setStorageValue,
+} from "../../../../services/storage";
 
 type PanelSettings = {
   telemetryBaseUrl?: string;
@@ -35,37 +49,51 @@ const STORAGE_KEYS = {
   field: "robotick-hub.telemetry.image.field",
 };
 
-function readPreference(key: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function persistPreference(key: string, value: string | undefined) {
-  if (typeof window === "undefined") return;
-  try {
-    if (value === undefined) {
-      window.localStorage.removeItem(key);
-    } else {
-      window.localStorage.setItem(key, value);
-    }
-  } catch {
-    // ignore
-  }
-}
 
 export default function TelemetryImageViewer() {
   const panel = useOptionalFloatingPanel();
+  const panelInstance = usePanelInstance();
+  const fallbackPanelIdRef = useRef<string>();
+  if (!fallbackPanelIdRef.current) {
+    fallbackPanelIdRef.current = createPanelInstanceId();
+  }
+  const panelInstanceId =
+    panelInstance.panelId ?? fallbackPanelIdRef.current;
+  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
+  const buildPanelKey = useCallback(
+    (base: string) =>
+      buildNamespacedKey(base, workspaceIdentifier, panelInstanceId),
+    [workspaceIdentifier, panelInstanceId]
+  );
+  const readPreference = useCallback(
+    (base: string) => {
+      const primaryKey = buildPanelKey(base);
+      const { value, key } = getFirstAvailableValue([primaryKey, base]);
+      if (value !== null && key && key !== primaryKey) {
+        setStorageValue(primaryKey, value);
+      }
+      return value;
+    },
+    [buildPanelKey]
+  );
+  const persistPreference = useCallback(
+    (base: string, value: string | undefined) => {
+      const key = buildPanelKey(base);
+      if (value === undefined) {
+        removeStorageValue(key);
+      } else {
+        setStorageValue(key, value);
+      }
+    },
+    [buildPanelKey]
+  );
   const storedLocalSettings = useMemo<PanelSettings>(
     () => ({
       modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
       workloadName: readPreference(STORAGE_KEYS.workload) ?? undefined,
       fieldPath: readPreference(STORAGE_KEYS.field) ?? undefined,
     }),
-    []
+    [readPreference]
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
@@ -79,7 +107,7 @@ export default function TelemetryImageViewer() {
     if ("fieldPath" in next) {
       persistPreference(STORAGE_KEYS.field, next.fieldPath);
     }
-  }, []);
+  }, [persistPreference]);
   const updateSettings = useCallback(
     (next: Partial<PanelSettings>) => {
       if (panel) {
