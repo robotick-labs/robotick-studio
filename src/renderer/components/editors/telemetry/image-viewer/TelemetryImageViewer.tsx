@@ -59,28 +59,27 @@ function persistPreference(key: string, value: string | undefined) {
 
 export default function TelemetryImageViewer() {
   const panel = useOptionalFloatingPanel();
-  const storedLocalSettings = useMemo<PanelSettings>(() => ({
-    modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
-    workloadName: readPreference(STORAGE_KEYS.workload) ?? undefined,
-    fieldPath: readPreference(STORAGE_KEYS.field) ?? undefined,
-  }), []);
-  const [localSettings, setLocalSettings] = useState<PanelSettings>(
-    storedLocalSettings
-  );
-  const persistLocalSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if ("modelPath" in next) {
-        persistPreference(STORAGE_KEYS.model, next.modelPath);
-      }
-      if ("workloadName" in next) {
-        persistPreference(STORAGE_KEYS.workload, next.workloadName);
-      }
-      if ("fieldPath" in next) {
-        persistPreference(STORAGE_KEYS.field, next.fieldPath);
-      }
-    },
+  const storedLocalSettings = useMemo<PanelSettings>(
+    () => ({
+      modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
+      workloadName: readPreference(STORAGE_KEYS.workload) ?? undefined,
+      fieldPath: readPreference(STORAGE_KEYS.field) ?? undefined,
+    }),
     []
   );
+  const [localSettings, setLocalSettings] =
+    useState<PanelSettings>(storedLocalSettings);
+  const persistLocalSettings = useCallback((next: Partial<PanelSettings>) => {
+    if ("modelPath" in next) {
+      persistPreference(STORAGE_KEYS.model, next.modelPath);
+    }
+    if ("workloadName" in next) {
+      persistPreference(STORAGE_KEYS.workload, next.workloadName);
+    }
+    if ("fieldPath" in next) {
+      persistPreference(STORAGE_KEYS.field, next.fieldPath);
+    }
+  }, []);
   const updateSettings = useCallback(
     (next: Partial<PanelSettings>) => {
       if (panel) {
@@ -92,7 +91,8 @@ export default function TelemetryImageViewer() {
     },
     [panel, persistLocalSettings]
   );
-  const settings = (panel?.settings as PanelSettings | undefined) ?? localSettings;
+  const settings =
+    (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const { projectModels } = ProjectData.use();
 
   const modelOptions = projectModels.data;
@@ -122,7 +122,7 @@ export default function TelemetryImageViewer() {
   const telemetryBaseUrl =
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
 
-  const { model } = useTelemetryStream(telemetryBaseUrl, 10);
+  const { model } = useTelemetryStream(telemetryBaseUrl, 20);
   const workloads = model?.workloads ?? [];
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
@@ -169,7 +169,10 @@ export default function TelemetryImageViewer() {
 
   useEffect(() => {
     if (imageFieldOptions.length === 0) return;
-    if (!fieldPath || !imageFieldOptions.some((option) => option.path === fieldPath)) {
+    if (
+      !fieldPath ||
+      !imageFieldOptions.some((option) => option.path === fieldPath)
+    ) {
       updateSettings({ fieldPath: imageFieldOptions[0].path });
     }
   }, [fieldPath, imageFieldOptions, updateSettings]);
@@ -290,7 +293,7 @@ export default function TelemetryImageViewer() {
           </div>
         )}
       </div>
-  </div>
+    </div>
   );
 }
 

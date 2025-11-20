@@ -134,7 +134,7 @@ function ImageField({
     spawnTelemetryImagePanel({
       scope: panelScope,
       settings: {
-        panelTitle: label,
+        panelTitle: path,
         telemetryBaseUrl,
         workloadName,
         modelName,
