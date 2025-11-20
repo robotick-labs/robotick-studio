@@ -29,6 +29,7 @@ const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   Cineon: THREE.CineonToneMapping,
   Reinhard: THREE.ReinhardToneMapping,
 };
+const RESIZE_TIMER_SEC = 0.01;
 
 type NodeIndex = Map<string, THREE.Object3D>;
 
@@ -53,7 +54,7 @@ export class ViewerWorld {
   private neutralEnvTex!: THREE.Texture;
   private containerElement!: HTMLElement;
   private resizeObserver: ResizeObserver | null = null;
-  private pendingResize = false;
+  private resizeTimer: number | null = null;
   private lastSize = { width: 0, height: 0 };
 
   // lighting
@@ -170,7 +171,9 @@ export class ViewerWorld {
       width: "100%",
       height: "100%",
       display: "block",
+      objectFit: "cover",
     });
+    this.containerElement.style.overflow = "hidden";
 
     // camera + controls
     const cam = this.worldConfig.camera;
@@ -263,6 +266,10 @@ export class ViewerWorld {
   dispose() {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = null;
+    }
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
@@ -907,23 +914,18 @@ export class ViewerWorld {
   };
 
   private scheduleResize() {
-    if (this.pendingResize) return;
-    this.pendingResize = true;
-    requestAnimationFrame(() => {
-      this.pendingResize = false;
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+    }
+    this.resizeTimer = window.setTimeout(() => {
+      this.resizeTimer = null;
       this.updateSize();
-    });
+    }, RESIZE_TIMER_SEC * 1000);
   }
 
   private updateSize = () => {
-    const width = Math.max(
-      1,
-      Math.round(this.containerElement.clientWidth),
-    );
-    const height = Math.max(
-      1,
-      Math.round(this.containerElement.clientHeight),
-    );
+    const width = Math.max(1, Math.round(this.containerElement.clientWidth));
+    const height = Math.max(1, Math.round(this.containerElement.clientHeight));
     if (width === this.lastSize.width && height === this.lastSize.height) {
       return;
     }

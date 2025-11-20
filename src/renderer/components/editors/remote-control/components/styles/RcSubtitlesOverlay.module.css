@@ -23,7 +23,7 @@
   color: #fff;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
     "Apple Color Emoji", "Segoe UI Emoji";
-  font-size: clamp(14px, 2.2vw, 26px);
+  font-size: 2.2vh;
   font-weight: 600;
   line-height: 1.35;
   text-align: center;
