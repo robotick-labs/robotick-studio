@@ -33,15 +33,18 @@ export default function RemoteControlPage() {
   }, [modules]);
 
   const viewerContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const viewerInstanceId = React.useRef<number | null>(null);
 
   useEffect(() => {
     const { module: viewerModule, key: viewerKey } = viewerSelection;
     if (status !== "running") {
-      void viewer.uninit(`launcher status ${status}`);
+      viewerInstanceId.current = null;
+      void viewer.uninit(undefined, `launcher status ${status}`);
       return;
     }
     if (!viewerModule) {
-      void viewer.uninit("no viewer module configured");
+      viewerInstanceId.current = null;
+      void viewer.uninit(undefined, "no viewer module configured");
       return;
     }
 
@@ -51,18 +54,40 @@ export default function RemoteControlPage() {
       return;
     }
 
-    try {
-      viewer.init({
-        ...(viewerModule.config ?? {}),
-        viewerType,
-        container: viewerContainerRef.current ?? undefined,
-      });
-    } catch (err) {
-      console.warn("Viewer init failed:", err);
-    }
+    let active = true;
+    const initialize = async () => {
+      try {
+        const id = await viewer.init({
+          ...(viewerModule.config ?? {}),
+          viewerType,
+          container: viewerContainerRef.current ?? undefined,
+        });
+        if (!active) {
+          if (id != null) {
+            void viewer.uninit(
+              id,
+              "remote control viewer effect cleanup (superseded)"
+            );
+          }
+          return;
+        }
+        viewerInstanceId.current = id;
+      } catch (err) {
+        console.warn("Viewer init failed:", err);
+      }
+    };
+
+    void initialize();
 
     return () => {
-      void viewer.uninit("remote control viewer effect cleanup");
+      active = false;
+      if (viewerInstanceId.current != null) {
+        void viewer.uninit(
+          viewerInstanceId.current,
+          "remote control viewer effect cleanup"
+        );
+        viewerInstanceId.current = null;
+      }
     };
   }, [projectPath, status, viewerSelection.key]);
 

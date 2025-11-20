@@ -24,7 +24,7 @@ let lastFrameBlobUrl: string | null = null;
 let activeImg: HTMLImageElement | null = null;
 let viewerContainerElement: HTMLElement | null = null;
 
-export async function init(viewerConfig: ViewerConfig): Promise<void> {
+export async function init(viewerConfig: ViewerConfig, instanceId?: number): Promise<void> {
   console.log("Streaming Image Viewer initialized", viewerConfig);
 
   const viewerContainer =
@@ -77,7 +77,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   });
 }
 
-export async function uninit(): Promise<void> {
+export async function uninit(instanceId?: number): Promise<void> {
   telemetryDispose?.();
   telemetryDispose = null;
   if (lastFrameBlobUrl) {

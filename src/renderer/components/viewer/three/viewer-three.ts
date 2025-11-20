@@ -8,10 +8,9 @@ declare global {
   }
 }
 
-let worldInstance: ViewerWorld | null = null;
-let lastContainer: HTMLElement | null = null;
+const worlds = new Map<number, ViewerWorld>();
 
-async function init(viewerConfig: ViewerConfig): Promise<void> {
+async function init(viewerConfig: ViewerConfig, instanceId: number): Promise<void> {
   const container =
     viewerConfig.container ??
     (document.getElementById("viewer-container") ?? null);
@@ -23,22 +22,28 @@ async function init(viewerConfig: ViewerConfig): Promise<void> {
 
   const world = new ViewerWorld(viewerConfig);
   await world.start();
-  worldInstance = world;
+  worlds.set(instanceId, world);
   window.world = world;
-  lastContainer = container;
 }
 
-async function uninit(): Promise<void> {
-  if (worldInstance) {
-    worldInstance.dispose();
-    worldInstance = null;
+async function uninit(instanceId?: number): Promise<void> {
+  if (typeof instanceId === "number") {
+    const world = worlds.get(instanceId);
+    if (!world) return;
+    world.dispose();
+    worlds.delete(instanceId);
+    if (window.world === world) {
+      delete window.world;
+    }
+    return;
   }
+
+  for (const world of worlds.values()) {
+    world.dispose();
+  }
+  worlds.clear();
   if (window.world) {
     delete window.world;
-  }
-  if (lastContainer) {
-    lastContainer.innerHTML = "";
-    lastContainer = null;
   }
 }
 

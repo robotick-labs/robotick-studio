@@ -41,7 +41,7 @@ const secretsPromise: Promise<void> = (async () => {
 
 // ---------------------------------------------------------------------------
 
-async function init(config: ViewerConfig): Promise<void> {
+async function init(config: ViewerConfig, instanceId?: number): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
     return;
@@ -209,7 +209,7 @@ function updateRocketFromTelemetry(model: ITelemetryModel): void {
 
 // ---------------------------------------------------------------------------
 
-function uninit(): void {
+async function uninit(instanceId?: number): Promise<void> {
   if (!viewer) return;
 
   console.log("Visualizer uninitializing");
