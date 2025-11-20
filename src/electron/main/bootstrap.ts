@@ -5,7 +5,10 @@ export type ElectronApp = {
     appendSwitch: (name: string, value: string) => void;
   };
   whenReady: () => Promise<unknown>;
-  on: (event: string, handler: () => void) => void;
+  on: (
+    event: string,
+    handler: (event: unknown, ...args: unknown[]) => void,
+  ) => void;
   quit: () => void;
 };
 
@@ -20,12 +23,32 @@ export type BrowserWindowConstructor = {
   getAllWindows: () => BrowserWindowInstance[];
 };
 
+type WebContentsInstance = {
+  setWindowOpenHandler?: (
+    handler: (details: unknown) => {
+      action: "allow" | "deny";
+      overrideBrowserWindowOptions?: Record<string, unknown>;
+    },
+  ) => void;
+};
+
 type BootstrapOptions = {
   app: ElectronApp;
   BrowserWindow: BrowserWindowConstructor;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
 };
+
+const getDefaultWindowOptions = () => ({
+  width: 1400,
+  height: 900,
+  titleBarStyle: "hidden",
+  webPreferences: {
+    preload: path.join(__dirname, "../preload/preload.js"),
+  },
+  sandbox: true,
+  autoHideMenuBar: true,
+});
 
 export async function bootstrapElectron({
   app,
@@ -37,16 +60,21 @@ export async function bootstrapElectron({
     app.commandLine.appendSwitch("remote-debugging-port", "9222");
   }
 
+  app.on("browser-window-created", (_event, window) => {
+    const browserWindow = window as BrowserWindowInstance;
+    browserWindow.setMenuBarVisibility(false);
+  });
+
+  app.on("web-contents-created", (_event, contents) => {
+    const webContents = contents as WebContentsInstance;
+    webContents.setWindowOpenHandler?.(() => ({
+      action: "allow",
+      overrideBrowserWindowOptions: getDefaultWindowOptions(),
+    }));
+  });
+
   const createWindow = () => {
-    const win = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      titleBarStyle: "hidden",
-      webPreferences: {
-        preload: path.join(__dirname, "../preload/preload.js"),
-      },
-      sandbox: true,
-    });
+    const win = new BrowserWindow(getDefaultWindowOptions());
 
     win.setMenuBarVisibility(false);
 

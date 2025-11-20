@@ -27,19 +27,23 @@ const createElectronMocks = () => {
     },
   );
 
-  const eventHandlers = new Map<string, () => void>();
+  const eventHandlers = new Map<string, (...args: unknown[]) => void>();
   const app = {
     commandLine: {
       appendSwitch: vi.fn(),
     },
     whenReady: vi.fn(() => Promise.resolve()),
-    on: vi.fn((event: string, handler: () => void) => {
+    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       eventHandlers.set(event, handler);
     }),
     quit: vi.fn(),
   };
 
-  return { app, BrowserWindow, windows, eventHandlers };
+  const webContents = {
+    setWindowOpenHandler: vi.fn(),
+  };
+
+  return { app, BrowserWindow, windows, eventHandlers, webContents };
 };
 
 const bootstrapWithMocks = async (env?: string) => {
@@ -100,5 +104,31 @@ describe("electron launch paths", () => {
     handler?.();
 
     expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers a window-open handler for middle-clicked links", async () => {
+    const mocks = await bootstrapWithMocks();
+    const handler = mocks.eventHandlers.get("web-contents-created");
+    handler?.(undefined, mocks.webContents);
+
+    expect(mocks.webContents.setWindowOpenHandler).toHaveBeenCalledTimes(1);
+    const openHandler = mocks.webContents.setWindowOpenHandler.mock.calls[0][0];
+    expect(typeof openHandler).toBe("function");
+
+    const result = openHandler({});
+    expect(result.action).toBe("allow");
+    expect(result.overrideBrowserWindowOptions).toEqual(
+      expect.objectContaining({
+        width: 1400,
+        height: 900,
+        titleBarStyle: "hidden",
+        sandbox: true,
+      }),
+    );
+    expect(result.overrideBrowserWindowOptions?.webPreferences).toEqual(
+      expect.objectContaining({
+        preload: expect.stringContaining("preload/preload.js"),
+      }),
+    );
   });
 });
