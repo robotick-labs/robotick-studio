@@ -5,10 +5,8 @@ import {
   FloatingPanelsScopeProvider,
   spawnFloatingPanel,
 } from "./floating-panels";
-import {
-  PanelContextMenu,
-  type PanelContextMenuState,
-} from "./PanelContextMenu";
+import type { PanelContextMenuState } from "./PanelContextMenu";
+import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PanelInstanceProvider } from "./PanelInstanceContext";
 import styles from "./PanelLayout.module.css";
@@ -39,8 +37,6 @@ type PanelLayoutProps = {
   defaultEditorId: string;
   allowedEditors?: string[];
 };
-
-type ContextMenuState = PanelContextMenuState;
 
 type EditorOption = {
   id: string;
@@ -281,10 +277,6 @@ export function PanelLayout({
   const [maximizedPanelId, setMaximizedPanelId] = React.useState<string | null>(
     null,
   );
-  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(
-    null,
-  );
-
   React.useEffect(() => {
     setLayout(loadLayout(workspaceId, fallbackEditorId, allowedIdSet));
     setMaximizedPanelId(null);
@@ -378,6 +370,8 @@ export function PanelLayout({
     [allowedIdSet, fallbackEditorId, workspaceId],
   );
 
+  const { showPanelMenu } = useContextMenu();
+  const leafTotal = React.useMemo(() => countLeaves(layout), [layout]);
   const handleContextMenu = React.useCallback(
     (
       panelId: string,
@@ -392,19 +386,41 @@ export function PanelLayout({
       const verticalRatio = rect.height
         ? (event.clientY - rect.top) / rect.height
         : DEFAULT_RATIO;
-      setContextMenu({
+      const state: PanelContextMenuState = {
         panelId,
         x: event.clientX,
         y: event.clientY,
         horizontalRatio: clampRatio(horizontalRatio),
         verticalRatio: clampRatio(verticalRatio),
         editorId,
+      };
+      showPanelMenu({
+        state,
+        editorOptions,
+        canClose: leafTotal > 1,
+        isMaximized: maximizedPanelId === panelId,
+        onSplit,
+        onAssign: (targetEditorId: string) =>
+          onAssign(panelId, targetEditorId),
+        onToggleMaximize: () => onToggleMaximize(panelId),
+        onResetLayout: resetLayout,
+        onClosePanel: () => onClosePanel(panelId),
+        onCreateFloatingPanel: handleCreateFloatingPanel,
       });
     },
-    [],
+    [
+      editorOptions,
+      handleCreateFloatingPanel,
+      leafTotal,
+      maximizedPanelId,
+      onAssign,
+      onClosePanel,
+      onSplit,
+      onToggleMaximize,
+      resetLayout,
+      showPanelMenu,
+    ],
   );
-
-  const leafTotal = React.useMemo(() => countLeaves(layout), [layout]);
 
   return (
     <FloatingPanelsScopeProvider scope={workspaceId}>
@@ -420,21 +436,6 @@ export function PanelLayout({
           onResizeSplit={onResizeSplit}
         />
 
-        {contextMenu && (
-          <PanelContextMenu
-            state={contextMenu}
-            editorOptions={editorOptions}
-            canClose={leafTotal > 1}
-            isMaximized={maximizedPanelId === contextMenu.panelId}
-            onSplit={onSplit}
-            onAssign={(editorId) => onAssign(contextMenu.panelId, editorId)}
-            onToggleMaximize={() => onToggleMaximize(contextMenu.panelId)}
-            onResetLayout={resetLayout}
-            onClose={() => setContextMenu(null)}
-            onClosePanel={() => onClosePanel(contextMenu.panelId)}
-            onCreateFloatingPanel={handleCreateFloatingPanel}
-          />
-        )}
       </div>
       <FloatingPanelLayer
         scope={workspaceId}

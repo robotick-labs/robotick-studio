@@ -15,6 +15,7 @@ import {
 import { AppConfigProvider } from "./services/AppConfigService";
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
+import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
 
 type RouterSelectionOptions = {
   isStandaloneApp?: boolean;
@@ -63,14 +64,16 @@ export function App() {
           <Project.Context.Provider>
             <ProjectData.Provider>
               <Launcher.Context.Provider>
-                <RouterComponent>
-                  <div className={styles.appShell}>
-                    <AppHeader />
-                    <main className={styles.pageContainer}>
-                      <AppRoutes />
-                    </main>
-                  </div>
-                </RouterComponent>
+                <ContextMenuProvider>
+                  <RouterComponent>
+                    <div className={styles.appShell}>
+                      <AppHeader />
+                      <main className={styles.pageContainer}>
+                        <AppRoutes />
+                      </main>
+                    </div>
+                  </RouterComponent>
+                </ContextMenuProvider>
               </Launcher.Context.Provider>
             </ProjectData.Provider>
           </Project.Context.Provider>

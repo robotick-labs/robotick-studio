@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from "react";
 import styles from "./styles/WindowControls.module.css";
 
-type WindowControlsAPI = Window["robotick"] extends { windowControls?: infer T }
+export type WindowControlsAPI = Window["robotick"] extends {
+  windowControls?: infer T;
+}
   ? NonNullable<T>
   : never;
 
-function getWindowControlsAPI(): WindowControlsAPI | undefined {
+type WindowControlsProps = React.HTMLAttributes<HTMLDivElement>;
+
+export function getWindowControlsAPI(): WindowControlsAPI | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
   return window.robotick?.windowControls;
 }
 
-export function WindowControls() {
+export function WindowControls(props: WindowControlsProps = {}) {
   const api = getWindowControlsAPI();
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -35,6 +39,7 @@ export function WindowControls() {
       className={styles.windowControls}
       data-app-region="no-drag"
       data-testid="window-controls"
+      {...props}
     >
       <button
         type="button"

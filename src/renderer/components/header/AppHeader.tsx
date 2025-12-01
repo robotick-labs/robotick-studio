@@ -6,6 +6,7 @@ import { ProjectPicker } from "./ProjectPicker";
 import { useAppConfig } from "../../services/AppConfigService";
 import { WindowControls } from "./WindowControls";
 import { isStandaloneElectron } from "../../utils/environment";
+import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import styles from "./styles/AppHeader.module.css";
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
@@ -27,15 +28,15 @@ export function AppHeader() {
   ]
     .filter(Boolean)
     .join(" ");
+  const { showHeaderMenu } = useContextMenu();
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
       if (!isStandalone) return;
-      const api = window.robotick?.windowControls;
-      if (!api?.showSystemMenu) return;
       event.preventDefault();
-      api.showSystemMenu(event.clientX, event.clientY);
+      event.stopPropagation();
+      showHeaderMenu({ x: event.clientX, y: event.clientY });
     },
-    [isStandalone]
+    [isStandalone, showHeaderMenu]
   );
 
   return (
@@ -48,7 +49,9 @@ export function AppHeader() {
 
       <nav className={[styles.nav, noDragClass].filter(Boolean).join(" ")}>
         <div className={styles.navMenuProject}>
-          <div className={styles.navLinks}>{renderLinks(grouped.projectSelect)}</div>
+          <div className={styles.navLinks}>
+            {renderLinks(grouped.projectSelect)}
+          </div>
           <ProjectPicker />
         </div>
 
@@ -66,7 +69,9 @@ export function AppHeader() {
           </div>
         </div>
 
-        <div className={styles.navMenuHelp}>{renderLinks(grouped.help)}</div>
+        <div className={styles.navMenuHelp}>
+          {renderLinks(grouped.help)}
+        </div>
       </nav>
 
       <div className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}>
