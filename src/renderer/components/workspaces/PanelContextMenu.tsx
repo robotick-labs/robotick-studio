@@ -178,12 +178,12 @@ export function PanelContextMenu({
             updateAssignPlacement();
           }}
           onMouseLeave={scheduleClose}
-        >
-          <span>Assign Tool</span>
-          <span aria-hidden="true" className={styles.contextMenuHeadingIcon}>
-            ▸
-          </span>
-        </button>
+      >
+        <span className={styles.contextMenuHeadingLabel}>Assign Tool</span>
+        <span aria-hidden="true" className={styles.contextMenuHeadingIcon}>
+          ▸
+        </span>
+      </button>
         {assignActive && (
           <div
             className={styles.contextSubmenu}
