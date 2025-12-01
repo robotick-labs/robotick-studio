@@ -4,13 +4,13 @@ import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../components/workspaces/WorkspaceView", () => ({
+vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
   WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
     <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
   ),
 }));
 
-import { AppRoutes } from "../../Router";
+import { AppRoutes } from "../../renderer/Router";
 
 describe("AppRoutes smoke test", () => {
   it("renders the Home workspace when navigating to the root path", async () => {

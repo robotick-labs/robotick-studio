@@ -2,9 +2,9 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { AppRoutes, resolvedWorkspaces } from "../../Router";
+import { AppRoutes, resolvedWorkspaces } from "../../renderer/Router";
 
-vi.mock("../../components/workspaces/WorkspaceView", () => ({
+vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
   WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
     <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
   ),

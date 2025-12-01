@@ -64,10 +64,11 @@ export default defineConfig({
   test: {
     projects: [
       {
-        root: resolve(__dirname, "src/renderer"),
+        root: resolve(__dirname, "src"),
         test: {
           name: "renderer",
           environment: "jsdom",
+          include: ["__tests__/**/*.{test,spec}.{ts,tsx}"],
         },
       },
       {

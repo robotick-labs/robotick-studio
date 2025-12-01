@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldForceHomeRedirect } from "../../Router";
+import { shouldForceHomeRedirect } from "../../../renderer/Router";
 
 describe("router bootstrap redirect heuristic", () => {
   it("forces Router to home when running from file protocol", () => {

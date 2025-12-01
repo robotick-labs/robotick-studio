@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getEditorEntry,
   listEditorEntries,
-} from "../../EditorRegistry";
+} from "../../../renderer/services/EditorRegistry";
 
 describe("EditorRegistry", () => {
   it("exposes every configured editor with a lazy component", () => {
