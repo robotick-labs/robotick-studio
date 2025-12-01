@@ -23,10 +23,7 @@ function isInteractiveTarget(target: EventTarget | null) {
 
 export function AppHeader() {
   const { workspaces } = useAppConfig();
-  const grouped = useMemo(
-    () => groupWorkspaces(workspaces),
-    [workspaces]
-  );
+  const grouped = useMemo(() => groupWorkspaces(workspaces), [workspaces]);
   const isStandalone = isStandaloneElectron();
   const noDragClass = isStandalone ? styles.noDrag : "";
   const headerRef = useRef<HTMLElement | null>(null);
@@ -73,11 +70,18 @@ export function AppHeader() {
       className={headerClassName}
       onContextMenu={handleContextMenu}
     >
-      <img
-        className={`${styles.logo} ${noDragClass}`.trim()}
-        src="./static/images/logo.png"
-        alt="Robotick logo"
-      />
+      <picture className={`${styles.logoPicture} ${noDragClass}`.trim()}>
+        <source
+          media="(max-width: 1550px)"
+          srcSet="./static/images/icon-square.png"
+        />
+        <img
+          className={styles.logo}
+          src="./static/images/logo.png"
+          alt="Robotick logo"
+          height={40}
+        />
+      </picture>
 
       <nav className={[styles.nav, noDragClass].filter(Boolean).join(" ")}>
         <div className={styles.navMenuProject}>
@@ -101,19 +105,21 @@ export function AppHeader() {
           </div>
         </div>
 
-        <div className={styles.navMenuHelp}>
-          {renderLinks(grouped.help)}
-        </div>
+        <div className={styles.navMenuHelp}>{renderLinks(grouped.help)}</div>
       </nav>
 
-      <div className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}>
+      <div
+        className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}
+      >
         {isStandalone ? <WindowControls /> : null}
       </div>
     </header>
   );
 }
 
-function renderLinks(workspaces: { id: string; path: string; label: string }[]) {
+function renderLinks(
+  workspaces: { id: string; path: string; label: string }[]
+) {
   if (!workspaces.length) return null;
   return workspaces.map((workspace) => (
     <NavLink
