@@ -8,6 +8,16 @@ type BrowserWindowMock = {
   setMenuBarVisibility: ReturnType<typeof vi.fn>;
   loadURL: ReturnType<typeof vi.fn>;
   loadFile: ReturnType<typeof vi.fn>;
+  minimize: ReturnType<typeof vi.fn>;
+  maximize: ReturnType<typeof vi.fn>;
+  unmaximize: ReturnType<typeof vi.fn>;
+  isMaximized: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  webContents: {
+    send: ReturnType<typeof vi.fn>;
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
+  };
 };
 
 const createElectronMocks = () => {
@@ -18,12 +28,23 @@ const createElectronMocks = () => {
         setMenuBarVisibility: vi.fn(),
         loadURL: vi.fn(),
         loadFile: vi.fn(),
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        unmaximize: vi.fn(),
+        isMaximized: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn(),
+        webContents: {
+          send: vi.fn(),
+          setWindowOpenHandler: vi.fn(),
+        },
       };
       windows.push(win);
       return win;
     }),
     {
       getAllWindows: vi.fn(() => windows),
+      fromWebContents: vi.fn(() => windows[0] ?? null),
     },
   );
 
@@ -43,7 +64,13 @@ const createElectronMocks = () => {
     setWindowOpenHandler: vi.fn(),
   };
 
-  return { app, BrowserWindow, windows, eventHandlers, webContents };
+  const Menu = {
+    buildFromTemplate: vi.fn(() => ({
+      popup: vi.fn(),
+    })),
+  };
+
+  return { app, BrowserWindow, windows, eventHandlers, webContents, Menu };
 };
 
 const bootstrapWithMocks = async (env?: string) => {
@@ -51,6 +78,7 @@ const bootstrapWithMocks = async (env?: string) => {
   await bootstrapElectron({
     app: mocks.app,
     BrowserWindow: mocks.BrowserWindow as BrowserWindowConstructor,
+    Menu: mocks.Menu as unknown as typeof import("electron").Menu,
     env: env ? { ELECTRON_DEV: env } : {},
     platform: "linux",
   });
@@ -122,7 +150,11 @@ describe("electron launch paths", () => {
         width: 1400,
         height: 900,
         titleBarStyle: "hidden",
+        frame: false,
         sandbox: true,
+        titleBarOverlay: expect.objectContaining({
+          color: "#11141b",
+        }),
       }),
     );
     expect(result.overrideBrowserWindowOptions?.webPreferences).toEqual(

@@ -3,11 +3,15 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   position: relative;
-  padding: 1rem 2rem;
+  padding: 0.75rem 1.5rem;
   color: white;
   border-bottom: 1px solid #444;
   gap: 1rem;
   z-index: 200001;
+}
+
+.headerStandalone {
+  -webkit-app-region: drag;
 }
 
 .logo {
@@ -16,6 +20,7 @@
   border-radius: 5px;
   box-shadow: 0 0 8px #0c93e1;
   z-index: 1;
+  transition: width 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
 }
 
 .nav {
@@ -124,4 +129,20 @@
 .headerRight {
   grid-column: 3;
   justify-self: end;
+  display: flex;
+  align-items: center;
+  min-width: 140px;
+}
+
+@media (max-width: 1550px) {
+  .logo {
+    width: 0;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
 }
