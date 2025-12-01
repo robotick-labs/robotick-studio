@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvedWorkspaces } from "../Router";
+import { resolvedWorkspaces } from "../../Router";
 
 describe("Workspace router configuration", () => {
   it("exposes workspace routes for every configured entry", () => {

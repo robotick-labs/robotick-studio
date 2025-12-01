@@ -7,7 +7,7 @@ const logsUrlMock = vi.fn(() => "ws://logs");
 const listPathsMock = vi.fn();
 const listDescriptorsMock = vi.fn();
 
-vi.mock("../internal/rest-api", () => ({
+vi.mock("../../internal/rest-api", () => ({
   LauncherRest: {
     run: runMock,
     stop: stopMock,
@@ -31,7 +31,7 @@ vi.mock("../internal/rest-api", () => ({
   },
 }));
 
-vi.mock("../internal/react-api", () => ({
+vi.mock("../../internal/react-api", () => ({
   LauncherReact: {
     Provider: vi.fn(),
     use: vi.fn(),
@@ -58,14 +58,14 @@ vi.mock("../internal/react-api", () => ({
 
 const launcherServiceMock = { marker: "launcher-service" };
 
-vi.mock("../internal/LauncherService", () => ({
+vi.mock("../../internal/LauncherService", () => ({
   LauncherServiceProvider: vi.fn(),
   useLauncherService: vi.fn(),
   createLauncherService: vi.fn(),
   launcherService: launcherServiceMock,
 }));
 
-const launcherModule = await import("..");
+const launcherModule = await import("../..");
 
 describe("launcher index public surface", () => {
   it("routes launcher service calls through rest helpers", async () => {

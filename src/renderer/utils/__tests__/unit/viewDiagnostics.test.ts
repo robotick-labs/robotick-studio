@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getLastViewDiagnostics,
   reportViewDiagnostics,
-} from "../../utils/viewDiagnostics";
+} from "../../viewDiagnostics";
 
 describe("view diagnostics reporter", () => {
   let infoSpy: ReturnType<typeof vi.spyOn>;

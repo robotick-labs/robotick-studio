@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EditorsConfig, WorkspacesConfig } from "../../services/AppConfigService";
+import { EditorsConfig, WorkspacesConfig } from "../../AppConfigService";
 
 describe("AppConfigService", () => {
   it("loads workspace definitions from YAML", () => {

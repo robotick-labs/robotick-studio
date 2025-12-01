@@ -5,13 +5,13 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { JSDOM } from "jsdom";
 
-vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
+vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
   WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
     <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
   ),
 }));
 
-import { AppRoutes } from "../../renderer/Router";
+import { AppRoutes } from "../../../renderer/Router";
 
 beforeEach(() => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");

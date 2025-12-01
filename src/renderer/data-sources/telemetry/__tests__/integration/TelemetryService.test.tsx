@@ -6,8 +6,8 @@ import {
   TelemetryServiceProvider,
   useTelemetryService,
   createTelemetryService,
-} from "..";
-import { useTelemetryStream } from "..";
+} from "../..";
+import { useTelemetryStream } from "../..";
 
 function render(node: React.ReactElement) {
   const container = document.createElement("div");

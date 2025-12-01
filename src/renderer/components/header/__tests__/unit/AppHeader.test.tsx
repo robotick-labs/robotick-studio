@@ -5,16 +5,16 @@ import { MemoryRouter } from "react-router-dom";
 import { act } from "react-dom/test-utils";
 import { createRoot } from "react-dom/client";
 
-vi.mock("../LauncherControls", () => ({
+vi.mock("../../LauncherControls", () => ({
   LauncherControls: () => <div data-testid="launcher-controls" />,
 }));
-vi.mock("../ProfilePicker", () => ({
+vi.mock("../../ProfilePicker", () => ({
   ProfilePicker: () => <div data-testid="profile-picker" />,
 }));
-vi.mock("../ProjectPicker", () => ({
+vi.mock("../../ProjectPicker", () => ({
   ProjectPicker: () => <div data-testid="project-picker" />,
 }));
-vi.mock("../../services/AppConfigService", () => ({
+vi.mock("../../../services/AppConfigService", () => ({
   useAppConfig: () => ({
     workspaces: [
       {
@@ -32,10 +32,10 @@ const electronModule = vi.hoisted(() => ({
   isStandaloneElectron: vi.fn(),
 }));
 
-vi.mock("../../../utils/environment", () => electronModule);
+vi.mock("../../../../utils/environment", () => electronModule);
 
-import { AppHeader } from "../AppHeader";
-import { isStandaloneElectron } from "../../../utils/environment";
+import { AppHeader } from "../../AppHeader";
+import { isStandaloneElectron } from "../../../../utils/environment";
 
 describe("AppHeader window controls", () => {
   beforeEach(() => {

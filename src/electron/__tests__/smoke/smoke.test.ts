@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   bootstrapElectron,
   type BrowserWindowConstructor,
-} from "../main/bootstrap";
+} from "../../main/bootstrap";
 
 type BrowserWindowMock = {
   setMenuBarVisibility: ReturnType<typeof vi.fn>;

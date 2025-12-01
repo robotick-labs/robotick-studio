@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { subscribeTelemetry } from "../telemetry-store";
+import { subscribeTelemetry } from "../../telemetry-store";
 
 const fetchLayout = vi.fn();
 const fetchRaw = vi.fn();
 const createTelemetryModel = vi.fn();
 
-vi.mock("../telemetry-client", () => ({
+vi.mock("../../telemetry-client", () => ({
   fetchLayout: (...args: any[]) => fetchLayout(...args),
   fetchRaw: (...args: any[]) => fetchRaw(...args),
   createTelemetryModel: (...args: any[]) => createTelemetryModel(...args),

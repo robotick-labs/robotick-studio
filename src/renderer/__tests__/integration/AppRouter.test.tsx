@@ -1,6 +1,6 @@
 import { BrowserRouter, HashRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { selectRouterComponent } from "../App";
+import { selectRouterComponent } from "../../App";
 
 describe("router selection", () => {
   beforeEach(() => {

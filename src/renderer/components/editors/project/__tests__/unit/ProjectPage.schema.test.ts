@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveProjectConfigSchemaUrl } from "../ProjectPage";
+import { resolveProjectConfigSchemaUrl } from "../../ProjectPage";
 
 describe("resolveProjectConfigSchemaUrl", () => {
   it("builds schema URLs relative to file:// renderer paths", () => {
