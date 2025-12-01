@@ -44,9 +44,9 @@ type ImageFieldOption = {
 };
 
 const STORAGE_KEYS = {
-  model: "robotick-hub.telemetry.image.model",
-  workload: "robotick-hub.telemetry.image.workload",
-  field: "robotick-hub.telemetry.image.field",
+  model: "robotick-studio.telemetry.image.model",
+  workload: "robotick-studio.telemetry.image.workload",
+  field: "robotick-studio.telemetry.image.field",
 };
 
 

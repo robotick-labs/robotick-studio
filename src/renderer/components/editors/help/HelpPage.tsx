@@ -1,14 +1,16 @@
 // src/renderer/components/editors/help/help.tsx
 
 import React from "react";
+import { getRendererAppName } from "../../../utils/appName";
 import styles from "./styles/HelpPage.module.css";
 
 export default function HelpPage() {
+  const appName = getRendererAppName();
   return (
     <div className={styles.helpPage}>
       <header className={styles.helpHero}>
         <p className={styles.eyebrow}>Support</p>
-        <h1>Robotick Hub Help Center</h1>
+        <h1>{appName} Help Center</h1>
         <p>Coming soon.</p>
       </header>
 

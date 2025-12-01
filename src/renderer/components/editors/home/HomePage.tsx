@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Project } from "../../../data-sources/launcher";
+import { getRendererAppName } from "../../../utils/appName";
 
 const useProjectContext = Project.Context.use;
 const useProjectSettingsList = Project.Hooks.useSettingsList;
@@ -15,6 +16,7 @@ export default function HomePage() {
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
   const autoSelectRef = useRef(Boolean(projectPath));
+  const appName = getRendererAppName();
 
   useEffect(() => {
     setSelectedPath(projectPath);
@@ -34,7 +36,7 @@ export default function HomePage() {
   return (
     <div className={styles.home}>
       <section>
-        <h1 className={styles.welcomeSectionTitle}>Welcome to Robotick Hub</h1>
+        <h1 className={styles.welcomeSectionTitle}>Welcome to {appName}</h1>
         <p>
           Your creative control center for real-time robotics!
           <br />

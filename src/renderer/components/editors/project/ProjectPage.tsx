@@ -28,14 +28,7 @@ export default function ProjectPage() {
         return;
       }
 
-      const baseUrl = new URL(
-        import.meta.env.BASE_URL ?? "/",
-        window.location.origin
-      );
-      const schemaUrl = new URL(
-        "static/schemas/project-config.schema.json",
-        baseUrl
-      );
+      const schemaUrl = resolveProjectConfigSchemaUrl();
 
       const [schemaResp, cfg] = await Promise.all([
         fetch(schemaUrl).then((r) => r.json()),
@@ -132,4 +125,16 @@ export default function ProjectPage() {
 // Utility — same as legacy version
 function formatLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function resolveProjectConfigSchemaUrl(
+  options?: { href?: string; base?: string }
+): URL {
+  const href =
+    options?.href ??
+    (typeof window !== "undefined" ? window.location.href : "http://localhost/");
+  const basePath =
+    options?.base ?? (import.meta.env.BASE_URL ? import.meta.env.BASE_URL : "./");
+  const baseUrl = new URL(basePath, href);
+  return new URL("static/schemas/project-config.schema.json", baseUrl);
 }

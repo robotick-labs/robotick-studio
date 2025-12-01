@@ -2,7 +2,9 @@
 
 **Type:** Architecture / Refactor  
 **Priority:** High  
-**Goal:** Restructure Robotick Hub into a scalable, editor-grade Electron IDE with full TDD support across all layers.
+**Goal:** Restructure Robotick Studio into a scalable, editor-grade Electron IDE with full TDD support across all layers.
+
+This layout keeps the `robotick-hub` renderer under `renderer/` so it can be hosted both in the browser and inside Robotick Studio.
 
 ---
 
@@ -21,7 +23,7 @@ Add unit tests, integration tests, and E2E tests for each part.
 ## **📁 Target Folder Structure**
 
 ```
-robotick-hub/
+robotick-studio/
 │
 ├── electron/
 │   ├── main/

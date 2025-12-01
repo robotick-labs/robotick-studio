@@ -47,8 +47,8 @@ async function tryFetchJSON<T>(
   }
 }
 
-const KEY_PROJECT_PATH = "robotick-hub.projectPath";
-const KEY_LAUNCHER_PROFILE = "robotick-hub.launcherProfile";
+const KEY_PROJECT_PATH = "robotick-studio.projectPath";
+const KEY_LAUNCHER_PROFILE = "robotick-studio.launcherProfile";
 const DEFAULT_MODEL_HOST = "localhost";
 const DEFAULT_TELEMETRY_PORT = 7090;
 const LAUNCHER_LOCAL_API_BASE = "http://localhost:7081";

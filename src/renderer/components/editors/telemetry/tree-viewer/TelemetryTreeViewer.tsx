@@ -39,10 +39,10 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
 ];
 
 const TREE_STORAGE_KEYS = {
-  model: "robotick-hub.telemetry.tree.model",
-  workload: "robotick-hub.telemetry.tree.workload",
-  field: "robotick-hub.telemetry.tree.field",
-  dataKind: "robotick-hub.telemetry.tree.dataKind",
+  model: "robotick-studio.telemetry.tree.model",
+  workload: "robotick-studio.telemetry.tree.workload",
+  field: "robotick-studio.telemetry.tree.field",
+  dataKind: "robotick-studio.telemetry.tree.dataKind",
 };
 
 export default function TelemetryTreeViewer() {

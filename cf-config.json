@@ -84,7 +84,7 @@
       }
     ]
   },
-  "Comment": "Robotick Hub Web CDN",
+  "Comment": "Robotick Studio Web CDN (serving the robotick-hub renderer)",
   "Logging": {
     "Enabled": false,
     "IncludeCookies": false,

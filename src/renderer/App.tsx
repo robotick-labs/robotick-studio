@@ -1,5 +1,5 @@
-import React from "react";
-import { BrowserRouter } from "react-router-dom";
+import React, { useMemo } from "react";
+import { BrowserRouter, HashRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
 import {
   Launcher,
@@ -16,7 +16,46 @@ import { AppConfigProvider } from "./services/AppConfigService";
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 
+type RouterSelectionOptions = {
+  isStandaloneApp?: boolean;
+  locationProtocol?: string;
+  isElectronRuntime?: boolean;
+};
+
+export function selectRouterComponent(
+  options: RouterSelectionOptions = {}
+): typeof BrowserRouter | typeof HashRouter {
+  const hasWindow = typeof window !== "undefined";
+  const envStandalone =
+    options.isStandaloneApp ??
+    (hasWindow ? window.robotick?.environment?.isStandaloneApp : undefined);
+  const protocol =
+    options.locationProtocol ??
+    (hasWindow ? window.location?.protocol : undefined);
+  const electronRuntime =
+    options.isElectronRuntime ??
+    (typeof process !== "undefined" &&
+      typeof process.versions === "object" &&
+      Boolean(process.versions?.electron));
+  const shouldUseHash =
+    Boolean(envStandalone) ||
+    electronRuntime ||
+    (typeof protocol === "string" && protocol === "file:");
+
+  if (typeof console !== "undefined" && typeof console.info === "function") {
+    console.info("[Robotick] Router selection", {
+      standaloneFlag: Boolean(envStandalone),
+      locationProtocol: protocol,
+      electronRuntime,
+      router: shouldUseHash ? "hash" : "browser",
+    });
+  }
+
+  return shouldUseHash ? HashRouter : BrowserRouter;
+}
+
 export function App() {
+  const RouterComponent = useMemo(() => selectRouterComponent(), []);
   return (
     <AppConfigProvider>
       <TelemetryServiceProvider service={telemetryService}>
@@ -24,14 +63,14 @@ export function App() {
           <Project.Context.Provider>
             <ProjectData.Provider>
               <Launcher.Context.Provider>
-                <BrowserRouter>
+                <RouterComponent>
                   <div className={styles.appShell}>
                     <AppHeader />
                     <main className={styles.pageContainer}>
                       <AppRoutes />
                     </main>
                   </div>
-                </BrowserRouter>
+                </RouterComponent>
               </Launcher.Context.Provider>
             </ProjectData.Provider>
           </Project.Context.Provider>

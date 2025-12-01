@@ -1,5 +1,5 @@
 // viewer-cesium.ts
-// Robotick Hub 3D flight viewer (Cesium) using live telemetry from JSBSim workload.
+// Robotick Studio 3D flight viewer (Cesium) using live telemetry from JSBSim workload.
 
 import * as Cesium from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";

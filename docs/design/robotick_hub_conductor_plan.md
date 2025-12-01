@@ -1,6 +1,8 @@
 
 # 🪆 Robotick Hub / Conductor Architecture Plan
 
+This plan describes how the `robotick-hub` web IDE surfaces through the conductor layers and the Robotick Studio shell that hosts it.
+
 ## 🎯 Goal
 Support multi-layered bots (Dev-PC → Pi5 → ESP32) with one consistent web entrypoint and rich Hub UI.
 

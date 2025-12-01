@@ -129,9 +129,9 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useAppConfig(): AppConfig {
+export const useAppConfig = (): AppConfig => {
   return useContext(AppConfigContext);
-}
+};
 
 export const WorkspacesConfig = config.workspaces;
 export const EditorsConfig = config.editors;

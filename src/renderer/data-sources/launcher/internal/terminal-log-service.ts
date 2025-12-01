@@ -20,10 +20,10 @@ export interface TerminalLogService {
 
 const MAX_MESSAGES = 5000;
 const STORAGE_KEYS = {
-  filter: "robotick-hub.terminal.filter",
-  wrapText: "robotick-hub.terminal.wrapText",
-  autoScroll: "robotick-hub.terminal.autoScroll",
-  clearOnRun: "robotick-hub.terminal.clearOnRun",
+  filter: "robotick-studio.terminal.filter",
+  wrapText: "robotick-studio.terminal.wrapText",
+  autoScroll: "robotick-studio.terminal.autoScroll",
+  clearOnRun: "robotick-studio.terminal.clearOnRun",
 } as const;
 
 const HAS_LOCAL_STORAGE = typeof globalThis.localStorage !== "undefined";
