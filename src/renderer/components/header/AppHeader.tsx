@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
@@ -14,6 +14,13 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
     .filter(Boolean)
     .join(" ");
 
+function isInteractiveTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest("[data-window-interactive='true']"));
+}
+
 export function AppHeader() {
   const { workspaces } = useAppConfig();
   const grouped = useMemo(
@@ -22,6 +29,7 @@ export function AppHeader() {
   );
   const isStandalone = isStandaloneElectron();
   const noDragClass = isStandalone ? styles.noDrag : "";
+  const headerRef = useRef<HTMLElement | null>(null);
   const headerClassName = [
     styles.header,
     isStandalone ? styles.headerStandalone : "",
@@ -32,6 +40,7 @@ export function AppHeader() {
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
       if (!isStandalone) return;
+      if (isInteractiveTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       showHeaderMenu({ x: event.clientX, y: event.clientY });
@@ -39,8 +48,31 @@ export function AppHeader() {
     [isStandalone, showHeaderMenu]
   );
 
+  useEffect(() => {
+    if (!isStandalone || typeof document === "undefined") return;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      const header = headerRef.current;
+      if (!header || !target || !header.contains(target)) {
+        return;
+      }
+      if (isInteractiveTarget(target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      showHeaderMenu({ x: event.clientX, y: event.clientY });
+    };
+    document.addEventListener("contextmenu", handler);
+    return () => document.removeEventListener("contextmenu", handler);
+  }, [isStandalone, showHeaderMenu]);
+
   return (
-    <header className={headerClassName} onContextMenu={handleContextMenu}>
+    <header
+      ref={headerRef}
+      className={headerClassName}
+      onContextMenu={handleContextMenu}
+    >
       <img
         className={`${styles.logo} ${noDragClass}`.trim()}
         src="./static/images/logo.png"
@@ -84,7 +116,12 @@ export function AppHeader() {
 function renderLinks(workspaces: { id: string; path: string; label: string }[]) {
   if (!workspaces.length) return null;
   return workspaces.map((workspace) => (
-    <NavLink key={workspace.id} to={workspace.path} className={navClassName}>
+    <NavLink
+      key={workspace.id}
+      to={workspace.path}
+      className={navClassName}
+      data-window-interactive="true"
+    >
       {workspace.label}
     </NavLink>
   ));
