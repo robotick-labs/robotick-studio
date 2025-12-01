@@ -157,6 +157,20 @@
   gap: 4px;
 }
 
+.contextSubmenu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--app-panel-backdrop);
+  backdrop-filter: var(--app-panel-blur);
+  border: 1px solid var(--app-panel-border);
+  border-radius: 6px;
+  min-width: 160px;
+  gap: 4px;
+}
+
 .contextMenuItem {
   background: none;
   border: none;
@@ -182,18 +196,32 @@
   margin: 4px 0;
 }
 
-.contextMenuHeading {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  opacity: 0.6;
-  padding-left: 4px;
-}
-
 .contextMenuAssignments {
   display: flex;
   flex-direction: column;
   max-height: 240px;
   overflow: auto;
+}
+
+.contextMenuHeadingButton {
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--app-text-muted);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.contextMenuHeadingIcon {
+  font-size: 0.85rem;
+  line-height: 1;
+  margin-left: auto;
+  padding-left: 12px;
 }
 
 .splitPreview {
