@@ -180,6 +180,7 @@ export function PanelContextMenu({
           onMouseLeave={scheduleClose}
       >
         <span className={styles.contextMenuHeadingLabel}>Assign Tool</span>
+        <span className={styles.contextMenuShortcut} aria-hidden="true" />
         <span aria-hidden="true" className={styles.contextMenuHeadingIcon}>
           ▸
         </span>

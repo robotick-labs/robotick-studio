@@ -153,7 +153,7 @@
   backdrop-filter: var(--app-panel-blur);
   border: 1px solid var(--app-panel-border);
   border-radius: 6px;
-  min-width: 180px;
+  min-width: 200px;
   gap: 4px;
 }
 
@@ -167,7 +167,8 @@
   backdrop-filter: var(--app-panel-blur);
   border: 1px solid var(--app-panel-border);
   border-radius: 6px;
-  min-width: 160px;
+  min-width: 220px;
+  width: 220px;
   gap: 4px;
 }
 
@@ -179,6 +180,10 @@
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 8px;
+  align-items: center;
 }
 
 .contextMenuItem:disabled {
@@ -212,17 +217,28 @@
   color: var(--app-text-muted);
   text-align: left;
   cursor: pointer;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 8px;
   align-items: center;
-  justify-content: space-between;
-  column-gap: 12px;
+}
+
+.contextMenuHeadingLabel {
+  grid-column: 1 / 2;
+}
+
+.contextMenuShortcut {
+  grid-column: 2 / 3;
+  text-align: right;
+  color: var(--app-text-muted);
+  opacity: 0.8;
 }
 
 .contextMenuHeadingIcon {
+  grid-column: 3 / 4;
   font-size: 0.85rem;
   line-height: 1;
-  margin-left: auto;
-  padding-left: 16px;
+  text-align: right;
 }
 
 .splitPreview {
