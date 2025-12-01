@@ -138,8 +138,9 @@
   grid-column: 3;
   justify-self: end;
   display: flex;
-  align-items: center;
-  min-width: 140px;
+  align-items: flex-start;
+  min-width: 0;
+  align-self: flex-start;
 }
 
 @media (max-width: 1550px) {

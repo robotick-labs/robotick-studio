@@ -9,15 +9,17 @@
 
 .windowControls {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 0;
   -webkit-app-region: no-drag;
 }
 
 .button {
-  width: 46px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border: none;
+  border-radius: 8px;
+  margin-left: 3px;
   background: transparent;
   color: inherit;
   display: flex;
