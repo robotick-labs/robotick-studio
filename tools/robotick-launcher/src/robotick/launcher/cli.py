@@ -38,6 +38,12 @@ def create_app() -> typer.Typer:
         stub_install: bool = typer.Option(
             False, help="Skip pip installs (useful for CI smoke tests)"
         ),
+        model: Optional[str] = typer.Option(
+            None, help="Model name to install deps for (default: all models)"
+        ),
+        target: str = typer.Option(
+            "linux", help="Target name to resolve dependencies for"
+        ),
     ):
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
@@ -47,6 +53,8 @@ def create_app() -> typer.Typer:
             workspace_dir=workspace_dir,
             dry_run=dry_run,
             stub_install=stub_install,
+            model=model,
+            target=target,
         )
 
     @app.command("listen")

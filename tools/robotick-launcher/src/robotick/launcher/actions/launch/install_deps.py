@@ -7,12 +7,16 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from rich import print
 import typer
 
 from robotick.launcher.config import Config, PythonRootConfig
+from robotick.launcher.actions.launch.sync_dependencies import (
+    sync_model_dependencies,
+)
+from robotick.launcher.actions.query.list import list_project_models
 
 
 LAUNCHER_ROOT = ".launcher"
@@ -27,6 +31,45 @@ class InstallDepsResult:
     lock_path: Path
     site_packages: Optional[str]
     python_roots: List[PythonRootConfig]
+    git_dependencies: List[tuple[str, str, Optional[str], Path]]
+    apt_packages: List[str]
+    missing_apt: List[str]
+
+
+def _collect_model_names(
+    project: str, base_dir: Path, specific_model: Optional[str]
+) -> List[str]:
+    if specific_model:
+        return [specific_model]
+
+    project_file = base_dir / f"{project}.project.yaml"
+    models = []
+    try:
+        for rel in list_project_models(str(project_file)):
+            name = Path(rel).stem
+            if name.endswith(".model"):
+                name = name.removesuffix(".model")
+            models.append(name)
+    except FileNotFoundError:
+        print(f"[yellow]⚠️ No models found under {project_file}[/]")
+    return models
+
+
+def _find_missing_apt_packages(packages: Set[str]) -> Set[str]:
+    missing: Set[str] = set()
+    for pkg in sorted(packages):
+        try:
+            result = subprocess.run(
+                ["dpkg", "-s", pkg],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if result.returncode != 0:
+                missing.add(pkg)
+        except Exception:
+            missing.add(pkg)
+    return missing
 
 
 def _venv_python_bin(venv_path: Path) -> Path:
@@ -105,6 +148,8 @@ def install_deps(
     *,
     dry_run: bool = False,
     stub_install: bool = False,
+    model: Optional[str] = None,
+    target: str = "linux",
 ) -> Optional[InstallDepsResult]:
     """
     Hydrate python_roots into a shared .launcher/<project>/.venv-python environment.
@@ -122,62 +167,102 @@ def install_deps(
         stub_install=stub_install,
     )
 
-    if not config.python_roots:
-        print("[yellow]ℹ️ No python_roots defined; nothing to install.[/]")
-        return None
-
-    project_launcher_dir = get_project_python_dir(
-        config.project_name, workspace_root
-    )
+    project_launcher_dir = get_project_python_dir(config.project_name, workspace_root)
     project_launcher_dir.mkdir(parents=True, exist_ok=True)
 
     venv_path = project_launcher_dir / PY_VENV_DIRNAME
-    _ensure_python_venv(venv_path, dry_run=dry_run)
-    python_bin = _venv_python_bin(venv_path)
-
-    requirement_files = [
-        root.requirements_absolute
-        for root in config.python_roots
-        if root.requirements_absolute is not None
-    ]
-
-    _pip_install(
-        python_bin,
-        requirement_files,
-        dry_run=dry_run,
-        stub_install=stub_install,
-    )
-
-    site_packages = None
-    if venv_path.exists() and not dry_run:
-        site_packages = _discover_site_packages(python_bin)
-
-    lock_payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "project": project,
-        "venv_path": str(venv_path),
-        "site_packages": site_packages,
-        "python_roots": [
-            {
-                "id": root.id,
-                "relative_path": str(root.relative_path),
-                "absolute_path": str(root.absolute_path),
-                "requirements": str(root.requirements_file)
-                if root.requirements_file
-                else None,
-            }
-            for root in config.python_roots
-        ],
-    }
-
     lock_path = project_launcher_dir / LOCK_FILENAME
-    _write_lock(lock_path, lock_payload, dry_run=dry_run)
+    site_packages: Optional[str] = None
+
+    if config.python_roots:
+        _ensure_python_venv(venv_path, dry_run=dry_run)
+        python_bin = _venv_python_bin(venv_path)
+
+        requirement_files = [
+            root.requirements_absolute
+            for root in config.python_roots
+            if root.requirements_absolute is not None
+        ]
+
+        _pip_install(
+            python_bin,
+            requirement_files,
+            dry_run=dry_run,
+            stub_install=stub_install,
+        )
+
+        if venv_path.exists() and not dry_run:
+            site_packages = _discover_site_packages(python_bin)
+
+        lock_payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "project": project,
+            "venv_path": str(venv_path),
+            "site_packages": site_packages,
+            "python_roots": [
+                {
+                    "id": root.id,
+                    "relative_path": str(root.relative_path),
+                    "absolute_path": str(root.absolute_path),
+                    "requirements": str(root.requirements_file)
+                    if root.requirements_file
+                    else None,
+                }
+                for root in config.python_roots
+            ],
+        }
+
+        _write_lock(lock_path, lock_payload, dry_run=dry_run)
+    else:
+        print("[yellow]ℹ️ No python_roots defined; skipping python venv hydration.[/]")
+
+    # --- Repo deps + apt packages ---
+    model_names = _collect_model_names(project, base_dir, model)
+    git_dependencies: List[tuple[str, str, Optional[str], Path]] = []
+    apt_packages: Set[str] = set()
+
+    for model_name in model_names:
+        try:
+            model_config = Config(
+                project, model_name, target, base_dir, dry_run, stub_install
+            )
+        except Exception as exc:
+            print(
+                f"[yellow]⚠️ Skipping model '{model_name}' while collecting deps:[/] {exc}"
+            )
+            continue
+
+        deps, apt = sync_model_dependencies(model_config)
+        git_dependencies.extend(deps)
+        apt_packages.update(apt)
+
+    missing_apt: List[str] = []
+    apt_packages_sorted: List[str] = sorted(apt_packages)
+    if apt_packages:
+        if dry_run:
+            missing_apt = apt_packages_sorted
+            print(
+                f"[yellow]↪︎ DRY-RUN:[/] would verify apt packages: {', '.join(apt_packages_sorted)}"
+            )
+        else:
+            missing_set = _find_missing_apt_packages(apt_packages)
+            missing_apt = sorted(missing_set)
+        if missing_apt:
+            print(
+                f"[yellow]⚠ Missing apt packages:[/] {', '.join(missing_apt)}\n"
+                f"[yellow]↳ Please run:[/] sudo apt-get install -y {' '.join(missing_apt)}"
+            )
+        else:
+            print(f"[dim]✓ All required apt packages are installed[/dim]")
 
     return InstallDepsResult(
         venv_path=venv_path,
         lock_path=lock_path,
         site_packages=site_packages,
         python_roots=config.python_roots,
+        git_dependencies=git_dependencies,
+        apt_packages=apt_packages_sorted,
+        missing_apt=missing_apt,
     )
 
 
@@ -210,6 +295,10 @@ def install_deps_command(
     stub_install: bool = typer.Option(
         False, help="Skip pip install -r (useful for CI smoke tests)"
     ),
+    model: Optional[str] = typer.Option(
+        None, help="Model to sync dependencies for (default: all models)"
+    ),
+    target: str = typer.Option("linux", help="Target name (linux/esp32/...)"),
 ) -> None:
     base_dir = base_dir.resolve()
     workspace_root = (workspace_dir or base_dir).resolve()
@@ -219,4 +308,6 @@ def install_deps_command(
         workspace_root=workspace_root,
         dry_run=dry_run,
         stub_install=stub_install,
+        model=model,
+        target=target,
     )

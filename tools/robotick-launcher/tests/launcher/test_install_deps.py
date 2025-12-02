@@ -62,7 +62,8 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
         dry_run=False,
         stub_install=True,
     )
-    assert result is None
+    assert result is not None
+    assert result.python_roots == []
     assert not (
         workspace_dir / ".launcher" / "test_project" / "python" / ".venv-python"
     ).exists()
@@ -95,9 +96,11 @@ def test_generate_auto_runs_install_deps(monkeypatch, tmp_path):
 
     assert "kwargs" in captured
     assert captured["kwargs"]["workspace_root"] == workspace_dir
+    assert captured["kwargs"]["model"] == "test-project-brain"
+    assert captured["kwargs"]["target"] == "linux"
 
 
-def test_generate_skips_install_deps_when_no_python_roots(monkeypatch, tmp_path):
+def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
@@ -128,4 +131,43 @@ def test_generate_skips_install_deps_when_no_python_roots(monkeypatch, tmp_path)
         workspace_dir=workspace_dir,
     )
 
-    assert not called
+    assert called
+
+
+def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
+    project_dir = _clone_fixture(tmp_path)
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._ensure_python_venv",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._pip_install",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._discover_site_packages",
+        lambda *_: "/tmp/site-packages",
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps.sync_model_dependencies",
+        lambda config: ([], ["cmake", "git"]),
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._find_missing_apt_packages",
+        lambda pkgs: {"git"},
+    )
+
+    result = install_deps.install_deps(
+        project="test-project",
+        base_dir=project_dir,
+        workspace_root=workspace_dir,
+        dry_run=False,
+        stub_install=True,
+    )
+
+    assert result is not None
+    assert result.apt_packages == ["cmake", "git"]
+    assert result.missing_apt == ["git"]

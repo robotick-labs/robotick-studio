@@ -14,7 +14,6 @@ from robotick.launcher.actions.launch import (
     generate_model_cpp,
     generate_cmake,
     generate_workloads_registry,
-    generate_do_install_deps,
     install_deps as install_deps_stage,
 )
 
@@ -70,14 +69,15 @@ def generate(
         workspace_root = (workspace_dir or base_dir).resolve()
         config = Config(project, model, target, base_dir, dry_run, stub_install)
 
-        if config.python_roots:
-            install_deps_stage.install_deps(
-                project=project,
-                base_dir=base_dir,
-                workspace_root=workspace_root,
-                dry_run=dry_run,
-                stub_install=stub_install,
-            )
+        install_deps_stage.install_deps(
+            project=project,
+            base_dir=base_dir,
+            workspace_root=workspace_root,
+            dry_run=dry_run,
+            stub_install=stub_install,
+            model=model,
+            target=target,
+        )
 
         print("============================================================================================")
         print(
@@ -107,8 +107,6 @@ def generate(
         generate_workloads_registry.generate_workloads_registry(config)
         generate_cmake.generate_project_cmakelists(config)
         generate_cmake.generate_component_cmakelists(config)
-
-        generate_do_install_deps.generate_do_install_deps(config)
 
         print(f"[bold green]✅ Generating complete!")
 
