@@ -101,32 +101,34 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project Deps Install flows**
-  - Stand up the initial `install-deps` launcher stage (runs before `generate`). For MVP it should process the new `python_roots` in `<robot>.project.yaml`: create per-root venvs under `.studio`, install any `requirements.txt`, emit a lock/mapping of root → site-packages, extend the unit tests, and make `generate` automatically trigger `install-deps` when Python workloads are present.
-  - Extend `install-deps` by porting the existing dependency install logic out of `generate` (git/workload deps, apt handling, etc.) so the new stage becomes the single source for dependency resolution. Decide how to handle `apt` installs that may require sudo, then strip the old logic from `generate`.
+  - Prompt A1: Extend the project schema to support `python_roots` (id/path/requirements) and surface that data in the launcher config objects.
+  - Prompt A2: Create the `install-deps` Typer stage that loops through `python_roots`, creates per-root venvs under `.studio`, installs any `requirements.txt`, and writes a JSON lock/mapping of root → site-packages.
+  - Prompt A3: Update `generate` (and downstream stages) to auto-run `install-deps` whenever Python workloads are present, and add unit tests covering the new stage + lockfile creation.
+  - Prompt B: Migrate the existing dependency install logic (git/workload fetching, apt handling) from `generate` into `install-deps`, decide how to surface sudo-required apt installs, and remove the duplicated logic from `generate`.
 - **Project schema**
-  - Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, and `local_workload_roots` (types, required fields, platform filters).
-  - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
-  - Update docs/sample projects to the new schema and provide a migration guide.
+  - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `local_workload_roots`, and `python_roots` (types, required fields, platform filters).
+  - Prompt B: Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
+  - Prompt C: Update docs/sample projects to the new schema and provide a migration guide.
 - **Repo pinning + cache**
-  - Implement `robotick-launcher install-deps`: resolve repo list, clone/update into `.launcher/<project>/deps/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
-  - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
-  - Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
+  - Prompt A: Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
+  - Prompt B: Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
+  - Prompt C: Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
 - **Cleaning story**
-  - Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
-  - Implement `clean-deps` (delete `.launcher/<project>/deps/<target>` + optionally cascade to builds).
-  - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
+  - Prompt A: Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
+  - Prompt B: Implement `clean-deps` (delete `.launcher/<project>/deps/<target>` + optionally cascade to builds).
+  - Prompt C: Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
 - **Workload metadata**
-  - Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
-  - Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
-  - Add tests covering repo-scoped + local-path discovery so regressions are caught.
+  - Prompt A: Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
+  - Prompt B: Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
+  - Prompt C: Add tests covering repo-scoped + local-path discovery so regressions are caught.
 - **CI Integration**
-  - GitHub Actions integration for both Studio + Launcher
+  - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites).
 - **Launcher service polish**
-  - Version the REST/WebSocket routes (`/launcher/v1/*`, `/query/v1/*`) and include API version headers.
-  - Add optional auth (shared secret/token + CSRF cookies) so Studio/VS Code can connect safely.
-  - Expand telemetry payloads: structured per-model status, build/run phases, log stream metadata, etc.
-  - Confirm `/launcher/run|stop|status` understand the new deps layout and multi-target runs (e.g., `local:ALL` with mixed targets).
+  - Prompt A: Version the REST/WebSocket routes (`/launcher/v1/*`, `/query/v1/*`) and include API version headers.
+  - Prompt B: Add optional auth (shared secret/token + CSRF cookies) so Studio/VS Code can connect safely.
+  - Prompt C: Expand telemetry payloads: structured per-model status, build/run phases, log stream metadata, etc.
+  - Prompt D: Confirm `/launcher/run|stop|status` understand the new deps layout and multi-target runs (e.g., `local:ALL` with mixed targets).
 - **Docs/UX**
-  - Update the concept + summary docs plus README quickstarts to describe the embedded Launcher + install-deps flow.
-  - Provide a “clone → npm install → robotick-studio” walkthrough with troubleshooting tips.
-  - Document how VS Code discovers the local Launcher, and outline future plans for headless/CI usage.
+  - Prompt A: Update the concept + summary docs plus README quickstarts to describe the embedded Launcher + install-deps flow.
+  - Prompt B: Provide a “clone → npm install → robotick-studio” walkthrough with troubleshooting tips.
+  - Prompt C: Document how VS Code discovers the local Launcher, and outline future plans for headless/CI usage.
