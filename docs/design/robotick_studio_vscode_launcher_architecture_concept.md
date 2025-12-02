@@ -101,7 +101,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project Deps Install flows**
-  - Author an `install-deps` launcher stage (preceding 'generate') that covers the existing "deps" work done by "generate". We need to decide what to do about apt installs, as they typically require "sudo" priviledges... (we will extend this below to install from project-wide deps too)
+  - Stand up the initial `install-deps` launcher stage (runs before `generate`). For MVP it should process the new `python_roots` in `<robot>.project.yaml`: create per-root venvs under `.studio`, install any `requirements.txt`, emit a lock/mapping of root → site-packages, extend the unit tests, and make `generate` automatically trigger `install-deps` when Python workloads are present.
+  - Extend `install-deps` by porting the existing dependency install logic out of `generate` (git/workload deps, apt handling, etc.) so the new stage becomes the single source for dependency resolution. Decide how to handle `apt` installs that may require sudo, then strip the old logic from `generate`.
 - **Project schema**
   - Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, and `local_workload_roots` (types, required fields, platform filters).
   - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.

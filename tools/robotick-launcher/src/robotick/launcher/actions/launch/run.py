@@ -21,11 +21,11 @@ def run(
     )
     run_script = launcher_dir / "do_launcher_run.sh"
 
-    working_dir = None
+    working_dir = "."
     try:
         project_path = base_dir / f"{project}.project.yaml"
         project_data = yaml.safe_load(project_path.read_text(encoding="utf-8"))
-        working_dir_str = project_data.get("working_dir", None)
+        working_dir_str = project_data.get("working_dir", ".")
         if working_dir_str:
             working_dir = Path(working_dir_str)
             if not working_dir.is_absolute():
@@ -34,7 +34,7 @@ def run(
                     f"[bold green]🚀 Detected working-directory from project.yaml: {working_dir}"
                 )
     except Exception as e:
-        working_dir = None
+        working_dir = "."
 
     print(
         "============================================================================================"
