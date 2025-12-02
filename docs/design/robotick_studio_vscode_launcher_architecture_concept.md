@@ -114,9 +114,9 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Prompt B: Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **VS Code Extension MVP**
   - ☐ Scaffold the extension workspace (`tools/vscode-extension`) so `npm install` wires up the VS Code activation hook, loads the shared launcher service client, and tracks the active project path/launcher profile from Studio’s settings.
-  - ☐ Expose “Pinned repos” view: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
   - ☐ Reuse the existing `LauncherControls` React widget inside a VS Code Webview (or React panel) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
   - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top.
+  - ☐ Expose new “Pinned repos” panel: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
   - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
 - **Project schema**
   - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `local_workload_roots`, and `local_python_roots` (types, required fields, platform filters).
