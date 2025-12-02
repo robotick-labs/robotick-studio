@@ -90,20 +90,20 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 
 ---
 
+
 ## TODO (broad strokes)
 
-- **Embed Launcher**
+- **Embed Launcher + Studio runtime** *(goal: be able to run the launcher tests inside this repo, auto-start the backend with Studio, and shut it down when Studio exits).*
   - ✅ Move the `robotick-launcher` source tree into this repo (e.g., `tools/launcher/`), copying tests + templates intact.
   - ✅ Update its `pyproject` to use relative paths and keep `pip install -e` working from the Studio workspace.
   - ☐ Wire CLI/dev scripts (and VS Code test discovery) so `pytest tools/robotick-launcher/tests` runs inside the Studio repo and gates changes.
   - ☐ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
-- **Install flows**
+  - ☐ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
+  - ☐ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
+- **Project Deps Install flows**
   - Author an `install-deps` script (Node or Python) that: creates `.studio/.venv`, installs the Launcher package, and ensures `robotick-launcher` is on Studio’s PATH.
   - Wire `npm install` to call that script; capture logs + failures in a friendly way.
   - Mirror the same script in the VS Code extension installer so both frontends share the bootstrap logic.
-- **Studio runtime**
-  - Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
-  - Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project schema**
   - Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, and `local_workload_roots` (types, required fields, platform filters).
   - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
