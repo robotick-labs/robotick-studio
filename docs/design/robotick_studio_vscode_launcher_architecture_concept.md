@@ -108,7 +108,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Update docs/sample projects to the new schema and provide a migration guide.
 - **Repo pinning + cache**
   - Implement `robotick-launcher install-deps`: resolve repo list, clone/update into `.launcher/<project>/deps/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
-  - Teach `generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
+  - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
   - Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
 - **Cleaning story**
   - Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
