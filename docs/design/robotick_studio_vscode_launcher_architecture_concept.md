@@ -116,10 +116,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 - **VS Code Extension MVP**
   - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data.
   - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive).
-  - ☐ Wire the activation hook to the launcher service client so the extension knows the current project path + launcher profile (rely on the Studio config JSON or a shared socket); surface status errors when Launcher isn’t running.
-  - ☐ Reuse the existing `LauncherControls` React widget inside the webview (replace the stubbed buttons) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
-  - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top (the current static panel is just a placeholder).
-  - ☐ Expose new “Pinned repos” panel: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
+  - (Removed: VS Code view now runs the same renderer bundle used by Studio/Hub; the webview can consume existing launcher context and panels without bespoke wiring.)
   - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
 - **Project schema**
   - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `local_workload_roots`, and `local_python_roots` (types, required fields, platform filters).
