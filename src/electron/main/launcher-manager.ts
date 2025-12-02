@@ -81,9 +81,14 @@ export async function ensureLauncherReady() {
 
   const bin = launcherBin();
   console.log(`[Launcher] Workspace root: ${WORKSPACE_ROOT}`);
+  const env = {
+    ...process.env,
+    PATH: `${VENV_BIN}:${process.env.PATH ?? ""}`,
+  };
   managedProcess = spawn(bin, ["listen"], {
     cwd: WORKSPACE_ROOT,
     stdio: "inherit",
+    env,
   });
   managedProcess.on("exit", () => {
     managedProcess = null;
