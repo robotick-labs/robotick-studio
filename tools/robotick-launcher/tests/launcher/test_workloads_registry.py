@@ -11,6 +11,8 @@ LATEST_PATH = Path("tests/test_data/workloads_registry.latest.json").resolve()
 
 def test_workloads_registry_matches_golden():
     result = get_workloads_registry(project_path=TEST_PROJECT, target="linux")
+    # Normalize the project path so tests stay stable across repos.
+    result["project"] = result["project"].split("/")[-1]
     serialized = json.dumps(result, indent=2) + "\n"
 
     LATEST_PATH.write_text(serialized, encoding="utf-8")

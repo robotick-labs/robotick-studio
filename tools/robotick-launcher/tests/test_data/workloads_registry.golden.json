@@ -1,5 +1,5 @@
 {
-  "project": "/home/paulwconnor-ai/dev/robotick/robotick-launcher/tests/test_data/test-project/test-project.project.yaml",
+  "project": "test-project.project.yaml",
   "target": "linux",
   "registry": [
     {

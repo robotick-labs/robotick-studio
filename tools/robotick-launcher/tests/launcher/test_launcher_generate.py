@@ -1,5 +1,6 @@
 import shutil
 import difflib
+import re
 from pathlib import Path
 from typer.testing import CliRunner
 import subprocess
@@ -22,6 +23,12 @@ def reset_output_dir(output_dir: Path):
 
 def normalize_lines(lines):
     return [line.strip() for line in lines if line.strip() != ""]
+
+
+def normalize_workload_paths(text: str) -> str:
+    """Replace absolute workload paths with a consistent placeholder."""
+    pattern = re.compile(r"[^ \n\r\t]*tests/test_data/workloads")
+    return pattern.sub("__WORKLOADS_ROOT__/tests/test_data/workloads", text)
 
 
 def _list_files(dir_path: Path):
@@ -62,8 +69,14 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
         gold_file = golden_dir / rel_path
 
         with open(out_file, "r") as f1, open(gold_file, "r") as f2:
-            out_lines = normalize_lines(f1.readlines())
-            gold_lines = normalize_lines(f2.readlines())
+            out_text = f1.read()
+            gold_text = f2.read()
+            if rel_path == Path("registry/generated_workload_deps.cmake"):
+                out_text = normalize_workload_paths(out_text)
+                gold_text = normalize_workload_paths(gold_text)
+
+            out_lines = normalize_lines(out_text.splitlines())
+            gold_lines = normalize_lines(gold_text.splitlines())
 
             if out_lines != gold_lines:
                 diff = "".join(difflib.unified_diff(
