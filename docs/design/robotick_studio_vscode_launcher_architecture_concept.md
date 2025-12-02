@@ -115,9 +115,10 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Prompt B: Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **VS Code Extension MVP**
   - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data.
+  - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive).
   - ☐ Wire the activation hook to the launcher service client so the extension knows the current project path + launcher profile (rely on the Studio config JSON or a shared socket); surface status errors when Launcher isn’t running.
-  - ☐ Reuse the existing `LauncherControls` React widget inside a VS Code Webview (or React panel) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
-  - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top.
+  - ☐ Reuse the existing `LauncherControls` React widget inside the webview (replace the stubbed buttons) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
+  - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top (the current static panel is just a placeholder).
   - ☐ Expose new “Pinned repos” panel: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
   - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
 - **Project schema**

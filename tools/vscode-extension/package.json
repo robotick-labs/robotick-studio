@@ -3,6 +3,11 @@
   "displayName": "Robotick",
   "publisher": "robotick",
   "version": "0.1.2",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/robotick-labs/robotick-studio.git"
+  },
   "engines": {
     "vscode": "^1.106.0"
   },
@@ -44,7 +49,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./tsconfig.json"
+    "compile": "tsc -p ./tsconfig.json && node ./scripts/copy-renderer.js"
   },
   "devDependencies": {
     "@types/vscode": "^1.106.0",

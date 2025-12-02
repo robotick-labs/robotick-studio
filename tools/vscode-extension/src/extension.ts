@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 
 class RobotickViewProvider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
@@ -15,40 +17,40 @@ class RobotickViewProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-    const iconUri = webviewView.webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, "media", "robotick-icon.png")
+    const rendererDir = path.join(
+      this.context.extensionPath,
+      "media",
+      "renderer"
     );
+    const indexHtmlPath = path.join(rendererDir, "index.html");
 
-    webviewView.webview.html = this.getHtml(iconUri.toString());
+    if (fs.existsSync(indexHtmlPath)) {
+      const rendererUri = vscode.Uri.joinPath(
+        this.context.extensionUri,
+        "media",
+        "renderer"
+      );
+      let html = fs.readFileSync(indexHtmlPath, "utf8");
+      const baseHref = webviewView.webview.asWebviewUri(rendererUri);
+      html = html.replace(
+        "<head>",
+        `<head><base href="${baseHref.toString()}/">`
+      );
+      webviewView.webview.html = html;
+      return;
+    }
+
+    webviewView.webview.html = this.getFallbackHtml();
   }
 
-  private getHtml(iconSrc: string): string {
+  private getFallbackHtml(): string {
     return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Robotick</title>
-    <style>
-      body {
-        font-family: var(--vscode-font-family);
-        color: var(--vscode-foreground);
-        background-color: var(--vscode-editor-background);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
-        margin: 0;
-        gap: 8px;
-      }
-      img { width: 64px; height: 64px; }
-    </style>
-  </head>
+<html>
   <body>
-    <img src="${iconSrc}" alt="Robotick" />
-    <h2>Robotick</h2>
-    <p>Welcome to the Robotick extension.</p>
+    <p style="padding: 16px;">
+      Robotick renderer bundle not found. Run <code>npm run build</code> at the repo root
+      before packaging the VS Code extension.
+    </p>
   </body>
 </html>`;
   }

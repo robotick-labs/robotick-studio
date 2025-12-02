@@ -8,3 +8,4 @@ TODO.md
 .studio
 robotick_local
 *.vsix
+tools/vscode-extension/media/renderer
