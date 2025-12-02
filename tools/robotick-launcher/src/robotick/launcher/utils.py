@@ -169,6 +169,7 @@ def run_subprocess(
     wait: bool = True,
     stdout: Optional[Union[int, object]] = sys.stdout,
     stderr: Optional[Union[int, object]] = sys.stderr,
+    env: Optional[dict[str, str]] = None,
 ) -> subprocess.Popen:
     command = _resolve_command(command)
     def preexec_setup():
@@ -193,6 +194,7 @@ def run_subprocess(
         stderr=stderr,
         preexec_fn=preexec_setup,
         bufsize=1,
+        env=env,
     )
 
     if wait:

@@ -15,7 +15,8 @@ import typer
 from robotick.launcher.config import Config, PythonRootConfig
 
 
-STUDIO_DIRNAME = ".studio"
+LAUNCHER_ROOT = ".launcher"
+PYTHON_DIRNAME = "python"
 PY_VENV_DIRNAME = ".venv-python"
 LOCK_FILENAME = "python-roots-lock.json"
 
@@ -106,19 +107,31 @@ def install_deps(
     stub_install: bool = False,
 ) -> Optional[InstallDepsResult]:
     """
-    Hydrate python_roots into a shared .studio/.venv-python environment.
+    Hydrate python_roots into a shared .launcher/<project>/.venv-python environment.
     """
 
-    config = Config(project, model=None, target=None, base_dir=base_dir, dry_run=dry_run, stub_install=stub_install)
+    base_dir = base_dir.resolve()
+    workspace_root = workspace_root.resolve()
+
+    config = Config(
+        project,
+        model=None,
+        target=None,
+        base_dir=base_dir,
+        dry_run=dry_run,
+        stub_install=stub_install,
+    )
 
     if not config.python_roots:
         print("[yellow]ℹ️ No python_roots defined; nothing to install.[/]")
         return None
 
-    studio_dir = workspace_root / STUDIO_DIRNAME
-    studio_dir.mkdir(parents=True, exist_ok=True)
+    project_launcher_dir = get_project_python_dir(
+        config.project_name, workspace_root
+    )
+    project_launcher_dir.mkdir(parents=True, exist_ok=True)
 
-    venv_path = studio_dir / PY_VENV_DIRNAME
+    venv_path = project_launcher_dir / PY_VENV_DIRNAME
     _ensure_python_venv(venv_path, dry_run=dry_run)
     python_bin = _venv_python_bin(venv_path)
 
@@ -157,7 +170,7 @@ def install_deps(
         ],
     }
 
-    lock_path = studio_dir / LOCK_FILENAME
+    lock_path = project_launcher_dir / LOCK_FILENAME
     _write_lock(lock_path, lock_payload, dry_run=dry_run)
 
     return InstallDepsResult(
@@ -168,23 +181,42 @@ def install_deps(
     )
 
 
+def get_project_python_dir(project: str, workspace_root: Path) -> Path:
+    project_safe = project.replace("-", "_")
+    return workspace_root / LAUNCHER_ROOT / project_safe / PYTHON_DIRNAME
+
+
+def load_python_root_lock(project: str, workspace_root: Path) -> Optional[dict]:
+    python_dir = get_project_python_dir(project, workspace_root)
+    lock_path = python_dir / LOCK_FILENAME
+    if not lock_path.exists():
+        return None
+    try:
+        return json.loads(lock_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"[yellow]⚠️ Failed to parse lockfile:[/] {lock_path}")
+        return None
+
+
 def install_deps_command(
     project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Directory containing <project>.project.yaml"
     ),
-    workspace_dir: Path = typer.Option(
-        Path.cwd(), help="Workspace root containing the .studio folder"
+    workspace_dir: Optional[Path] = typer.Option(
+        None, help="Workspace root containing the .launcher folder"
     ),
     dry_run: bool = typer.Option(False, help="Preview actions without executing them"),
     stub_install: bool = typer.Option(
         False, help="Skip pip install -r (useful for CI smoke tests)"
     ),
 ) -> None:
+    base_dir = base_dir.resolve()
+    workspace_root = (workspace_dir or base_dir).resolve()
     install_deps(
         project=project,
         base_dir=base_dir,
-        workspace_root=workspace_dir,
+        workspace_root=workspace_root,
         dry_run=dry_run,
         stub_install=stub_install,
     )

@@ -104,6 +104,8 @@ def run_profile(
             "linux",
             "--base-dir",
             str(base_dir),
+            "--workspace-dir",
+            str(base_dir),
         ]
         print(f"[Launcher] Building model: {model_id} → {build_cmd}")
         _emit_status(
@@ -227,6 +229,8 @@ def run_profile(
             model_id,
             "linux",
             "--base-dir",
+            str(base_dir),
+            "--workspace-dir",
             str(base_dir),
             "--no-pre",
         ]

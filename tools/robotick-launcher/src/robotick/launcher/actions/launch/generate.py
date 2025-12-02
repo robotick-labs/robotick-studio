@@ -1,8 +1,11 @@
 from pathlib import Path
+from typing import Optional
+
 from rich import print
 import shutil
 import typer
 import traceback
+from typer.models import OptionInfo
 
 from robotick.launcher.config import Config
 from robotick.launcher.utils import copy_extras_for_target
@@ -12,6 +15,7 @@ from robotick.launcher.actions.launch import (
     generate_cmake,
     generate_workloads_registry,
     generate_do_install_deps,
+    install_deps as install_deps_stage,
 )
 
 
@@ -50,13 +54,30 @@ def generate(
         "--stub-install",
         help="Only create target-folder for each installed dependency, not full install",
     ),
+    workspace_dir: Optional[Path] = typer.Option(
+        None, help="Workspace root containing the .launcher folder"
+    ),
 ):
     """
     Generate the .launcher folder structure and files for the given project/model/target.
     """
 
     try:
+        if isinstance(workspace_dir, OptionInfo):
+            workspace_dir = None
+
+        base_dir = base_dir.resolve()
+        workspace_root = (workspace_dir or base_dir).resolve()
         config = Config(project, model, target, base_dir, dry_run, stub_install)
+
+        if config.python_roots:
+            install_deps_stage.install_deps(
+                project=project,
+                base_dir=base_dir,
+                workspace_root=workspace_root,
+                dry_run=dry_run,
+                stub_install=stub_install,
+            )
 
         print("============================================================================================")
         print(

@@ -1,5 +1,7 @@
 # robotick/launcher/cli.py
 
+from typing import Optional
+
 import typer
 from pathlib import Path
 
@@ -29,14 +31,16 @@ def create_app() -> typer.Typer:
         base_dir: Path = typer.Option(
             Path.cwd(), help="Directory containing <project>.project.yaml"
         ),
-        workspace_dir: Path = typer.Option(
-            Path.cwd(), help="Workspace root containing the .studio folder"
+        workspace_dir: Optional[Path] = typer.Option(
+            None, help="Workspace root containing the .launcher folder"
         ),
         dry_run: bool = typer.Option(False, help="Preview dependency install"),
         stub_install: bool = typer.Option(
             False, help="Skip pip installs (useful for CI smoke tests)"
         ),
     ):
+        base_dir = base_dir.resolve()
+        workspace_dir = workspace_dir.resolve() if workspace_dir else None
         install_deps.install_deps_command(
             project=project,
             base_dir=base_dir,
@@ -59,6 +63,9 @@ def create_app() -> typer.Typer:
         base_dir: Path = typer.Option(
             Path.cwd(), help="Base directory to create .launcher folder under"
         ),
+        workspace_dir: Optional[Path] = typer.Option(
+            None, help="Workspace root containing the .launcher folder"
+        ),
         dry_run: bool = typer.Option(
             False, "--dry-run", help="Show what would be created without creating it"
         ),
@@ -72,9 +79,18 @@ def create_app() -> typer.Typer:
             help="Only create target-folder for each installed dependency, not full install",
         ),
     ) -> None:
+        base_dir = base_dir.resolve()
+        workspace_dir = workspace_dir.resolve() if workspace_dir else None
+
         if not dry_run:
             generate.generate(
-                project, model, target, base_dir, dry_run, bool(stub_install)
+                project,
+                model,
+                target,
+                base_dir,
+                dry_run,
+                bool(stub_install),
+                workspace_dir,
             )
 
     @app.command("build")
@@ -83,17 +99,23 @@ def create_app() -> typer.Typer:
         model: str = typer.Argument(...),
         target: str = typer.Argument(...),
         base_dir: Path = typer.Option(Path.cwd()),
+        workspace_dir: Optional[Path] = typer.Option(
+            None, help="Workspace root containing the .launcher folder"
+        ),
         dry_run: bool = typer.Option(False),
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
     ):
+        base_dir = base_dir.resolve()
+        workspace_dir = workspace_dir.resolve() if workspace_dir else None
         if not no_pre:
             generate_cmd(
                 project,
                 model,
                 target,
                 base_dir,
+                workspace_dir,
                 dry_run,
                 no_pre,
                 force=force,
@@ -110,17 +132,23 @@ def create_app() -> typer.Typer:
         model: str = typer.Argument(...),
         target: str = typer.Argument(...),
         base_dir: Path = typer.Option(Path.cwd()),
+        workspace_dir: Optional[Path] = typer.Option(
+            None, help="Workspace root containing the .launcher folder"
+        ),
         dry_run: bool = typer.Option(False),
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
     ):
+        base_dir = base_dir.resolve()
+        workspace_dir = workspace_dir.resolve() if workspace_dir else None
         if not no_pre:
             build_cmd(
                 project,
                 model,
                 target,
                 base_dir,
+                workspace_dir,
                 dry_run,
                 no_pre,
                 force=force,
@@ -136,17 +164,23 @@ def create_app() -> typer.Typer:
         model: str = typer.Argument(...),
         target: str = typer.Argument(...),
         base_dir: Path = typer.Option(Path.cwd()),
+        workspace_dir: Optional[Path] = typer.Option(
+            None, help="Workspace root containing the .launcher folder"
+        ),
         dry_run: bool = typer.Option(False),
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
     ):
+        base_dir = base_dir.resolve()
+        workspace_dir = workspace_dir.resolve() if workspace_dir else None
         if not no_pre:
             deploy_cmd(
                 project,
                 model,
                 target,
                 base_dir,
+                workspace_dir,
                 dry_run,
                 no_pre,
                 force=force,
@@ -154,7 +188,7 @@ def create_app() -> typer.Typer:
             )
 
         if not dry_run:
-            run.run(project, model, target, base_dir)
+            run.run(project, model, target, base_dir, workspace_dir)
 
     @app.command("run-profile")
     def run_profile_cmd(
