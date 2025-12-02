@@ -9,7 +9,7 @@ from robotick.launcher.discover_workloads import discover_workloads_metadata_as_
 class _MinimalConfig:
     def __init__(self, base_dir: Path, workload_roots, target_platform="linux", dry_run=False):
         self.base_dir = Path(base_dir).resolve()
-        self.project = {"workload_roots": list(workload_roots)}
+        self.project = {"local_workload_roots": list(workload_roots)}
         self.target_platform = target_platform
         self.dry_run = dry_run
         self.launcher_dir = self.base_dir / ".launcher"

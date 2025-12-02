@@ -38,7 +38,7 @@ Defines the environment by pinning repos instead of raw paths:
 - `workload_repos`: explicit repo list for workloads. Only these feed the auto-generated registry.
 - `shared_repos`: optional extras (assets, helper libs). Launcher fetches them but skips workload discovery unless they also appear in `workload_repos`.
 - `local_workload_roots`: fallback glob(s) inside the project for experimental workloads before they move into a pinned repo.
-- `python_roots`: explicit per-project Python entry points (`id`, `path`, optional `requirements`). Launcher resolves them relative to the project file and `install-deps` installs every declared requirements file into `.launcher/<project_safe>/.venv-python`. At runtime we combine that venv’s site-packages with each root path on `PYTHONPATH` so all Python workloads see the same hydrated environment.
+- `local_python_roots`: explicit per-project Python entry points (`id`, `path`, optional `requirements`). Launcher resolves them relative to the project file and `install-deps` installs every declared requirements file into `.launcher/<project_safe>/.venv-python`. At runtime we combine that venv’s site-packages with each root path on `PYTHONPATH` so all Python workloads see the same hydrated environment.
 - Each repo entry can target specific platforms so ESP32-only bits never land on desktop machines.
 - Target platform + Studio/Launcher prefs stay, but every build resolves from the pinned deps tree. Workload YAML keeps referencing relative paths within those repos.
 
@@ -103,12 +103,12 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project Deps Install flows**
-  - ✅ Prompt A1: Extend the project schema to support `python_roots` (id/path/requirements) and surface that data in the launcher config objects.
+  - ✅ Prompt A1: Extend the project schema to support `local_python_roots` (id/path/requirements) and surface that data in the launcher config objects.
   - ✅ Prompt A2: Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
-  - ✅ Prompt A3: `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
+  - ✅ Prompt A3: `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Prompt B: Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **Project schema**
-  - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `workload_roots`, and `python_roots` (types, required fields, platform filters).
+  - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `local_workload_roots`, and `local_python_roots` (types, required fields, platform filters).
   - Prompt B: Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
   - Prompt C: Update docs/sample projects to the new schema and provide a migration guide.
 - **Repo pinning + cache**

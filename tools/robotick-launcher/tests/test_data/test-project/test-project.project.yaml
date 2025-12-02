@@ -5,11 +5,11 @@ description: "Test Project for use in Launcher Unit Tests."
 
 robotick_engine_root: ../../../../robotick-engine
 
-workload_roots:
+local_workload_roots:
   - ../workloads/cpp/include
   - ../workloads/cpp/src
 
-python_roots:
+local_python_roots:
   - id: main-brain
     path: python
     requirements: requirements.txt

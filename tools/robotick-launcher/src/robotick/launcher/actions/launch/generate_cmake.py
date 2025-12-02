@@ -14,7 +14,7 @@ def _cmake_relpath(target: Path, start: Path) -> str:
 def generate_project_cmakelists(config) -> None:
     """Render and write .launcher/CMakeLists.txt for the given (project, model, target).
     Expects config.{base_dir, launcher_dir, model_name, model_name_safe, target, dry_run}
-    and config.project.{robotick_engine_root, workload_roots}.
+    and config.project.{robotick_engine_root, local_workload_roots}.
     """
 
     # Set platform macros based on target
@@ -32,9 +32,12 @@ def generate_project_cmakelists(config) -> None:
 
     # Compute relative paths to use in CMake template
     robotick_engine_root_abs = (config.base_dir / config.project.robotick_engine_root).resolve()
+    workload_root_entries = (
+        config.project.get("local_workload_roots")
+        or config.project.get("workload_roots", [])
+    )
     workload_roots_abs = [
-        (config.base_dir / root).resolve()
-        for root in config.project.get("workload_roots", [])
+        (config.base_dir / root).resolve() for root in workload_root_entries
     ]
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)
@@ -79,7 +82,7 @@ def generate_project_cmakelists(config) -> None:
 def generate_component_cmakelists(config) -> None:
     """Render and write .launcher/<config.subdir_component_cmakelists>/CMakeLists.txt for the given (project, model, target).
     Expects config.{base_dir, launcher_dir, model_name, model_name_safe, target, dry_run}
-    and config.project.{robotick_engine_root, workload_roots}.
+    and config.project.{robotick_engine_root, local_workload_roots}.
     """
     subdir = getattr(config, "subdir_component_cmakelists", "")
 
@@ -101,9 +104,12 @@ def generate_component_cmakelists(config) -> None:
 
     # Compute relative paths to use in CMake template
     robotick_engine_root_abs = (config.base_dir / config.project.robotick_engine_root).resolve()
+    workload_root_entries = (
+        config.project.get("local_workload_roots")
+        or config.project.get("workload_roots", [])
+    )
     workload_roots_abs = [
-        (config.base_dir / root).resolve()
-        for root in config.project.get("workload_roots", [])
+        (config.base_dir / root).resolve() for root in workload_root_entries
     ]
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)

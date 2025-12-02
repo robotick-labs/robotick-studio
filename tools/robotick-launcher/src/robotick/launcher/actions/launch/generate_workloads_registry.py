@@ -223,7 +223,7 @@ def _generate_workload_auto_cpp(
     if not discovered:
         raise FileNotFoundError(
             f"Could not generate auto file for {type_name}: not found in discovered map. "
-            f"Looked under workload_roots: {config.project.get('workload_roots', [])}"
+            f"Looked under workload roots: {config.project.get('local_workload_roots') or config.project.get('workload_roots', [])}"
         )
 
     s = discovered["structs"]

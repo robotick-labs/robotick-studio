@@ -152,7 +152,7 @@ def install_deps(
     target: str = "linux",
 ) -> Optional[InstallDepsResult]:
     """
-    Hydrate python_roots into a shared .launcher/<project>/.venv-python environment.
+    Hydrate local_python_roots into a shared .launcher/<project>/.venv-python environment.
     """
 
     base_dir = base_dir.resolve()
@@ -214,7 +214,7 @@ def install_deps(
 
         _write_lock(lock_path, lock_payload, dry_run=dry_run)
     else:
-        print("[yellow]ℹ️ No python_roots defined; skipping python venv hydration.[/]")
+        print("[yellow]ℹ️ No local_python_roots defined; skipping python venv hydration.[/]")
 
     # --- Repo deps + apt packages ---
     model_names = _collect_model_names(project, base_dir, model)

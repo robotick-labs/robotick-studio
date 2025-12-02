@@ -111,7 +111,10 @@ class Config:
         """Normalize python_roots entries from the project yaml."""
 
         project_dir = self.project_file.parent
-        entries = self.project.get("python_roots", []) or []
+        entries = self.project.get("local_python_roots")
+        if not entries:
+            entries = self.project.get("python_roots", [])
+        entries = entries or []
         python_roots: List[PythonRootConfig] = []
         seen_ids: set[str] = set()
 

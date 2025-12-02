@@ -15,13 +15,26 @@
       "type": "string",
       "description": "Relative path to the Robotick engine"
     },
-    "workload_roots": {
+    "local_workload_roots": {
       "type": "array",
       "description": "List of workload search paths",
       "items": { "type": "string" },
       "minItems": 1
+    },
+    "local_python_roots": {
+      "type": "array",
+      "description": "Python entry points (id/path/requirements) to hydrate via install-deps",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "path": { "type": "string" },
+          "requirements": { "type": "string" }
+        },
+        "required": ["id", "path"]
+      }
     }
   },
-  "required": ["name", "robotick_engine_root", "workload_roots"],
+  "required": ["name", "robotick_engine_root", "local_workload_roots"],
   "additionalProperties": false
 }
