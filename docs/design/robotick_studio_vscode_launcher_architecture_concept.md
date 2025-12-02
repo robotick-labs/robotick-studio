@@ -21,6 +21,7 @@ Launcher stays the shared backend, now with a repo-aware workflow:
 - **Lives with Studio.** The Python package lives in this repo so `npm install` can create `.studio/.venv`, install Launcher locally (no global footprint), and expose `robotick-launcher`. The VS Code installer can reuse the same hook.
 - **CLI + service stay.** `robotick-launcher` still drives `generate → build → deploy → run`, plus `run-profile` and the FastAPI listener (`/query`, `/launcher`, `/launcher/ws/log`). These paths now read from the shared deps layout.
 - **Deterministic deps.** Studio/VS Code installers only hydrate our tooling; a separate stage (`robotick-launcher install-deps`) syncs the pinned engine/workload/shared repos into `.launcher/<project>/deps/<target>`, while each model keeps `.launcher/<project>/<model>/<target>/deps` for target-only bits.
+- System-wide installs are intentionally avoided: Studio/VS Code always run against the linked `.studio/.venv` so the workspace stays self-contained.
 - **Lifecycle commands.** First-class commands for `install-deps`, `clean-generated`, `clean-deps`, and `clean-all` replace the current “generate does everything” magic so automation can call exactly what it needs.
 - **Workload-aware discovery.** Only repos flagged `workload_repos` are mined for `*Workload.cpp`; auxiliary repos stay silent unless a workload YAML points at them.
 - **Contract polish.** Step one is “install Studio → Launcher + deps are ready.” Next we add versioned `/launcher/v1/*` + `/query/v1/*` endpoints, optional auth/CSRF tokens, and richer per-model telemetry payloads for Studio and VS Code.
@@ -93,8 +94,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 
 - **Embed Launcher**
   - ✅ Move the `robotick-launcher` source tree into this repo (e.g., `tools/launcher/`), copying tests + templates intact.
-  - ☐ Update its `pyproject` to use relative paths and keep `pip install -e` working from the Studio workspace.
-  - ☐ Wire CI/dev scripts (and VS Code test discovery) so `pytest tools/robotick-launcher/tests` runs inside the Studio repo and gates changes.
+  - ✅ Update its `pyproject` to use relative paths and keep `pip install -e` working from the Studio workspace.
+  - ☐ Wire CLI/dev scripts (and VS Code test discovery) so `pytest tools/robotick-launcher/tests` runs inside the Studio repo and gates changes.
   - ☐ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
 - **Install flows**
   - Author an `install-deps` script (Node or Python) that: creates `.studio/.venv`, installs the Launcher package, and ensures `robotick-launcher` is on Studio’s PATH.
@@ -120,6 +121,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
   - Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
   - Add tests covering repo-scoped + local-path discovery so regressions are caught.
+- **CI Integration**
+  - GitHub Actions integration for both Studio + Launcher
 - **Launcher service polish**
   - Version the REST/WebSocket routes (`/launcher/v1/*`, `/query/v1/*`) and include API version headers.
   - Add optional auth (shared secret/token + CSRF cookies) so Studio/VS Code can connect safely.

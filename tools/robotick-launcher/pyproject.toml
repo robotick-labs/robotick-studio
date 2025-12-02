@@ -37,8 +37,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/robotick-labs/robotick-launcher"
-Issues = "https://github.com/robotick-labs/robotick-launcher/issues"
+Homepage = "https://github.com/robotick-labs/robotick-studio/tree/main/tools/robotick-launcher"
+Issues = "https://github.com/robotick-labs/robotick-studio/issues"
 
 [project.scripts]
 robotick-launcher = "robotick.launcher.cli:main"
