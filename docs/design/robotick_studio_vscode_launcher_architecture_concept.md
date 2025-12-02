@@ -77,6 +77,7 @@ MVP:
 Beyond MVP:
 
 - Code intelligence and diagnostics
+- Allow the VS Code extension to start/stop Launcher independently: add `/launcher/attach|detach` so Studio + VS Code can coordinate ownership, keep Launcher alive while either client is connected, and only stop once all clients have detached.
 
 VS Code = coding, debugging, editing.  
 Studio = visualisation, control, dashboards.  
@@ -113,7 +114,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Prompt A3: `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Prompt B: Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **VS Code Extension MVP**
-  - ☐ Scaffold the extension workspace (`tools/vscode-extension`) so `npm install` wires up the VS Code activation hook, loads the shared launcher service client, and tracks the active project path/launcher profile from Studio’s settings.
+  - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data.
+  - ☐ Wire the activation hook to the launcher service client so the extension knows the current project path + launcher profile (rely on the Studio config JSON or a shared socket); surface status errors when Launcher isn’t running.
   - ☐ Reuse the existing `LauncherControls` React widget inside a VS Code Webview (or React panel) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
   - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top.
   - ☐ Expose new “Pinned repos” panel: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
