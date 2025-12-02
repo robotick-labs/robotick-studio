@@ -76,7 +76,11 @@ const DEFAULT_WINDOW_STATE: WindowState = {
 
 const WINDOW_STATE_FILE =
   process.env.ROBOTICK_WINDOW_STATE_FILE ||
-  path.join(process.cwd(), ".studio", "window-state.json");
+  path.join(
+    process.env.ROBOTICK_WORKSPACE_ROOT ?? process.cwd(),
+    ".studio",
+    "window-state.json",
+  );
 
 function readWindowState(): WindowState {
   try {

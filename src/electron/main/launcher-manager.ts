@@ -2,7 +2,9 @@ import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 
-const WORKSPACE_ROOT = process.cwd();
+const WORKSPACE_ROOT =
+  process.env.ROBOTICK_WORKSPACE_ROOT ??
+  process.cwd();
 const LAUNCHER_RELATIVE_PATH = process.env.ROBOTICK_LAUNCHER_DIR ?? "tools/robotick-launcher";
 const LAUNCHER_DIR = path.join(WORKSPACE_ROOT, LAUNCHER_RELATIVE_PATH);
 const VENV_DIR = path.join(WORKSPACE_ROOT, ".studio", ".venv");
@@ -85,6 +87,7 @@ export async function ensureLauncherReady() {
     ...process.env,
     PATH: `${VENV_BIN}:${process.env.PATH ?? ""}`,
   };
+  console.log(`[Launcher] Starting listener with cwd ${WORKSPACE_ROOT}`);
   managedProcess = spawn(bin, ["listen"], {
     cwd: WORKSPACE_ROOT,
     stdio: "inherit",

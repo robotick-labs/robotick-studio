@@ -1,0 +1,52 @@
+{
+  "name": "robotick",
+  "displayName": "Robotick",
+  "publisher": "robotick",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:robotick.openPanel",
+    "onView:robotick.view"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "robotick",
+          "title": "Robotick",
+          "icon": "media/robotick-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "robotick": [
+        {
+          "id": "robotick.view",
+          "name": "Robotick Panel"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "robotick.openPanel",
+        "title": "Robotick: Open Panel",
+        "category": "Robotick"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.106.0",
+    "typescript": "^5.9.3",
+    "@vscode/test-electron": "^2.3.8"
+  }
+}
