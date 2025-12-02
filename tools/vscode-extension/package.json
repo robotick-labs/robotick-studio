@@ -29,7 +29,8 @@
       "robotick": [
         {
           "id": "robotick.view",
-          "name": "Robotick Panel"
+          "name": "Robotick Panel",
+          "type": "webview"
         }
       ]
     },
