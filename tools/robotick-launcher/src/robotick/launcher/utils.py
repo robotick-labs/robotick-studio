@@ -150,6 +150,19 @@ def copy_extras_for_target(config) -> None:
             print(f"[green]📝 Created:[/] {dst}")
 
 
+def _resolve_command(command: list[str]) -> list[str]:
+    if not command:
+        return command
+    resolved = command.copy()
+    executable = shutil.which(resolved[0])
+    if executable:
+        resolved[0] = executable
+        return resolved
+    if resolved[0] == "robotick-launcher":
+        return [sys.executable, "-m", "robotick.launcher.cli", *resolved[1:]]
+    return resolved
+
+
 def run_subprocess(
     command: list[str],
     cwd: Optional[Path] = None,
@@ -157,6 +170,7 @@ def run_subprocess(
     stdout: Optional[Union[int, object]] = sys.stdout,
     stderr: Optional[Union[int, object]] = sys.stderr,
 ) -> subprocess.Popen:
+    command = _resolve_command(command)
     def preexec_setup():
         # Start a new process group
         os.setsid()
