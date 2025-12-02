@@ -129,9 +129,20 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           setStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
-          setPendingTarget((target) =>
-            target && launcherStatus === target ? null : target
-          );
+          setPendingTarget((target) => {
+            if (!target) {
+              return null;
+            }
+            if (launcherStatus === target) {
+              return null;
+            }
+            if (target === "running" && launcherStatus === "stopped") {
+              // A run attempt failed and the backend reported it stopped again.
+              // Clear the pending target so UI controls unlock immediately.
+              return null;
+            }
+            return target;
+          });
           setOptimisticStatus((current) =>
             current && launcherStatus !== "launching" ? null : current
           );
