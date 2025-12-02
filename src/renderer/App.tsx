@@ -34,9 +34,13 @@ export function selectRouterComponent(
   const protocol =
     options.locationProtocol ??
     (hasWindow ? window.location?.protocol : undefined);
+  const userAgent =
+    (typeof navigator !== "undefined" && navigator.userAgent) || "";
   const vsCodeWebview =
     options.isVsCodeWebview ??
-    (typeof protocol === "string" && protocol === "vscode-webview:");
+    ((typeof protocol === "string" && protocol === "vscode-webview:") ||
+      /\bVSCODE\b/i.test(userAgent) ||
+      /\bVSCode\b/i.test(userAgent));
   const electronRuntime =
     options.isElectronRuntime ??
     (typeof process !== "undefined" &&
@@ -53,6 +57,7 @@ export function selectRouterComponent(
       standaloneFlag: Boolean(envStandalone),
       locationProtocol: protocol,
       electronRuntime,
+      userAgent,
       vsCodeWebview,
       router: shouldUseHash ? "hash" : "browser",
     });
