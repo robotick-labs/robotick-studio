@@ -1,7 +1,9 @@
-from typer.testing import CliRunner
+import os
 from pathlib import Path
-from robotick.launcher.cli import create_app
+from typer.testing import CliRunner
+
 from robotick.launcher.actions.query.list import list_project_models, list_projects
+from robotick.launcher.cli import create_app
 
 runner = CliRunner()
 app = create_app()
@@ -57,6 +59,43 @@ def test_list_projects_cli():
     ])
     assert result.exit_code == 0
     assert "test-project.project.yaml" in result.stdout
+
+
+def test_list_projects_follow_symlinks(tmp_path):
+    source_repo = tmp_path / "source_repo"
+    project_file = source_repo / "robots" / "pip-e" / "pip-e.project.yaml"
+    project_file.parent.mkdir(parents=True)
+    project_file.write_text("# pip-e project\n")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    symlink_repo = workspace / "robotick-knitware"
+    symlink_repo.symlink_to(source_repo, target_is_directory=True)
+
+    projects = list_projects(str(workspace))
+    assert "robotick-knitware/robots/pip-e/pip-e.project.yaml" in projects
+
+
+def test_list_project_models_accepts_relative_path(tmp_path):
+    project_dir = tmp_path / "relative-repo"
+    project_file = project_dir / "pip.project.yaml"
+    model_file = project_dir / "pip.model.yaml"
+    project_dir.mkdir()
+    project_file.write_text("# pip project")
+    model_file.write_text("# pip model")
+
+    cwd = tmp_path / "runner"
+    cwd.mkdir()
+    working_project_path = os.path.relpath(project_file, cwd)
+
+    original_cwd = os.getcwd()
+    os.chdir(cwd)
+    try:
+        models = list_project_models(working_project_path)
+        assert model_file.name in models[0]
+    finally:
+        os.chdir(original_cwd)
+
 
 def test_list_project_models_invalid_path_raises():
     invalid_path = str(TEST_BASE / "missing.project.yaml")

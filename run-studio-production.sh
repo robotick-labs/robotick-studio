@@ -8,7 +8,6 @@ unset ELECTRON_NO_ATTACH_CONSOLE
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STUDIO_DIR="$SCRIPT_DIR"
 
-cd "$STUDIO_DIR"
-npm run test
-npm run build
-npm run electron
+npm --prefix "$STUDIO_DIR" run test
+npm --prefix "$STUDIO_DIR" run build
+npm --prefix "$STUDIO_DIR" run electron

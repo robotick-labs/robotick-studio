@@ -23,6 +23,7 @@ Launcher stays the shared backend, now with a repo-aware workflow:
 - **Deterministic deps.** Studio/VS Code installers only hydrate our tooling; a separate stage (`robotick-launcher install-deps`) syncs the pinned engine/workload/shared repos into `.launcher/<project>/deps/<target>`, while each model keeps `.launcher/<project>/<model>/<target>/deps` for target-only bits.
 - System-wide installs are intentionally avoided: Studio/VS Code always run against the linked `.studio/.venv` so the workspace stays self-contained.
 - **Lifecycle commands.** First-class commands for `install-deps`, `clean-generated`, `clean-deps`, and `clean-all` replace the current “generate does everything” magic so automation can call exactly what it needs.
+- **Workspace-aware.** Studio and Launcher resolve `.studio/.venv`, project discovery, and repo paths relative to whatever directory you start them from, so the tooling can run from any workspace folder (CI, terminals, VS Code, etc.).
 - **Workload-aware discovery.** Only repos flagged `workload_repos` are mined for `*Workload.cpp`; auxiliary repos stay silent unless a workload YAML points at them.
 - **Contract polish.** Step one is “install Studio → Launcher + deps are ready.” Next we add versioned `/launcher/v1/*` + `/query/v1/*` endpoints, optional auth/CSRF tokens, and richer per-model telemetry payloads for Studio and VS Code.
 

@@ -1,10 +1,18 @@
+import fnmatch
+import os
 from pathlib import Path
 from typing import Optional
 
 
 def find_files_by_wildcard(wildcard: str, base_dir: Optional[str]) -> list[str]:
     base_path = Path(base_dir).resolve() if base_dir else Path.cwd()
-    return [str(p.relative_to(base_path)) for p in base_path.rglob(wildcard)]
+    matches: list[str] = []
+    for root, _dirs, files in os.walk(base_path, followlinks=True):
+        for file_name in files:
+            if fnmatch.fnmatch(file_name, wildcard):
+                full_path = Path(root) / file_name
+                matches.append(str(full_path.relative_to(base_path)))
+    return matches
 
 
 def list_project_models(project_file_path: str) -> list[str]:

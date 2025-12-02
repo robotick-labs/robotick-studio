@@ -2,8 +2,10 @@ import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 
-const ROOT_DIR = path.resolve(__dirname, "../../..");
-const VENV_DIR = path.join(ROOT_DIR, ".studio", ".venv");
+const WORKSPACE_ROOT = process.cwd();
+const LAUNCHER_RELATIVE_PATH = process.env.ROBOTICK_LAUNCHER_DIR ?? "tools/robotick-launcher";
+const LAUNCHER_DIR = path.join(WORKSPACE_ROOT, LAUNCHER_RELATIVE_PATH);
+const VENV_DIR = path.join(WORKSPACE_ROOT, ".studio", ".venv");
 const VENV_BIN = path.join(VENV_DIR, "bin");
 const PYTHON_BIN = process.env.ROBOTICK_PYTHON ?? "python3";
 const STATUS_URL = "http://localhost:7081/launcher/status";
@@ -27,7 +29,7 @@ function ensureVenv() {
     return;
   }
   spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR], {
-    cwd: ROOT_DIR,
+    cwd: WORKSPACE_ROOT,
     stdio: "inherit",
   });
 }
@@ -37,13 +39,13 @@ function installLauncherDependencies() {
   spawnSync(
     python,
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-    { cwd: ROOT_DIR, stdio: "inherit" }
+    { cwd: WORKSPACE_ROOT, stdio: "inherit" }
   );
   spawnSync(
     python,
-    ["-m", "pip", "install", "-e", "tools/robotick-launcher[dev]"],
+    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR}[dev]`],
     {
-      cwd: ROOT_DIR,
+      cwd: WORKSPACE_ROOT,
       stdio: "inherit",
     }
   );
@@ -78,8 +80,9 @@ export async function ensureLauncherReady() {
   installLauncherDependencies();
 
   const bin = launcherBin();
+  console.log(`[Launcher] Workspace root: ${WORKSPACE_ROOT}`);
   managedProcess = spawn(bin, ["listen"], {
-    cwd: ROOT_DIR,
+    cwd: WORKSPACE_ROOT,
     stdio: "inherit",
   });
   managedProcess.on("exit", () => {
