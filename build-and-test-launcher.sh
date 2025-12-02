@@ -20,4 +20,14 @@ pip install --upgrade pip >/dev/null
 pip install -e "$ROOT/tools/robotick-launcher[dev]" >/dev/null
 
 cd "$ROOT/tools/robotick-launcher"
-pytest tests "$@"
+
+echo "=== Running launcher tests ==="
+set +e
+pytest -vv tests "$@"
+EXIT_CODE=$?
+if [ $EXIT_CODE -eq 0 ]; then
+  echo "=== Launcher tests PASSED ==="
+else
+  echo "=== Launcher tests FAILED (exit code $EXIT_CODE) ==="
+fi
+exit $EXIT_CODE
