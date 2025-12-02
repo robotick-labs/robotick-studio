@@ -103,7 +103,6 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Mirror the same script in the VS Code extension installer so both frontends share the bootstrap logic.
 - **Studio runtime**
   - Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
-  - Ensure the renderer only loads once Launcher is reachable; surface errors with retry buttons/log links.
   - Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project schema**
   - Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, and `local_workload_roots` (types, required fields, platform filters).
