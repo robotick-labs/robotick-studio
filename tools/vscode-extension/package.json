@@ -2,7 +2,7 @@
   "name": "robotick",
   "displayName": "Robotick",
   "publisher": "robotick",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "engines": {
     "vscode": "^1.106.0"
   },
@@ -10,6 +10,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:robotick.openPanel",
     "onView:robotick.view"
   ],
@@ -20,7 +21,7 @@
         {
           "id": "robotick",
           "title": "Robotick",
-          "icon": "media/robotick-icon.png"
+          "icon": "media/icon-vscode.png"
         }
       ]
     },
