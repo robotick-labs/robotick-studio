@@ -6,6 +6,7 @@ from pathlib import Path
 # Import all actions
 from robotick.launcher.actions.launch import (
     clean,
+    install_deps,
     generate,
     build,
     deploy,
@@ -21,6 +22,28 @@ def create_app() -> typer.Typer:
 
     # Subcommand group for cleaning tools
     app.add_typer(clean.clean_app, name="clean")
+
+    @app.command("install-deps")
+    def install_deps_cmd(
+        project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
+        base_dir: Path = typer.Option(
+            Path.cwd(), help="Directory containing <project>.project.yaml"
+        ),
+        workspace_dir: Path = typer.Option(
+            Path.cwd(), help="Workspace root containing the .studio folder"
+        ),
+        dry_run: bool = typer.Option(False, help="Preview dependency install"),
+        stub_install: bool = typer.Option(
+            False, help="Skip pip installs (useful for CI smoke tests)"
+        ),
+    ):
+        install_deps.install_deps_command(
+            project=project,
+            base_dir=base_dir,
+            workspace_dir=workspace_dir,
+            dry_run=dry_run,
+            stub_install=stub_install,
+        )
 
     @app.command("listen")
     def listen_cmd(

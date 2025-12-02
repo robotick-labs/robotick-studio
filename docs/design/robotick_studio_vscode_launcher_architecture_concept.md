@@ -20,6 +20,7 @@ Launcher stays the shared backend, now with a repo-aware workflow:
 
 - **Lives with Studio.** The Python package lives in this repo so `npm install` can create `.studio/.venv`, install Launcher locally (no global footprint), and expose `robotick-launcher`. The VS Code installer can reuse the same hook.
 - **CLI + service stay.** `robotick-launcher` still drives `generate → build → deploy → run`, plus `run-profile` and the FastAPI listener (`/query`, `/launcher`, `/launcher/ws/log`). These paths now read from the shared deps layout.
+- **New `install-deps` stage.** Before `generate`, we can call `robotick-launcher install-deps` to hydrate `.studio/.venv-python` using every `python_root`, install the referenced `requirements.txt` files, and emit a lock describing the resulting PYTHONPATH entries.
 - **Deterministic deps.** Studio/VS Code installers only hydrate our tooling; a separate stage (`robotick-launcher install-deps`) syncs the pinned engine/workload/shared repos into `.launcher/<project>/deps/<target>`, while each model keeps `.launcher/<project>/<model>/<target>/deps` for target-only bits.
 - System-wide installs are intentionally avoided: Studio/VS Code always run against the linked `.studio/.venv` so the workspace stays self-contained.
 - **Lifecycle commands.** First-class commands for `install-deps`, `clean-generated`, `clean-deps`, and `clean-all` replace the current “generate does everything” magic so automation can call exactly what it needs.
@@ -37,6 +38,7 @@ Defines the environment by pinning repos instead of raw paths:
 - `workload_repos`: explicit repo list for workloads. Only these feed the auto-generated registry.
 - `shared_repos`: optional extras (assets, helper libs). Launcher fetches them but skips workload discovery unless they also appear in `workload_repos`.
 - `local_workload_roots`: fallback glob(s) inside the project for experimental workloads before they move into a pinned repo.
+- `python_roots`: explicit per-project Python entry points (`id`, `path`, optional `requirements`). Launcher resolves them relative to the project file and `install-deps` installs every declared requirements file into a shared `.studio/.venv-python`. At runtime we combine that venv’s site-packages with each root path on `PYTHONPATH` so all Python workloads see the same hydrated environment.
 - Each repo entry can target specific platforms so ESP32-only bits never land on desktop machines.
 - Target platform + Studio/Launcher prefs stay, but every build resolves from the pinned deps tree. Workload YAML keeps referencing relative paths within those repos.
 
@@ -101,8 +103,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project Deps Install flows**
-  - Prompt A1: Extend the project schema to support `python_roots` (id/path/requirements) and surface that data in the launcher config objects.
-  - Prompt A2: Create the `install-deps` Typer stage that loops through `python_roots`, creates per-root venvs under `.studio`, installs any `requirements.txt`, and writes a JSON lock/mapping of root → site-packages.
+  - ✅ Prompt A1: Extend the project schema to support `python_roots` (id/path/requirements) and surface that data in the launcher config objects.
+  - ✅ Prompt A2: Create the `install-deps` Typer stage that loops through `python_roots`, hydrates a single `.studio/.venv-python`, installs any `requirements.txt`, and writes a lock/mapping capturing the combined PYTHONPATH entries.
   - Prompt A3: Update `generate` (and downstream stages) to auto-run `install-deps` whenever Python workloads are present, and add unit tests covering the new stage + lockfile creation.
   - Prompt B: Migrate the existing dependency install logic (git/workload fetching, apt handling) from `generate` into `install-deps`, decide how to surface sudo-required apt installs, and remove the duplicated logic from `generate`.
 - **Project schema**

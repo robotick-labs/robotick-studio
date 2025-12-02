@@ -8,3 +8,10 @@ robotick_engine_root: ../../../../robotick-engine
 workload_roots:
   - ../workloads/cpp/include
   - ../workloads/cpp/src
+
+python_roots:
+  - id: main-brain
+    path: python
+    requirements: requirements.txt
+  - id: scripts
+    path: tools/scripts
