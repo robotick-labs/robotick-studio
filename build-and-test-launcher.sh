@@ -17,7 +17,7 @@ fi
 source "$VENV/bin/activate"
 
 pip install --upgrade pip >/dev/null
-pip install -e "$ROOT/tools/robotick-launcher" >/dev/null
+pip install -e "$ROOT/tools/robotick-launcher[dev]" >/dev/null
 
 cd "$ROOT/tools/robotick-launcher"
 pytest tests "$@"
