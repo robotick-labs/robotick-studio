@@ -1,4 +1,5 @@
 import path from "path";
+import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
 import type {
   IpcMain,
   IpcMainInvokeEvent,
@@ -12,7 +13,7 @@ type WebContentsLike = {
     handler: (details: unknown) => {
       action: "allow" | "deny";
       overrideBrowserWindowOptions?: Record<string, unknown>;
-    },
+    }
   ) => void;
 };
 
@@ -23,7 +24,7 @@ export type ElectronApp = {
   whenReady: () => Promise<unknown>;
   on: (
     event: string,
-    handler: (event: unknown, ...args: unknown[]) => void,
+    handler: (event: unknown, ...args: unknown[]) => void
   ) => void;
   quit: () => void;
 };
@@ -60,9 +61,8 @@ const getDefaultWindowOptions = () => ({
   width: 1400,
   height: 900,
   titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-  trafficLightPosition: process.platform === "darwin"
-    ? { x: 16, y: 16 }
-    : undefined,
+  trafficLightPosition:
+    process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
   titleBarOverlay: {
     color: "#11141b",
     symbolColor: "#ffffff",
@@ -84,6 +84,8 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  await ensureLauncherReady();
+
   if (env.ELECTRON_DEV === "1") {
     app.commandLine.appendSwitch("remote-debugging-port", "9222");
   }
@@ -114,7 +116,9 @@ export async function bootstrapElectron({
 
   const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent) => {
     if (BrowserWindow.fromWebContents) {
-      const resolved = BrowserWindow.fromWebContents(event.sender as WebContentsLike);
+      const resolved = BrowserWindow.fromWebContents(
+        event.sender as WebContentsLike
+      );
       if (resolved) {
         return resolved;
       }
@@ -208,9 +212,15 @@ export async function bootstrapElectron({
           return { isMaximized: target.isMaximized() };
         }
         return windowController(payload.command, target, payload);
-      },
+      }
     );
   }
+
+  app.on("before-quit", () => {
+    stopManagedLauncher().catch((error) => {
+      console.error("[Launcher] Failed to stop cleanly", error);
+    });
+  });
 
   const createWindow = () => {
     const win = new BrowserWindow(getDefaultWindowOptions());

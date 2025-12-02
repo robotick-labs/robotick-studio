@@ -1,0 +1,118 @@
+import { spawn, spawnSync, ChildProcess } from "child_process";
+import fs from "fs";
+import path from "path";
+
+const ROOT_DIR = path.resolve(__dirname, "../../..");
+const VENV_DIR = path.join(ROOT_DIR, ".studio", ".venv");
+const VENV_BIN = path.join(VENV_DIR, "bin");
+const PYTHON_BIN = process.env.ROBOTICK_PYTHON ?? "python3";
+const STATUS_URL = "http://localhost:7081/launcher/status";
+const STOP_URL = "http://localhost:7081/launcher/stop";
+
+let managedProcess: ChildProcess | null = null;
+
+const launcherBin = () => path.join(VENV_BIN, "robotick-launcher");
+
+function pathExists(target: string) {
+  try {
+    fs.accessSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureVenv() {
+  if (pathExists(path.join(VENV_BIN, "python"))) {
+    return;
+  }
+  spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR], {
+    cwd: ROOT_DIR,
+    stdio: "inherit",
+  });
+}
+
+function installLauncherDependencies() {
+  const python = path.join(VENV_BIN, "python");
+  spawnSync(
+    python,
+    ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
+    { cwd: ROOT_DIR, stdio: "inherit" }
+  );
+  spawnSync(
+    python,
+    ["-m", "pip", "install", "-e", "tools/robotick-launcher[dev]"],
+    {
+      cwd: ROOT_DIR,
+      stdio: "inherit",
+    }
+  );
+}
+
+async function waitForLauncher(timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isLauncherResponding()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("Launcher did not start listening in time");
+}
+
+async function isLauncherResponding() {
+  try {
+    const response = await fetch(STATUS_URL);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureLauncherReady() {
+  if (await isLauncherResponding()) {
+    return;
+  }
+
+  ensureVenv();
+  installLauncherDependencies();
+
+  const bin = launcherBin();
+  managedProcess = spawn(bin, ["listen"], {
+    cwd: ROOT_DIR,
+    stdio: "inherit",
+  });
+  managedProcess.on("exit", () => {
+    managedProcess = null;
+  });
+
+  await waitForLauncher();
+}
+
+export async function stopManagedLauncher() {
+  if (!managedProcess) {
+    return;
+  }
+
+  try {
+    await fetch(STOP_URL, { method: "POST" });
+  } catch {
+    // ignore
+  }
+
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      if (managedProcess && !managedProcess.killed) {
+        managedProcess.kill("SIGTERM");
+      }
+      resolve();
+    }, 3000);
+
+    managedProcess?.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+
+  managedProcess = null;
+}

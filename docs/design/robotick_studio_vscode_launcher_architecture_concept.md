@@ -98,8 +98,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Update its `pyproject` to use relative paths and keep `pip install -e` working from the Studio workspace.
   - ✅ Wire CLI/dev scripts (and VS Code test discovery) so `pytest tools/robotick-launcher/tests` runs inside the Studio repo and gates changes.
   - ✅ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
-  - ☐ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
-  - ☐ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
+  - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
+  - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Project Deps Install flows**
   - Author an `install-deps` script (Node or Python) that: creates `.studio/.venv`, installs the Launcher package, and ensures `robotick-launcher` is on Studio’s PATH.
   - Wire `npm install` to call that script; capture logs + failures in a friendly way.
