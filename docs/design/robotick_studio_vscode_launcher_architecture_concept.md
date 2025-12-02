@@ -64,14 +64,19 @@ Studio is the “robot operator / creative workspace.”
 
 ### 4. VS Code Extension
 
-Robotick’s developer shell:
+Robotick’s developer shell (basically a cut-down Studio::renderer (React, ts using vite) instance running in VSCode's left side-panel):
+
+MVP:
 
 - Connects to Launcher for project state
 - Access to pinned engine/workload paths
-- One-click “Run Engine”
+- One-click “Run Engine” (reuse LauncherControl (React) from studio "renderer" layer)
+- Can embed Studio panels as VS Code webviews (start off with a single panel, showing the studio's "Home" view (for now), with the above as its header)
 - One-click “Attach Debugger” (no launch.json)
+
+Beyond MVP:
+
 - Code intelligence and diagnostics
-- Can embed Studio panels as VS Code webviews
 
 VS Code = coding, debugging, editing.  
 Studio = visualisation, control, dashboards.  
@@ -107,6 +112,12 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Prompt A2: Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
   - ✅ Prompt A3: `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Prompt B: Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
+- **VS Code Extension MVP**
+  - ☐ Scaffold the extension workspace (`tools/vscode-extension`) so `npm install` wires up the VS Code activation hook, loads the shared launcher service client, and tracks the active project path/launcher profile from Studio’s settings.
+  - ☐ Expose “Pinned repos” view: call the Launcher REST endpoints to fetch engine/workload repo paths + revisions and render them in the extension tree so users can jump into those folders.
+  - ☐ Reuse the existing `LauncherControls` React widget inside a VS Code Webview (or React panel) so “Run/Stop Launcher” works from VS Code; feed it the same context data as Studio.
+  - ☐ Host a “Robotick Home” panel implemented as a VS Code Webview that renders the Studio renderer bundle (Home view) with the launcher header/actions injected on top.
+  - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
 - **Project schema**
   - Prompt A: Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, `local_workload_roots`, and `local_python_roots` (types, required fields, platform filters).
   - Prompt B: Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
@@ -115,14 +126,14 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Prompt A: Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
   - Prompt B: Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
   - Prompt C: Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
-- **Cleaning story**
-  - Prompt A: Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
-  - Prompt B: Implement `clean-deps` (delete `.launcher/<project>/deps/<target>` + optionally cascade to builds).
-  - Prompt C: Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
 - **Workload metadata**
   - Prompt A: Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
   - Prompt B: Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
   - Prompt C: Add tests covering repo-scoped + local-path discovery so regressions are caught.
+- **Cleaning story**
+  - Prompt A: Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
+  - Prompt B: Implement `clean-deps` (delete `.launcher/<project>/deps/<target>` + optionally cascade to builds).
+  - Prompt C: Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
 - **CI Integration**
   - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites).
 - **Launcher service polish**
