@@ -2,9 +2,13 @@
 
 ## Overview
 
-Robotick is converging on a clean, modern architecture:  
-**one Launcher backend**, **two frontends (Studio + VS Code)**, and a **project-file that pins engine and workload versions**.  
-This gives Robotick a reproducible, deterministic, developer‑friendly workflow across embedded and desktop platforms.
+Robotick Studio’s pitch is simple: one installation unlocks the entire robotics workflow.
+
+- **A single Launcher backend** powers both Studio and the VS Code extension, keeping operations and development in sync.
+- **Two purpose-built frontends** let builders switch seamlessly between creative controls (Studio) and deep code work (VS Code).
+- **Repo-pinned project files** guarantee that every clone rehydrates the exact engine + workload stack, across desktop and embedded targets.
+
+Clone the repo, run `npm install`, and the full stack—visual cockpit, editor, launcher, and pinned deps—is ready to fly.
 
 ---
 
@@ -12,27 +16,29 @@ This gives Robotick a reproducible, deterministic, developer‑friendly workflow
 
 ### 1. Launcher (Python)
 
-Launcher stays the shared backend, but it needs a repo-aware flow:
+Launcher stays the shared backend, now with a repo-aware workflow:
 
-- **Lives with Studio.** We embed the Python package inside the robotick-studio repo so `npm install` can set up the React bits plus a local Launcher (pip install + entrypoint wiring). Later the VS Code extension installer can reuse the same hook.
-- **CLI + service remain.** `robotick-launcher` still runs `generate → build → deploy → run`, plus `run-profile` and the FastAPI listener (`/query`, `/launcher`, `/launcher/ws/log`). Those stages now resolve repos from the new deps layout.
-- **Deterministic deps.** `npm install` (and the VS Code installer) hydrate `.launcher/<project>/deps` for shared repos and keep each model’s `.launcher/<project>/<model>/<target>/deps` for target-only tools.
-- **Workload discovery knows repo type.** Only repos tagged `workload_repos` are scanned for `*Workload.cpp`, while aux repos stay quiet unless a workload YAML references them.
-- **Contract polish.** MVP goal is “install Studio → get Launcher + pinned deps automatically.” Later we add auth, multi-target telemetry, and richer payloads.
+- **Lives with Studio.** The Python package lives in this repo so `npm install` can create `.studio/.venv`, install Launcher locally (no global footprint), and expose `robotick-launcher`. The VS Code installer can reuse the same hook.
+- **CLI + service stay.** `robotick-launcher` still drives `generate → build → deploy → run`, plus `run-profile` and the FastAPI listener (`/query`, `/launcher`, `/launcher/ws/log`). These paths now read from the shared deps layout.
+- **Deterministic deps.** Studio/VS Code installers only hydrate our tooling; a separate stage (`robotick-launcher install-deps`) syncs the pinned engine/workload/shared repos into `.launcher/<project>/deps/<target>`, while each model keeps `.launcher/<project>/<model>/<target>/deps` for target-only bits.
+- **Lifecycle commands.** First-class commands for `install-deps`, `clean-generated`, `clean-deps`, and `clean-all` replace the current “generate does everything” magic so automation can call exactly what it needs.
+- **Workload-aware discovery.** Only repos flagged `workload_repos` are mined for `*Workload.cpp`; auxiliary repos stay silent unless a workload YAML points at them.
+- **Contract polish.** Step one is “install Studio → Launcher + deps are ready.” Next we add versioned `/launcher/v1/*` + `/query/v1/*` endpoints, optional auth/CSRF tokens, and richer per-model telemetry payloads for Studio and VS Code.
 
 ---
 
 ### 2. Project File (<robot-name>.project.yaml)
 
-Defines the environment by pinning repos, not raw paths:
+Defines the environment by pinning repos instead of raw paths:
 
-- `engine`: repo URL + ref. Launcher syncs it into `.launcher/<project>/deps/engine/<slug>` and exposes headers/libs to builds.
-- `workload_repos`: dedicated list for repos that contain workload code. Only these are scanned for metadata and registry generation.
-- `shared_repos`: optional extras (assets, helper libs). Launcher fetches them but never parses workloads unless they also appear above.
-- Each repo entry can gate platforms so ESP32-only bits stay off desktop machines.
-- Target platform + Studio/Launcher prefs remain, but all builds read from the pinned deps tree. Workload YAML keeps pointing to relative paths that resolve within those repos.
+- `engine`: repo URL + ref. Launcher mirrors it into `.launcher/<project>/deps/<target>/engine/<slug>` and feeds headers/libs into the build graph.
+- `workload_repos`: explicit repo list for workloads. Only these feed the auto-generated registry.
+- `shared_repos`: optional extras (assets, helper libs). Launcher fetches them but skips workload discovery unless they also appear in `workload_repos`.
+- `local_workload_roots`: fallback glob(s) inside the project for experimental workloads before they move into a pinned repo.
+- Each repo entry can target specific platforms so ESP32-only bits never land on desktop machines.
+- Target platform + Studio/Launcher prefs stay, but every build resolves from the pinned deps tree. Workload YAML keeps referencing relative paths within those repos.
 
-Result: clone the robot project, run `npm install`, and everything pins itself deterministically.
+Result: clone the robot repo, run `npm install`, and the pinned world appears deterministically.
 
 ---
 
@@ -46,7 +52,7 @@ Robotick’s visual cockpit:
 - Face/emotion views
 - Model graph views
 - Simulator integration (e.g., MuJoCoWorkload)
-- Automatically starts Launcher when a project opens
+- Automatically starts Launcher from the embedded venv when a project opens
 
 Studio is the “robot operator / creative workspace.”
 
@@ -85,10 +91,41 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 
 ## TODO (broad strokes)
 
-- **Embed Launcher:** move the Python package into this repo, keep `pip install -e` working, and teach `npm install` to bootstrap a venv + install Launcher deps + expose `robotick-launcher`.
-- **Project schema:** reshape `<robot>.project.yaml` to include `engine`, `workload_repos`, and `shared_repos` entries with repo URL/ref/platform filters; migrate generate/build/query paths to the new schema.
-- **Repo pinning + cache:** extend the generate step to clone/fetch repos into `.launcher/<project>/deps/<category>/<slug>` with lock metadata and keep per-model `.launcher/<project>/<model>/<target>/deps` for target-only toolchains.
-- **Workload metadata:** limit automated scans to `workload_repos`, keep aux repos opt-in, refresh registry generation and ensure CLI + listener endpoints emit the updated metadata.
-- **Install flows:** make `npm install` hydrate Python deps, repo cache, and shared tooling; plan the same bootstrap hook for the VS Code extension installer.
-- **Launcher service polish:** tighten `/launcher` and `/query` contracts (versioning/auth placeholders), ensure runs respect the new deps layout + multi-target builds, and outline richer telemetry payloads.
-- **Docs/UX:** refresh concept + summary docs with the repo schema, deps layout, and installer expectations; add a quickstart (“clone → npm install → robotick-studio”) and capture the future VS Code path.
+- **Embed Launcher**
+  - ✅ Move the `robotick-launcher` source tree into this repo (e.g., `tools/launcher/`), copying tests + templates intact.
+  - ☐ Update its `pyproject` to use relative paths and keep `pip install -e` working from the Studio workspace.
+  - ☐ Wire CI/dev scripts (and VS Code test discovery) so `pytest tools/robotick-launcher/tests` runs inside the Studio repo and gates changes.
+  - ☐ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
+- **Install flows**
+  - Author an `install-deps` script (Node or Python) that: creates `.studio/.venv`, installs the Launcher package, and ensures `robotick-launcher` is on Studio’s PATH.
+  - Wire `npm install` to call that script; capture logs + failures in a friendly way.
+  - Mirror the same script in the VS Code extension installer so both frontends share the bootstrap logic.
+- **Studio runtime**
+  - Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
+  - Ensure the renderer only loads once Launcher is reachable; surface errors with retry buttons/log links.
+  - Provide a quit hook that stops the Launcher process (unless another UI is still attached).
+- **Project schema**
+  - Draft a concrete YAML schema for `engine.repo`, `workload_repos`, `shared_repos`, and `local_workload_roots` (types, required fields, platform filters).
+  - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
+  - Update docs/sample projects to the new schema and provide a migration guide.
+- **Repo pinning + cache**
+  - Implement `robotick-launcher install-deps`: resolve repo list, clone/update into `.launcher/<project>/deps/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
+  - Teach `generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
+  - Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
+- **Cleaning story**
+  - Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
+  - Implement `clean-deps` (delete `.launcher/<project>/deps/<target>` + optionally cascade to builds).
+  - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
+- **Workload metadata**
+  - Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
+  - Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
+  - Add tests covering repo-scoped + local-path discovery so regressions are caught.
+- **Launcher service polish**
+  - Version the REST/WebSocket routes (`/launcher/v1/*`, `/query/v1/*`) and include API version headers.
+  - Add optional auth (shared secret/token + CSRF cookies) so Studio/VS Code can connect safely.
+  - Expand telemetry payloads: structured per-model status, build/run phases, log stream metadata, etc.
+  - Confirm `/launcher/run|stop|status` understand the new deps layout and multi-target runs (e.g., `local:ALL` with mixed targets).
+- **Docs/UX**
+  - Update the concept + summary docs plus README quickstarts to describe the embedded Launcher + install-deps flow.
+  - Provide a “clone → npm install → robotick-studio” walkthrough with troubleshooting tips.
+  - Document how VS Code discovers the local Launcher, and outline future plans for headless/CI usage.

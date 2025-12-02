@@ -1,0 +1,10 @@
+# Project-level configuration for the 'test-project' robot
+
+name: "Test Project"
+description: "Test Project for use in Launcher Unit Tests."
+
+robotick_engine_root: ../../../../robotick-engine
+
+workload_roots:
+  - ../workloads/cpp/include
+  - ../workloads/cpp/src
