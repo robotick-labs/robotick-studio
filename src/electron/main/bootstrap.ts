@@ -1,10 +1,13 @@
+import fs from "fs";
 import path from "path";
+import { screen } from "electron";
 import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
 import type {
+  BrowserWindow as ElectronBrowserWindow,
   IpcMain,
   IpcMainInvokeEvent,
   Menu as ElectronMenu,
-  BrowserWindow as ElectronBrowserWindow,
+  Rectangle,
 } from "electron";
 
 type WebContentsLike = {
@@ -40,6 +43,7 @@ type BrowserWindowInstance = {
   close: () => void;
   on: (event: string, listener: (...args: unknown[]) => void) => void;
   webContents: WebContentsLike;
+  getBounds: () => Rectangle;
 };
 
 export type BrowserWindowConstructor = {
@@ -57,9 +61,72 @@ type BootstrapOptions = {
   platform?: NodeJS.Platform;
 };
 
-const getDefaultWindowOptions = () => ({
+type WindowState = {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  isMaximized?: boolean;
+};
+
+const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1400,
   height: 900,
+};
+
+const WINDOW_STATE_FILE =
+  process.env.ROBOTICK_WINDOW_STATE_FILE ||
+  path.join(process.cwd(), ".studio", "window-state.json");
+
+function readWindowState(): WindowState {
+  try {
+    const contents = fs.readFileSync(WINDOW_STATE_FILE, { encoding: "utf-8" });
+    return { ...DEFAULT_WINDOW_STATE, ...JSON.parse(contents) };
+  } catch {
+    return DEFAULT_WINDOW_STATE;
+  }
+}
+
+function writeWindowState(state: WindowState) {
+  try {
+    fs.mkdirSync(path.dirname(WINDOW_STATE_FILE), { recursive: true });
+    fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(state, null, 2), {
+      encoding: "utf-8",
+    });
+  } catch (error) {
+    console.error("[Launcher] Failed to persist window state", error);
+  }
+}
+
+function clampToDisplay(state: WindowState) {
+  const bounds = { ...state };
+  const rect: Rectangle = {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x ?? 0,
+    y: bounds.y ?? 0,
+  };
+  const display = screen?.getDisplayMatching?.(rect) ?? screen?.getPrimaryDisplay?.();
+  if (!display) {
+    return bounds;
+  }
+  const workArea = display.workArea;
+  const width = Math.min(bounds.width, workArea.width);
+  const height = Math.min(bounds.height, workArea.height);
+  const x = Math.min(
+    Math.max(bounds.x ?? workArea.x, workArea.x),
+    workArea.x + workArea.width - width
+  );
+  const y = Math.min(
+    Math.max(bounds.y ?? workArea.y, workArea.y),
+    workArea.y + workArea.height - height
+  );
+  return { ...bounds, x, y, width, height };
+}
+
+const getDefaultWindowOptions = (state: WindowState = DEFAULT_WINDOW_STATE) => ({
+  width: state.width,
+  height: state.height,
   titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
   trafficLightPosition:
     process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
@@ -104,14 +171,19 @@ export async function bootstrapElectron({
   });
 
   const registerWindowStateListeners = (win: BrowserWindowInstance) => {
-    const notify = () => {
-      win.webContents.send("robotick-window-state", {
+    const saveState = () => {
+      const state: WindowState = {
+        ...win.getBounds(),
         isMaximized: win.isMaximized(),
-      });
+      };
+      writeWindowState(state);
     };
-    win.on("maximize", notify);
-    win.on("unmaximize", notify);
-    win.on("focus", notify);
+    win.on("maximize", saveState);
+    win.on("unmaximize", saveState);
+    win.on("focus", saveState);
+    win.on("resize", saveState);
+    win.on("move", saveState);
+    win.on("close", saveState);
   };
 
   const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent) => {
@@ -222,8 +294,13 @@ export async function bootstrapElectron({
     });
   });
 
+  const storedState = clampToDisplay(readWindowState());
   const createWindow = () => {
-    const win = new BrowserWindow(getDefaultWindowOptions());
+    const win = new BrowserWindow(getDefaultWindowOptions(storedState));
+
+    if (storedState.isMaximized) {
+      win.maximize();
+    }
 
     win.setMenuBarVisibility(false);
     registerWindowStateListeners(win);
