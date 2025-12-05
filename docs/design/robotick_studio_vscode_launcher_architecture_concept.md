@@ -127,7 +127,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Prompt B: Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
   - Prompt C: Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
 - **Workload metadata**
-  - Prompt A: Update workload discovery to scan only `workload_repos` + optional `local_workload_roots`.
+  - Prompt A: Update workload discovery to scan only `workload_repos` + `local_workload_roots` (both optional).
   - Prompt B: Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
   - Prompt C: Add tests covering repo-scoped + local-path discovery so regressions are caught.
 - **Cleaning story**
