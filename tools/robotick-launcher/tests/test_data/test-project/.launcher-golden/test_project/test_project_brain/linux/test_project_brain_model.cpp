@@ -70,7 +70,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         {}    // inputs
     };
 
-    static const WorkloadSeed* root_group_children[] = {
+    static const WorkloadSeed* const root_group_children[] = {
         &remote_control,        &face,        &camera    };
 
 
@@ -83,7 +83,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         {}    // inputs
     };
 
-    static const WorkloadSeed* all_workloads[] = {
+    static const WorkloadSeed* const all_workloads[] = {
         &remote_control,
         &face,
         &camera,
@@ -98,7 +98,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         "remote_control.inputs.jpeg_data"
     };
 
-    static const DataConnectionSeed* all_connections[] = {
+    static const DataConnectionSeed* const all_connections[] = {
         &conn_remote_control_inputs_jpeg_data
     };
     // === Remote models ===
@@ -113,7 +113,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         "steering_mixer.inputs.speed"
     };
 
-    static const DataConnectionSeed* spine_connections[] = {
+    static const DataConnectionSeed* const spine_connections[] = {
         &spine_conn_steering_mixer_inputs_turn_rate,
         &spine_conn_steering_mixer_inputs_speed
     };
@@ -123,7 +123,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         spine_connections
     };
 
-    static const RemoteModelSeed* all_remote_models[] = {
+    static const RemoteModelSeed* const all_remote_models[] = {
         &remote_spine        
     };
 

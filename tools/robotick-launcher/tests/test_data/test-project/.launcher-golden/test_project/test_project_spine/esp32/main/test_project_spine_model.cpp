@@ -41,7 +41,7 @@ void populate_model_test_project_spine(robotick::Model& model)
         {}    // inputs
     };
 
-    static const WorkloadSeed* control_sequence_children[] = {
+    static const WorkloadSeed* const control_sequence_children[] = {
         &steering_mixer,        &basex    };
 
 
@@ -64,7 +64,7 @@ void populate_model_test_project_spine(robotick::Model& model)
         {}    // inputs
     };
 
-    static const WorkloadSeed* esp32_root_children[] = {
+    static const WorkloadSeed* const esp32_root_children[] = {
         &control_sequence,        &heart_ui    };
 
 
@@ -77,7 +77,7 @@ void populate_model_test_project_spine(robotick::Model& model)
         {}    // inputs
     };
 
-    static const WorkloadSeed* all_workloads[] = {
+    static const WorkloadSeed* const all_workloads[] = {
         &steering_mixer,
         &basex,
         &control_sequence,
@@ -96,7 +96,7 @@ void populate_model_test_project_spine(robotick::Model& model)
         "basex.inputs.motor2_speed"
     };
 
-    static const DataConnectionSeed* all_connections[] = {
+    static const DataConnectionSeed* const all_connections[] = {
         &conn_basex_inputs_motor1_speed, 
         &conn_basex_inputs_motor2_speed
     };

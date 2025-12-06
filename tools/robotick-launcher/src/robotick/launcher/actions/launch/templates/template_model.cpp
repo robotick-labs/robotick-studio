@@ -21,7 +21,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     // === Workloads ===
     {% for w in workloads %}
     {% if w.children %}
-    static const WorkloadSeed* {{ w.var_name }}_children[] = {
+    static const WorkloadSeed* const {{ w.var_name }}_children[] = {
     {% for child in w.children %}
         &{{ child.replace("-", "_") }}{% if not loop.last %},{% endif %}
     {% endfor %}
@@ -73,7 +73,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
 
     {% endfor %}
-    static const WorkloadSeed* all_workloads[] = {
+    static const WorkloadSeed* const all_workloads[] = {
     {% for w in workloads %}
         &{{ w.var_name }}{% if not loop.last %},{% endif %}
 
@@ -90,7 +90,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     {% endfor %}
 
     {% if connections %}
-    static const DataConnectionSeed* all_connections[] = {
+    static const DataConnectionSeed* const all_connections[] = {
     {% for conn in connections %}
         &{{ conn.var_name }}{% if not loop.last %}, {% endif %}
 
@@ -108,7 +108,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
 
         {% endfor %}
-    static const DataConnectionSeed* {{ remote.name_safe }}_connections[] = {
+    static const DataConnectionSeed* const {{ remote.name_safe }}_connections[] = {
         {% for conn in remote.connections %}
         &{{ conn.var_name }}{% if not loop.last %},{% endif %}
 
@@ -121,7 +121,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
     {% endfor %}
 
-    static const RemoteModelSeed* all_remote_models[] = {
+    static const RemoteModelSeed* const all_remote_models[] = {
         {% for remote in remote_models %}
         &remote_{{ remote.name_safe }}{% if not loop.last %}, {% endif %}
         
