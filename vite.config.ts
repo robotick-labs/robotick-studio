@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import cesium from "vite-plugin-cesium";
 import path, { resolve, relative } from "node:path";
 import { readdirSync, statSync, existsSync } from "node:fs";
 
@@ -35,6 +36,7 @@ export default defineConfig({
   root: "src/renderer",
 
   publicDir: "../../public/renderer",
+  plugins: [cesium()],
 
   build: {
     outDir: "../../dist/renderer",

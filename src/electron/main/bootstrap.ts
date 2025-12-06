@@ -18,6 +18,13 @@ type WebContentsLike = {
       overrideBrowserWindowOptions?: Record<string, unknown>;
     }
   ) => void;
+  on?: (
+    event: string,
+    listener: (...args: unknown[]) => void
+  ) => void;
+  openDevTools?: (options?: Record<string, unknown>) => void;
+  closeDevTools?: () => void;
+  isDevToolsOpened?: () => boolean;
 };
 
 export type ElectronApp = {
@@ -128,24 +135,24 @@ function clampToDisplay(state: WindowState) {
   return { ...bounds, x, y, width, height };
 }
 
-const getDefaultWindowOptions = (state: WindowState = DEFAULT_WINDOW_STATE) => ({
-  width: state.width,
-  height: state.height,
-  titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-  trafficLightPosition:
-    process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
-  titleBarOverlay: {
-    color: "#11141b",
-    symbolColor: "#ffffff",
-    height: 48,
-  },
-  frame: false,
-  webPreferences: {
-    preload: path.join(__dirname, "../preload/preload.js"),
-  },
-  sandbox: true,
-  autoHideMenuBar: true,
-});
+const getDefaultWindowOptions = (
+  state: WindowState = DEFAULT_WINDOW_STATE,
+  platform: NodeJS.Platform = process.platform
+) => {
+  const isMac = platform === "darwin";
+  return {
+    width: state.width,
+    height: state.height,
+    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
+    frame: false,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/preload.js"),
+    },
+    sandbox: true,
+    autoHideMenuBar: true,
+  };
+};
 
 export async function bootstrapElectron({
   app,
@@ -170,7 +177,10 @@ export async function bootstrapElectron({
     const webContents = contents as WebContentsLike;
     webContents.setWindowOpenHandler?.(() => ({
       action: "allow",
-      overrideBrowserWindowOptions: getDefaultWindowOptions(),
+      overrideBrowserWindowOptions: getDefaultWindowOptions(
+        DEFAULT_WINDOW_STATE,
+        platform
+      ),
     }));
   });
 
@@ -188,6 +198,61 @@ export async function bootstrapElectron({
     win.on("resize", saveState);
     win.on("move", saveState);
     win.on("close", saveState);
+  };
+  const registerDevtoolsShortcuts = (
+    win: BrowserWindowInstance,
+    platform: NodeJS.Platform
+  ) => {
+    const webContents = win.webContents;
+    const preventDefault = (event: unknown) => {
+      if (
+        typeof event === "object" &&
+        event !== null &&
+        "preventDefault" in event &&
+        typeof (event as { preventDefault?: () => void }).preventDefault ===
+          "function"
+      ) {
+        (event as { preventDefault: () => void }).preventDefault();
+      }
+    };
+
+    const shouldToggleDevtools = (rawInput: unknown): boolean => {
+      if (typeof rawInput !== "object" || rawInput === null) {
+        return false;
+      }
+      const input = rawInput as Record<string, unknown>;
+      const key = typeof input.key === "string" ? input.key.toLowerCase() : "";
+      if (key !== "i") {
+        return false;
+      }
+      if (
+        platform === "darwin" &&
+        input.meta === true &&
+        input.alt === true
+      ) {
+        return true;
+      }
+      return (
+        platform !== "darwin" &&
+        input.control === true &&
+        input.shift === true
+      );
+    };
+
+    webContents.on?.(
+      "before-input-event",
+      (event: unknown, input: unknown) => {
+        if (!shouldToggleDevtools(input)) {
+          return;
+        }
+        preventDefault(event);
+        if (webContents.isDevToolsOpened?.()) {
+          webContents.closeDevTools?.();
+          return;
+        }
+        webContents.openDevTools?.({ mode: "right" });
+      }
+    );
   };
 
   const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent) => {
@@ -300,7 +365,9 @@ export async function bootstrapElectron({
 
   const storedState = clampToDisplay(readWindowState());
   const createWindow = () => {
-    const win = new BrowserWindow(getDefaultWindowOptions(storedState));
+    const win = new BrowserWindow(
+      getDefaultWindowOptions(storedState, platform)
+    );
 
     if (storedState.isMaximized) {
       win.maximize();
@@ -308,6 +375,7 @@ export async function bootstrapElectron({
 
     win.setMenuBarVisibility(false);
     registerWindowStateListeners(win);
+    registerDevtoolsShortcuts(win, platform);
     win.on("ready-to-show", () => {
       win.webContents.send("robotick-window-state", {
         isMaximized: win.isMaximized(),

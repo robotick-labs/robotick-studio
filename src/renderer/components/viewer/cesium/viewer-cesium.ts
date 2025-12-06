@@ -13,6 +13,7 @@ import { ProjectData } from "../../../data-sources/launcher/index.js";
 
 type CesiumViewerConfig = ViewerConfig & {
   telemetryModelName?: string;
+  modelUri?: string;
 };
 
 let CESIUM_TOKEN: string | null = null;
@@ -41,7 +42,10 @@ const secretsPromise: Promise<void> = (async () => {
 
 // ---------------------------------------------------------------------------
 
-async function init(config: ViewerConfig, instanceId?: number): Promise<void> {
+async function init(
+  config: CesiumViewerConfig,
+  instanceId?: number
+): Promise<void> {
   if (viewer) {
     console.warn("Visualizer already initialized.");
     return;
@@ -97,11 +101,13 @@ async function init(config: ViewerConfig, instanceId?: number): Promise<void> {
   const alt = 102;
 
   const rocketPosition = Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+  const modelUri =
+    config.modelUri?.trim() ?? "/static/glb/robotick_simple_rocket.glb";
   rocketEntity = viewer.entities.add({
     name: "Rocket",
     position: rocketPosition,
     model: {
-      uri: "glb/robotick_simple_rocket.glb",
+      uri: modelUri,
       scale: 1.0,
       minimumPixelSize: 64,
     },

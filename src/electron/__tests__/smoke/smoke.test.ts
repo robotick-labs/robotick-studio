@@ -152,11 +152,12 @@ describe("electron launch paths", () => {
         titleBarStyle: "hidden",
         frame: false,
         sandbox: true,
-        titleBarOverlay: expect.objectContaining({
-          color: "#11141b",
-        }),
+        autoHideMenuBar: true,
       }),
     );
+    expect(
+      result.overrideBrowserWindowOptions?.titleBarOverlay
+    ).toBeUndefined();
     expect(result.overrideBrowserWindowOptions?.webPreferences).toEqual(
       expect.objectContaining({
         preload: expect.stringContaining("preload/preload.js"),

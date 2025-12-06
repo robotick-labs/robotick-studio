@@ -32,7 +32,17 @@ def get_project_models(
     )
 ) -> list[str]:
     """List all model YAML files associated with a given project file."""
-    return list_project_models(str(project_path))
+    try:
+        project_path_resolved = project_path.resolve()
+    except Exception as exc:  # pragma: no cover - Path.resolve rarely fails
+        raise HTTPException(
+            status_code=400, detail=f"Invalid project path: {project_path}"
+        ) from exc
+
+    try:
+        return list_project_models(str(project_path_resolved))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _load_yaml_as_json(path: Path) -> dict:

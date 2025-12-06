@@ -9,13 +9,22 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 7081
 DEFAULT_LOG_LEVEL = "info"
 
+# Electron dev renders from http://localhost:<vite_port> while the packaged
+# renderer uses the `file://` origin, which is surfaced as the literal string
+# "null" in the Origin header. Allow those origins explicitly so the
+# CORSMiddleware can echo the request origin instead of falling back to "*",
+# which Chromium now rejects when credentials are enabled.
+DEV_ALLOWED_ORIGINS = ["null"]
+DEV_ALLOWED_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Robotick Launcher | Listen", version="0.1.0")
 
     # 🔓 Allow everything (dev only)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=DEV_ALLOWED_ORIGINS,
+        allow_origin_regex=DEV_ALLOWED_ORIGIN_REGEX,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
