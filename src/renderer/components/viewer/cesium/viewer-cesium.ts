@@ -185,8 +185,9 @@ function updateRocketFromTelemetry(model: ITelemetryModel): void {
 
   const get = (fieldPath: string): number =>
     parseFloat(
-      model.getField(`${workloadName}.outputs.${fieldPath}`)?.getValue?.() ??
-        "0"
+      model
+        .getField(`${workloadName}.outputs.jsb.${fieldPath}`)
+        ?.getValue?.() ?? "0"
     );
 
   const lat = get("fcs_position_lat_deg");
