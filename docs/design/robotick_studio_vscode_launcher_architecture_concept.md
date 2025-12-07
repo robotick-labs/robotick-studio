@@ -49,7 +49,7 @@ Result: clone the robot repo, run `./scripts/bootstrap.sh` (or platform equivale
 
 #### Tooling Pins
 
-The project file now embeds a `tooling` section (e.g., `robotick.repo`, `robotick.ref`) covering both Studio + Launcher (since they share the same repository). The bootstrapper reads those pins, clones this repo at the desired commits into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, hydrates `.studio/.venv`, and exposes helper entry points. Contributors can override the pin temporarily via `ROBOTICK_TOOLING_OVERRIDE`, but the default experience is “use exactly the toolchain the repo committed.”
+The project file now embeds a `tooling` section (e.g., `robotick.repo`, `robotick.ref`) covering both Studio + Launcher (since they share the same repository). The bootstrapper reads those pins, clones this repo at the desired commits into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, hydrates `.studio/.venv`, and exposes helper entry points (thin wrappers like `./run-studio.sh` + `./run-launcher.sh` that exec the pinned binaries from `.launcher/<project>/deps/tooling/<version>`). Contributors can override the pin temporarily via `ROBOTICK_TOOLING_OVERRIDE`, but the default experience is “use exactly the toolchain the repo committed.”
 
 Example (abridged) `my-robot.project.yaml`:
 
@@ -125,7 +125,7 @@ Both use the same pinned Launcher as their brain, fetched from the project’s t
 
 We intentionally skip a global Studio/Launcher installer. Instead, every robot repo ships a tiny, self-contained bootstrapper per project (e.g., `MyRobot.project.yaml` paired with `MyRobot.setup.sh`, plus optional repo-root dispatcher scripts). That script lives alongside the project file, uses only POSIX shell + git/python stdlib (no launcher imports), and carries everything needed to hydrate the tooling bundle before Launcher ever runs. It can:
 
-- **Run an existing robot.** `git clone robot-repo && cd robot-repo && ./robots/MyRobot.setup.sh` reads that project file’s `tooling` section, clones the pinned Studio/Launcher refs into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, installs the VS Code extension locally, and calls `robotick-launcher install-deps`. The generated `./studio.sh` script launches the bundled Studio which auto-attaches to the project-scoped launcher service.
+- **Run an existing robot.** `git clone robot-repo && cd robot-repo && ./robots/MyRobot.setup.sh` reads that project file’s `tooling` section, clones the pinned Studio/Launcher refs into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, installs the VS Code extension locally, and calls `robotick-launcher install-deps`. The generated `./run-studio.sh` script launches the bundled Studio which auto-attaches to the project-scoped launcher service.
 - **Create a new robot.** A template (or `create-robotick-project`) scaffolds `<robot>.project.yaml`, writes default tooling pins, and hydrates the tooling folder under `.launcher/<project>/deps/tooling`. Developers tweak repo lists, rerun the bootstrap to hydrate runtime deps, and commit the updated project file alongside their code.
 - **Host cloud demos.** The AWS-deployed Hub clones a curated robot repo, runs the same bootstrapper for the relevant project, and serves the Studio renderer in a browser while keeping the pinned launcher service alive in the same deployment. Each hosted robot keeps its own tooling pins and `.launcher/<project>/deps/tooling` tree, so multiple demos can coexist without version conflicts.
 
@@ -156,13 +156,18 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
+- **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(goal: make the new schema/bootstrapping real in the first robot repo before touching anything else)._
+  - ☐ Extend the project schema with a `tooling` section (`robotick.repo/ref`, optional cache hints), expose it in launcher config objects, and validate it on load.
+  - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) before `install-deps` ever runs.
+  - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout.
+  - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to the new schema, add its `pip-e.setup.sh`, and verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end.
+  - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`.
+  - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable.
 - **Project Tooling + Deps flows**
   - ✅ Extend the project schema to support `local_python_roots` (id/path/requirements) and surface that data in the launcher config objects.
   - ✅ Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
   - ✅ `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
-  - ☐ Extend the project schema with a `tooling` section (`robotick.repo/ref`, optional cache hints), expose it in launcher config objects, and validate it on load.
-  - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`studio.sh`, `launcher.sh`) before `install-deps` ever runs.
 - **Project schema**
   - Draft a concrete YAML schema for the new `runtime` section (`engine`, `workload_repos`, `shared_repos`, `local_workload_roots`, `local_python_roots`) plus per-entry platform filters.
   - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
