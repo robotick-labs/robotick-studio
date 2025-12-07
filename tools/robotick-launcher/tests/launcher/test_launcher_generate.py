@@ -83,7 +83,7 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
                     gold_lines, out_lines,
                     fromfile=f"expected/{rel_path}",
                     tofile=f"actual/{rel_path}",
-                    lineterm=""
+                    lineterm="\n"
                 ))
 
                 # Limit diff length for big files (optional)
