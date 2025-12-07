@@ -163,7 +163,6 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Enforced the “repo/ref xor local_path” rule across runtime entries, rewired launcher surfaces (generate/discover/install/query) to read `runtime.engine/workloads/shared/python_roots`, and updated docs/schemas/tests so the new contract is documented and exercised.
   - ✅ Updated launcher shell-out tests to invoke `python -m robotick.launcher.cli` with `PYTHONPATH=tools/robotick-launcher/src`, keeping CI/dev invocations local to the repo instead of relying on a globally installed binary.
   - ✅ Updated launcher codepaths (generate CMake, install-deps, workloads discovery) to read `config.runtime.*` (engine path, workload roots, python roots) and added tests/fixtures to keep pytest green.
-  - ☐ Once all launcher code reads `config.runtime.*`, drop the legacy root-level keys from the test fixture (then from Pip-E) and remove the compatibility shim in `Config`.
 - **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(first real robot repo to adopt schema v1 + pinned tooling)._
   - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 and add its `pip-e.setup.sh` script.
   - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) before `install-deps` ever runs—cover with bootstrap tests.
@@ -171,6 +170,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ☐ Verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end in-place and capture the run with integration tests before rolling out elsewhere.
   - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
   - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
+- **Legacy cleanup**
+  - ☐ Once all launcher code reads `config.runtime.*`, drop the legacy root-level keys from the test fixture (then from Pip-E) and remove the compatibility shim in `Config`.
 - **Project Tooling + Deps flows**
   - ✅ Extend the project schema to support `python_roots` (id/local_path/requirements) and surface that data in the launcher config objects.
   - ✅ Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
@@ -204,6 +205,6 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ☐ Add/update Vitest/E2E coverage for new extension features and run the suite before releasing (umbrella reminder).
 - **Docs/UX**
   - Update the concept + summary docs plus README quickstarts to describe the bootstrap + tooling-pin workflow—ensure accompanying doc tests/screenshots are refreshed.
-- Provide a “clone → bootstrap.sh → run-studio.sh” walkthrough with troubleshooting tips (Linux/macOS/Windows)—validate the walkthrough manually/tests before publishing.
+  - Provide a “clone → bootstrap.sh → run-studio.sh” walkthrough with troubleshooting tips (Linux/macOS/Windows)—validate the walkthrough manually/tests before publishing.
   - Document how VS Code discovers the per-project Launcher, how to override tooling pins locally, and how AWS-hosted Hub deployments use the same mechanism—include verification steps in docs.
   - ☐ Treat doc updates like code: run doc linting/checks (where applicable) and include verification snippets/smoke tests before publishing (global reminder).
