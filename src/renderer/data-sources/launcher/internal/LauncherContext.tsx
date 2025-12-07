@@ -57,7 +57,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [isRobotAlive, setIsRobotAlive] = useState(true);
   const [robotAliveLoading, setRobotAliveLoading] = useState(false);
   const [robotAliveError, setRobotAliveError] = useState<string | null>(null);
-  const lastStatusRef = useRef<LauncherStatus>("stopped");
+  const lastStatusRef = useRef<LauncherStatus | null>(null);
   const skipNextRobotCheckRef = useRef(false);
   const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
   const lastRunningAtRef = useRef<number | null>(null);
@@ -85,6 +85,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           const prevStatus = lastStatusRef.current;
           const statusChanged = prevStatus !== launcherStatus;
           lastStatusRef.current = launcherStatus;
+
+          if (statusChanged || prevStatus === null) {
+            launcherEvents.dispatchEvent(
+              new CustomEvent("status-changed", {
+                detail: { status: launcherStatus },
+              })
+            );
+          }
 
           if (launcherStatus === "running") {
             if (statusChanged) {
