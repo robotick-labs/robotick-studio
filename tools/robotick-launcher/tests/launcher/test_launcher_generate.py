@@ -79,11 +79,11 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
             gold_lines = normalize_lines(gold_text.splitlines())
 
             if out_lines != gold_lines:
-                diff = "".join(difflib.unified_diff(
+                diff = "\n".join(difflib.unified_diff(
                     gold_lines, out_lines,
                     fromfile=f"expected/{rel_path}",
                     tofile=f"actual/{rel_path}",
-                    lineterm="\n"
+                    lineterm=""
                 ))
 
                 # Limit diff length for big files (optional)
