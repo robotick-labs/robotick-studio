@@ -65,6 +65,7 @@ class Config:
         self.dry_run = dry_run
         self.stub_install = stub_install
         self.project_file = base_dir / f"{project}.project.yaml"
+        self.project_dir = self.project_file.parent
 
         # Load YAMLs
         self.project = self._load_yaml(self.project_file)
@@ -115,34 +116,45 @@ class Config:
 
         project_dict: Dict[str, Any] = dict(self.project)
 
-        tooling_dict = project_dict.get("tooling") or {}
+        tooling_dict = dict(project_dict.get("tooling") or {})
         self.tooling = DotDict(tooling_dict)
         self._validate_tooling_schema(self.tooling)
         self.project["tooling"] = self.tooling
+        runtime_dict = dict(project_dict.get("runtime") or {})
 
-        runtime_dict = project_dict.get("runtime") or {}
+        if "engine" not in runtime_dict:
+            legacy_engine = project_dict.get("robotick_engine_root")
+            if legacy_engine:
+                runtime_dict["engine"] = {"local_path": legacy_engine}
+
+        if "workloads" not in runtime_dict:
+            workloads: List[Any] = []
+            workloads.extend(runtime_dict.get("workload_repos") or [])
+            legacy_local_roots = (
+                runtime_dict.get("local_workload_roots")
+                or project_dict.get("local_workload_roots")
+                or project_dict.get("workload_roots")
+                or []
+            )
+            workloads.extend(legacy_local_roots)
+            if workloads:
+                runtime_dict["workloads"] = workloads
+
+        if "shared" not in runtime_dict:
+            shared_entries = runtime_dict.get("shared_repos")
+            if shared_entries:
+                runtime_dict["shared"] = shared_entries
+
+        if "python_roots" not in runtime_dict:
+            python_entries = runtime_dict.get("local_python_roots") or project_dict.get(
+                "local_python_roots"
+            )
+            if python_entries:
+                runtime_dict["python_roots"] = python_entries
+
         self.runtime = DotDict(runtime_dict)
         self._validate_runtime_schema(self.runtime)
         self.project["runtime"] = self.runtime
-
-        # Keep legacy keys aligned so existing callers keep working.
-        if self.runtime.get("local_python_roots") and not self.project.get(
-            "local_python_roots"
-        ):
-            self.project["local_python_roots"] = self.runtime.local_python_roots
-        elif self.project.get("local_python_roots") and not self.runtime.get(
-            "local_python_roots"
-        ):
-            self.runtime["local_python_roots"] = self.project.local_python_roots
-
-        if self.runtime.get("local_workload_roots") and not self.project.get(
-            "local_workload_roots"
-        ):
-            self.project["local_workload_roots"] = self.runtime.local_workload_roots
-        elif self.project.get("local_workload_roots") and not self.runtime.get(
-            "local_workload_roots"
-        ):
-            self.runtime["local_workload_roots"] = self.project.local_workload_roots
 
     def _validate_tooling_schema(self, tooling: DotDict) -> None:
         if not tooling:
@@ -151,64 +163,140 @@ class Config:
         robotick = tooling.get("robotick")
         if not isinstance(robotick, dict):
             raise ValueError("'tooling.robotick' must be a mapping with repo/ref fields.")
-        repo = robotick.get("repo")
-        ref = robotick.get("ref")
-        if not repo or not isinstance(repo, str):
-            raise ValueError("'tooling.robotick.repo' must be a non-empty string.")
-        if not ref or not isinstance(ref, str):
-            raise ValueError("'tooling.robotick.ref' must be a non-empty string.")
+        has_repo = isinstance(robotick.get("repo"), str)
+        has_ref = isinstance(robotick.get("ref"), str)
+        local_path = robotick.get("local_path")
+        if local_path is not None and not isinstance(local_path, str):
+            raise ValueError("'tooling.robotick.local_path' must be a string path if provided.")
+        if local_path:
+            robotick["local_path"] = local_path
+        if not local_path:
+            if not has_repo:
+                raise ValueError("'tooling.robotick.repo' must be a non-empty string when local_path is absent.")
+            if not has_ref:
+                raise ValueError("'tooling.robotick.ref' must be a non-empty string when local_path is absent.")
 
         bootstrap = tooling.get("bootstrap")
         if bootstrap is not None and not isinstance(bootstrap, str):
             raise ValueError("'tooling.bootstrap' must be a string path if provided.")
 
     def _validate_runtime_schema(self, runtime: DotDict) -> None:
-        if not runtime:
-            return
+        if runtime is None:
+            runtime = DotDict({})
 
         engine = runtime.get("engine")
         if engine is not None:
-            self._validate_repo_entry(engine, "runtime.engine")
+            runtime["engine"] = self._validate_repo_entry(engine, "runtime.engine")
 
-        for field in ("workload_repos", "shared_repos"):
-            entries = runtime.get(field) or []
-            if not isinstance(entries, list):
-                raise ValueError(f"'{field}' must be a list when provided.")
-            for idx, entry in enumerate(entries):
-                self._validate_repo_entry(entry, f"{field}[{idx}]")
-            runtime[field] = entries
+        workloads = runtime.get("workloads") or []
+        if workloads and not isinstance(workloads, list):
+            raise ValueError("'runtime.workloads' must be a list when provided.")
+        normalized_workloads: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(workloads or []):
+            normalized_workloads.append(
+                self._validate_repo_entry(entry, f"runtime.workloads[{idx}]")
+            )
+        runtime["workloads"] = normalized_workloads
 
-        for list_field in ("local_workload_roots",):
-            entries = runtime.get(list_field)
-            if entries is None:
-                continue
-            if not isinstance(entries, list) or any(
-                not isinstance(item, str) for item in entries
+        shared_entries = runtime.get("shared") or []
+        if shared_entries and not isinstance(shared_entries, list):
+            raise ValueError("'runtime.shared' must be a list when provided.")
+        normalized_shared: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(shared_entries or []):
+            normalized_shared.append(
+                self._validate_repo_entry(entry, f"runtime.shared[{idx}]")
+            )
+        runtime["shared"] = normalized_shared
+
+        python_entries = runtime.get("python_roots") or []
+        if python_entries and not isinstance(python_entries, list):
+            raise ValueError("'runtime.python_roots' must be a list when provided.")
+        normalized_python: List[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for idx, entry in enumerate(python_entries or []):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"'runtime.python_roots[{idx}]' must be a mapping with id/local_path."
+                )
+            root_id = entry.get("id")
+            if not root_id or not isinstance(root_id, str):
+                raise ValueError(
+                    f"'runtime.python_roots[{idx}]' must include a string 'id'."
+                )
+            if root_id in seen_ids:
+                raise ValueError(f"Duplicate python_roots id detected: {root_id}")
+            local_path = entry.get("local_path") or entry.get("path")
+            if not local_path or not isinstance(local_path, str):
+                raise ValueError(
+                    f"'runtime.python_roots[{idx}]' must include a string 'local_path'."
+                )
+            requirements_value = entry.get("requirements")
+            if requirements_value is not None and not isinstance(
+                requirements_value, str
             ):
-                raise ValueError(f"'{list_field}' must be a list of strings.")
+                raise ValueError(
+                    f"'runtime.python_roots[{idx}].requirements' must be a string path when provided."
+                )
+            normalized_python.append(
+                {
+                    "id": root_id,
+                    "local_path": local_path,
+                    "requirements": requirements_value,
+                }
+            )
+            seen_ids.add(root_id)
+        runtime["python_roots"] = normalized_python
 
-        python_entries = runtime.get("local_python_roots")
-        if python_entries is not None and not isinstance(python_entries, list):
-            raise ValueError("'local_python_roots' must be a list when provided.")
-
-    def _validate_repo_entry(self, entry: Any, label: str) -> None:
+    def _validate_repo_entry(self, entry: Any, label: str) -> Dict[str, Any]:
+        if isinstance(entry, str):
+            entry = {"local_path": entry}
         if not isinstance(entry, dict):
             raise ValueError(f"'{label}' must be a mapping.")
-        repo = entry.get("repo")
-        ref = entry.get("ref")
-        if not repo or not isinstance(repo, str):
-            raise ValueError(f"'{label}.repo' must be a non-empty string.")
-        if not ref or not isinstance(ref, str):
-            raise ValueError(f"'{label}.ref' must be a non-empty string.")
+        normalized = dict(entry)
+        local_path = normalized.get("local_path")
+        if local_path is not None and not isinstance(local_path, str):
+            raise ValueError(f"'{label}.local_path' must be a string path if provided.")
+        repo = normalized.get("repo")
+        ref = normalized.get("ref")
+        if local_path:
+            if repo or ref:
+                raise ValueError(
+                    f"'{label}' cannot define both 'local_path' and 'repo/ref'."
+                )
+            normalized["local_path"] = local_path
+        else:
+            if not repo or not isinstance(repo, str):
+                raise ValueError(f"'{label}.repo' must be a non-empty string.")
+            if not ref or not isinstance(ref, str):
+                raise ValueError(f"'{label}.ref' must be a non-empty string.")
+            normalized["repo"] = repo
+            normalized["ref"] = ref
+        return normalized
+
+    def resolve_project_path(self, raw: str) -> Path:
+        if raw is None:
+            raise ValueError("Path value cannot be None")
+        value = str(raw)
+        substitutions = {
+            "${PROJECT_DIR}": str(self.project_dir),
+        }
+        for token, replacement in substitutions.items():
+            value = value.replace(token, replacement)
+        path = Path(value)
+        if not path.is_absolute():
+            path = (self.base_dir / path).resolve()
+        else:
+            path = path.resolve()
+        return path
 
     def _parse_python_roots(self) -> List[PythonRootConfig]:
         """Normalize python_roots entries from the project yaml."""
 
-        project_dir = self.project_file.parent
-        entries = self.project.get("local_python_roots")
-        if not entries:
-            entries = self.project.get("python_roots", [])
-        entries = entries or []
+        entries = (
+            self.runtime.get("python_roots")
+            or self.project.get("local_python_roots")
+            or self.project.get("python_roots", [])
+        ) or []
         python_roots: List[PythonRootConfig] = []
         seen_ids: set[str] = set()
 
@@ -219,7 +307,7 @@ class Config:
                 )
 
             root_id = entry.get("id")
-            relative = entry.get("path")
+            relative = entry.get("local_path") or entry.get("path")
 
             if not root_id or not isinstance(root_id, str):
                 raise ValueError("Each python_roots entry must provide a string 'id'.")
@@ -227,7 +315,7 @@ class Config:
                 raise ValueError(f"Duplicate python_roots id detected: {root_id}")
             if not relative or not isinstance(relative, str):
                 raise ValueError(
-                    f"python_roots[{root_id}] must provide a string 'path' relative to the project root."
+                    f"python_roots[{root_id}] must provide a string path relative to the project root."
                 )
 
             requirements_value = entry.get("requirements")
@@ -239,7 +327,7 @@ class Config:
                 )
 
             relative_path = Path(relative)
-            absolute_path = (project_dir / relative_path).resolve()
+            absolute_path = self.resolve_project_path(relative)
 
             requirements_rel = Path(requirements_value) if requirements_value else None
             requirements_abs = (

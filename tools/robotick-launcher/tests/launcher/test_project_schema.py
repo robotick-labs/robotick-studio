@@ -33,16 +33,16 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path):
             "bootstrap": "./robots/my-robot.setup.sh",
         },
         "runtime": {
-            "engine": {"repo": "https://github.com/robotick/robotick-engine.git", "ref": "main"},
-            "workload_repos": [
+            "engine": {"local_path": "${PROJECT_DIR}/../engine"},
+            "workloads": [
                 {"repo": "https://github.com/robotick/workloads.git", "ref": "main"},
+                {"local_path": "workloads/cpp"},
             ],
-            "shared_repos": [
+            "shared": [
                 {"repo": "https://github.com/robotick/shared-assets.git", "ref": "main"},
             ],
-            "local_workload_roots": ["workloads/cpp"],
-            "local_python_roots": [
-                {"id": "brain", "path": "python", "requirements": "requirements.txt"}
+            "python_roots": [
+                {"id": "brain", "local_path": "python", "requirements": "requirements.txt"}
             ],
         },
     }
@@ -52,13 +52,13 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path):
 
     assert config.tooling.robotick.repo == "https://github.com/robotick/robotick-studio.git"
     assert config.tooling.bootstrap == "./robots/my-robot.setup.sh"
-    assert config.runtime.engine.repo == "https://github.com/robotick/robotick-engine.git"
-    assert config.runtime.local_workload_roots == ["workloads/cpp"]
+    assert config.runtime.engine.local_path == "${PROJECT_DIR}/../engine"
+    assert len(config.runtime.workloads) == 2
+    assert config.runtime.workloads[1]["local_path"] == "workloads/cpp"
 
-    # local_python_roots are still parsed into python_roots for compatibility
+    # python_roots are parsed into Config.python_roots for downstream consumers
     assert len(config.python_roots) == 1
     assert config.python_roots[0].id == "brain"
-    assert config.project.get("local_workload_roots") == ["workloads/cpp"]
 
 
 def test_tooling_schema_requires_repo_and_ref(tmp_path):
@@ -74,7 +74,7 @@ def test_tooling_schema_requires_repo_and_ref(tmp_path):
 def test_runtime_schema_validates_workload_repos(tmp_path):
     project_yaml = {
         "tooling": {"robotick": {"repo": "https://github.com/robotick/studio.git", "ref": "main"}},
-        "runtime": {"workload_repos": {"repo": "https://github.com/robotick/w.git", "ref": "main"}},
+        "runtime": {"workloads": {"repo": "https://github.com/robotick/w.git", "ref": "main"}},
     }
     base_dir = _write_project(tmp_path, project_yaml)
     with pytest.raises(ValueError):

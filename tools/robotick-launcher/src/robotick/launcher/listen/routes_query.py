@@ -14,6 +14,7 @@ class _DiscoveryConfig:
     def __init__(self, base_dir: Path, project_data: Dict[str, Any], target: str):
         self.base_dir = base_dir
         self.project = project_data or {}
+        self.runtime = self.project.get("runtime", {}) or {}
         self.target = target
         self.target_platform = target
         self.launcher_dir = base_dir / ".launcher"

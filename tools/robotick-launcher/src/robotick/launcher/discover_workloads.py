@@ -13,16 +13,23 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
       {
         WorkloadType: {
           "abs": Path,               # absolute path to file
-          "workload_root": str,      # the root string from local_workload_roots that matched
+          "workload_root": str,      # the runtime.workloads entry (local_path) that matched
           "path_from_root": str,     # file path relative to that root (POSIX-style)
         },
         ...
       }
     """
-    roots = list(
-        config.project.get("local_workload_roots")
-        or config.project.get("workload_roots", [])
-    )
+    runtime_cfg = getattr(config, "runtime", {})
+    roots = [
+        entry.get("local_path")
+        for entry in runtime_cfg.get("workloads") or []
+        if entry.get("local_path")
+    ]
+    if not roots:
+        roots = list(
+            config.project.get("local_workload_roots")
+            or config.project.get("workload_roots", [])
+        )
     seen: Dict[str, Dict[str, object]] = {}
 
     for root in roots:

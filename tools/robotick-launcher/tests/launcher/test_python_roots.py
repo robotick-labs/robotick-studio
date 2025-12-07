@@ -58,7 +58,8 @@ def test_python_roots_require_id_and_path(tmp_path):
     base_dir = _clone_fixture(tmp_path)
 
     def mutator(data):
-        data["local_python_roots"] = [{"path": "python"}]
+        runtime = data.setdefault("runtime", {})
+        runtime["python_roots"] = [{"local_path": "python"}]
 
     _mutate_project_yaml(base_dir, mutator)
 
@@ -70,9 +71,10 @@ def test_python_roots_enforce_unique_ids(tmp_path):
     base_dir = _clone_fixture(tmp_path)
 
     def mutator(data):
-        data["local_python_roots"] = [
-            {"id": "dup", "path": "python"},
-            {"id": "dup", "path": "python2"},
+        runtime = data.setdefault("runtime", {})
+        runtime["python_roots"] = [
+            {"id": "dup", "local_path": "python"},
+            {"id": "dup", "local_path": "python2"},
         ]
 
     _mutate_project_yaml(base_dir, mutator)

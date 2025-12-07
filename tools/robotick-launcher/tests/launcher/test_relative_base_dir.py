@@ -13,9 +13,11 @@ def test_generate_respects_explicit_base_dir(tmp_path, monkeypatch):
     engine_dir.mkdir()
     (project_dir / "pip.project.yaml").write_text(
         """
-robotick_engine_root: engine
-local_workload_roots:
-  - .
+runtime:
+  engine:
+    local_path: engine
+  workloads:
+    - local_path: .
         """.strip()
     )
     (project_dir / "pip.model.yaml").write_text("workloads: []\n")

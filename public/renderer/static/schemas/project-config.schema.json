@@ -2,6 +2,29 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Robotick Project Config",
   "type": "object",
+  "$defs": {
+    "repoOrLocal": {
+      "type": "object",
+      "properties": {
+        "repo": { "type": "string" },
+        "ref": { "type": "string" },
+        "local_path": { "type": "string" }
+      },
+      "oneOf": [
+        { "required": ["local_path"], "not": { "anyOf": [ { "required": ["repo"] }, { "required": ["ref"] } ] } },
+        { "required": ["repo", "ref"], "not": { "required": ["local_path"] } }
+      ]
+    },
+    "pythonRoot": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "local_path": { "type": "string" },
+        "requirements": { "type": "string" }
+      },
+      "required": ["id", "local_path"]
+    }
+  },
   "properties": {
     "name": {
       "type": "string",
@@ -11,30 +34,40 @@
       "type": "string",
       "description": "Human-readable description"
     },
-    "robotick_engine_root": {
-      "type": "string",
-      "description": "Relative path to the Robotick engine"
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
     },
-    "local_workload_roots": {
-      "type": "array",
-      "description": "List of workload search paths",
-      "items": { "type": "string" },
-      "minItems": 1
-    },
-    "local_python_roots": {
-      "type": "array",
-      "description": "Python entry points (id/path/requirements) to hydrate via install-deps",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "string" },
-          "path": { "type": "string" },
-          "requirements": { "type": "string" }
+    "tooling": {
+      "type": "object",
+      "properties": {
+        "robotick": {
+          "allOf": [{ "$ref": "#/$defs/repoOrLocal" }]
         },
-        "required": ["id", "path"]
-      }
+        "bootstrap": { "type": "string" }
+      },
+      "required": ["robotick"]
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "engine": { "$ref": "#/$defs/repoOrLocal" },
+        "workloads": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" }
+        },
+        "shared": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" }
+        },
+        "python_roots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pythonRoot" }
+        }
+      },
+      "required": ["engine"]
     }
   },
-  "required": ["name", "robotick_engine_root", "local_workload_roots"],
+  "required": ["name", "schema_version", "tooling", "runtime"],
   "additionalProperties": false
 }

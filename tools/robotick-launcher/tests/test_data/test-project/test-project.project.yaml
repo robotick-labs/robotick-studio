@@ -6,36 +6,18 @@ description: "Test Project for use in Launcher Unit Tests."
 
 tooling:
   robotick:
-    repo: https://github.com/robotick/robotick-studio.git
-    ref: main
-
-robotick_engine_root: ../../../../robotick-engine
-
-local_workload_roots:
-  - ../workloads/cpp/include
-  - ../workloads/cpp/src
-
-local_python_roots:
-  - id: main-brain
-    path: python
-    requirements: requirements.txt
-  - id: scripts
-    path: tools/scripts
+    local_path: ${PROJECT_DIR}/../../..  # Points back to the repo root that already contains the tooling
 
 runtime:
   engine:
-    repo: https://github.com/robotick/robotick-engine.git
-    ref: main
-  workload_repos:
-    - repo: https://github.com/robotick/workloads.git
-      ref: main
-  shared_repos: []
-  local_workload_roots:
-    - ../workloads/cpp/include
-    - ../workloads/cpp/src
-  local_python_roots:
+    local_path: ${PROJECT_DIR}/../../../../robotick-engine  # Resolves to the sibling engine checkout bundled with the tests
+  workloads:
+    - local_path: ../workloads/cpp/include  # Resolves to tests/launcher/test_data/workloads/cpp/include
+    - local_path: ../workloads/cpp/src  # Resolves to tests/launcher/test_data/workloads/cpp/src
+  shared: []
+  python_roots:
     - id: main-brain
-      path: python
+      local_path: python  # Resolves to tests/launcher/test_data/test-project/python
       requirements: requirements.txt
     - id: scripts
-      path: tools/scripts
+      local_path: tools/scripts  # Resolves to tests/launcher/test_data/test-project/tools/scripts
