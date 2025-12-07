@@ -1,0 +1,22 @@
+platforms:
+  linux:
+    files:
+      - robotick/systems/Camera_desktop.cpp
+
+    deps:
+      - name: SDL2
+        source:
+          type: apt
+          package: libsdl2-dev
+        find_package: SDL2
+        link_target: SDL2::SDL2
+
+      - name: OpenCV
+        source:
+          type: apt
+          package: libopencv-dev
+        find_package: OpenCV
+        include_dirs:
+          - ${OpenCV_INCLUDE_DIRS}
+        link_libraries:
+          - ${OpenCV_LIBS}

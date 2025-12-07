@@ -12,15 +12,13 @@ import {
   fetchProjectSettingsList,
   ProjectSettingsSummary,
 } from "./projects-api";
-import currentProject, {
-  ProjectModelDescriptor,
-  fetchProjectRemoteControlSettings,
-} from "./launcher-interface";
+import type { ProjectModelDescriptor } from "./launcher-interface";
 import {
   RcModuleDescriptor,
   RcSettingsResponse,
   normalizeRcModules,
 } from "./remote-control-types";
+import { useLauncherService } from "./LauncherService";
 
 type LoadState<T> = {
   data: T;
@@ -141,6 +139,7 @@ export function LauncherDataProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const launcherService = useLauncherService();
   const { projectPath } = useProjectContext();
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -213,7 +212,8 @@ export function LauncherDataProvider({
       error: null,
     }));
     try {
-      const models = await currentProject.refreshProjectModels(projectPath);
+      const models =
+        await launcherService.refreshProjectModels(projectPath);
       if (!isMountedRef.current || modelsRequestRef.current !== requestId) {
         return;
       }
@@ -228,7 +228,7 @@ export function LauncherDataProvider({
         error: err instanceof Error ? err.message : String(err),
       }));
     }
-  }, [projectPath]);
+  }, [launcherService, projectPath]);
 
   const refreshRcModules = useCallback(async () => {
     const requestId = ++rcRequestRef.current;
@@ -242,9 +242,10 @@ export function LauncherDataProvider({
       error: null,
     }));
     try {
-      const settings = await fetchProjectRemoteControlSettings<
-        RcSettingsResponse
-      >(projectPath);
+      const settings =
+        await launcherService.fetchProjectRemoteControlSettings<
+          RcSettingsResponse
+        >(projectPath);
       if (!isMountedRef.current || rcRequestRef.current !== requestId) {
         return;
       }
@@ -263,7 +264,7 @@ export function LauncherDataProvider({
         error: err instanceof Error ? err.message : String(err),
       }));
     }
-  }, [projectPath]);
+  }, [launcherService, projectPath]);
 
   useEffect(() => {
     void refreshProjectSettings();

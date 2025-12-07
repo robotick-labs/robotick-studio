@@ -10,6 +10,10 @@ import {
   fetchLayout,
   fetchRaw,
 } from "./telemetry-client";
+import {
+  launcherEvents,
+  type LauncherStatus,
+} from "../../launcher/internal/LauncherContext";
 
 type SubscriberCallbacks = {
   callback: (model: ITelemetryModel) => void;
@@ -33,6 +37,12 @@ type StoreEntry = {
 const stores = new Map<string, StoreEntry>();
 const DEFAULT_POLLING_INTERVAL_MS = 200;
 const MAX_CONCURRENT_FETCHES = 4;
+let telemetrySuspended = false;
+
+const microtask =
+  typeof queueMicrotask === "function"
+    ? queueMicrotask
+    : (cb: () => void) => Promise.resolve().then(cb);
 
 let activeFetches = 0;
 const fetchQueue: Array<() => void> = [];
@@ -77,9 +87,11 @@ export function subscribeTelemetry(
   updatePollingTimer(entry);
 
   if (entry.layout && entry.lastRaw) {
-    const model = createTelemetryModel(entry.layout);
-    model.raw = entry.lastRaw.buffer;
-    deliverToSubscriber(subscriberEntry, model, true);
+    microtask(() => {
+      const model = createTelemetryModel(entry.layout as LayoutModel);
+      model.raw = entry.lastRaw?.buffer ?? null;
+      deliverToSubscriber(subscriberEntry, model, true);
+    });
   }
 
   return () => {
@@ -110,6 +122,7 @@ function getOrCreateEntry(baseUrl: string): StoreEntry {
 }
 
 function startPolling(entry: StoreEntry) {
+  if (telemetrySuspended) return;
   if (entry.pollingTimer) return;
   const poll = () => {
     void pollEntry(entry);
@@ -127,6 +140,7 @@ function stopPolling(entry: StoreEntry) {
 }
 
 async function pollEntry(entry: StoreEntry) {
+  if (telemetrySuspended) return;
   try {
     if (!entry.layout) {
       const layout = await enqueueFetch(() => fetchLayout(entry.baseUrl));
@@ -165,6 +179,36 @@ function updatePollingTimer(entry: StoreEntry) {
   stopPolling(entry);
   startPolling(entry);
 }
+
+function setTelemetrySuspended(next: boolean) {
+  if (telemetrySuspended === next) return;
+  telemetrySuspended = next;
+  for (const entry of stores.values()) {
+    if (telemetrySuspended) {
+      stopPolling(entry);
+    } else {
+      updatePollingTimer(entry);
+    }
+  }
+}
+
+function handleLauncherStatus(status: LauncherStatus | undefined | null) {
+  if (!status) return;
+  setTelemetrySuspended(status !== "running");
+}
+
+launcherEvents.addEventListener("status-changed", (event) => {
+  const detail = (event as CustomEvent<{ status: LauncherStatus }>).detail;
+  handleLauncherStatus(detail?.status);
+});
+
+launcherEvents.addEventListener("run-requested", () => {
+  setTelemetrySuspended(false);
+});
+
+launcherEvents.addEventListener("stop-requested", () => {
+  setTelemetrySuspended(true);
+});
 
 function notifySubscribers(entry: StoreEntry, model: ITelemetryModel) {
   entry.subscribers.forEach((sub) => {

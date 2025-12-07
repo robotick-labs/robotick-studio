@@ -29,6 +29,15 @@ const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   Cineon: THREE.CineonToneMapping,
   Reinhard: THREE.ReinhardToneMapping,
 };
+const RESIZE_TIMER_SEC = 0.01;
+const ENABLE_PERFORMANCE_STATS = false;
+
+type StatsRecord = {
+  lastTimestamp: number | null;
+  count: number;
+  sum: number;
+  sumSq: number;
+};
 
 type NodeIndex = Map<string, THREE.Object3D>;
 
@@ -52,6 +61,9 @@ export class ViewerWorld {
   private pmrem!: THREE.PMREMGenerator;
   private neutralEnvTex!: THREE.Texture;
   private containerElement!: HTMLElement;
+  private resizeObserver: ResizeObserver | null = null;
+  private resizeTimer: number | null = null;
+  private lastSize = { width: 0, height: 0 };
 
   // lighting
   private ambient?: THREE.AmbientLight;
@@ -67,15 +79,14 @@ export class ViewerWorld {
 
   // telemetry
   private telemetrySubscriptions = new Map<string, () => void>();
-  private telemetryStats = new Map<
-    string,
-    {
-      lastTimestamp: number | null;
-      count: number;
-      sum: number;
-      sumSq: number;
-    }
-  >();
+  private telemetryStats = new Map<string, StatsRecord>();
+  private frameStats: StatsRecord = {
+    lastTimestamp: null,
+    count: 0,
+    sum: 0,
+    sumSq: 0,
+  };
+  private statsOverlay: HTMLDivElement | null = null;
 
   // render loop
   private animReq: number | null = null;
@@ -159,17 +170,28 @@ export class ViewerWorld {
     this.renderer.shadowMap.autoUpdate = true;
     const pxMax = rCfg.pixelRatioMax ?? 2;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pxMax));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
     if (typeof rCfg.clearColor === "number")
       this.renderer.setClearColor(rCfg.clearColor);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.containerElement.appendChild(this.renderer.domElement);
+    Object.assign(this.renderer.domElement.style, {
+      width: "100%",
+      height: "100%",
+      display: "block",
+      objectFit: "cover",
+    });
+    this.containerElement.style.overflow = "hidden";
+    if (ENABLE_PERFORMANCE_STATS) {
+      this.ensureStatsOverlay();
+    }
 
     // camera + controls
     const cam = this.worldConfig.camera;
+    const width = Math.max(1, Math.round(this.containerElement.clientWidth));
+    const height = Math.max(1, Math.round(this.containerElement.clientHeight));
     this.camera = new THREE.PerspectiveCamera(
       cam.fov,
-      window.innerWidth / window.innerHeight,
+      width / height,
       cam.near,
       cam.far
     );
@@ -245,12 +267,20 @@ export class ViewerWorld {
     }
 
     // loop
-    window.addEventListener("resize", this.onResize);
+    this.updateSize();
+    this.resizeObserver = new ResizeObserver(() => this.scheduleResize());
+    this.resizeObserver.observe(this.containerElement);
     this.animate();
   }
 
   dispose() {
-    window.removeEventListener("resize", this.onResize);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = null;
+    }
+    this.cleanupStatsOverlay();
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
@@ -490,6 +520,12 @@ export class ViewerWorld {
     if (!this.worldConfig.telemetryAnimators) return;
 
     for (const config of this.worldConfig.telemetryAnimators) {
+      this.telemetryStats.set(config.id, {
+        lastTimestamp: null,
+        count: 0,
+        sum: 0,
+        sumSq: 0,
+      });
       const baseUrl = await this.resolvePollerBaseUrl(config);
       if (!baseUrl) {
         console.warn(
@@ -511,34 +547,112 @@ export class ViewerWorld {
     }
   }
 
-  private logTelemetryStats(pollerId: string) {
+  private recordTelemetrySample(pollerId: string) {
+    const stats = this.telemetryStats.get(pollerId);
+    if (!stats) return;
     const now = Date.now();
-    let stats = this.telemetryStats.get(pollerId);
-    if (!stats) {
-      stats = { lastTimestamp: now, count: 0, sum: 0, sumSq: 0 };
-      this.telemetryStats.set(pollerId, stats);
-      return;
-    }
-
     if (stats.lastTimestamp !== null) {
       const interval = now - stats.lastTimestamp;
       stats.count += 1;
       stats.sum += interval;
       stats.sumSq += interval * interval;
+      this.clampStats(stats);
+    }
+    stats.lastTimestamp = now;
+  }
 
-      if (stats.count % 50 === 0) {
-        const mean = stats.sum / stats.count;
-        const variance = Math.max(0, stats.sumSq / stats.count - mean * mean);
-        const stddev = Math.sqrt(variance);
-        console.log(
-          `[viewer] telemetry ${pollerId}: avg ${mean.toFixed(
-            1
-          )}ms, jitter ${stddev.toFixed(1)}ms (samples ${stats.count})`
-        );
+  private recordFrameInterval(interval: number) {
+    const stats = this.frameStats;
+    stats.count += 1;
+    stats.sum += interval;
+    stats.sumSq += interval * interval;
+    this.clampStats(stats);
+  }
+
+  private clampStats(stats: StatsRecord) {
+    if (stats.count > 200) {
+      stats.count = Math.floor(stats.count / 2);
+      stats.sum *= 0.5;
+      stats.sumSq *= 0.5;
+    }
+  }
+
+  private computeRateJitter(stats: StatsRecord) {
+    if (stats.count === 0) {
+      return { rateHz: null, jitterMs: null };
+    }
+    const mean = stats.sum / stats.count;
+    const variance = Math.max(0, stats.sumSq / stats.count - mean * mean);
+    const rate = mean > 0 ? 1000 / mean : null;
+    const jitter = Math.sqrt(variance);
+    return { rateHz: rate, jitterMs: Number.isFinite(jitter) ? jitter : null };
+  }
+
+  private ensureStatsOverlay() {
+    if (!ENABLE_PERFORMANCE_STATS || this.statsOverlay) return;
+    if (typeof window !== "undefined") {
+      const computed = window.getComputedStyle(this.containerElement).position;
+      if (!computed || computed === "static") {
+        this.containerElement.style.position = "relative";
       }
     }
+    const overlay = document.createElement("div");
+    Object.assign(overlay.style, {
+      position: "absolute",
+      top: "8px",
+      left: "8px",
+      padding: "4px 8px",
+      background: "rgba(0, 0, 0, 0.65)",
+      color: "#f4f4f4",
+      fontSize: "0.75rem",
+      lineHeight: "1.2",
+      borderRadius: "4px",
+      pointerEvents: "none",
+      zIndex: "999",
+      whiteSpace: "pre",
+      fontFamily: "Menlo, Consolas, monospace",
+    });
+    this.statsOverlay = overlay;
+    this.containerElement.appendChild(overlay);
+    this.updateStatsOverlay();
+  }
 
-    stats.lastTimestamp = now;
+  private getTelemetryStatsForOverlay() {
+    for (const [id, stats] of this.telemetryStats) {
+      if (/face/i.test(id)) {
+        continue;
+      }
+      const { rateHz, jitterMs } = this.computeRateJitter(stats);
+      if (rateHz !== null || jitterMs !== null) {
+        return { label: id, rateHz, jitterMs };
+      }
+    }
+    return null;
+  }
+
+  private updateStatsOverlay() {
+    if (!ENABLE_PERFORMANCE_STATS || !this.statsOverlay) return;
+    const draw = this.computeRateJitter(this.frameStats);
+    const telemetry = this.getTelemetryStatsForOverlay();
+    const drawLine =
+      draw.rateHz !== null
+        ? `Draw: ${draw.rateHz.toFixed(1)} Hz (jitter ${
+            draw.jitterMs?.toFixed(1) ?? "0"
+          } ms)`
+        : "Draw: –";
+    const telemetryLine = telemetry
+      ? `${telemetry.label}: ${
+          telemetry.rateHz?.toFixed(1) ?? "–"
+        } Hz (jitter ${telemetry.jitterMs?.toFixed(1) ?? "0"} ms)`
+      : "Telemetry: –";
+    this.statsOverlay.textContent = `${drawLine}\n${telemetryLine}`;
+  }
+
+  private cleanupStatsOverlay() {
+    if (this.statsOverlay && this.statsOverlay.parentElement) {
+      this.statsOverlay.parentElement.removeChild(this.statsOverlay);
+    }
+    this.statsOverlay = null;
   }
 
   private async resolvePollerBaseUrl(
@@ -575,6 +689,7 @@ export class ViewerWorld {
     poller: RestPoller,
     telemetryModel: ITelemetryModel
   ) {
+    this.recordTelemetrySample(poller.id);
     const workload = telemetryModel.workloads.find(
       (w) => w.name === poller.workloadName
     );
@@ -693,6 +808,8 @@ export class ViewerWorld {
             if (m.axis === "y") vec.y = m.multiply ? v * m.multiply : v;
             if (m.axis === "z") vec.z = m.multiply ? v * m.multiply : v;
             node.position.copy(vec);
+            node.updateMatrix();
+            node.updateMatrixWorld();
           } else {
             const wx = num(fieldValue.x),
               wy = num(fieldValue.y),
@@ -715,9 +832,9 @@ export class ViewerWorld {
                 ? this.worldToLocalPosition(node, worldV, this.__TMP.v3b)
                 : worldV;
             node.position.copy(localV);
+            node.updateMatrix();
+            node.updateMatrixWorld();
           }
-          node.updateMatrix();
-          node.updateMatrixWorld();
           break;
         }
 
@@ -747,9 +864,7 @@ export class ViewerWorld {
                   this.__TMP.qLocal
                 )
               : this.__TMP.qWorld;
-
           node.quaternion.copy(qLocal);
-
           node.updateMatrix();
           node.updateMatrixWorld();
           break;
@@ -792,11 +907,10 @@ export class ViewerWorld {
                     this.__TMP.qLocal
                   )
                 : this.__TMP.qWorld;
-
             node.quaternion.copy(qLocal);
+            node.updateMatrix();
+            node.updateMatrixWorld();
           }
-          node.updateMatrix();
-          node.updateMatrixWorld();
           break;
         }
 
@@ -886,17 +1000,44 @@ export class ViewerWorld {
 
   // ---------- render ----------
   private animate = () => {
+    const now = performance.now();
+    if (this.frameStats.lastTimestamp !== null) {
+      this.recordFrameInterval(now - this.frameStats.lastTimestamp);
+    }
+    this.frameStats.lastTimestamp = now;
     this.animReq = requestAnimationFrame(this.animate);
     this.controls?.update();
     const d = this.worldConfig.lights?.directional;
     if (this.dir && d?.trackerModelRef)
       this.updateDirectionalLight(d.trackerModelRef);
     this.renderer.render(this.scene, this.camera);
+    this.updateStatsOverlay();
   };
 
-  private onResize = () => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+  private scheduleResize() {
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+    }
+    this.resizeTimer = window.setTimeout(() => {
+      this.resizeTimer = null;
+      this.updateSize();
+    }, RESIZE_TIMER_SEC * 1000);
+  }
+
+  private updateSize = () => {
+    const width = Math.max(1, Math.round(this.containerElement.clientWidth));
+    const height = Math.max(1, Math.round(this.containerElement.clientHeight));
+    if (width === this.lastSize.width && height === this.lastSize.height) {
+      return;
+    }
+    this.lastSize.width = width;
+    this.lastSize.height = height;
+    this.renderer.setSize(width, height, false);
+    if (this.renderer.domElement) {
+      this.renderer.domElement.style.width = "100%";
+      this.renderer.domElement.style.height = "100%";
+    }
+    this.camera.aspect = width / height || 1;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 }

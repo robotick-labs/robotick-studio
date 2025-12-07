@@ -14,5 +14,6 @@
     "sourceMap": true,
     "inlineSources": true
   },
-  "include": ["src/electron/**/*"]
+  "include": ["src/electron/**/*"],
+  "exclude": ["src/electron/__tests__"]
 }

@@ -4,166 +4,110 @@ type ViewerType = "three-js" | "cesium" | "streaming-image";
 
 interface ViewerModule {
   default: {
-    init: (config: ViewerConfig) => Promise<void>;
-    uninit?: () => Promise<void>;
+    init: (config: ViewerConfig, instanceId: number) => Promise<void>;
+    uninit?: (instanceId?: number) => Promise<void>;
   };
 }
 
-let viewerType: ViewerType | null = null;
-/** Only set after a successful init for the current token */
-let viewerModule: ViewerModule | null = null;
+type ViewerInstance = {
+  id: number;
+  type: ViewerType;
+  module: ViewerModule;
+};
 
-/** The token that represents the latest requested viewer. */
-let currentToken = Number.NaN;
+let nextInstanceId = 1;
+const instances = new Map<number, ViewerInstance>();
 
-function normalizeConfig(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => normalizeConfig(entry));
+async function loadViewerModule(type: ViewerType): Promise<ViewerModule | null> {
+  switch (type) {
+    case "three-js":
+      return import("./three/viewer-three") as Promise<ViewerModule>;
+    case "cesium":
+      return import("./cesium/viewer-cesium") as Promise<ViewerModule>;
+    case "streaming-image":
+      return import(
+        "./streaming-image/viewer-streaming-image"
+      ) as Promise<ViewerModule>;
+    default:
+      console.warn(`Unknown viewer type: ${type}`);
+      return null;
   }
-
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const normalized: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) {
-      const normalizedValue = normalizeConfig(record[key]);
-      if (normalizedValue !== undefined) {
-        normalized[key] = normalizedValue;
-      }
-    }
-    return normalized;
-  }
-
-  if (typeof value === "function") {
-    return undefined;
-  }
-
-  return value;
 }
 
-function computeViewerToken(config: ViewerConfig): number {
-  const serialized = JSON.stringify(normalizeConfig(config)) ?? "";
-  let hash = 0;
-  for (let i = 0; i < serialized.length; i += 1) {
-    hash = (hash * 31 + serialized.charCodeAt(i)) | 0;
-  }
-  return hash >>> 0;
-}
-
-export function init(
+export async function init(
   viewerConfig: Partial<ViewerConfig> & { viewerType?: string }
-): void {
+): Promise<number | null> {
   const type = viewerConfig?.viewerType;
 
   if (typeof type !== "string") {
     console.warn(
       "Viewer config is missing or invalid: expected viewer.viewerType as a string"
     );
+    return null;
+  }
+
+  const module = await loadViewerModule(type as ViewerType);
+  if (!module) return null;
+
+  const resolvedConfig = viewerConfig as ViewerConfig;
+  const instanceId = nextInstanceId++;
+
+  try {
+    await module.default.init(resolvedConfig, instanceId);
+    instances.set(instanceId, {
+      id: instanceId,
+      type: type as ViewerType,
+      module,
+    });
+    console.log(
+      `Created viewer of type "${type}" (instance ${instanceId})`
+    );
+    return instanceId;
+  } catch (err) {
+    console.error("Error initialising viewer:", err);
+    return null;
+  }
+}
+
+export async function uninit(
+  instanceId?: number,
+  reason?: string
+): Promise<void> {
+  if (instanceId != null) {
+    const record = instances.get(instanceId);
+    if (!record) return;
+    if (reason) {
+      console.info(
+        `[viewer] Uninitializing instance ${instanceId} due to: ${reason}`
+      );
+    }
+    instances.delete(instanceId);
+    try {
+      await record.module.default.uninit?.(instanceId);
+    } catch (err) {
+      console.error("Error during viewer uninit:", err);
+    }
     return;
   }
 
-  viewerType = type as ViewerType;
-
-  const resolvedConfig = viewerConfig as ViewerConfig;
-  const token = computeViewerToken(resolvedConfig);
-  currentToken = token;
-
-  // Fire-and-forget the async initializer (guarded by token checks).
-  void loadAndInitViewer(viewerType, resolvedConfig, token);
-}
-
-/**
- * Teardown any active viewer and invalidate in-flight loads
- * by bumping the token. Returns a promise you may await if desired.
- */
-export async function uninit(reason?: string): Promise<void> {
-  // Invalidate any in-flight loads or future 'late' completions.
-  currentToken = Number.NaN;
-
-  // Snapshot existing module; clear references immediately.
-  const prev = viewerModule;
-  if (prev && reason) {
-    console.info(`[viewer] Uninitializing due to: ${reason}`);
+  if (instances.size === 0) {
+    if (reason) {
+      console.info(`[viewer] No active viewers to uninitialize.`);
+    }
+    return;
   }
-  viewerType = null;
-  viewerModule = null;
 
-  try {
-    if (prev?.default.uninit) {
-      await prev.default.uninit();
-    }
-  } catch (err) {
-    console.error("Error during viewer uninit:", err);
+  if (reason) {
+    console.info(`[viewer] Uninitializing all viewers due to: ${reason}`);
   }
-}
+  const entries = Array.from(instances.values());
+  instances.clear();
 
-async function loadAndInitViewer(
-  type: ViewerType,
-  config: ViewerConfig,
-  token: number
-): Promise<void> {
-  try {
-    // Resolve module locally; don't touch globals yet.
-    let mod: ViewerModule | null = null;
-
-    switch (type) {
-      case "three-js":
-        mod = (await import("./three/viewer-three")) as ViewerModule;
-        break;
-
-      case "cesium":
-        mod = (await import("./cesium/viewer-cesium")) as ViewerModule;
-        break;
-
-      case "streaming-image":
-        mod = (await import(
-          "./streaming-image/viewer-streaming-image"
-        )) as ViewerModule;
-        break;
-
-      default:
-        console.warn(`Unknown viewer type: ${type}`);
-        return;
-    }
-
-    // If this load has been superseded, ignore it.
-    if (token !== currentToken) {
-      // best-effort cleanup of a just-loaded module we won't use.
-      try {
-        await mod?.default?.uninit?.();
-      } catch {
-        console.error("Error uninitialising previous viewer:", err);
-      }
-      return;
-    }
-
+  for (const { id, module } of entries) {
     try {
-      console.log(`Creating viewer of type "${type}"`);
-      await mod.default.init(config);
+      await module.default.uninit?.(id);
     } catch (err) {
-      console.error("Error initialising new viewer:", err);
-    }
-
-    // After init completes, confirm we are still the latest request.
-    if (token !== currentToken) {
-      // We were superseded after successful init; tear down what we just made.
-      try {
-        console.log(`Destroying superseded viewer`);
-        await mod.default.uninit?.();
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    // Success: publish the module only now.
-    viewerModule = mod;
-    console.log(`Created viewer of type "${type}"`);
-  } catch (err) {
-    // Only log as current if still current; otherwise it's noise from a cancelled attempt.
-    if (token === currentToken) {
-      console.error(`Failed to load viewer module for "${type}"`, err);
-    } else {
-      // Silently ignore errors from cancelled attempts.
+      console.error("Error during viewer uninit:", err);
     }
   }
 }

@@ -1,0 +1,52 @@
+from pathlib import Path
+import subprocess
+from rich import print
+import typer
+
+from robotick.launcher.utils import get_launcher_paths, run_subprocess
+
+
+def build(
+    project: str = typer.Argument(..., help="Project name (e.g. 'barr_e')"),
+    model: str = typer.Argument(..., help="Model name (e.g. 'barr_e_brain')"),
+    target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
+    base_dir: Path = typer.Option(
+        Path.cwd(), help="Base directory containing .launcher (default: cwd)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print commands without executing them"
+    ),
+):
+    launcher_dir, build_dir, binary_path = get_launcher_paths(
+        project, model, target, base_dir
+    )
+
+    print(
+        "============================================================================================"
+    )
+    print(f"[bold green]📦 Building {project}-{model}-{target}[/] (dry_run={dry_run})")
+
+    do_build_cmd = ["bash", f"{launcher_dir}/do_launcher_build.sh"]
+
+    print(f"[cyan]📁 Launcher dir:[/] {launcher_dir}")
+    print(f"[cyan]🔧 Build dir:   [/] {build_dir}")
+    print(f"[cyan]🚀 Binary path: [/] {binary_path}")
+    print()
+
+    print(f"[bold]$ {' '.join(do_build_cmd)}[/]")
+
+    if dry_run:
+        print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+        return
+
+    try:
+        run_subprocess(do_build_cmd, cwd=launcher_dir)
+    except subprocess.CalledProcessError as e:
+        print(f"[bold red]❌ Build process failed during: {e.cmd}[/]")
+        raise typer.Exit(code=e.returncode)
+
+    if not binary_path.exists():
+        print(f"[bold red]❌ Expected binary not found:[/] {binary_path}")
+        raise typer.Exit(code=1)
+
+    print(f"[bold green]✅ Building complete! Binary:[/] {binary_path}")

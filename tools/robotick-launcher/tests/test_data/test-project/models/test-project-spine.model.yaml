@@ -1,0 +1,40 @@
+# Robotick model: Test Project ESP32 Spine (on-device control/actuation + simple heartbeat UI)
+
+telemetry:
+  port: 7091
+
+workloads:
+  - name: steering_mixer
+    type: SteeringMixerWorkload
+    tick_rate_hz: 30.0
+
+  - name: basex
+    type: BaseXWorkload
+    tick_rate_hz: 30.0
+
+  - name: control_sequence
+    type: SequencedGroupWorkload
+    tick_rate_hz: 30.0
+    children:
+      - steering_mixer
+      - basex
+
+  - name: heart_ui
+    type: HeartbeatDisplayWorkload
+    tick_rate_hz: 30.0
+
+  - name: esp32_root
+    type: SequencedGroupWorkload
+    tick_rate_hz: 30.0
+    children:
+      - control_sequence
+      - heart_ui
+
+connections:
+  - from: steering_mixer.outputs.left_motor
+    to: basex.inputs.motor1_speed
+
+  - from: steering_mixer.outputs.right_motor
+    to: basex.inputs.motor2_speed
+
+root: esp32_root

@@ -2,6 +2,14 @@
 <html>
   <head>
     <title>Hub | Robotick</title>
+    <script>
+      (() => {
+        const env = window.robotick?.environment;
+        if (env && env.appTitle) {
+          document.title = env.appTitle;
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#222222" />
     <link rel="icon" type="image/png" href="./static/images/icon.png" />

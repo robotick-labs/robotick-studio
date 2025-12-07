@@ -1,0 +1,69 @@
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.control label {
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+
+.control select,
+.control input {
+  background: var(--app-input-background);
+  border: 1px solid var(--app-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--app-text-primary);
+  font-size: 0.9rem;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 8px;
+  padding: 8px;
+  overflow: auto;
+  background: var(--app-panel-soft);
+}
+
+.node {
+  margin-left: 16px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.nodeValue {
+  color: #8fd7ff;
+}
+
+.nodeToggle {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  margin-right: 4px;
+  font-size: 0.85rem;
+}
+
+.message {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+}

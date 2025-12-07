@@ -3,18 +3,31 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   position: relative;
-  padding: 1rem 2rem;
-  background: #070a12;
+  padding: 0.75rem 0.75rem;
+  padding-bottom: 0.5rem;
   color: white;
-  border-bottom: 1px solid #444;
   gap: 1rem;
+  z-index: 200001;
+}
+
+.headerStandalone {
+  -webkit-app-region: drag;
+}
+
+.logoPicture {
+  display: inline-flex;
+  align-items: center;
+  width: 150px;
+  height: 40px;
 }
 
 .logo {
-  width: 150px;
-  height: auto;
+  width: auto;
+  height: 40px;
+  object-fit: contain;
   border-radius: 5px;
   box-shadow: 0 0 8px #0c93e1;
+  background-color: #0c93e1ff;
   z-index: 1;
 }
 
@@ -31,13 +44,20 @@
   z-index: 2;
 }
 
+.navMenuProject,
 .navMenuDev,
-.navMenuTest {
+.navMenuTest,
+.navMenuHelp {
   display: flex;
   gap: 0.5rem;
   border-radius: 12px;
   padding: 4px 6px;
   align-items: center;
+}
+
+.navMenuProject {
+  padding: 5px;
+  border: 2px solid rgb(51, 51, 51);
 }
 
 .navMenuDev {
@@ -70,6 +90,15 @@
   gap: 8px;
   padding: 5px;
   border-radius: 10px;
+}
+
+.navLinks {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.navMenuHelp {
+  padding: 4px 8px;
 }
 
 .navLink {
@@ -108,4 +137,19 @@
 .headerRight {
   grid-column: 3;
   justify-self: end;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+@media (max-width: 1550px) {
+  .logoPicture {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
 }

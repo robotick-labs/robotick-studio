@@ -1,0 +1,55 @@
+# Auto-generated project CMakeLists.txt (linux) for model: '{{ model_name }}'
+
+cmake_minimum_required(VERSION 3.21)
+project({{ model_name }}-{{ platform }})
+set(CMAKE_CXX_STANDARD 17)
+
+# Define where we can find the engine:
+set(ROBOTICK_ENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/{{ robotick_engine_root }}" CACHE PATH "Path to engine root")
+
+# Define platform macros
+{% for macro in platform_macros %}
+set({{ macro }} ON CACHE BOOL "Enable platform macro")
+add_compile_definitions({{ macro }}=1)
+
+{% endfor %}
+# Add the robotick-engine as a buildable subproject
+add_subdirectory(${ROBOTICK_ENGINE_ROOT} ${CMAKE_BINARY_DIR}/robotick_engine)
+
+# Define the main executable
+add_executable({{ model_name }}
+    {{ model_name_safe }}_model.cpp
+    {{ model_name_safe }}_main.cpp
+)
+
+# Enable symbol visibility for backtrace resolution
+target_link_options({{ model_name }} PRIVATE -rdynamic)
+
+# Ensure debug symbols are preserved
+set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+
+# Create workload registry
+add_library(workload_registry STATIC
+    registry/generated_workload_registry.cpp
+)
+
+# Enforce strict compilation rules to help ensure code quality
+target_compile_options(workload_registry PRIVATE -Wall -Wextra -Werror)
+target_compile_options({{ model_name }} PRIVATE -Wall -Wextra -Werror)
+
+{% for root in workload_roots %}
+target_include_directories(workload_registry PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/{{ root }}
+)
+{% endfor %}
+
+# Pull in aggregated deps (deduped from YAMLs)
+set(ROBOTICK_MAIN_TARGET workload_registry)
+set(ROBOTICK_EXECUTABLE_TARGET {{ model_name }})
+include("${CMAKE_CURRENT_SOURCE_DIR}/registry/generated_workload_deps.cmake")
+
+# Link engine into workload registry
+target_link_libraries(workload_registry PUBLIC robotick-engine)
+
+# Link workload registry into main binary
+target_link_libraries({{ model_name }} PRIVATE workload_registry)

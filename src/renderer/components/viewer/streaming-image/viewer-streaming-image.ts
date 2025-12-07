@@ -22,15 +22,20 @@ const BLACK_PIXEL =
 let telemetryDispose: (() => void) | null = null;
 let lastFrameBlobUrl: string | null = null;
 let activeImg: HTMLImageElement | null = null;
+let viewerContainerElement: HTMLElement | null = null;
 
-export async function init(viewerConfig: ViewerConfig): Promise<void> {
+export async function init(viewerConfig: ViewerConfig, instanceId?: number): Promise<void> {
   console.log("Streaming Image Viewer initialized", viewerConfig);
 
-  const viewerContainer = document.getElementById("viewer-container");
+  const viewerContainer =
+    (viewerConfig.container instanceof HTMLElement
+      ? viewerConfig.container
+      : document.getElementById("viewer-container")) ?? null;
   if (!viewerContainer) {
-    console.warn("No #viewer-container element found");
+    console.warn("No viewer container element found");
     return;
   }
+  viewerContainerElement = viewerContainer;
 
   const cameraImg = document.createElement("img");
   cameraImg.id = "camera-stream";
@@ -72,7 +77,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   });
 }
 
-export async function uninit(): Promise<void> {
+export async function uninit(instanceId?: number): Promise<void> {
   telemetryDispose?.();
   telemetryDispose = null;
   if (lastFrameBlobUrl) {
@@ -80,9 +85,9 @@ export async function uninit(): Promise<void> {
     lastFrameBlobUrl = null;
   }
   activeImg = null;
-  const viewerContainer = document.getElementById("viewer-container");
-  if (viewerContainer) {
-    viewerContainer.innerHTML = "";
+  if (viewerContainerElement) {
+    viewerContainerElement.innerHTML = "";
+    viewerContainerElement = null;
   }
   console.log("Streaming Image Viewer unmounted");
 }

@@ -8,13 +8,12 @@ import React, {
   useState,
 } from "react";
 import { useProjectContext } from "./ProjectContext";
-import {
-  buildUrl,
-  fetchLauncherStatus,
-  requestLauncherRun,
-  requestLauncherStop,
-} from "./launcher-interface";
+import { buildUrl } from "./launcher-interface";
 import { getProjectModelsStateSnapshot } from "./LauncherDataContext";
+import {
+  useLauncherService,
+  type LauncherService,
+} from "./LauncherService";
 
 export type LauncherStatus = "stopped" | "launching" | "running";
 
@@ -42,6 +41,7 @@ const LauncherContext = createContext<LauncherContextValue | undefined>(
 export const launcherEvents = new EventTarget();
 
 export function LauncherProvider({ children }: { children: React.ReactNode }) {
+  const launcherService = useLauncherService();
   const { projectPath, launcherProfile } = useProjectContext();
   const [status, setStatus] = useState<LauncherStatus>("stopped");
   const [isBusy, setIsBusy] = useState(false);
@@ -57,7 +57,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [isRobotAlive, setIsRobotAlive] = useState(true);
   const [robotAliveLoading, setRobotAliveLoading] = useState(false);
   const [robotAliveError, setRobotAliveError] = useState<string | null>(null);
-  const lastStatusRef = useRef<LauncherStatus>("stopped");
+  const lastStatusRef = useRef<LauncherStatus | null>(null);
   const skipNextRobotCheckRef = useRef(false);
   const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
   const lastRunningAtRef = useRef<number | null>(null);
@@ -77,7 +77,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             : POLLING_DEFAULT_INTERVAL_MS;
 
         try {
-          const launcherStatus = await readLauncherStatus();
+          const launcherStatus = await readLauncherStatus(launcherService);
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
@@ -85,6 +85,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           const prevStatus = lastStatusRef.current;
           const statusChanged = prevStatus !== launcherStatus;
           lastStatusRef.current = launcherStatus;
+
+          if (statusChanged || prevStatus === null) {
+            launcherEvents.dispatchEvent(
+              new CustomEvent("status-changed", {
+                detail: { status: launcherStatus },
+              })
+            );
+          }
 
           if (launcherStatus === "running") {
             if (statusChanged) {
@@ -129,9 +137,20 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           setStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
-          setPendingTarget((target) =>
-            target && launcherStatus === target ? null : target
-          );
+          setPendingTarget((target) => {
+            if (!target) {
+              return null;
+            }
+            if (launcherStatus === target) {
+              return null;
+            }
+            if (target === "running" && launcherStatus === "stopped") {
+              // A run attempt failed and the backend reported it stopped again.
+              // Clear the pending target so UI controls unlock immediately.
+              return null;
+            }
+            return target;
+          });
           setOptimisticStatus((current) =>
             current && launcherStatus !== "launching" ? null : current
           );
@@ -147,7 +166,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [launcherService]);
 
   const run = useCallback(async () => {
     if (!projectPath) {
@@ -163,7 +182,10 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     launcherEvents.dispatchEvent(new Event("run-requested"));
 
     try {
-      await requestLauncherRun(projectPath, launcherProfile || "local:ALL");
+      await launcherService.requestLauncherRun(
+        projectPath,
+        launcherProfile || "local:ALL"
+      );
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
       setPendingTarget(null);
@@ -172,7 +194,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsBusy(false);
     }
-  }, [launcherProfile, projectPath, wakeFastPolling]);
+  }, [launcherProfile, launcherService, projectPath, wakeFastPolling]);
 
   const stop = useCallback(async () => {
     setIsBusy(true);
@@ -181,7 +203,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     wakeFastPolling();
     launcherEvents.dispatchEvent(new Event("stop-requested"));
     try {
-      await requestLauncherStop();
+      await launcherService.requestLauncherStop();
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
       setPendingTarget(null);
@@ -189,7 +211,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsBusy(false);
     }
-  }, [wakeFastPolling]);
+  }, [launcherService, wakeFastPolling]);
 
   const restart = useCallback(async () => {
     await stop();
@@ -244,8 +266,10 @@ export function useLauncherContext(): LauncherContextValue {
   return ctx;
 }
 
-async function readLauncherStatus(): Promise<LauncherStatus> {
-  const data = await fetchLauncherStatus();
+async function readLauncherStatus(
+  service: LauncherService
+): Promise<LauncherStatus> {
+  const data = await service.fetchLauncherStatus();
   if (!data?.status) return "stopped";
   if (data.status === "running") return "running";
   if (data.status === "launching" || data.status === "starting")

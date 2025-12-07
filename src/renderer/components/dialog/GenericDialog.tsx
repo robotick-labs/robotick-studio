@@ -36,9 +36,11 @@ export function GenericDialog({
       <div
         className={styles.dialog}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby={titleId}
-        aria-describedby={describedBy.length > 0 ? describedBy.join(" ") : undefined}
+        aria-describedby={
+          describedBy.length > 0 ? describedBy.join(" ") : undefined
+        }
       >
         <button
           type="button"

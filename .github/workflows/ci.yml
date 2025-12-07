@@ -8,9 +8,8 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,5 +29,41 @@ jobs:
       - name: Build electron main/preload
         run: npm run build:electron
 
-      - name: Run tests
-        run: npm test -- --run
+  launcher-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test setup
+        uses: ./.github/actions/test-setup
+
+      - name: Run launcher tests
+        run: npm run test:launcher
+
+  renderer-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test setup
+        uses: ./.github/actions/test-setup
+
+      - name: Run renderer tests
+        run: npx vitest --run --project renderer
+
+  electron-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test setup
+        uses: ./.github/actions/test-setup
+
+      - name: Run electron tests
+        run: npx vitest --run --project electron

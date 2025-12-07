@@ -1,7 +1,7 @@
 {
-  "name": "robotick-hub",
+  "name": "robotick-studio",
   "version": "1.0.0",
-  "description": "Robotick Hub Web IDE",
+  "description": "Robotick Studio Electron shell for the Robotick Hub web IDE",
   "main": "dist/electron/main/main.js",
   "directories": {
     "doc": "docs"
@@ -11,8 +11,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "npm run test:renderer && npm run test:electron",
+    "test:launcher": "bash build-and-test-launcher.sh",
     "test:renderer": "vitest --run --project renderer",
+    "pretest:renderer": "npm run test:launcher",
     "test:electron": "vitest --run --project electron",
+    "pretest:electron": "npm run test:launcher",
     "build:electron": "tsc -p tsconfig.electron.json",
     "electron": "npm run build:electron && electron .",
     "electron-dev": "npm run build:electron && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron . --remote-debugging-port=9222",
@@ -20,21 +23,21 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/robotick-labs/robotick-hub.git"
+    "url": "git+https://github.com/robotick-labs/robotick-studio.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/robotick-labs/robotick-hub/issues"
+    "url": "https://github.com/robotick-labs/robotick-studio/issues"
   },
-  "homepage": "https://github.com/robotick-labs/robotick-hub#readme",
+  "homepage": "https://github.com/robotick-labs/robotick-studio#readme",
   "devDependencies": {
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",
     "concurrently": "^9.2.1",
-    "electron": "^28.3.3",
+    "electron": "^39.2.6",
     "jsdom": "^27.2.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.10",

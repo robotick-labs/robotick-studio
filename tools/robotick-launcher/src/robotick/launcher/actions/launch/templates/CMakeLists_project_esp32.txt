@@ -1,0 +1,11 @@
+# Auto-generated project CMakeLists.txt (esp32) for model: '{{ model_name }}'
+
+cmake_minimum_required(VERSION 3.16)
+
+set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/{{ robotick_engine_root }}/platforms/esp32/components/robotick-engine"
+)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project({{ model_name }}-{{ platform }})
+

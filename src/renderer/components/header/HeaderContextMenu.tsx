@@ -1,0 +1,104 @@
+import React from "react";
+import styles from "../workspaces/PanelLayout.module.css";
+import { getWindowControlsAPI } from "./WindowControls";
+
+type HeaderContextMenuProps = {
+  x: number;
+  y: number;
+  onClose: () => void;
+};
+
+export function HeaderContextMenu({ x, y, onClose }: HeaderContextMenuProps) {
+  const api = getWindowControlsAPI();
+  const [isMaximized, setIsMaximized] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const [placement, setPlacement] = React.useState({ left: x, top: y });
+
+  React.useEffect(() => {
+    if (!api) {
+      onClose();
+      return;
+    }
+    if (!api.onStateChange) {
+      return;
+    }
+    const unsubscribe = api.onStateChange((state) =>
+      setIsMaximized(Boolean(state?.isMaximized))
+    );
+    return () => {
+      unsubscribe?.();
+    };
+  }, [api, onClose]);
+
+  React.useEffect(() => {
+    const close = () => onClose();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  React.useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) {
+      setPlacement({ left: x, top: y });
+      return;
+    }
+    const { offsetWidth: width, offsetHeight: height } = menu;
+    const buffer = 8;
+    const maxX = window.innerWidth - width - buffer;
+    const maxY = window.innerHeight - height - buffer;
+    const safeX = Math.max(buffer, Math.min(x, Math.max(buffer, maxX)));
+    const safeY = Math.max(buffer, Math.min(y, Math.max(buffer, maxY)));
+    setPlacement({ left: safeX, top: safeY });
+  }, [x, y]);
+
+  if (!api) {
+    return null;
+  }
+
+  return (
+    <div
+      className={styles.contextMenu}
+      ref={menuRef}
+      style={{ left: placement.left, top: placement.top }}
+      role="menu"
+    >
+      <button
+        className={styles.contextMenuItem}
+        onClick={() => {
+          api.minimize();
+          onClose();
+        }}
+      >
+        Minimize Window
+      </button>
+      <button
+        className={styles.contextMenuItem}
+        onClick={() => {
+          api.toggleMaximize();
+          onClose();
+        }}
+      >
+        {isMaximized ? "Restore Window" : "Maximize Window"}
+      </button>
+      <div className={styles.contextMenuDivider} />
+      <button
+        className={styles.contextMenuItem}
+        onClick={() => {
+          api.close();
+          onClose();
+        }}
+      >
+        Close Window
+      </button>
+    </div>
+  );
+}

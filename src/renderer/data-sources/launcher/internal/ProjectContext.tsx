@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import currentProject from "./launcher-interface";
+import { useLauncherService } from "./LauncherService";
 
 export type ProjectContextValue = {
   projectPath: string;
@@ -18,29 +18,32 @@ export type ProjectContextValue = {
 const ProjectContext = createContext<ProjectContextValue | undefined>(undefined);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
+  const launcherService = useLauncherService();
   const [projectPath, setProjectPathState] = useState(
-    () => currentProject.getProjectPath() ?? ""
+    () => launcherService.getProjectPath() ?? ""
   );
   const [launcherProfile, setLauncherProfileState] = useState(
-    () => currentProject.getLauncherProfile() ?? "local:ALL"
+    () => launcherService.getLauncherProfile() ?? "local:ALL"
   );
 
-  useEffect(() => currentProject.onProjectChanged(setProjectPathState), []);
   useEffect(
-    () =>
-      currentProject.onLauncherProfileChanged(setLauncherProfileState),
-    []
+    () => launcherService.onProjectChanged(setProjectPathState),
+    [launcherService]
+  );
+  useEffect(
+    () => launcherService.onLauncherProfileChanged(setLauncherProfileState),
+    [launcherService]
   );
 
   const setProjectPath = useCallback((path: string) => {
     setProjectPathState(path);
-    currentProject.setProjectPath(path);
-  }, []);
+    launcherService.setProjectPath(path);
+  }, [launcherService]);
 
   const setLauncherProfile = useCallback((profile: string) => {
     setLauncherProfileState(profile);
-    currentProject.setLauncherProfile(profile);
-  }, []);
+    launcherService.setLauncherProfile(profile);
+  }, [launcherService]);
 
   const value = useMemo(
     () => ({

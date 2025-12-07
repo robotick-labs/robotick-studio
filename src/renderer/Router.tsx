@@ -1,41 +1,39 @@
 import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import type { WorkspaceConfig } from "./services/AppConfigService";
+import { WorkspacesConfig } from "./services/AppConfigService";
+import { WorkspaceView } from "./components/workspaces/WorkspaceView";
+import { reportViewDiagnostics } from "./utils/viewDiagnostics";
 
-type LazyComponent = React.LazyExoticComponent<
-  React.ComponentType<Record<string, never>>
->;
+export const resolvedWorkspaces = WorkspacesConfig;
 
-const HomePage = React.lazy(() => import("./pages/home/HomePage"));
-const HelpPage = React.lazy(() => import("./pages/help/HelpPage"));
-const ModelsPage = React.lazy(() => import("./pages/models/ModelsPage"));
-const ProjectPage = React.lazy(() => import("./pages/project/ProjectPage"));
-const RemoteControlPage = React.lazy(
-  () => import("./pages/remote-control/RemoteControlPage")
-);
-const TelemetryPage = React.lazy(() => import("./pages/telemetry/TelemetryPage"));
-const TerminalPage = React.lazy(() => import("./pages/terminal/TerminalPage"));
-
-const routeConfig: { path: string; Component: LazyComponent }[] = [
-  { path: "/home", Component: HomePage },
-  { path: "/help", Component: HelpPage },
-  { path: "/models", Component: ModelsPage },
-  { path: "/project", Component: ProjectPage },
-  { path: "/remote-control", Component: RemoteControlPage },
-  { path: "/telemetry", Component: TelemetryPage },
-  { path: "/terminal", Component: TerminalPage },
-];
+export function shouldForceHomeRedirect(
+  pathname: string,
+  protocol?: string
+): boolean {
+  if (protocol === "file:") return true;
+  return pathname.includes(".html");
+}
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/home" replace />} />
-      {routeConfig.map(({ path, Component }) => (
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to={(resolvedWorkspaces[0] && resolvedWorkspaces[0].path) || "/home"}
+            replace
+          />
+        }
+      />
+      {resolvedWorkspaces.map((workspace) => (
         <Route
-          key={path}
-          path={path}
+          key={workspace.id}
+          path={workspace.path}
           element={
-            <React.Suspense fallback={<RouteFallback />}>
-              <Component />
+            <React.Suspense fallback={<WorkspaceFallback />}>
+              <WorkspaceView workspace={workspace} />
             </React.Suspense>
           }
         />
@@ -45,11 +43,30 @@ export function AppRoutes() {
   );
 }
 
-function RouteFallback() {
-  return <div className="route-loading">Loading…</div>;
+function WorkspaceFallback() {
+  return <div className="workspace-loading">Loading…</div>;
 }
 
 function NotFound() {
+  const location = useLocation();
+  const fallbackHome =
+    (resolvedWorkspaces[0] && resolvedWorkspaces[0].path) || "/home";
+  const protocol =
+    typeof window !== "undefined" ? window.location.protocol : undefined;
+  const shouldForceHome = shouldForceHomeRedirect(location.pathname, protocol);
+
+  React.useEffect(() => {
+    reportViewDiagnostics("not-found", {
+      pathname: location.pathname,
+      search: location.search,
+      forcedRedirect: shouldForceHome,
+    });
+  }, [location.pathname, location.search, shouldForceHome]);
+
+  if (shouldForceHome) {
+    return <Navigate to={fallbackHome} replace />;
+  }
+
   return (
     <div className="not-found">
       <h2>Page not found</h2>
