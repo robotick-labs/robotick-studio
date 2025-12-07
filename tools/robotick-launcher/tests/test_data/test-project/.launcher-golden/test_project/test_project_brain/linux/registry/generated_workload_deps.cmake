@@ -10,8 +10,8 @@ endif()
 
 include(../../../../../../workloads/cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cmake)
 
-find_package(SDL2 2.0.14 REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(SDL2 2.0.14 REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(SDL2_GFX REQUIRED SDL2_gfx)
@@ -36,10 +36,10 @@ endforeach()
 
 foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
   target_link_libraries(${_target} PRIVATE
-    SDL2::SDL2
     ${OpenCV_LIBS}
+    SDL2::SDL2
     whisper
   )
 endforeach()
 
-set(ROBOTICK_HOST_APT libsdl2-dev libopencv-dev)
+set(ROBOTICK_HOST_APT libopencv-dev libsdl2-dev)

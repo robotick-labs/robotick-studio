@@ -1,6 +1,7 @@
 # robotick/launcher/generate_workloads_registry.py
 
 import os
+import re
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -12,6 +13,27 @@ from robotick.launcher.discover_workloads import (
     discover_workload_sources_map,
 )
 from robotick.launcher.discover_deps import collect_all_dependencies
+
+
+_version_tokenizer = re.compile(r"(\d+)")
+
+
+def _version_tuple(version: str) -> tuple:
+    if not version:
+        return ()
+    parts = [int(token) for token in _version_tokenizer.findall(version)]
+    return tuple(parts)
+
+
+def _is_version_newer(candidate: str, current: str) -> bool:
+    cand_tuple = _version_tuple(candidate)
+    curr_tuple = _version_tuple(current)
+    if cand_tuple != curr_tuple:
+        return cand_tuple > curr_tuple
+    # Prefer a non-empty version over empty when tuples equal
+    if candidate and not current:
+        return True
+    return False
 
 
 def generate_workloads_registry(config):
@@ -132,7 +154,11 @@ def _generate_workload_deps_cmake(
 
         if d.find_package:
             comps = tuple(d.components or [])
-            agg_pkgs[(d.find_package, src.pin or "", comps)] = True
+            key = (d.find_package, comps)
+            version = src.pin or ""
+            existing = agg_pkgs.get(key)
+            if existing is None or _is_version_newer(version, existing):
+                agg_pkgs[key] = version
         if d.link_target:
             agg_targets[d.link_target] = True
         for inc in d.include_dirs or []:
@@ -150,7 +176,7 @@ def _generate_workload_deps_cmake(
                 cmake_options_map[d.name] = d.cmake_options
 
     cmake = emit_cmake_fragment(
-        find_required=list(agg_pkgs.keys()),
+        find_required=[(name, version, comps) for (name, comps), version in agg_pkgs.items()],
         link_targets=list(agg_targets.keys()),
         idf_components=list(agg_idf.keys()),
         host_apt=list(agg_apt.keys()),
