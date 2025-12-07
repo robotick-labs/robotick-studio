@@ -22,7 +22,7 @@ def reset_output_dir(output_dir: Path):
 
 
 def normalize_lines(lines):
-    return [line.strip() for line in lines if line.strip() != ""]
+    return [line.rstrip("\n") for line in lines]
 
 
 def normalize_workload_paths(text: str) -> str:
