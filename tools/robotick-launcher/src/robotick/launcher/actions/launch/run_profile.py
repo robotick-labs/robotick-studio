@@ -36,6 +36,8 @@ def run_profile(
         Path.cwd(), help="Base directory containing .launcher"
     ),
     status_queue: Optional[Any] = None,
+    *,
+    run_after_build: bool = True,
 ):
     if ":" not in profile:
         return {
@@ -208,6 +210,24 @@ def run_profile(
         status="completed",
         models=succeeded,
     )
+
+    if not run_after_build:
+        result = {
+            "status": "build_completed",
+            "built": succeeded,
+            "skipped_run": True,
+            "failed": failed,
+        }
+        print("[Launcher] build-profile requested; skipping run phase.")
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase="run",
+            status="skipped",
+            launched=[],
+        )
+        _emit_status(status_queue, event="result", result=result)
+        return result
 
     run_procs: list[tuple[str, subprocess.Popen]] = []
     run_threads: list[threading.Thread] = []

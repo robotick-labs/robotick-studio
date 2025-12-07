@@ -206,6 +206,16 @@ def create_app() -> typer.Typer:
     ):
         run_profile.run_profile(project, profile, base_dir)
 
+    @app.command("build-profile")
+    def build_profile_cmd(
+        project: str = typer.Argument(...),
+        profile: str = typer.Argument(...),
+        base_dir: Path = typer.Option(Path.cwd()),
+    ):
+        run_profile.run_profile(
+            project, profile, base_dir, run_after_build=False
+        )
+
     # Query commands (no flags needed)
     app.command(name="list-projects")(list.list_projects_for_cli)
     app.command(name="list-project-models")(list.list_project_models_for_cli)
