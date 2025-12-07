@@ -58,15 +58,15 @@ schema_version: 1
 tooling:
   tooling_sources:
     - id: robotick-studio
-      repo: https://github.com/robotick/robotick-studio.git
+      repo: https://github.com/robotick-labs/robotick-studio.git
       ref: v0.9.1  # Alternatively: set `local_path: ${PROJECT_DIR}/../../..` if tooling lives in the workspace
 runtime:
   engine:
-    repo: https://github.com/robotick/robotick-engine.git
+    repo: https://github.com/robotick-labs/robotick-engine.git
     ref: 1c2d3e4  # Alternatively: set `local_path: ${PROJECT_DIR}/../../../../robotick-engine` to reuse a sibling checkout
   workload_sources:
     - id: my-robot-workloads
-      repo: https://github.com/robotick/my-robot-workloads.git
+      repo: https://github.com/robotick-labs/my-robot-workloads.git
       ref: my-robot-2024-06
     - id: prototyping-cpp
       local_path: workloads/prototyping/cpp  # Treat in-repo experiments like any other workload root
@@ -74,7 +74,7 @@ runtime:
         - include
         - src
   shared:
-    - repo: https://github.com/robotick/shared-assets.git
+    - repo: https://github.com/robotick-labs/shared-assets.git
       ref: main
   python_roots:
     - id: my-robot-vision
@@ -170,8 +170,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Updated launcher codepaths (generate CMake, install-deps, workload discovery) to read `config.runtime.*` (engine path, workload sources, python roots) and added tests/fixtures to keep pytest green.
 - **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(first real robot repo to adopt schema v1 + pinned tooling)._
   - **Toolchain + bootstrap**
-    - ☐ Port `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 (project file only for now).
-    - ☐ Add `pip-e.setup.sh` under `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/` that reads the tooling pins, hydrates the repo into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, and emits helper shims (`run-studio.sh`, `run-launcher.sh`) so the runtime-focused `install-deps` stage can stay dedicated to engine/workload hydration—cover with bootstrap tests.
+    - ✅ Ported `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 (`tooling_sources`, `${PROJECT_DIR}`-aware workload/python roots, repo-pinned engine/workload sources); bootstrap script still pending.
+    - ✅ Added `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.setup.sh`, which parses the project’s `tooling_sources`, clones or reuses them under `.launcher/pip-e/deps/tooling/<id>-<ref>`, runs `npm install`, and writes repo-root shims (`run-studio.sh`, `run-launcher.sh`) that point Studio/Launcher at the pinned checkout; attempted a full run of the script, but cloning the private `robotick-labs/robotick-studio` repo failed without GitHub credentials (needs environment auth before CI/use).
   - **Runtime hydration + cache**
     - ☐ Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile—add installer tests for lock writes/reads.
     - ☐ Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`—add regression tests that assert failures/success paths.
