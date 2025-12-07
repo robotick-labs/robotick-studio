@@ -34,7 +34,7 @@ jobs:
     needs: build
     steps:
       - name: Test setup
-        uses: ./.github/actions/test-setup
+        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
 
       - name: Run launcher tests
         run: npm run test:launcher
@@ -44,7 +44,7 @@ jobs:
     needs: build
     steps:
       - name: Test setup
-        uses: ./.github/actions/test-setup
+        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
 
       - name: Run renderer tests
         run: npx vitest --run --project renderer
@@ -54,7 +54,7 @@ jobs:
     needs: build
     steps:
       - name: Test setup
-        uses: ./.github/actions/test-setup
+        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
 
       - name: Run electron tests
         run: npx vitest --run --project electron
