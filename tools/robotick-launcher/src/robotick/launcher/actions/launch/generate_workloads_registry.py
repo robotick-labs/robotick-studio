@@ -1,5 +1,6 @@
 # robotick/launcher/generate_workloads_registry.py
 
+import os
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -123,7 +124,10 @@ def _generate_workload_deps_cmake(
             prefix = d.pkg_prefix or src.module.upper()
             agg_pkgcfg[prefix] = src.module
         elif src.type == "workload_cmake":
-            agg_workload_cmake[src.path] = True
+            cmake_path = getattr(src, "path", None)
+            if cmake_path:
+                rel_path = _cmake_relpath(Path(cmake_path), registry_path)
+                agg_workload_cmake[rel_path] = True
 
         if d.find_package:
             comps = tuple(d.components or [])
@@ -205,6 +209,15 @@ def emit_cmake_fragment(
         "cmake_options": cmake_options,
     }
     return render_template("template_workload_deps.cmake", context)
+
+
+def _cmake_relpath(target: Path, start_dir: Path) -> str:
+    """Return POSIX-style path relative to start_dir, or absolute fallback."""
+    try:
+        rel = os.path.relpath(target.resolve(), start_dir.resolve())
+        return Path(rel).as_posix()
+    except ValueError:
+        return target.resolve().as_posix()
 
 
 def _generate_workload_auto_cpp(

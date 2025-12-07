@@ -8,7 +8,7 @@ if(NOT DEFINED ROBOTICK_EXECUTABLE_TARGET)
   message(FATAL_ERROR "ROBOTICK_EXECUTABLE_TARGET must be set before including generated_workload_deps.cmake")
 endif()
 
-include(/home/paulwconnor-ai/dev/robotick/robotick-launcher/tests/test_data/workloads/cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cmake)
+include(../../../../../../workloads/cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cmake)
 
 find_package(SDL2 2.0.14 REQUIRED)
 find_package(OpenCV REQUIRED)
