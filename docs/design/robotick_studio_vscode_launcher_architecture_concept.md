@@ -78,6 +78,8 @@ runtime:
 
 Multiple project files can live side-by-side inside the same repo, each with its own `tooling` pins and bootstrap path.
 
+Our first in-repo pilot is `robots/pip-e/pip-e.project.yaml` inside `robotick-knitware`. We’ll refactor that project to the new schema/bootstrapping flow, validate the tooling/runtime layout end-to-end, and only then roll the pattern out to the other robots once everything feels solid.
+
 ---
 
 ### 3. Studio (TS/React)
@@ -121,7 +123,7 @@ Both use the same pinned Launcher as their brain, fetched from the project’s t
 
 ### 5. Tooling Bootstrap & Distribution
 
-We intentionally skip a global Studio/Launcher installer. Instead, every robot repo ships a bootstrapper per project (e.g., `MyRobot.project.yaml` paired with `MyRobot.setup.sh`, plus optional repo-root dispatcher scripts) that can:
+We intentionally skip a global Studio/Launcher installer. Instead, every robot repo ships a tiny, self-contained bootstrapper per project (e.g., `MyRobot.project.yaml` paired with `MyRobot.setup.sh`, plus optional repo-root dispatcher scripts). That script lives alongside the project file, uses only POSIX shell + git/python stdlib (no launcher imports), and carries everything needed to hydrate the tooling bundle before Launcher ever runs. It can:
 
 - **Run an existing robot.** `git clone robot-repo && cd robot-repo && ./robots/MyRobot.setup.sh` reads that project file’s `tooling` section, clones the pinned Studio/Launcher refs into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, installs the VS Code extension locally, and calls `robotick-launcher install-deps`. The generated `./studio.sh` script launches the bundled Studio which auto-attaches to the project-scoped launcher service.
 - **Create a new robot.** A template (or `create-robotick-project`) scaffolds `<robot>.project.yaml`, writes default tooling pins, and hydrates the tooling folder under `.launcher/<project>/deps/tooling`. Developers tweak repo lists, rerun the bootstrap to hydrate runtime deps, and commit the updated project file alongside their code.
@@ -160,8 +162,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
   - ☐ Extend the project schema with a `tooling` section (`robotick.repo/ref`, optional cache hints), expose it in launcher config objects, and validate it on load.
-  - ☐ Teach `install-deps` (or a new `install-tooling`) to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`studio.sh`, `launcher.sh`).
-  - ☐ Allow per-developer overrides (`ROBOTICK_TOOLING_OVERRIDE`, config file) so core contributors can point multiple robots at a shared tooling checkout without mutating repo pins.
+  - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`studio.sh`, `launcher.sh`) before `install-deps` ever runs.
 - **Project schema**
   - Draft a concrete YAML schema for the new `runtime` section (`engine`, `workload_repos`, `shared_repos`, `local_workload_roots`, `local_python_roots`) plus per-entry platform filters.
   - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
@@ -169,7 +170,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 - **Repo pinning + cache**
   - Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
   - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
-  - Keep per-model `.launcher/<project>/<model>/<target>/deps` for target-specific toolchains; document how they relate to the shared cache.
+  - Document how `.launcher/<project>/deps/runtime/*` (shared cache) relates to `.launcher/<project>/<model>/<target>/deps` build artefacts so users know where each stage writes.
   - ☐ Add tooling cache management (shared `.tooling-cache/<version>` dirs, pruning policies) so multiple robots reuse hydrated Studio/Launcher builds across workspaces and CI.
   - ☐ Introduce a per-project runtime cache (e.g., `.launcher/<project>/deps/runtime/shared`) so target-agnostic repos (engine, workload packs, shared assets) clone once and link into each target folder, starting with engine/workload/shared repos in the upcoming release.
 - **Workload metadata**
@@ -188,7 +189,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Expand telemetry payloads: structured per-model status, build/run phases, log stream metadata, etc.
   - Confirm `/launcher/run|stop|status` understand the new deps layout and multi-target runs (e.g., `local:ALL` with mixed targets).
 - **Tooling bootstrap + distribution**
-  - ☐ Ship cross-platform bootstrap scripts (`bootstrap.sh`, `bootstrap.ps1`) that read the tooling lock, hydrate the toolchain, and surface helper commands; include checksums/logging for CI.
+  - ☐ Ship cross-platform bootstrap scripts (`bootstrap.sh`, `bootstrap.ps1`) that read the tooling lock, hydrate the toolchain, and surface helper commands; include checksums/logging for CI, and keep them standalone so robot repos can vendor them without preinstalled tooling.
   - ☐ Package a robot template / `create-robotick-project` CLI that scaffolds the project file, tooling pins, and bootstrapper for new robots.
   - ☐ Define the AWS Hub deployment recipe (container image, pinned tooling sync, attach/detach lifecycle) so each hosted robot mirrors local behavior.
 - **VS Code Extension MVP**
