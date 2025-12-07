@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich import print
 import typer
@@ -68,6 +68,9 @@ class Config:
 
         # Load YAMLs
         self.project = self._load_yaml(self.project_file)
+        self.tooling = DotDict({})
+        self.runtime = DotDict({})
+        self._normalize_project_schema()
         self.model = DotDict({})
         if model:
             self.model = self._load_yaml(self._find_model_yaml(base_dir, model))
@@ -106,6 +109,97 @@ class Config:
             print(f"[red]❌ Failed to parse YAML file:[/] {path}")
             print(f"[red]Reason:[/] {exc}")
             raise typer.Exit(1)
+
+    def _normalize_project_schema(self) -> None:
+        """Backfill schema defaults and validate `tooling` + `runtime` sections."""
+
+        project_dict: Dict[str, Any] = dict(self.project)
+
+        tooling_dict = project_dict.get("tooling") or {}
+        self.tooling = DotDict(tooling_dict)
+        self._validate_tooling_schema(self.tooling)
+        self.project["tooling"] = self.tooling
+
+        runtime_dict = project_dict.get("runtime") or {}
+        self.runtime = DotDict(runtime_dict)
+        self._validate_runtime_schema(self.runtime)
+        self.project["runtime"] = self.runtime
+
+        # Keep legacy keys aligned so existing callers keep working.
+        if self.runtime.get("local_python_roots") and not self.project.get(
+            "local_python_roots"
+        ):
+            self.project["local_python_roots"] = self.runtime.local_python_roots
+        elif self.project.get("local_python_roots") and not self.runtime.get(
+            "local_python_roots"
+        ):
+            self.runtime["local_python_roots"] = self.project.local_python_roots
+
+        if self.runtime.get("local_workload_roots") and not self.project.get(
+            "local_workload_roots"
+        ):
+            self.project["local_workload_roots"] = self.runtime.local_workload_roots
+        elif self.project.get("local_workload_roots") and not self.runtime.get(
+            "local_workload_roots"
+        ):
+            self.runtime["local_workload_roots"] = self.project.local_workload_roots
+
+    def _validate_tooling_schema(self, tooling: DotDict) -> None:
+        if not tooling:
+            return
+
+        robotick = tooling.get("robotick")
+        if not isinstance(robotick, dict):
+            raise ValueError("'tooling.robotick' must be a mapping with repo/ref fields.")
+        repo = robotick.get("repo")
+        ref = robotick.get("ref")
+        if not repo or not isinstance(repo, str):
+            raise ValueError("'tooling.robotick.repo' must be a non-empty string.")
+        if not ref or not isinstance(ref, str):
+            raise ValueError("'tooling.robotick.ref' must be a non-empty string.")
+
+        bootstrap = tooling.get("bootstrap")
+        if bootstrap is not None and not isinstance(bootstrap, str):
+            raise ValueError("'tooling.bootstrap' must be a string path if provided.")
+
+    def _validate_runtime_schema(self, runtime: DotDict) -> None:
+        if not runtime:
+            return
+
+        engine = runtime.get("engine")
+        if engine is not None:
+            self._validate_repo_entry(engine, "runtime.engine")
+
+        for field in ("workload_repos", "shared_repos"):
+            entries = runtime.get(field) or []
+            if not isinstance(entries, list):
+                raise ValueError(f"'{field}' must be a list when provided.")
+            for idx, entry in enumerate(entries):
+                self._validate_repo_entry(entry, f"{field}[{idx}]")
+            runtime[field] = entries
+
+        for list_field in ("local_workload_roots",):
+            entries = runtime.get(list_field)
+            if entries is None:
+                continue
+            if not isinstance(entries, list) or any(
+                not isinstance(item, str) for item in entries
+            ):
+                raise ValueError(f"'{list_field}' must be a list of strings.")
+
+        python_entries = runtime.get("local_python_roots")
+        if python_entries is not None and not isinstance(python_entries, list):
+            raise ValueError("'local_python_roots' must be a list when provided.")
+
+    def _validate_repo_entry(self, entry: Any, label: str) -> None:
+        if not isinstance(entry, dict):
+            raise ValueError(f"'{label}' must be a mapping.")
+        repo = entry.get("repo")
+        ref = entry.get("ref")
+        if not repo or not isinstance(repo, str):
+            raise ValueError(f"'{label}.repo' must be a non-empty string.")
+        if not ref or not isinstance(ref, str):
+            raise ValueError(f"'{label}.ref' must be a non-empty string.")
 
     def _parse_python_roots(self) -> List[PythonRootConfig]:
         """Normalize python_roots entries from the project yaml."""

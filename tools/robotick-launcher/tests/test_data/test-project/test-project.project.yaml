@@ -1,7 +1,13 @@
 # Project-level configuration for the 'test-project' robot
 
 name: "Test Project"
+schema_version: 1
 description: "Test Project for use in Launcher Unit Tests."
+
+tooling:
+  robotick:
+    repo: https://github.com/robotick/robotick-studio.git
+    ref: main
 
 robotick_engine_root: ../../../../robotick-engine
 
@@ -15,3 +21,21 @@ local_python_roots:
     requirements: requirements.txt
   - id: scripts
     path: tools/scripts
+
+runtime:
+  engine:
+    repo: https://github.com/robotick/robotick-engine.git
+    ref: main
+  workload_repos:
+    - repo: https://github.com/robotick/workloads.git
+      ref: main
+  shared_repos: []
+  local_workload_roots:
+    - ../workloads/cpp/include
+    - ../workloads/cpp/src
+  local_python_roots:
+    - id: main-brain
+      path: python
+      requirements: requirements.txt
+    - id: scripts
+      path: tools/scripts

@@ -1,6 +1,8 @@
 import shutil
 import difflib
+import os
 import re
+import sys
 from pathlib import Path
 from typer.testing import CliRunner
 import subprocess
@@ -11,9 +13,19 @@ from robotick.launcher.cli import create_app
 runner = CliRunner()
 app = create_app()
 
-TEST_BASE = Path("tests/test_data/test-project").resolve()
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+TEST_BASE = TESTS_ROOT / "test_data" / "test-project"
 OUTPUT_DIR_BASE = TEST_BASE / ".launcher"
 GOLDEN_DIR_BASE = TEST_BASE / ".launcher-golden"
+LAUNCHER_SRC = Path(__file__).resolve().parents[2] / "src"
+
+
+def _launcher_env():
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    extra = str(LAUNCHER_SRC)
+    env["PYTHONPATH"] = extra if not existing else f"{extra}{os.pathsep}{existing}"
+    return env
 
 
 def reset_output_dir(output_dir: Path):
@@ -112,13 +124,19 @@ def test_launcher_generate(target, model):
     reset_output_dir(OUTPUT_DIR)
 
     cmd = [
-        "robotick-launcher", "generate",
-        "test-project", model, target,
-        "--base-dir", str(TEST_BASE),
-        "--stub-install"
+        sys.executable,
+        "-m",
+        "robotick.launcher.cli",
+        "generate",
+        "test-project",
+        model,
+        target,
+        "--base-dir",
+        str(TEST_BASE),
+        "--stub-install",
     ]
     print(f"💻 Running subprocess: {' '.join(cmd)}")
 
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=_launcher_env())
 
     assert_dirs_match(OUTPUT_DIR, GOLDEN_DIR)

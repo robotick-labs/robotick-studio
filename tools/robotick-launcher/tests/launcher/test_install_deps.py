@@ -50,6 +50,9 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
     data.pop("local_python_roots", None)
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        runtime.pop("local_python_roots", None)
     project_file.write_text(yaml.safe_dump(data))
 
     workspace_dir = tmp_path / "workspace"
@@ -105,6 +108,9 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
     data.pop("local_python_roots", None)
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        runtime.pop("local_python_roots", None)
     project_file.write_text(yaml.safe_dump(data))
 
     workspace_dir = tmp_path / "workspace"

@@ -33,7 +33,7 @@ Launcher stays the shared backend, now with a repo-aware workflow that travels w
 
 ### 2. Project File (<robot-name>.project.yaml)
 
-Defines the environment by pinning repos instead of raw paths. The schema groups runtime bits together so everything the launcher needs to hydrate sits under one section:
+Defines the environment by pinning repos instead of raw paths. Every project file must declare its schema version (`schema_version: 1` for this rollout) so Launcher + Studio know which layout to expect. The schema groups runtime bits together so everything the launcher needs to hydrate sits under one section:
 
 - `runtime.engine`: repo URL + ref. Launcher mirrors it into `.launcher/<project>/deps/runtime/<target>/engine/<slug>` and feeds headers/libs into the build graph.
 - `runtime.workload_repos`: explicit repo list for workloads. Only these feed the auto-generated registry.
@@ -55,6 +55,7 @@ Example (abridged) `my-robot.project.yaml`:
 
 ```yaml
 name: My Robot
+schema_version: 1
 tooling:
   robotick:
     repo: https://github.com/robotick/robotick-studio.git
@@ -156,13 +157,16 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add thin wrappers (npm scripts, VS Code installer hooks) that call the embedded `robotick-launcher` binary from `.studio/.venv`.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
-- **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(goal: make the new schema/bootstrapping real in the first robot repo before touching anything else)._
-  - ☐ Draft and validate the new project schema sections (`tooling`, `runtime.engine/workload/shared`, etc.), expose them in launcher config objects, and add parser/validation tests.
+- **Schema v1 rollout**
+  - ✅ Draft and validate the new project schema sections (`schema_version`, `tooling`, `runtime.*`), expose them in launcher config objects, and add parser/validation tests.
+  - ✅ Migrated `tools/robotick-launcher/tests/test_data/test-project/test-project.project.yaml` (and related fixtures) to schema v1 so launcher pytest exercises the new layout while remaining self-contained; VS Code already targets that fixture through `.studio/.venv`, so no change there.
+  - ✅ Updated launcher shell-out tests to invoke `python -m robotick.launcher.cli` with `PYTHONPATH=tools/robotick-launcher/src`, keeping CI/dev invocations local to the repo instead of relying on a globally installed binary.
+- **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(first real robot repo to adopt schema v1 + pinned tooling)._
+  - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 and add its `pip-e.setup.sh` script.
   - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) before `install-deps` ever runs—cover with bootstrap tests.
   - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout—add installer tests + run suite.
-  - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to the new schema, add its `pip-e.setup.sh`, and verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end—capture with integration tests.
+  - ☐ Verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end in-place and capture the run with integration tests before rolling out elsewhere.
   - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
-  - ☐ Add/extend unit + integration tests covering the new schema/bootstrap behavior and run the launcher + renderer test suites before landing (final verification gate for the pilot).
   - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
 - **Project Tooling + Deps flows**
   - ✅ Extend the project schema to support `local_python_roots` (id/path/requirements) and surface that data in the launcher config objects.
@@ -170,7 +174,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **Project schema**
-  - ☐ Add schema-level unit tests and run the launcher test suite whenever the schema changes (standing reminder, even after the pilot).
+  - ☐ Add schema-level unit tests and run the launcher test suite whenever the schema (currently v1) changes (standing reminder, even after the pilot).
 - **Repo pinning + cache**
   - Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile—add installer tests for lockwrite/reads.
   - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`—add regression tests that assert failures/success paths.

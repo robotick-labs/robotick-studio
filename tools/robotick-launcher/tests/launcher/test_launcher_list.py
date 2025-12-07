@@ -8,7 +8,7 @@ from robotick.launcher.cli import create_app
 runner = CliRunner()
 app = create_app()
 
-TEST_BASE = Path("tests/test_data/test-project").resolve()
+TEST_BASE = Path(__file__).resolve().parents[1] / "test_data" / "test-project"
 PROJECT_FILE = TEST_BASE / "test-project.project.yaml"
 
 
