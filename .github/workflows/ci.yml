@@ -33,8 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Test setup
-        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
+        uses: ./.github/actions/test-setup
 
       - name: Run launcher tests
         run: npm run test:launcher
@@ -43,8 +46,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Test setup
-        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
+        uses: ./.github/actions/test-setup
 
       - name: Run renderer tests
         run: npx vitest --run --project renderer
@@ -53,8 +59,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Test setup
-        uses: robotick-labs/robotick-studio/.github/actions/test-setup@${{ github.sha }}
+        uses: ./.github/actions/test-setup
 
       - name: Run electron tests
         run: npx vitest --run --project electron
