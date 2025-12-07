@@ -1,9 +1,17 @@
 import React from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import type { WorkspaceConfig } from "./services/AppConfigService";
 import { WorkspacesConfig } from "./services/AppConfigService";
 import { WorkspaceView } from "./components/workspaces/WorkspaceView";
 import { reportViewDiagnostics } from "./utils/viewDiagnostics";
+import { useProjectContext } from "./data-sources/launcher/internal/ProjectContext";
+import { loadRememberedWorkspacePath } from "./utils/workspaceMemory";
 
 export const resolvedWorkspaces = WorkspacesConfig;
 
@@ -17,29 +25,24 @@ export function shouldForceHomeRedirect(
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Navigate
-            to={(resolvedWorkspaces[0] && resolvedWorkspaces[0].path) || "/home"}
-            replace
+    <>
+      <ProjectWorkspaceSync />
+      <Routes>
+        <Route path="/" element={<DefaultWorkspaceRedirect />} />
+        {resolvedWorkspaces.map((workspace) => (
+          <Route
+            key={workspace.id}
+            path={workspace.path}
+            element={
+              <React.Suspense fallback={<WorkspaceFallback />}>
+                <WorkspaceView workspace={workspace} />
+              </React.Suspense>
+            }
           />
-        }
-      />
-      {resolvedWorkspaces.map((workspace) => (
-        <Route
-          key={workspace.id}
-          path={workspace.path}
-          element={
-            <React.Suspense fallback={<WorkspaceFallback />}>
-              <WorkspaceView workspace={workspace} />
-            </React.Suspense>
-          }
-        />
-      ))}
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        ))}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </>
   );
 }
 
@@ -49,8 +52,7 @@ function WorkspaceFallback() {
 
 function NotFound() {
   const location = useLocation();
-  const fallbackHome =
-    (resolvedWorkspaces[0] && resolvedWorkspaces[0].path) || "/home";
+  const fallbackHome = getFallbackWorkspacePath();
   const protocol =
     typeof window !== "undefined" ? window.location.protocol : undefined;
   const shouldForceHome = shouldForceHomeRedirect(location.pathname, protocol);
@@ -73,4 +75,45 @@ function NotFound() {
       <p>We could not find that view.</p>
     </div>
   );
+}
+
+function getFallbackWorkspacePath(): string {
+  return resolvedWorkspaces[0]?.path ?? "/home";
+}
+
+function resolveRememberedWorkspace(projectPath: string | undefined): string {
+  const remembered = loadRememberedWorkspacePath(projectPath);
+  if (
+    remembered &&
+    resolvedWorkspaces.some((workspace) => workspace.path === remembered)
+  ) {
+    return remembered;
+  }
+  return getFallbackWorkspacePath();
+}
+
+function DefaultWorkspaceRedirect() {
+  const { projectPath } = useProjectContext();
+  const target = resolveRememberedWorkspace(projectPath);
+  return <Navigate to={target} replace />;
+}
+
+function ProjectWorkspaceSync() {
+  const { projectPath } = useProjectContext();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const previousProject = React.useRef<string | undefined>();
+
+  React.useEffect(() => {
+    if (previousProject.current === projectPath) {
+      return;
+    }
+    previousProject.current = projectPath;
+    const target = resolveRememberedWorkspace(projectPath);
+    if (location.pathname !== target) {
+      navigate(target, { replace: true });
+    }
+  }, [projectPath, location.pathname, navigate]);
+
+  return null;
 }
