@@ -157,43 +157,46 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Add an Electron main-process bootstrap that checks for `.studio/.venv`, runs the Launcher service (`robotick-launcher listen`) if not already live, and waits for `/launcher/status`.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(goal: make the new schema/bootstrapping real in the first robot repo before touching anything else)._
-  - ☐ Extend the project schema with a `tooling` section (`robotick.repo/ref`, optional cache hints), expose it in launcher config objects, and validate it on load.
-  - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) before `install-deps` ever runs.
-  - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout.
-  - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to the new schema, add its `pip-e.setup.sh`, and verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end.
-  - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`.
-  - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable.
+  - ☐ Draft and validate the new project schema sections (`tooling`, `runtime.engine/workload/shared`, etc.), expose them in launcher config objects, and add parser/validation tests.
+  - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) before `install-deps` ever runs—cover with bootstrap tests.
+  - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout—add installer tests + run suite.
+  - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to the new schema, add its `pip-e.setup.sh`, and verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end—capture with integration tests.
+  - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
+  - ☐ Add/extend unit + integration tests covering the new schema/bootstrap behavior and run the launcher + renderer test suites before landing (final verification gate for the pilot).
+  - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
 - **Project Tooling + Deps flows**
   - ✅ Extend the project schema to support `local_python_roots` (id/path/requirements) and surface that data in the launcher config objects.
   - ✅ Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
   - ✅ `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `local_python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
 - **Project schema**
-  - Draft a concrete YAML schema for the new `runtime` section (`engine`, `workload_repos`, `shared_repos`, `local_workload_roots`, `local_python_roots`) plus per-entry platform filters.
-  - Add schema validation + helpful error messages inside Launcher when parsing `<robot>.project.yaml`.
-  - Update docs/sample projects to the new schema (tooling + runtime sections) and provide a migration guide.
+  - ☐ Add schema-level unit tests and run the launcher test suite whenever the schema changes (standing reminder, even after the pilot).
 - **Repo pinning + cache**
-  - Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile.
-  - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`.
-  - Document how `.launcher/<project>/deps/runtime/*` (shared cache) relates to `.launcher/<project>/<model>/<target>/deps` build artefacts so users know where each stage writes.
-  - ☐ Add tooling cache management (shared `.tooling-cache/<version>` dirs, pruning policies) so multiple robots reuse hydrated Studio/Launcher builds across workspaces and CI.
-  - ☐ Introduce a per-project runtime cache (e.g., `.launcher/<project>/deps/runtime/shared`) so target-agnostic repos (engine, workload packs, shared assets) clone once and link into each target folder, starting with engine/workload/shared repos in the upcoming release.
+  - Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile—add installer tests for lockwrite/reads.
+  - Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`—add regression tests that assert failures/success paths.
+  - Document how `.launcher/<project>/deps/runtime/*` (shared cache) relates to `.launcher/<project>/<model>/<target>/deps` build artefacts so users know where each stage writes—include doc tests/examples.
+  - ☐ Add tooling cache management (shared `.tooling-cache/<version>` dirs, pruning policies) so multiple robots reuse hydrated Studio/Launcher builds across workspaces and CI—write cache tests + run pytest.
+  - ☐ Introduce a per-project runtime cache (e.g., `.launcher/<project>/deps/runtime/shared`) so target-agnostic repos (engine, workload packs, shared assets) clone once and link into each target folder, starting with engine/workload/shared repos in the upcoming release—cover with integration tests.
+  - ☐ Cover the caching + pinning flows with unit/integration tests and run the full `pytest` suite before shipping (final reminder).
 - **Workload metadata**
-  - Update workload discovery to scan only `workload_repos` + `local_workload_roots` (both optional).
-  - Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape.
-  - Add tests covering repo-scoped + local-path discovery so regressions are caught.
+  - Update workload discovery to scan only `workload_repos` + `local_workload_roots` (both optional)—add discovery tests for both cases.
+  - Regenerate the workload registry templates and ensure CLI/listener endpoints return the revised metadata shape—add API tests validating the payload.
+  - Add tests covering repo-scoped + local-path discovery so regressions are caught, and ☐ run the launcher test suite (including the new workload metadata tests) before landing.
 - **Cleaning story**
-  - Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts).
-  - Implement `clean-deps` (delete `.launcher/<project>/deps/runtime/<target>` + optionally cascade to builds).
-  - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
+  - Implement `clean-generated` (delete `.launcher/<project>/<model>/<target>` build artefacts)—add CLI tests.
+  - Implement `clean-deps` (delete `.launcher/<project>/deps/runtime/<target>` + optionally cascade to builds)—cover with tests and run suite.
+  - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons—ensure tests verify cascading deletes and ☐ run the launcher test suite prior to merge.
 - **CI Integration**
-  - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites).
+  - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites)—include pipeline smoke tests.
+  - ☐ Ensure CI changes include appropriate automated test runs (pytest, renderer/Vitest) and validate the pipeline end-to-end (final reminder).
 - **VS Code Extension MVP**
-  - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data.
-  - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive).
-  - ☐ Ensure default presentation of UI is useful: appropriate responsive header; and default panel.
-  - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
+  - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data (run Vitest each time).
+  - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive)—kept under renderer test coverage.
+  - ☐ Ensure default presentation of UI is useful: appropriate responsive header; and default panel—add webview tests + Vitest snapshots.
+  - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json—cover with extension command tests.
+  - ☐ Add/update Vitest/E2E coverage for new extension features and run the suite before releasing (umbrella reminder).
 - **Docs/UX**
-  - Update the concept + summary docs plus README quickstarts to describe the bootstrap + tooling-pin workflow.
-  - Provide a “clone → bootstrap.sh → studio.sh” walkthrough with troubleshooting tips (Linux/macOS/Windows).
-  - Document how VS Code discovers the per-project Launcher, how to override tooling pins locally, and how AWS-hosted Hub deployments use the same mechanism.
+  - Update the concept + summary docs plus README quickstarts to describe the bootstrap + tooling-pin workflow—ensure accompanying doc tests/screenshots are refreshed.
+  - Provide a “clone → bootstrap.sh → studio.sh” walkthrough with troubleshooting tips (Linux/macOS/Windows)—validate the walkthrough manually/tests before publishing.
+  - Document how VS Code discovers the per-project Launcher, how to override tooling pins locally, and how AWS-hosted Hub deployments use the same mechanism—include verification steps in docs.
+  - ☐ Treat doc updates like code: run doc linting/checks (where applicable) and include verification snippets/smoke tests before publishing (global reminder).
