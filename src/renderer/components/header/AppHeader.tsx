@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useEffect, useRef } from "react";
+import React, { useMemo, useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
@@ -34,16 +34,6 @@ export function AppHeader() {
     .filter(Boolean)
     .join(" ");
   const { showHeaderMenu } = useContextMenu();
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent) => {
-      if (!isStandalone) return;
-      if (isInteractiveTarget(event.target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      showHeaderMenu({ x: event.clientX, y: event.clientY });
-    },
-    [isStandalone, showHeaderMenu]
-  );
 
   useEffect(() => {
     if (!isStandalone || typeof document === "undefined") return;
@@ -65,11 +55,7 @@ export function AppHeader() {
   }, [isStandalone, showHeaderMenu]);
 
   return (
-    <header
-      ref={headerRef}
-      className={headerClassName}
-      onContextMenu={handleContextMenu}
-    >
+    <header ref={headerRef} className={headerClassName}>
       <picture className={`${styles.logoPicture} ${noDragClass}`.trim()}>
         <source
           media="(max-width: 1550px)"

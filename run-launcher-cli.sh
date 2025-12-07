@@ -21,8 +21,39 @@ fi
 
 # shellcheck source=/dev/null
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip >/dev/null
-pip install -e "$SCRIPT_DIR/tools/robotick-launcher[dev]" >/dev/null
+
+# Cache pip installs so we only upgrade when deps change
+MARKER_DIR="$WORKSPACE_ROOT/.studio"
+MARKER_FILE="$MARKER_DIR/.launcher_pip_installed"
+DEPENDENCY_FILES=(
+  "$SCRIPT_DIR/tools/robotick-launcher/pyproject.toml"
+  "$SCRIPT_DIR/tools/robotick-launcher/setup.cfg"
+  "$SCRIPT_DIR/tools/robotick-launcher/poetry.lock"
+)
+mkdir -p "$MARKER_DIR"
+
+needs_install=false
+if [ ! -f "$MARKER_FILE" ]; then
+  needs_install=true
+else
+  for dep in "${DEPENDENCY_FILES[@]}"; do
+    if [ -f "$dep" ] && [ "$dep" -nt "$MARKER_FILE" ]; then
+      needs_install=true
+      break
+    fi
+  done
+fi
+
+if [ "$needs_install" = true ]; then
+  echo "[Launcher CLI] Installing/updating launcher dependencies..."
+  if ! pip install --upgrade pip >/dev/null || \
+     ! pip install -e "$SCRIPT_DIR/tools/robotick-launcher[dev]" >/dev/null; then
+    rm -f "$MARKER_FILE"
+    echo "[Launcher CLI] Pip install failed; please rerun." >&2
+    exit 1
+  fi
+  touch "$MARKER_FILE"
+fi
 
 LAUNCHER_BIN="$VENV_DIR/bin/robotick-launcher"
 COMMAND="$1"
@@ -43,9 +74,6 @@ for ((i=0; i<${#ARGS[@]}; i++)); do
   if [[ "$arg" == "-b" ]]; then
     base_dir_present=true
     break
-  fi
-  if [[ "$arg" =~ ^- && "$arg" != "-" ]]; then
-    continue
   fi
 
 done

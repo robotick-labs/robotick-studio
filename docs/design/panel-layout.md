@@ -20,8 +20,8 @@
    - Selecting a new entry swaps just that panel’s content.
    - The context menu’s `Assign Tool…` item opens the same selector for users who prefer right-click workflows.
 4. **Joining panels**
-  - Dragging the corner handle across an adjacent panel, or choosing `Close Panel`, removes the current split and lets the neighboring panel reclaim the full space.
-  - When only one panel remains, its handle/menus still exist so users can start splitting again.
+   - Dragging the corner handle across an adjacent panel, or choosing `Close Panel`, removes the current split and lets the neighboring panel reclaim the full space.
+   - When only one panel remains, its handle/menus still exist so users can start splitting again.
 
 ### Floating panels
 - The panel context menu exposes `Create Floating Panel`, which calls `spawnFloatingPanel` with the current editor so you can duplicate any tool into its own mode, optionally passing `initialPosition`, `initialSize`, or `minSize` hints.

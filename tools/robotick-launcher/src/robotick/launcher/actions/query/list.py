@@ -2,6 +2,7 @@ import fnmatch
 import os
 from pathlib import Path
 from typing import Optional
+import typer
 
 
 def find_files_by_wildcard(wildcard: str, base_dir: Optional[str]) -> list[str]:

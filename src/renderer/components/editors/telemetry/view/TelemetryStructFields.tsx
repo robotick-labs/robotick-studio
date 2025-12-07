@@ -11,6 +11,19 @@ import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
 import { spawnTelemetryImagePanel } from "../panels";
 
+export interface TelemetryField {
+  name: string;
+  path: string;
+  type: string;
+  mime_type?: string;
+  fields?: TelemetryField[];
+  getValue: () => unknown;
+}
+
+export interface TelemetryStruct {
+  fields?: TelemetryField[];
+}
+
 // -------------------------------------------------------------
 // Number formatting
 // -------------------------------------------------------------
@@ -22,7 +35,7 @@ function formatNumberSmart(n: number): string {
   return n.toFixed(decimals);
 }
 
-function formatValue(value: any, type: string): string {
+function formatValue(value: unknown, type: string): string {
   if (value === null || value === undefined) return `<${type}>`;
   if (Array.isArray(value)) return `<${type}, ${value.length}>`;
   if (typeof value === "number") return formatNumberSmart(value);
@@ -37,7 +50,7 @@ function formatValue(value: any, type: string): string {
 // Main structured-field renderer
 // -------------------------------------------------------------
 type StructFieldProps = {
-  struct?: any;
+  struct?: TelemetryStruct;
   telemetryBaseUrl?: string;
   workloadName?: string;
   modelName?: string;
@@ -53,11 +66,12 @@ export function TelemetryStructFields({
 }: StructFieldProps) {
   const floatingScope = panelScope ?? "global-floating-panels";
 
-  if (!struct || !struct.fields || struct.fields.length === 0) {
+  const fields = struct?.fields;
+  if (!fields || fields.length === 0) {
     return <div className={styles.multiline}>–</div>;
   }
 
-  function renderField(f: any): React.ReactNode {
+  function renderField(f: TelemetryField): React.ReactNode {
     const label = f.name;
 
     // Nested struct
@@ -66,7 +80,7 @@ export function TelemetryStructFields({
         <div key={f.path}>
           <b>{label}</b>
           <div key={f.path + "_children"} style={{ marginLeft: 10 }}>
-            {f.fields.map((child: any) => renderField(child))}
+            {f.fields.map((child) => renderField(child))}
           </div>
         </div>
       );
@@ -94,9 +108,7 @@ export function TelemetryStructFields({
     );
   }
 
-  return (
-    <div className={styles.multiline}>{struct.fields.map(renderField)}</div>
-  );
+  return <div className={styles.multiline}>{fields.map(renderField)}</div>;
 }
 
 // -------------------------------------------------------------
@@ -109,26 +121,25 @@ function ImageField({
   modelName,
   panelScope,
 }: {
-  field: any;
+  field: TelemetryField;
   telemetryBaseUrl?: string;
   workloadName?: string;
   modelName?: string;
   panelScope: string;
 }) {
-  const raw: Uint8Array = field.getValue();
+  const rawValue = field.getValue();
   const path = field.path;
   const label = field.name;
   const mime = field.mime_type;
 
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const hasDims = Boolean(dims);
 
-  if (!(raw instanceof Uint8Array)) {
+  if (!(rawValue instanceof Uint8Array)) {
     return <div>{label}: &lt;invalid image data&gt;</div>;
   }
 
   // URL managed by global cache + LRU
-  const url = useBlobURL(raw, mime);
+  const url = useBlobURL(rawValue, mime);
   const handleThumbClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     spawnTelemetryImagePanel({
@@ -156,10 +167,13 @@ function ImageField({
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
             onLoad={(e) => {
-              if (!hasDims) {
+              setDims((prev) => {
+                if (prev) {
+                  return prev;
+                }
                 const img = e.currentTarget as HTMLImageElement;
-                setDims({ w: img.naturalWidth, h: img.naturalHeight });
-              }
+                return { w: img.naturalWidth, h: img.naturalHeight };
+              });
             }}
             onClick={handleThumbClick}
             onMouseDown={(e) => e.stopPropagation()}

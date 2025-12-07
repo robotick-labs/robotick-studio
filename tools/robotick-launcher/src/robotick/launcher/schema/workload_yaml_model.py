@@ -49,20 +49,20 @@ class Dependency(BaseModel):
     components: Optional[List[str]] = None
     pkg_prefix: Optional[str] = None
     link_target: Optional[str] = None
-    include_dirs: Optional[List[str]] = []
-    link_libraries: Optional[List[str]] = []
+    include_dirs: Optional[List[str]] = Field(default_factory=list)
+    link_libraries: Optional[List[str]] = Field(default_factory=list)
     optional: Optional[bool] = False
     cmake_subdir: Optional[str] = None  # e.g. ".", "src"
     cmake_options: Dict[str, Union[str, int]] = Field(default_factory=dict)
 
 
 class PlatformSpec(BaseModel):
-    files: List[str] = []
-    deps: List[Dependency] = []
+    files: List[str] = Field(default_factory=list)
+    deps: List[Dependency] = Field(default_factory=list)
 
 
 class WorkloadSpec(BaseModel):
-    platforms: Dict[str, PlatformSpec] = {}
+    platforms: Dict[str, PlatformSpec] = Field(default_factory=dict)
 
 
 # Convenience alias for runtime discovery code

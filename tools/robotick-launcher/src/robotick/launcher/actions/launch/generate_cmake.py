@@ -72,7 +72,8 @@ def generate_project_cmakelists(config) -> None:
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_if_changed(path, contents)
+        if not write_text_if_changed(path, contents):
+            raise RuntimeError(f"Failed to write {path}")
     except OSError as e:
         print(f"[bold red]❌ Failed to write file:[/] {path}")
         print(f"[red]Reason:[/] {e}")
@@ -144,7 +145,8 @@ def generate_component_cmakelists(config) -> None:
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_if_changed(path, contents)
+        if not write_text_if_changed(path, contents):
+            raise RuntimeError(f"Failed to write {path}")
     except OSError as e:
         print(f"[bold red]❌ Failed to write file:[/] {path}")
         print(f"[red]Reason:[/] {e}")

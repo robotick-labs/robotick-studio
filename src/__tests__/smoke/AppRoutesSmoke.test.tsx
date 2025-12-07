@@ -2,13 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { mockWorkspaceView } from "../helpers/mocks";
 
-vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
-  WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
-    <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
-  ),
-}));
+mockWorkspaceView();
 
 import { AppRoutes } from "../../renderer/Router";
 

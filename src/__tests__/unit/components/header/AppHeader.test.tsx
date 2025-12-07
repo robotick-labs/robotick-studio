@@ -1,8 +1,7 @@
-import React from "react";
+import React, { act } from "react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { act } from "react-dom/test-utils";
 import { createRoot } from "react-dom/client";
 
 vi.mock("../../../../renderer/components/header/LauncherControls", () => ({

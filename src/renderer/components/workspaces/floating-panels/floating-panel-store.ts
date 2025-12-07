@@ -19,11 +19,22 @@ export type FloatingPanelSpawnConfig = {
   minSize?: { width: number; height: number };
 };
 
-type Listener = () => void;
+type Listener = (panels: FloatingPanelRecord[]) => void;
 
 const STORAGE_PREFIX = "floating-panels:";
 const store = new Map<string, FloatingPanelRecord[]>();
 const listeners = new Map<string, Set<Listener>>();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) {
+      return;
+    }
+    const scope = event.key.slice(STORAGE_PREFIX.length);
+    store.delete(scope);
+    notify(scope);
+  });
+}
 
 function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   return records.map((record) => ({
@@ -59,13 +70,19 @@ function load(scope: string): FloatingPanelRecord[] {
         initialPosition:
           item.initialPosition &&
           typeof item.initialPosition.x === "number" &&
-          typeof item.initialPosition.y === "number"
+          typeof item.initialPosition.y === "number" &&
+          Number.isFinite(item.initialPosition.x) &&
+          Number.isFinite(item.initialPosition.y)
             ? { x: item.initialPosition.x, y: item.initialPosition.y }
             : undefined,
         initialSize:
           item.initialSize &&
           typeof item.initialSize.width === "number" &&
-          typeof item.initialSize.height === "number"
+          typeof item.initialSize.height === "number" &&
+          Number.isFinite(item.initialSize.width) &&
+          Number.isFinite(item.initialSize.height) &&
+          item.initialSize.width > 0 &&
+          item.initialSize.height > 0
             ? {
                 width: item.initialSize.width,
                 height: item.initialSize.height,
@@ -74,7 +91,11 @@ function load(scope: string): FloatingPanelRecord[] {
         minSize:
           item.minSize &&
           typeof item.minSize.width === "number" &&
-          typeof item.minSize.height === "number"
+          typeof item.minSize.height === "number" &&
+          Number.isFinite(item.minSize.width) &&
+          Number.isFinite(item.minSize.height) &&
+          item.minSize.width > 0 &&
+          item.minSize.height > 0
             ? {
                 width: item.minSize.width,
                 height: item.minSize.height,
@@ -129,7 +150,7 @@ export function subscribeFloatingPanels(
   const current = ensure(scope);
   listener(clone(current));
   const scoped = listeners.get(scope) ?? new Set<Listener>();
-  const wrapper: Listener = () => listener(clone(ensure(scope)));
+  const wrapper: Listener = (panels) => listener(panels);
   scoped.add(wrapper);
   listeners.set(scope, scoped);
   return () => {

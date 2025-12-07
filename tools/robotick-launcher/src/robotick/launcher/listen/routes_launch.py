@@ -33,6 +33,7 @@ log_subscribers: List[asyncio.Queue] = []
 log_lock = threading.Lock()
 
 status_lock = threading.Lock()
+lifecycle_lock = threading.Lock()
 current_status: Dict[str, Any] = {
     "status": "stopped",
     "phase": None,
@@ -183,21 +184,27 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
 
         _apply_status_event(message)
 
-    if process_handle:
-        process_handle.join(timeout=1)
-    process_handle = None
+    proc_to_join: Optional[mp.Process] = None
+    queue_to_close: Optional[mp.Queue] = None
+    with lifecycle_lock:
+        if process_handle:
+            proc_to_join = process_handle
+        process_handle = None
+        if status_queue:
+            queue_to_close = status_queue
+        status_queue = None
+        log_loop = None
+        current_profile = None
+        status_thread = None
 
-    if status_queue:
-        status_queue.close()
-    status_queue = None
-    log_loop = None
-    current_profile = None
+    if proc_to_join:
+        proc_to_join.join(timeout=1)
+    if queue_to_close:
+        queue_to_close.close()
 
     with status_lock:
         if current_status.get("status") not in ("error", "completed"):
             current_status["status"] = "stopped"
-
-    status_thread = None
 
 
 def _run_profile_worker(
@@ -284,7 +291,11 @@ async def run_launcher(
     except Exception as exc:
         process_handle = None
         if status_queue:
-            status_queue.close()
+            try:
+                status_queue.close()
+                status_queue.join_thread()
+            except Exception as queue_exc:  # pragma: no cover - best-effort cleanup
+                print(f"[Launcher] Failed to close status queue cleanly: {queue_exc}")
         status_queue = None
         current_profile = None
         with status_lock:
@@ -314,27 +325,34 @@ async def run_launcher(
 
 @router.post("/stop")
 def stop_launcher():
-    global process_handle, status_queue, status_thread, current_profile
+    global process_handle, status_queue, status_thread, current_profile, log_loop
 
     print("[Launcher] Requested stop")
 
-    if process_handle and process_handle.is_alive():
-        process_handle.terminate()
-        process_handle.join(timeout=3)
+    with lifecycle_lock:
+        proc = process_handle
+        queue = status_queue
+        thread = status_thread
+        process_handle = None
+        status_queue = None
+        status_thread = None
+        current_profile = None
+        log_loop = None
 
-    if status_queue:
+    if proc and proc.is_alive():
+        proc.terminate()
+        proc.join(timeout=3)
+
+    if queue:
         try:
-            status_queue.put_nowait(None)
+            queue.put_nowait(None)
         except Exception:
             pass
+        finally:
+            queue.close()
 
-    if status_thread and status_thread.is_alive():
-        status_thread.join(timeout=1)
-
-    process_handle = None
-    status_queue = None
-    status_thread = None
-    current_profile = None
+    if thread and thread.is_alive():
+        thread.join(timeout=1)
 
     with status_lock:
         current_status["status"] = "stopped"

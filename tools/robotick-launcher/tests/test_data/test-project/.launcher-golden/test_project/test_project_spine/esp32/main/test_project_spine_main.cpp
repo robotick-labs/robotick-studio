@@ -27,11 +27,25 @@ void run_engine_on_core1(void* param)
 	engine.run(dummy_flag);
 
 	ROBOTICK_INFO("test-project-spine - exited engine...");
+	vTaskDelete(nullptr);
 }
 
 ROBOTICK_ENTRYPOINT
 {
 	ROBOTICK_INFO("Starting Robotick engine on 'esp32' for model 'test-project-spine'...");
 
-	xTaskCreatePinnedToCore(run_engine_on_core1, ENGINE_TASK_NAME, ENGINE_STACK_SIZE, nullptr, ENGINE_TASK_PRIORITY, nullptr, ENGINE_CORE_ID);
+	BaseType_t result = xTaskCreatePinnedToCore(
+		run_engine_on_core1,
+		ENGINE_TASK_NAME,
+		ENGINE_STACK_SIZE,
+		nullptr,
+		ENGINE_TASK_PRIORITY,
+		nullptr,
+		ENGINE_CORE_ID
+	);
+
+	if (result != pdPASS)
+	{
+		ROBOTICK_ERROR("Failed to create engine task (error code %d)", static_cast<int>(result));
+	}
 }

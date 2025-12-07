@@ -21,8 +21,8 @@ type SpawnParams = {
 export function spawnTelemetryImagePanel({
   scope,
   settings,
-}: SpawnParams) {
-  createTelemetryPanel(scope, {
+}: SpawnParams): string {
+  return createTelemetryPanel(scope, {
     editorId: "telemetry-image-viewer",
     title: settings.panelTitle ?? "Telemetry Image",
     settings,
@@ -34,8 +34,8 @@ export function spawnTelemetryImagePanel({
 export function spawnTelemetryTreePanel({
   scope,
   settings,
-}: SpawnParams) {
-  createTelemetryPanel(scope, {
+}: SpawnParams): string {
+  return createTelemetryPanel(scope, {
     editorId: "telemetry-tree-viewer",
     title: settings.panelTitle ?? "Telemetry Tree",
     settings,
@@ -47,6 +47,6 @@ export function spawnTelemetryTreePanel({
 function createTelemetryPanel(
   scope: string,
   config: FloatingPanelSpawnConfig
-) {
-  spawnFloatingPanel(scope, config);
+): string {
+  return spawnFloatingPanel(scope, config);
 }

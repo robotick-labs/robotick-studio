@@ -29,7 +29,7 @@ const expose = () => {
         .invoke("robotick-window-command", { command: "state" })
         .then((state) => callback(state));
       return () => {
-        ipcRenderer.removeListener("robotick-window-state", listener);
+        ipcRenderer.off("robotick-window-state", listener);
       };
     },
   };

@@ -47,11 +47,22 @@ def get_project_models(
 
 def _load_yaml_as_json(path: Path) -> dict:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        # Normalize `None` (empty files) to an empty object for predictable JSON
-        return data if data is not None else {}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse YAML: {e}") from e
+        contents = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, PermissionError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read YAML '{path}': {exc}",
+        ) from exc
+
+    try:
+        data = yaml.safe_load(contents)
+    except yaml.YAMLError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid YAML in '{path}': {exc}"
+        ) from exc
+
+    # Normalize `None` (empty files) to an empty object for predictable JSON
+    return data if data is not None else {}
 
 
 @router.get("/get-project-settings", response_class=JSONResponse)

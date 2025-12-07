@@ -39,8 +39,7 @@ export function selectRouterComponent(
   const vsCodeWebview =
     options.isVsCodeWebview ??
     ((typeof protocol === "string" && protocol === "vscode-webview:") ||
-      /\bVSCODE\b/i.test(userAgent) ||
-      /\bVSCode\b/i.test(userAgent));
+      /\bvscode\b/i.test(userAgent));
   const electronRuntime =
     options.isElectronRuntime ??
     (typeof process !== "undefined" &&

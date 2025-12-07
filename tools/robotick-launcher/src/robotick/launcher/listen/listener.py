@@ -34,11 +34,11 @@ def create_app() -> FastAPI:
     app.include_router(query_router)
     return app
 
-def run_server(port):
+def run_server(port: int) -> None:
     app = create_app()
 
-    host = DEFAULT_HOST;
+    host = DEFAULT_HOST
     actual_port = port if port > 0 else DEFAULT_PORT
-    log_level = DEFAULT_LOG_LEVEL;
+    log_level = DEFAULT_LOG_LEVEL
 
     uvicorn.run(app, host=host, port=actual_port, log_level=log_level)

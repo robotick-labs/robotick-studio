@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-. "$SCRIPT_DIR/do_launcher_common_setup.sh
+. "$SCRIPT_DIR/do_launcher_common_setup.sh"
 
 echo "⚙️  Running clean + set-target + build inside container..."
 docker exec robotick-dev-esp32s3 bash -c "

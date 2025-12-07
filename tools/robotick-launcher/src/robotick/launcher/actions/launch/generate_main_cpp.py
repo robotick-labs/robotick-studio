@@ -28,7 +28,8 @@ def generate_main_cpp(config):
         
         template_file_name = f"template_main_{config.target}.cpp"
         contents = render_template(template_file_name, context)
-        write_text_if_changed(path, contents)
+        if not write_text_if_changed(path, contents):
+            raise RuntimeError(f"Failed to write {path}")
     except FileNotFoundError as e:
         print(f"[bold red]❌ Template error:[/] {e}")
     except Exception as e:

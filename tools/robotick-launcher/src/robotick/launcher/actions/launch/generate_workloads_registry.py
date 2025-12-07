@@ -68,12 +68,13 @@ def generate_workloads_registry(config):
     try:
         contents = render_template("template_registry.cpp", context)
         registry_cpp_path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_if_changed(registry_cpp_path, contents)
+        if not write_text_if_changed(registry_cpp_path, contents):
+            raise RuntimeError(f"Failed to write {registry_cpp_path}")
     except Exception as e:
         print(
             f"[bold red]❌ Failed to generate registry:[/] {registry_cpp_path}\n[red]Reason:[/] {e}"
         )
-        return
+        raise
 
     # Emit CMake fragment (deps only for used workload types)
     if config.should_generate_workload_deps:
@@ -159,7 +160,9 @@ def _generate_workload_deps_cmake(
         git_subdirs=git_subdirs,
         cmake_options=cmake_options_map,
     )
-    write_text_if_changed((registry_path / "generated_workload_deps.cmake"), cmake)
+    deps_path = registry_path / "generated_workload_deps.cmake"
+    if not write_text_if_changed(deps_path, cmake):
+        raise RuntimeError(f"Failed to write {deps_path}")
 
 
 def emit_cmake_fragment(
@@ -258,7 +261,8 @@ def _generate_workload_auto_cpp(
     try:
         contents = render_template("template_workload_auto.cpp", context)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_if_changed(out_path, contents)
+        if not write_text_if_changed(out_path, contents):
+            raise RuntimeError(f"Failed to write {out_path}")
     except Exception as e:
         print(f"[bold red]❌ Failed to write workload auto file:[/] {out_path}")
         print(f"[red]Reason:[/] {e}")

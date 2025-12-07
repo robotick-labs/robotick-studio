@@ -205,12 +205,6 @@ export default function TelemetryImageViewer() {
     }
   }, [fieldPath, imageFieldOptions, updateSettings]);
 
-  const imageField = useMemo(() => {
-    if (!model || !fieldPath) return null;
-    return model.getField(fieldPath) ?? null;
-  }, [model, fieldPath]);
-  const selectedImageField = fieldPath;
-
   useEffect(() => {
     if (availableWorkloads.length === 0) return;
     if (!availableWorkloads.some((w) => w.name === workloadName)) {

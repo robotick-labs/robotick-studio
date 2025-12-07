@@ -7,7 +7,7 @@
 - Prepare for future feature gating by centralizing config loading/exposure via an `AppConfigService`.
 
 ## Requirements
-1. **Config file**: YAML under `src/renderer/config/workspaces.yaml` (canonical location). Each workspace entry defines:
+1. **Config files**: YAML under `src/renderer/config/app-workspaces.yaml` and `src/renderer/config/app-editors.yaml` (canonical locations). Each workspace entry in `app-workspaces.yaml` defines:
    - `id`: unique string.
    - `path`: route path (`/telemetry`).
    - `label`: menu label
@@ -28,7 +28,8 @@
    - Simple integration test that Router renders a workspace defined in YAML.
 
 ## Deliverables
-- `src/renderer/config/routes.yaml`
+- `src/renderer/config/app-workspaces.yaml`
+- `src/renderer/config/app-editors.yaml`
 - `src/renderer/services/AppConfigService.ts` (name TBD)
 - Updated `Router.tsx` and header to consume config
 - Tests covering config load + router wiring

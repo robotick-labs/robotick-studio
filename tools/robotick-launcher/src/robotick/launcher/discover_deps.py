@@ -13,7 +13,7 @@ def parse_workload_yaml(path: Path) -> Optional[WorkloadSpec]:
         return None
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return WorkloadSpec.parse_obj(raw)
+        return WorkloadSpec.model_validate(raw)
     except Exception as e:
         print(f"[yellow]⚠️ Failed to parse workload YAML at {path}: {e}")
         return None
@@ -52,7 +52,7 @@ def collect_all_dependencies(
             src = dep.source
             if src.type == "workload_cmake" and not getattr(src, "path", None):
                 cmake_path = yaml_path.with_suffix(".cmake")
-                setattr(src, "path", cmake_path.as_posix())
+                dep.source = src.model_copy(update={"path": cmake_path.as_posix()})
 
             sig = (
                 dep.name,

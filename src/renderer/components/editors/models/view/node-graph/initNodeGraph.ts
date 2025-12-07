@@ -1,4 +1,3 @@
-// src/js/components/editors/models/view/node-graph/initNodeGraph.ts
 import { GraphDoc } from "./layout/editorNodeGraph";
 import { createSvgLayers, SvgView } from "./render/svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";

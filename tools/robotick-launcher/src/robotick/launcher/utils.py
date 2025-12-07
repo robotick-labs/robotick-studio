@@ -53,20 +53,22 @@ env = Environment(
 )
 
 
-def write_text_if_changed(path: Path, contents: str):
+def write_text_if_changed(path: Path, contents: str) -> bool:
     try:
         if path.exists():
             if path.read_text() == contents:
                 print(f"[grey]📝 Skipped (no change):[/] {path}")
-                return
-            else:
-                path.write_text(contents)
-                print(f"[cyan]📝 Updated:[/] {path}")
-        else:
+                return True
             path.write_text(contents)
-            print(f"[green]📝 Created:[/] {path}")
+            print(f"[cyan]📝 Updated:[/] {path}")
+            return True
+
+        path.write_text(contents)
+        print(f"[green]📝 Created:[/] {path}")
+        return True
     except Exception as e:
         print(f"[red]❌ Failed to write:[/] {path} — {e}")
+        return False
 
 
 def render_template(template_name: str, context: dict) -> str:
@@ -91,8 +93,8 @@ def render_template(template_name: str, context: dict) -> str:
 
 def render_template_to_file(template_name: str, output_path: Path, context: dict):
     contents = render_template(template_name, context)
-    output_path.write_text(contents)
-    print(f"[green]📝 Wrote:[/] {output_path}")
+    if write_text_if_changed(output_path, contents):
+        print(f"[green]📝 Wrote:[/] {output_path}")
 
 
 def copy_extras_for_target(config) -> None:
@@ -172,17 +174,18 @@ def run_subprocess(
     env: Optional[dict[str, str]] = None,
 ) -> subprocess.Popen:
     command = _resolve_command(command)
-    def preexec_setup():
-        # Start a new process group
-        os.setsid()
+    preexec_setup = None
+    if sys.platform.startswith("linux"):
+        def preexec_setup():
+            # Start a new process group
+            os.setsid()
 
-        # Ensure child dies if parent dies (Linux only)
-        try:
-            libc = ctypes.CDLL("libc.so.6")
-            PR_SET_PDEATHSIG = 1
-            libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-        except Exception as e:
-            print(f"[dim red]Warning: Failed to set PDEATHSIG: {e}[/]")
+            try:
+                libc = ctypes.CDLL("libc.so.6")
+                PR_SET_PDEATHSIG = 1
+                libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+            except Exception as e:
+                print(f"[dim red]Warning: Failed to set PDEATHSIG: {e}[/]")
 
     effective_cwd = str(cwd) if cwd else os.getcwd()
     print(f"[Launcher] Launching in cwd: {effective_cwd}")
@@ -204,10 +207,26 @@ def run_subprocess(
                 raise subprocess.CalledProcessError(proc.returncode, command)
         except KeyboardInterrupt:
             print("[bold red]⛔ Interrupted. Killing subprocess group...[/]")
+            killed = False
+            if hasattr(os, "killpg") and sys.platform.startswith("linux"):
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    killed = True
+                except Exception as e:
+                    print(f"[dim red]killpg failed: {e}[/]")
+            if not killed:
+                try:
+                    proc.kill()
+                    killed = True
+                except Exception as e:
+                    print(f"[dim red]Fallback kill failed: {e}[/]")
+
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("[dim red]Warning: subprocess did not exit after signal[/]")
             except Exception as e:
-                print(f"[dim red]Cleanup failed: {e}[/]")
+                print(f"[dim red]Error while waiting for subprocess termination: {e}[/]")
             raise typer.Exit(code=1)
 
     return proc

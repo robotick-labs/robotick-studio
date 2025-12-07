@@ -1,34 +1,24 @@
-import React from "react";
+import React, { act } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { act } from "react-dom/test-utils";
 import { createRoot } from "react-dom/client";
 
-const useLauncherContextMock = vi.hoisted(() =>
-  vi.fn()
-);
+const { useLauncherContextMock } = vi.hoisted(() => ({
+  useLauncherContextMock: vi.fn(),
+}));
 
-vi.mock("../../../../renderer/data-sources/launcher", async () => {
-  const actual =
-    await vi.importActual<typeof import("../../../../renderer/data-sources/launcher")>(
-      "../../../../renderer/data-sources/launcher"
-    );
-  return {
-    ...actual,
-    Launcher: {
-      ...actual.Launcher,
-      Context: {
-        ...actual.Launcher.Context,
-        use: useLauncherContextMock,
-      },
+vi.mock("../../../../renderer/data-sources/launcher", () => ({
+  Launcher: {
+    Context: {
+      use: useLauncherContextMock,
     },
-  };
-});
+  },
+}));
 
 import { Launcher } from "../../../../renderer/data-sources/launcher";
 import type { LauncherStatus } from "../../../../renderer/data-sources/launcher";
 import { LauncherControls } from "../../../../renderer/components/header/LauncherControls";
 
-type LauncherContextValue = React.ContextType<typeof Launcher.Context>;
+type LauncherContextValue = ReturnType<typeof Launcher.Context.use>;
 
 const baseContextValue: LauncherContextValue = {
   status: "stopped",

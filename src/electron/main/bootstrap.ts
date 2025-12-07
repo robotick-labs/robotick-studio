@@ -256,16 +256,13 @@ export async function bootstrapElectron({
   };
 
   const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent) => {
-    if (BrowserWindow.fromWebContents) {
-      const resolved = BrowserWindow.fromWebContents(
-        event.sender as WebContentsLike
-      );
-      if (resolved) {
-        return resolved;
-      }
+    if (!BrowserWindow.fromWebContents) {
+      return null;
     }
-    const [focused] = BrowserWindow.getAllWindows();
-    return focused ?? null;
+    const resolved = BrowserWindow.fromWebContents(
+      event.sender as WebContentsLike
+    );
+    return resolved ?? null;
   };
 
   const showSystemMenu = (
@@ -345,7 +342,9 @@ export async function bootstrapElectron({
         payload: { command: string; x?: number; y?: number } | undefined
       ) => {
         const target = resolveBrowserWindowFromEvent(event);
-        if (!target) return { isMaximized: false };
+        if (!target) {
+          return { isMaximized: false, error: "window_not_found" as const };
+        }
         if (payload?.command === "state") {
           return { isMaximized: target.isMaximized() };
         }

@@ -75,7 +75,11 @@ def run(
                 print(
                     f"[bold green]🚀 Detected working-directory from project.yaml: {working_dir}"
                 )
-    except Exception as e:
+    except FileNotFoundError as err:
+        print(f"[yellow]⚠️ Project file missing ({project_path}): {err}[/]")
+        working_dir = "."
+    except yaml.YAMLError as err:
+        print(f"[yellow]⚠️ Failed to parse project YAML ({project_path}): {err}[/]")
         working_dir = "."
 
     python_env = _build_python_env(project, workspace_root)
