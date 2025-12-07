@@ -4,6 +4,11 @@ import {
   type BrowserWindowConstructor,
 } from "../../main/bootstrap";
 
+vi.mock("../../main/launcher-manager", () => ({
+  ensureLauncherReady: vi.fn().mockResolvedValue(undefined),
+  stopManagedLauncher: vi.fn().mockResolvedValue(undefined),
+}));
+
 type BrowserWindowMock = {
   setMenuBarVisibility: ReturnType<typeof vi.fn>;
   loadURL: ReturnType<typeof vi.fn>;
