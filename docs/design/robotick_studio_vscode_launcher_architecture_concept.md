@@ -65,8 +65,8 @@ runtime:
     repo: https://github.com/robotick/robotick-engine.git
     ref: 1c2d3e4
   workload_repos:
-  - repo: https://github.com/robotick/my-robot-workloads.git
-    ref: my-robot-2024-06
+    - repo: https://github.com/robotick/my-robot-workloads.git
+      ref: my-robot-2024-06
   shared_repos:
     - repo: https://github.com/robotick/shared-assets.git
       ref: main
@@ -183,18 +183,10 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons.
 - **CI Integration**
   - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites).
-- **Launcher service polish**
-  - Version the REST/WebSocket routes (`/launcher/v1/*`, `/query/v1/*`) and include API version headers.
-  - Add optional auth (shared secret/token + CSRF cookies) so Studio/VS Code can connect safely.
-  - Expand telemetry payloads: structured per-model status, build/run phases, log stream metadata, etc.
-  - Confirm `/launcher/run|stop|status` understand the new deps layout and multi-target runs (e.g., `local:ALL` with mixed targets).
-- **Tooling bootstrap + distribution**
-  - ☐ Ship cross-platform bootstrap scripts (`bootstrap.sh`, `bootstrap.ps1`) that read the tooling lock, hydrate the toolchain, and surface helper commands; include checksums/logging for CI, and keep them standalone so robot repos can vendor them without preinstalled tooling.
-  - ☐ Package a robot template / `create-robotick-project` CLI that scaffolds the project file, tooling pins, and bootstrapper for new robots.
-  - ☐ Define the AWS Hub deployment recipe (container image, pinned tooling sync, attach/detach lifecycle) so each hosted robot mirrors local behavior.
 - **VS Code Extension MVP**
   - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data.
   - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive).
+  - ☐ Ensure default presentation of UI is useful: appropriate responsive header; and default panel.
   - ☐ Provide “Attach Debugger” command: register a VS Code command that shells out to `robotick-launcher run-profile … --attach` (or similar) so we can attach without a launch.json.
 - **Docs/UX**
   - Update the concept + summary docs plus README quickstarts to describe the bootstrap + tooling-pin workflow.
