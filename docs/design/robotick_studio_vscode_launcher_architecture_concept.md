@@ -173,7 +173,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
 - **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(first real robot repo to adopt schema v1 + pinned tooling)._
   - **Toolchain + bootstrap**
     - ✅ Ported `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 (`tooling_sources`, `${PROJECT_DIR}`-aware workload/python roots, repo-pinned engine/workload sources); bootstrap script still pending.
-    - ✅ Added `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.setup.sh`, which parses the project’s `tooling_sources`, hydrates each entry under `.launcher/pip_e/deps/tooling/<id>`, runs `npm install`, and writes repo-root shims (`run-studio.sh`, `run-launcher.sh`) that point Studio/Launcher at the pinned checkout; attempted a full run of the script, but cloning the private `robotick-labs/robotick-studio` repo failed without GitHub credentials (needs environment auth before CI/use).
+    - ✅ Added `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/run-pip-e.sh`, which lazily hydrates (or temporarily overrides) the Studio checkout, runs `npm install && npm run build`, exports `ROBOTICK_*` so both Studio and Launcher behave as if started inside `robots/pip-e`, and then launches Studio (default electron, `--dev` for the dev build).
   - **Fixture + layout parity**
     - ✅ Enforced the sibling `.launcher` layout by updating Pip-E’s bootstrap + helper scripts to keep `.launcher` under `robots/pip-e/`, wiring the wrappers to pass `--base-dir/--workspace-dir` for that folder, and running the launcher pytest suite to confirm the existing fixture (already sibling-based) and Pip-E now share the same contract.
   - **Runtime hydration + cache**
@@ -181,11 +181,11 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
     - ☐ Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`—add regression tests that assert failures/success paths.
     - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload_sources/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout—add installer tests + run suite.
     - ☐ Introduce a per-project runtime cache (e.g., `.launcher/<project>/deps/runtime/shared`) so target-agnostic repos (engine, workload packs, shared assets) clone once and link into each target folder—cover with integration tests.
-    - ☐ Verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end in-place and capture the run with integration tests before rolling out elsewhere.
+    - ☐ Verify `./robots/pip-e/run-pip-e.sh` works end-to-end in-place (and emits the expected launcher/CI commands) before rolling out elsewhere.
     - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
   - **CI + documentation + follow-up**
     - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
-    - ☐ Add GitHub Actions coverage so Pip-E’s bootstrap (`pip-e.setup.sh`) + build steps run in CI (Linux + optional macOS runners) and block regressions; include artifact uploads/log scrapes.
+    - ☐ Add GitHub Actions coverage so Pip-E’s bootstrap (`run-pip-e.sh`) + build steps run in CI (Linux + optional macOS runners) and block regressions; include artifact uploads/log scrapes.
     - ☐ Plan how we runtime-test Pip-E (sim, hardware-in-loop, or telemetry assertions) once deps/builds are stable—capture the decision in the docs + follow-up ticket.
 - **Legacy cleanup**
   - ☐ Once all launcher code reads `config.runtime.*`, drop the legacy root-level keys from the test fixture (then from Pip-E) and remove the compatibility shim in `Config`.

@@ -5,10 +5,17 @@ from typing import Optional
 import typer
 
 
+def _is_within_launcher(path: Path) -> bool:
+    return any(part == ".launcher" for part in path.parts)
+
+
 def find_files_by_wildcard(wildcard: str, base_dir: Optional[str]) -> list[str]:
     base_path = Path(base_dir).resolve() if base_dir else Path.cwd()
     matches: list[str] = []
-    for root, _dirs, files in os.walk(base_path, followlinks=True):
+    skip_launcher_dirs = not _is_within_launcher(base_path)
+    for root, dirs, files in os.walk(base_path, followlinks=True):
+        if skip_launcher_dirs:
+            dirs[:] = [d for d in dirs if d != ".launcher"]
         for file_name in files:
             if fnmatch.fnmatch(file_name, wildcard):
                 full_path = Path(root) / file_name

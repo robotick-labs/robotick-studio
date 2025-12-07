@@ -2,20 +2,30 @@ import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 
-const WORKSPACE_ROOT =
+const getWorkspaceRoot = () =>
+  process.env.ROBOTICK_PROJECT_DIR ??
   process.env.ROBOTICK_WORKSPACE_ROOT ??
   process.cwd();
-const LAUNCHER_RELATIVE_PATH = process.env.ROBOTICK_LAUNCHER_DIR ?? "tools/robotick-launcher";
-const LAUNCHER_DIR = path.join(WORKSPACE_ROOT, LAUNCHER_RELATIVE_PATH);
-const VENV_DIR = path.join(WORKSPACE_ROOT, ".studio", ".venv");
-const VENV_BIN = path.join(VENV_DIR, "bin");
+const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
+const resolveLauncherDir = () => {
+  if (launcherPathEnv) {
+    return path.isAbsolute(launcherPathEnv)
+      ? launcherPathEnv
+      : path.join(getWorkspaceRoot(), launcherPathEnv);
+  }
+  return path.join(getWorkspaceRoot(), "tools/robotick-launcher");
+};
+const LAUNCHER_DIR = () => resolveLauncherDir();
+const VENV_DIR = () => path.join(getWorkspaceRoot(), ".studio", ".venv");
+const VENV_BIN = () => path.join(VENV_DIR(), "bin");
 const PYTHON_BIN = process.env.ROBOTICK_PYTHON ?? "python3";
 const STATUS_URL = "http://localhost:7081/launcher/status";
 const STOP_URL = "http://localhost:7081/launcher/stop";
+const MAX_STOP_ATTEMPTS = 3;
 
 let managedProcess: ChildProcess | null = null;
 
-const launcherBin = () => path.join(VENV_BIN, "robotick-launcher");
+const launcherBin = () => path.join(VENV_BIN(), "robotick-launcher");
 
 function pathExists(target: string) {
   try {
@@ -27,27 +37,27 @@ function pathExists(target: string) {
 }
 
 function ensureVenv() {
-  if (pathExists(path.join(VENV_BIN, "python"))) {
+  if (pathExists(path.join(VENV_BIN(), "python"))) {
     return;
   }
-  spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR], {
-    cwd: WORKSPACE_ROOT,
+  spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR()], {
+    cwd: getWorkspaceRoot(),
     stdio: "inherit",
   });
 }
 
 function installLauncherDependencies() {
-  const python = path.join(VENV_BIN, "python");
+  const python = path.join(VENV_BIN(), "python");
   spawnSync(
     python,
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-    { cwd: WORKSPACE_ROOT, stdio: "inherit" }
+    { cwd: getWorkspaceRoot(), stdio: "inherit" }
   );
   spawnSync(
     python,
-    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR}[dev]`],
+    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR()}[dev]`],
     {
-      cwd: WORKSPACE_ROOT,
+      cwd: getWorkspaceRoot(),
       stdio: "inherit",
     }
   );
@@ -73,23 +83,61 @@ async function isLauncherResponding() {
   }
 }
 
+async function stopLingeringLaunchers() {
+  for (let attempt = 0; attempt < MAX_STOP_ATTEMPTS; attempt += 1) {
+    if (!(await isLauncherResponding())) {
+      return;
+    }
+    try {
+      await fetch(STOP_URL, { method: "POST" });
+    } catch {
+      // ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (await isLauncherResponding()) {
+    console.warn(
+      "[Launcher] Existing listener still responding after stop attempts; continuing"
+    );
+  }
+}
+
+function killExistingLauncherProcesses() {
+  if (process.platform === "win32") {
+    return;
+  }
+  try {
+    spawnSync("pkill", ["-f", "robotick-launcher"], {
+      stdio: "ignore",
+    });
+  } catch (error) {
+    console.warn("[Launcher] Failed to kill lingering launcher processes", error);
+  }
+}
+
 export async function ensureLauncherReady() {
+  killExistingLauncherProcesses();
+  await stopLingeringLaunchers();
   if (await isLauncherResponding()) {
     return;
   }
-
   ensureVenv();
   installLauncherDependencies();
 
   const bin = launcherBin();
-  console.log(`[Launcher] Workspace root: ${WORKSPACE_ROOT}`);
-  const env = {
+  const root = getWorkspaceRoot();
+  console.log(`[Launcher] Workspace root: ${root}`);
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PATH: `${VENV_BIN}:${process.env.PATH ?? ""}`,
+    PATH: `${VENV_BIN()}:${process.env.PATH ?? ""}`,
   };
-  console.log(`[Launcher] Starting listener with cwd ${WORKSPACE_ROOT}`);
+  console.log(
+    `[Launcher] Starting listener with cwd ${root}`,
+    "project dir:",
+    env.ROBOTICK_PROJECT_DIR,
+  );
   managedProcess = spawn(bin, ["listen"], {
-    cwd: WORKSPACE_ROOT,
+    cwd: root,
     stdio: "inherit",
     env,
   });

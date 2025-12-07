@@ -76,6 +76,32 @@ def test_list_projects_follow_symlinks(tmp_path):
     assert "robotick-knitware/robots/pip-e/pip-e.project.yaml" in projects
 
 
+def test_list_projects_skips_launcher_directories(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    real_project = workspace / "robots" / "pip-e" / "pip-e.project.yaml"
+    real_project.parent.mkdir(parents=True)
+    real_project.write_text("# pip-e project\n")
+
+    launcher_project = workspace / ".launcher" / "pip_e" / "pip-e.project.yaml"
+    launcher_project.parent.mkdir(parents=True)
+    launcher_project.write_text("# cached project\n")
+
+    projects = list_projects(str(workspace))
+    assert "robots/pip-e/pip-e.project.yaml" in projects
+    assert all(".launcher" not in entry for entry in projects)
+
+
+def test_list_projects_allows_launcher_when_root_inside(tmp_path):
+    launcher_root = tmp_path / ".launcher" / "pip_e"
+    launcher_project = launcher_root / "pip-e.project.yaml"
+    launcher_project.parent.mkdir(parents=True)
+    launcher_project.write_text("# cached project\n")
+
+    projects = list_projects(str(launcher_root))
+    assert projects == ["pip-e.project.yaml"]
+
+
 def test_list_project_models_accepts_relative_path(tmp_path):
     project_dir = tmp_path / "relative-repo"
     project_file = project_dir / "pip.project.yaml"

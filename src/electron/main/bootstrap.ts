@@ -203,6 +203,26 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  const desiredCwd =
+    env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+  if (desiredCwd && process.cwd() !== desiredCwd) {
+    try {
+      process.chdir(desiredCwd);
+      console.log("[Bootstrap] switched cwd to", desiredCwd);
+    } catch (error) {
+      console.warn(
+        "[Bootstrap] Failed to change cwd to",
+        desiredCwd,
+        error,
+      );
+    }
+  }
+  console.log(
+    "[Bootstrap] cwd:",
+    process.cwd(),
+    "ROBOTICK_PROJECT_DIR:",
+    env.ROBOTICK_PROJECT_DIR,
+  );
   await ensureLauncherReady();
 
   if (env.ELECTRON_DEV === "1") {
