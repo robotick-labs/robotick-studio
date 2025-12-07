@@ -67,8 +67,6 @@ def generate(
 
         base_dir = base_dir.resolve()
         workspace_root = (workspace_dir or base_dir).resolve()
-        config = Config(project, model, target, base_dir, dry_run, stub_install)
-
         install_deps_stage.install_deps(
             project=project,
             base_dir=base_dir,
@@ -78,6 +76,8 @@ def generate(
             model=model,
             target=target,
         )
+
+        config = Config(project, model, target, base_dir, dry_run, stub_install)
 
         print("============================================================================================")
         print(

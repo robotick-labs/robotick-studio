@@ -13,8 +13,9 @@ from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from rich import print
 
 
-# 🔧 Global constant for the launcher folder
+# 🔧 Global constants for the launcher folder structure
 LAUNCHER_FOLDER = ".launcher"
+GENERATED_FOLDER = "generated"
 
 
 def get_launcher_paths(
@@ -34,7 +35,8 @@ def get_launcher_paths(
     model_safe = model.replace("-", "_")
     target_safe = target.replace("-", "_")
 
-    launcher_dir = base_dir / LAUNCHER_FOLDER / project_safe / model_safe / target_safe
+    project_root = base_dir / LAUNCHER_FOLDER / project_safe
+    launcher_dir = project_root / GENERATED_FOLDER / model_safe / target_safe
     build_dir = launcher_dir / "build"
     binary_path = build_dir / model
 

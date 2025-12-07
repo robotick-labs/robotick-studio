@@ -12,6 +12,7 @@ vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
 }));
 
 import { AppRoutes } from "../../../renderer/Router";
+import { TestLauncherProviders } from "../../../__tests__/helpers/mocks";
 
 beforeEach(() => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
@@ -31,9 +32,11 @@ describe("Electron renderer smoke test", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/"]}>
-          <AppRoutes />
-        </MemoryRouter>
+        <TestLauncherProviders>
+          <MemoryRouter initialEntries={["/"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

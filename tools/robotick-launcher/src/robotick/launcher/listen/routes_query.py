@@ -6,18 +6,33 @@ import yaml
 
 from robotick.launcher.actions.query.list import list_projects, list_project_models
 from robotick.launcher.discover_workloads import discover_workloads_metadata
+from robotick.launcher.runtime_lock import apply_runtime_lock
 
 router = APIRouter(prefix="/query", tags=["query"])
 
 
 class _DiscoveryConfig:
-    def __init__(self, base_dir: Path, project_data: Dict[str, Any], target: str):
+    def __init__(
+        self,
+        base_dir: Path,
+        project_data: Dict[str, Any],
+        target: str,
+        project_name: str,
+    ):
         self.base_dir = base_dir
         self.project = project_data or {}
         self.runtime = self.project.get("runtime", {}) or {}
         self.target = target
         self.target_platform = target
         self.launcher_dir = base_dir / ".launcher"
+        self.project_name = project_name
+        self.project_name_safe = project_name.replace("-", "_")
+        apply_runtime_lock(
+            self.runtime,
+            self.base_dir,
+            self.project_name_safe,
+            self.target,
+        )
 
 
 @router.get("/list-projects", response_model=List[str])
@@ -152,11 +167,15 @@ def get_workloads_registry(
         )
 
     base_dir = project_path_full.parent.resolve()
+    project_name = project_path_full.stem.removesuffix(".project")
 
     project_data = _load_yaml_as_json(project_path_full)
 
     discovery_config = _DiscoveryConfig(
-        base_dir=base_dir, project_data=project_data, target=target
+        base_dir=base_dir,
+        project_data=project_data,
+        target=target,
+        project_name=project_name,
     )
     discovered = discover_workloads_metadata(discovery_config)
 

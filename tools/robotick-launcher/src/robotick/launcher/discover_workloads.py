@@ -22,7 +22,7 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
     runtime_cfg = getattr(config, "runtime", {})
     roots: List[tuple[str, Path]] = []
     for entry in runtime_cfg.get("workload_sources") or []:
-        base = entry.get("local_path")
+        base = entry.get("local_path") or entry.get("path_override")
         if not base:
             continue
         resolver = getattr(config, "resolve_project_path", None)

@@ -50,7 +50,7 @@ def generate_project_cmakelists(config) -> None:
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
     for entry in workload_entries:
-        base = entry.get("local_path")
+        base = entry.get("local_path") or entry.get("path_override")
         if not base:
             continue
         base_abs = config.resolve_project_path(base)
@@ -149,7 +149,7 @@ def generate_component_cmakelists(config) -> None:
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
     for entry in workload_entries:
-        base = entry.get("local_path")
+        base = entry.get("local_path") or entry.get("path_override")
         if not base:
             continue
         base_abs = config.resolve_project_path(base)

@@ -7,8 +7,8 @@ idf_component_register(
         registry/generated_workload_registry.cpp
     INCLUDE_DIRS
         .
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../workloads/cpp/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../workloads/cpp/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../workloads/cpp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../workloads/cpp/src
     PRIV_REQUIRES 
         robotick-engine
         M5Unified

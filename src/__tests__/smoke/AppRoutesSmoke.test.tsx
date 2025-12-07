@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { mockWorkspaceView } from "../helpers/mocks";
+import { mockWorkspaceView, TestLauncherProviders } from "../helpers/mocks";
 
 mockWorkspaceView();
 
@@ -15,9 +15,11 @@ describe("AppRoutes smoke test", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/"]}>
-          <AppRoutes />
-        </MemoryRouter>
+        <TestLauncherProviders>
+          <MemoryRouter initialEntries={["/"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

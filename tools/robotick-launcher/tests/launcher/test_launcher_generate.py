@@ -116,7 +116,12 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
 ])
 def test_launcher_generate(target, model):
     
-    output_subdir = Path("test_project") / model.replace("-", "_") / target.replace("-", "_")
+    output_subdir = (
+        Path("test_project")
+        / "generated"
+        / model.replace("-", "_")
+        / target.replace("-", "_")
+    )
 
     OUTPUT_DIR = OUTPUT_DIR_BASE / output_subdir
     GOLDEN_DIR = GOLDEN_DIR_BASE / output_subdir

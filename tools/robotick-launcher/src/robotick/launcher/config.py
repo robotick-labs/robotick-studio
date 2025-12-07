@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from rich import print
 import typer
 import yaml
+from robotick.launcher.runtime_lock import apply_runtime_lock
 
 
 class DotDict(dict):
@@ -66,6 +67,7 @@ class Config:
         self.stub_install = stub_install
         self.project_file = base_dir / f"{project}.project.yaml"
         self.project_dir = self.project_file.parent
+        self.project_name_safe = project.replace("-", "_")
 
         # Load YAMLs
         self.project = self._load_yaml(self.project_file)
@@ -183,6 +185,7 @@ class Config:
         self.runtime = DotDict(runtime_dict)
         self._validate_runtime_schema(self.runtime)
         self.project["runtime"] = self.runtime
+        self._apply_runtime_repo_overrides()
 
     def _validate_tooling_schema(self, tooling: DotDict) -> None:
         if not tooling:
@@ -273,6 +276,14 @@ class Config:
             )
             seen_ids.add(root_id)
         runtime["python_roots"] = normalized_python
+
+    def _apply_runtime_repo_overrides(self) -> None:
+        apply_runtime_lock(
+            self.runtime,
+            self.project_dir,
+            self.project_name_safe,
+            self.target,
+        )
 
     def _validate_repo_entry(self, entry: Any, label: str) -> Dict[str, Any]:
         if isinstance(entry, str):

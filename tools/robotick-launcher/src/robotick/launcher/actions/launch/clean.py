@@ -3,7 +3,7 @@ import shutil
 from rich import print
 import typer
 
-from robotick.launcher.utils import get_launcher_paths, LAUNCHER_FOLDER
+from robotick.launcher.utils import get_launcher_paths
 
 clean_app = typer.Typer(
     name="clean",
@@ -41,11 +41,7 @@ def clean_all(
     base_dir: Path = typer.Option(Path.cwd(), help="Base directory containing .launcher"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without deleting")
 ):
-    project_safe = project.replace("-", "_")
-    model_safe = model.replace("-", "_")
-    target_safe = target.replace("-", "_")
-
-    launcher_dir = base_dir / LAUNCHER_FOLDER / project_safe / model_safe / target_safe
+    launcher_dir, _, _ = get_launcher_paths(project, model, target, base_dir)
 
     action = "[yellow]🧹 Dry run — would delete launcher folder:[/]" if dry_run else "[green]🧹 Deleting launcher folder:[/]"
     print(f"{action} {launcher_dir}")
