@@ -265,7 +265,7 @@ def _generate_workload_auto_cpp(
     if not discovered:
         runtime_roots = [
             entry.get("local_path")
-            for entry in getattr(config.runtime, "workloads", []) or []
+            for entry in getattr(config.runtime, "workload_sources", []) or []
             if entry.get("local_path")
         ]
         if not runtime_roots:

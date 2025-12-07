@@ -13,28 +13,40 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
       {
         WorkloadType: {
           "abs": Path,               # absolute path to file
-          "workload_root": str,      # the runtime.workloads entry (local_path) that matched
+          "workload_root": str,      # the runtime.workload_sources entry (local_path) that matched
           "path_from_root": str,     # file path relative to that root (POSIX-style)
         },
         ...
       }
     """
     runtime_cfg = getattr(config, "runtime", {})
-    roots = [
-        entry.get("local_path")
-        for entry in runtime_cfg.get("workloads") or []
-        if entry.get("local_path")
-    ]
+    roots: List[tuple[str, Path]] = []
+    for entry in runtime_cfg.get("workload_sources") or []:
+        base = entry.get("local_path")
+        if not base:
+            continue
+        resolver = getattr(config, "resolve_project_path", None)
+        if callable(resolver):
+            base_path = resolver(base)
+        else:
+            base_path = (Path(getattr(config, "base_dir", Path("."))) / base).resolve()
+        root_paths = entry.get("root_paths") or []
+        if root_paths:
+            for rel in root_paths:
+                resolved = (base_path / rel).resolve()
+                label = f"{entry.get('id') or base}:{rel}"
+                roots.append((label, resolved))
+        else:
+            roots.append((entry.get("id") or base, base_path))
     if not roots:
         roots = list(
             config.project.get("local_workload_roots")
             or config.project.get("workload_roots", [])
         )
+        roots = [(str(root), (config.base_dir / root).resolve()) for root in roots]
     seen: Dict[str, Dict[str, object]] = {}
 
-    for root in roots:
-        root_str = str(root)
-        root_path = (config.base_dir / root).resolve()
+    for root_str, root_path in roots:
         if not root_path.exists():
             continue
 

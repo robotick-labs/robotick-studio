@@ -16,7 +16,7 @@ def test_generate_respects_explicit_base_dir(tmp_path, monkeypatch):
 runtime:
   engine:
     local_path: engine
-  workloads:
+  workload_sources:
     - local_path: .
         """.strip()
     )

@@ -10,7 +10,7 @@ class _MinimalConfig:
     def __init__(self, base_dir: Path, workload_roots, target_platform="linux", dry_run=False):
         self.base_dir = Path(base_dir).resolve()
         self.project = {"local_workload_roots": list(workload_roots)}
-        self.runtime = {"workloads": [{"local_path": root} for root in workload_roots]}
+        self.runtime = {"workload_sources": [{"local_path": root} for root in workload_roots]}
         self.target_platform = target_platform
         self.dry_run = dry_run
         self.launcher_dir = self.base_dir / ".launcher"

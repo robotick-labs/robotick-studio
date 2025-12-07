@@ -29,14 +29,14 @@ def test_python_roots_are_exposed_on_config():
     assert len(config.python_roots) == 2
     first = config.python_roots[0]
     assert first.id == "main-brain"
-    assert first.relative_path == Path("python")
+    assert first.relative_path == Path("${PROJECT_DIR}/python")
     assert first.absolute_path == (FIXTURE_BASE / "python").resolve()
     assert first.requirements_file == Path("requirements.txt")
     assert first.requirements_absolute == (FIXTURE_BASE / "python" / "requirements.txt").resolve()
 
     second = config.python_roots[1]
     assert second.id == "scripts"
-    assert second.relative_path == Path("tools/scripts")
+    assert second.relative_path == Path("${PROJECT_DIR}/tools/scripts")
     assert second.requirements_file is None
     assert second.requirements_absolute is None
 

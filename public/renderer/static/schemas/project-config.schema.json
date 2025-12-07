@@ -6,6 +6,7 @@
     "repoOrLocal": {
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "repo": { "type": "string" },
         "ref": { "type": "string" },
         "local_path": { "type": "string" }
@@ -41,18 +42,20 @@
     "tooling": {
       "type": "object",
       "properties": {
-        "robotick": {
-          "allOf": [{ "$ref": "#/$defs/repoOrLocal" }]
+        "tooling_sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" },
+          "minItems": 1
         },
         "bootstrap": { "type": "string" }
       },
-      "required": ["robotick"]
+      "required": ["tooling_sources"]
     },
     "runtime": {
       "type": "object",
       "properties": {
         "engine": { "$ref": "#/$defs/repoOrLocal" },
-        "workloads": {
+        "workload_sources": {
           "type": "array",
           "items": { "$ref": "#/$defs/repoOrLocal" }
         },

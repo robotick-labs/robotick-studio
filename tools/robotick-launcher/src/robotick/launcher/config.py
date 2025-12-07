@@ -117,8 +117,25 @@ class Config:
         project_dict: Dict[str, Any] = dict(self.project)
 
         tooling_dict = dict(project_dict.get("tooling") or {})
+        if "tooling_sources" not in tooling_dict:
+            sources: List[Any] = []
+            legacy_robotick = tooling_dict.get("robotick")
+            if legacy_robotick:
+                if isinstance(legacy_robotick, list):
+                    sources.extend(legacy_robotick)
+                else:
+                    entry = dict(legacy_robotick)
+                    if "id" not in entry:
+                        entry["id"] = "robotick"
+                    sources.append(entry)
+            if sources:
+                tooling_dict["tooling_sources"] = sources
+        tooling_dict.pop("robotick", None)
         self.tooling = DotDict(tooling_dict)
         self._validate_tooling_schema(self.tooling)
+        if not self.tooling.get("bootstrap"):
+            default_bootstrap = f"./{self.project_name}.setup.sh"
+            self.tooling["bootstrap"] = default_bootstrap
         self.project["tooling"] = self.tooling
         runtime_dict = dict(project_dict.get("runtime") or {})
 
@@ -127,18 +144,29 @@ class Config:
             if legacy_engine:
                 runtime_dict["engine"] = {"local_path": legacy_engine}
 
-        if "workloads" not in runtime_dict:
-            workloads: List[Any] = []
-            workloads.extend(runtime_dict.get("workload_repos") or [])
+        if "workload_sources" not in runtime_dict:
+            workload_sources: List[Any] = []
+            # Back-compat: accept old runtime.workloads entries directly.
+            legacy_runtime_workloads = runtime_dict.get("workloads")
+            if legacy_runtime_workloads is not None:
+                if not isinstance(legacy_runtime_workloads, list):
+                    raise ValueError("'runtime.workloads' must be a list when provided.")
+                workload_sources.extend(legacy_runtime_workloads)
+            workload_sources.extend(runtime_dict.get("workload_repos") or [])
             legacy_local_roots = (
                 runtime_dict.get("local_workload_roots")
                 or project_dict.get("local_workload_roots")
                 or project_dict.get("workload_roots")
                 or []
             )
-            workloads.extend(legacy_local_roots)
-            if workloads:
-                runtime_dict["workloads"] = workloads
+            workload_sources.extend(legacy_local_roots)
+            if workload_sources:
+                runtime_dict["workload_sources"] = workload_sources
+        else:
+            # Normalize older name if both present.
+            if "workloads" in runtime_dict and not runtime_dict.get("workload_sources"):
+                runtime_dict["workload_sources"] = runtime_dict.get("workloads")
+        runtime_dict.pop("workloads", None)
 
         if "shared" not in runtime_dict:
             shared_entries = runtime_dict.get("shared_repos")
@@ -160,25 +188,15 @@ class Config:
         if not tooling:
             return
 
-        robotick = tooling.get("robotick")
-        if not isinstance(robotick, dict):
-            raise ValueError("'tooling.robotick' must be a mapping with repo/ref fields.")
-        has_repo = isinstance(robotick.get("repo"), str)
-        has_ref = isinstance(robotick.get("ref"), str)
-        local_path = robotick.get("local_path")
-        if local_path is not None and not isinstance(local_path, str):
-            raise ValueError("'tooling.robotick.local_path' must be a string path if provided.")
-        if local_path:
-            robotick["local_path"] = local_path
-        if not local_path:
-            if not has_repo:
-                raise ValueError("'tooling.robotick.repo' must be a non-empty string when local_path is absent.")
-            if not has_ref:
-                raise ValueError("'tooling.robotick.ref' must be a non-empty string when local_path is absent.")
-
-        bootstrap = tooling.get("bootstrap")
-        if bootstrap is not None and not isinstance(bootstrap, str):
-            raise ValueError("'tooling.bootstrap' must be a string path if provided.")
+        sources = tooling.get("tooling_sources") or []
+        if not isinstance(sources, list):
+            raise ValueError("'tooling.tooling_sources' must be a list when provided.")
+        normalized_sources: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(sources):
+            normalized_sources.append(
+                self._validate_repo_entry(entry, f"tooling.tooling_sources[{idx}]")
+            )
+        tooling["tooling_sources"] = normalized_sources
 
     def _validate_runtime_schema(self, runtime: DotDict) -> None:
         if runtime is None:
@@ -188,15 +206,24 @@ class Config:
         if engine is not None:
             runtime["engine"] = self._validate_repo_entry(engine, "runtime.engine")
 
-        workloads = runtime.get("workloads") or []
-        if workloads and not isinstance(workloads, list):
-            raise ValueError("'runtime.workloads' must be a list when provided.")
+        workload_sources = runtime.get("workload_sources") or []
+        if workload_sources and not isinstance(workload_sources, list):
+            raise ValueError("'runtime.workload_sources' must be a list when provided.")
         normalized_workloads: List[Dict[str, Any]] = []
-        for idx, entry in enumerate(workloads or []):
-            normalized_workloads.append(
-                self._validate_repo_entry(entry, f"runtime.workloads[{idx}]")
+        for idx, entry in enumerate(workload_sources or []):
+            normalized_entry = self._validate_repo_entry(
+                entry, f"runtime.workload_sources[{idx}]"
             )
-        runtime["workloads"] = normalized_workloads
+            root_paths = normalized_entry.get("root_paths")
+            if root_paths is not None:
+                if not isinstance(root_paths, list) or any(
+                    not isinstance(rp, str) or not rp for rp in root_paths
+                ):
+                    raise ValueError(
+                        f"'runtime.workload_sources[{idx}].root_paths' must be a list of non-empty strings when provided."
+                    )
+            normalized_workloads.append(normalized_entry)
+        runtime["workload_sources"] = normalized_workloads
 
         shared_entries = runtime.get("shared") or []
         if shared_entries and not isinstance(shared_entries, list):
@@ -253,6 +280,9 @@ class Config:
         if not isinstance(entry, dict):
             raise ValueError(f"'{label}' must be a mapping.")
         normalized = dict(entry)
+        entry_id = normalized.get("id")
+        if entry_id is not None and not isinstance(entry_id, str):
+            raise ValueError(f"'{label}.id' must be a string if provided.")
         local_path = normalized.get("local_path")
         if local_path is not None and not isinstance(local_path, str):
             raise ValueError(f"'{label}.local_path' must be a string path if provided.")

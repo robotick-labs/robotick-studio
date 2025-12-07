@@ -5,19 +5,23 @@ schema_version: 1
 description: "Test Project for use in Launcher Unit Tests."
 
 tooling:
-  robotick:
-    local_path: ${PROJECT_DIR}/../../..  # Points back to the repo root that already contains the tooling
+  tooling_sources:
+    - id: robotick-studio
+      local_path: ${PROJECT_DIR}/../../..  # Points back to the repo root that already contains the tooling
 
 runtime:
   engine:
     local_path: ${PROJECT_DIR}/../../../../robotick-engine  # Resolves to the sibling engine checkout bundled with the tests
-  workloads:
-    - local_path: ../workloads/cpp/include  # Resolves to tests/launcher/test_data/workloads/cpp/include
-    - local_path: ../workloads/cpp/src  # Resolves to tests/launcher/test_data/workloads/cpp/src
+  workload_sources:
+    - id: test-workloads
+      local_path: ${PROJECT_DIR}/../workloads  # Parent folder for the C++ workload fixtures
+      root_paths:
+        - cpp/include  # Resolves to tests/launcher/test_data/workloads/cpp/include
+        - cpp/src      # Resolves to tests/launcher/test_data/workloads/cpp/src
   shared: []
   python_roots:
     - id: main-brain
-      local_path: python  # Resolves to tests/launcher/test_data/test-project/python
+      local_path: ${PROJECT_DIR}/python  # Resolves to tests/launcher/test_data/test-project/python
       requirements: requirements.txt
     - id: scripts
-      local_path: tools/scripts  # Resolves to tests/launcher/test_data/test-project/tools/scripts
+      local_path: ${PROJECT_DIR}/tools/scripts  # Resolves to tests/launcher/test_data/test-project/tools/scripts

@@ -26,7 +26,7 @@ Launcher stays the shared backend, now with a repo-aware workflow that travels w
 - System-wide installs are intentionally avoided: Studio/VS Code always run against the linked `.studio/.venv` so the workspace stays self-contained.
 - **Lifecycle commands.** First-class commands for `install-deps`, `clean-generated`, `clean-deps`, and `clean-all` replace the current “generate does everything” magic so automation can call exactly what it needs.
 - **Workspace-aware.** Studio and Launcher resolve `.studio/.venv`, project discovery, and repo paths relative to whatever directory you start them from, so the tooling can run from any workspace folder (CI, terminals, VS Code, etc.).
-- **Workload-aware discovery.** Only workload entries flagged under `runtime.workloads` are mined for `*Workload.cpp`; auxiliary repos stay silent unless a workload YAML points at them.
+- **Workload-aware discovery.** Only workload entries flagged under `runtime.workload_sources` are mined for `*Workload.cpp`; auxiliary repos stay silent unless a workload YAML points at them.
 - **Contract polish.** Step one is “install Studio → Launcher + deps are ready.” Next we add versioned `/launcher/v1/*` + `/query/v1/*` endpoints, optional auth/CSRF tokens, and richer per-model telemetry payloads for Studio and VS Code.
 
 ---
@@ -36,7 +36,7 @@ Launcher stays the shared backend, now with a repo-aware workflow that travels w
 Defines the environment by pinning repos instead of raw paths. Every project file must declare its schema version (`schema_version: 1` for this rollout) so Launcher + Studio know which layout to expect. The schema groups runtime bits together so everything the launcher needs to hydrate sits under one section:
 
 - `runtime.engine`: repo URL + ref *or* a `local_path`. Launcher mirrors pinned repos into `.launcher/<project>/deps/runtime/<target>/engine/<slug>` and feeds headers/libs into the build graph; local paths are resolved relative to `${PROJECT_DIR}` and used directly.
-- `runtime.workloads`: explicit list of workload sources. Each entry picks either a repo/ref to hydrate under `.launcher/<project>/deps/runtime/<target>/workloads/<slug>` or a `local_path` for in-repo experiments. Only entries with a path feed the auto-generated registry until repo hydration lands.
+- `runtime.workload_sources`: explicit list of workload sources. Each entry picks either a repo/ref to hydrate under `.launcher/<project>/deps/runtime/<target>/workloads/<slug>` or a `local_path` for in-repo experiments (and should declare an `id` for clarity). Entries can also list `root_paths` (subfolders inside the checkout) when multiple workload trees live under the same repo. Only the expanded paths feed the auto-generated registry until repo hydration lands.
 - `runtime.shared`: optional extras (assets, helper libs) that follow the same repo/ref vs. `local_path` contract.
 - `runtime.python_roots`: explicit per-project Python entry points (`id`, `local_path`, optional `requirements`). Launcher resolves them relative to the project file and `install-deps` installs every declared requirements file into `.launcher/<project_safe>/.venv-python`. At runtime we combine that venv’s site-packages with each root path on `PYTHONPATH` so all Python workloads see the same hydrated environment.
 - Each repo entry can target specific platforms so ESP32-only bits never land on desktop machines.
@@ -48,7 +48,7 @@ Result: clone the robot repo, run `./scripts/bootstrap.sh` (or platform equivale
 
 #### Tooling Pins
 
-The project file now embeds a `tooling` section covering both Studio + Launcher (since they share the same repository). Every entry must choose either a `repo/ref` pair (for git-based pins) or a `local_path` (when the tooling already lives in the workspace)—never both. The bootstrapper reads those pins, clones or reuses the tooling into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, hydrates `.studio/.venv`, and exposes helper entry points (thin wrappers like `./run-studio.sh` + `./run-launcher.sh` that exec the pinned binaries). Contributors can override the pin temporarily via `ROBOTICK_TOOLING_OVERRIDE`, but the default experience is “use exactly the toolchain the repo committed.” Paths can interpolate `${PROJECT_DIR}` (the folder containing `<robot>.project.yaml`) so complex relative paths stay readable.
+The project file now embeds a `tooling` section covering both Studio + Launcher (since they share the same repository). `tooling.tooling_sources` mirrors `runtime.workload_sources`: each entry carries an `id` plus either a `repo/ref` pair or a `local_path` (never both). The bootstrapper reads those pins, clones or reuses the tooling into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, hydrates `.studio/.venv`, and exposes helper entry points (thin wrappers like `./run-studio.sh` + `./run-launcher.sh` that exec the pinned binaries). Contributors can override the pin temporarily via `ROBOTICK_TOOLING_OVERRIDE`, but the default experience is “use exactly the toolchain the repo committed.” Paths can interpolate `${PROJECT_DIR}` (the folder containing `<robot>.project.yaml`) so complex relative paths stay readable. Every project implicitly owns a co-located `<project>.setup.sh` (same basename as the project file), so we no longer configure a bootstrap path explicitly—the launcher/UI can always say “run `<project>.setup.sh` next to this project file.”
 
 Example (abridged) `my-robot.project.yaml`:
 
@@ -56,18 +56,23 @@ Example (abridged) `my-robot.project.yaml`:
 name: My Robot
 schema_version: 1
 tooling:
-  robotick:
-    repo: https://github.com/robotick/robotick-studio.git
-    ref: v0.9.1  # Alternatively: comment these lines out and set `local_path: ${PROJECT_DIR}/../../..` if tooling lives in the workspace
-  bootstrap: ./robots/my-robot.setup.sh
+  tooling_sources:
+    - id: robotick-studio
+      repo: https://github.com/robotick/robotick-studio.git
+      ref: v0.9.1  # Alternatively: set `local_path: ${PROJECT_DIR}/../../..` if tooling lives in the workspace
 runtime:
   engine:
     repo: https://github.com/robotick/robotick-engine.git
     ref: 1c2d3e4  # Alternatively: set `local_path: ${PROJECT_DIR}/../../../../robotick-engine` to reuse a sibling checkout
-  workloads:
-    - repo: https://github.com/robotick/my-robot-workloads.git
+  workload_sources:
+    - id: my-robot-workloads
+      repo: https://github.com/robotick/my-robot-workloads.git
       ref: my-robot-2024-06
-    - local_path: workloads/prototyping/cpp  # Treat in-repo experiments like any other workload root
+    - id: prototyping-cpp
+      local_path: workloads/prototyping/cpp  # Treat in-repo experiments like any other workload root
+      root_paths:
+        - include
+        - src
   shared:
     - repo: https://github.com/robotick/shared-assets.git
       ref: main
@@ -159,18 +164,18 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Provide a quit hook that stops the Launcher process (unless another UI is still attached).
 - **Schema v1 rollout**
   - ✅ Draft and validate the new project schema sections (`schema_version`, `tooling`, `runtime.*`), expose them in launcher config objects, and add parser/validation tests.
-  - ✅ Migrated `tools/robotick-launcher/tests/test_data/test-project/test-project.project.yaml` (and related fixtures) to schema v1 so launcher pytest exercises the new layout while remaining self-contained; the fixture now uses `tooling.robotick.local_path` to reference the in-repo tooling, matching the schema change.
-  - ✅ Enforced the “repo/ref xor local_path” rule across runtime entries, rewired launcher surfaces (generate/discover/install/query) to read `runtime.engine/workloads/shared/python_roots`, and updated docs/schemas/tests so the new contract is documented and exercised.
+  - ✅ Migrated `tools/robotick-launcher/tests/test_data/test-project/test-project.project.yaml` (and related fixtures) to schema v1 so launcher pytest exercises the new layout while remaining self-contained; the fixture now uses `tooling.tooling_sources[0].local_path` to reference the in-repo tooling, matching the schema change.
+  - ✅ Enforced the “repo/ref xor local_path” rule across runtime entries, rewired launcher surfaces (generate/discover/install/query) to read `runtime.engine/workload_sources/shared/python_roots`, and updated docs/schemas/tests so the new contract is documented and exercised.
   - ✅ Updated launcher shell-out tests to invoke `python -m robotick.launcher.cli` with `PYTHONPATH=tools/robotick-launcher/src`, keeping CI/dev invocations local to the repo instead of relying on a globally installed binary.
-  - ✅ Updated launcher codepaths (generate CMake, install-deps, workloads discovery) to read `config.runtime.*` (engine path, workload roots, python roots) and added tests/fixtures to keep pytest green.
+  - ✅ Updated launcher codepaths (generate CMake, install-deps, workload discovery) to read `config.runtime.*` (engine path, workload sources, python roots) and added tests/fixtures to keep pytest green.
 - **Pip-E pilot (robotick-knitware/robots/pip-e/pip-e.project.yaml)** _(first real robot repo to adopt schema v1 + pinned tooling)._
   - **Toolchain + bootstrap**
-    - ☐ Port `robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 and add its `pip-e.setup.sh` script.
-    - ☐ Teach the per-project bootstrap scripts to read the `tooling` section, hydrate the pinned repo into `.launcher/<project>/deps/tooling/<version>`, run `npm install`, and emit helper shims (`run-studio.sh`, `run-launcher.sh`) so the runtime-focused `install-deps` stage can stay dedicated to engine/workload hydration—cover with bootstrap tests.
+    - ☐ Port `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/pip-e.project.yaml` to schema v1 (project file only for now).
+    - ☐ Add `pip-e.setup.sh` under `/home/paulwconnor-ai/dev/robotick/robotick-knitware/robots/pip-e/` that reads the tooling pins, hydrates the repo into `.launcher/<project>/deps/tooling/<version>`, runs `npm install`, and emits helper shims (`run-studio.sh`, `run-launcher.sh`) so the runtime-focused `install-deps` stage can stay dedicated to engine/workload hydration—cover with bootstrap tests.
   - **Runtime hydration + cache**
     - ☐ Implement `robotick-launcher install-deps` repo pinning—resolve repo list, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile—add installer tests for lock writes/reads.
     - ☐ Teach `install-deps/generate/build/deploy/run` to error out if deps are missing/out-of-date, and optionally auto-run `install-deps`—add regression tests that assert failures/success paths.
-    - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout—add installer tests + run suite.
+    - ☐ Extend runtime repo pinning so pip-e’s `runtime.engine/workload_sources/shared` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (no git submodules); confirm the CLI understands the new layout—add installer tests + run suite.
     - ☐ Introduce a per-project runtime cache (e.g., `.launcher/<project>/deps/runtime/shared`) so target-agnostic repos (engine, workload packs, shared assets) clone once and link into each target folder—cover with integration tests.
     - ☐ Verify `./robots/pip-e/pip-e.setup.sh && ./run-studio.sh` works end-to-end in-place and capture the run with integration tests before rolling out elsewhere.
     - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.

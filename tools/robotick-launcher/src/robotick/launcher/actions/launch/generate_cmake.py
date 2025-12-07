@@ -47,12 +47,19 @@ def generate_project_cmakelists(config) -> None:
         else:
             raise RuntimeError("Engine repo/path not specified in runtime section.")
 
-    workload_entries = runtime_cfg.get("workloads") or []
-    workload_roots_abs = [
-        config.resolve_project_path(entry["local_path"])
-        for entry in workload_entries
-        if entry.get("local_path")
-    ]
+    workload_entries = runtime_cfg.get("workload_sources") or []
+    workload_roots_abs = []
+    for entry in workload_entries:
+        base = entry.get("local_path")
+        if not base:
+            continue
+        base_abs = config.resolve_project_path(base)
+        root_paths = entry.get("root_paths") or []
+        if root_paths:
+            for rel in root_paths:
+                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+        else:
+            workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
         legacy_roots = config.project.get("local_workload_roots") or config.project.get(
             "workload_roots", []
@@ -139,12 +146,19 @@ def generate_component_cmakelists(config) -> None:
         else:
             raise RuntimeError("Engine repo/path not specified in runtime section.")
 
-    workload_entries = runtime_cfg.get("workloads") or []
-    workload_roots_abs = [
-        config.resolve_project_path(entry["local_path"])
-        for entry in workload_entries
-        if entry.get("local_path")
-    ]
+    workload_entries = runtime_cfg.get("workload_sources") or []
+    workload_roots_abs = []
+    for entry in workload_entries:
+        base = entry.get("local_path")
+        if not base:
+            continue
+        base_abs = config.resolve_project_path(base)
+        root_paths = entry.get("root_paths") or []
+        if root_paths:
+            for rel in root_paths:
+                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+        else:
+            workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
         legacy_roots = config.project.get("local_workload_roots") or config.project.get(
             "workload_roots", []
