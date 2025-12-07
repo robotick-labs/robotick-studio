@@ -93,8 +93,7 @@ def render_template(template_name: str, context: dict) -> str:
 
 def render_template_to_file(template_name: str, output_path: Path, context: dict):
     contents = render_template(template_name, context)
-    if write_text_if_changed(output_path, contents):
-        print(f"[green]📝 Wrote:[/] {output_path}")
+    write_text_if_changed(output_path, contents)
 
 
 def copy_extras_for_target(config) -> None:

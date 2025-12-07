@@ -89,6 +89,11 @@ const WINDOW_STATE_FILE =
     "window-state.json",
   );
 
+const WINDOW_STATE_WRITE_DEBOUNCE_MS = 500;
+let pendingWindowState: WindowState | null = null;
+let windowStateWriteTimer: NodeJS.Timeout | null = null;
+let windowStateWriteInFlight = false;
+
 function readWindowState(): WindowState {
   try {
     const contents = fs.readFileSync(WINDOW_STATE_FILE, { encoding: "utf-8" });
@@ -98,15 +103,51 @@ function readWindowState(): WindowState {
   }
 }
 
-function writeWindowState(state: WindowState) {
+async function persistWindowState(state: WindowState) {
   try {
-    fs.mkdirSync(path.dirname(WINDOW_STATE_FILE), { recursive: true });
-    fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(state, null, 2), {
-      encoding: "utf-8",
+    await fs.promises.mkdir(path.dirname(WINDOW_STATE_FILE), {
+      recursive: true,
     });
+    await fs.promises.writeFile(
+      WINDOW_STATE_FILE,
+      JSON.stringify(state, null, 2),
+      {
+        encoding: "utf-8",
+      },
+    );
   } catch (error) {
     console.error("[Launcher] Failed to persist window state", error);
   }
+}
+
+function flushWindowStateQueue() {
+  if (windowStateWriteInFlight || !pendingWindowState) {
+    return;
+  }
+  const state = pendingWindowState;
+  pendingWindowState = null;
+  windowStateWriteInFlight = true;
+  persistWindowState(state)
+    .catch((error) => {
+      console.error("[Launcher] Error writing window state", error);
+    })
+    .finally(() => {
+      windowStateWriteInFlight = false;
+      if (pendingWindowState) {
+        setImmediate(flushWindowStateQueue);
+      }
+    });
+}
+
+function scheduleWindowStateWrite(state: WindowState) {
+  pendingWindowState = state;
+  if (windowStateWriteTimer) {
+    clearTimeout(windowStateWriteTimer);
+  }
+  windowStateWriteTimer = setTimeout(() => {
+    windowStateWriteTimer = null;
+    flushWindowStateQueue();
+  }, WINDOW_STATE_WRITE_DEBOUNCE_MS);
 }
 
 function clampToDisplay(state: WindowState) {
@@ -190,11 +231,10 @@ export async function bootstrapElectron({
         ...win.getBounds(),
         isMaximized: win.isMaximized(),
       };
-      writeWindowState(state);
+      scheduleWindowStateWrite(state);
     };
     win.on("maximize", saveState);
     win.on("unmaximize", saveState);
-    win.on("focus", saveState);
     win.on("resize", saveState);
     win.on("move", saveState);
     win.on("close", saveState);

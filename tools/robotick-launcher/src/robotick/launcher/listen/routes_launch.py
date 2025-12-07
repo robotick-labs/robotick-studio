@@ -151,7 +151,7 @@ def _broadcast_log(line: str, loop: asyncio.AbstractEventLoop):
         return
     tag = current_profile or "profile"
     now = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} " f"{line}"
+    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} [{tag}] {line}"
 
     with log_lock:
         for queue in log_subscribers:
@@ -265,8 +265,9 @@ async def run_launcher(
 
     print(f"[Launcher] Requested run: {project_path=} | {profile=}")
 
-    if process_handle and process_handle.is_alive():
-        return {"status": "already running"}
+    with lifecycle_lock:
+        if process_handle and process_handle.is_alive():
+            return {"status": "already running"}
 
     if ":" not in profile:
         return {
@@ -280,23 +281,29 @@ async def run_launcher(
     _set_initial_status(profile)
     current_profile = profile
 
+    proc: Optional[mp.Process] = None
     try:
-        status_queue = _mp_ctx.Queue()
-        process_handle = _mp_ctx.Process(
-            target=_run_profile_worker,
-            args=(project_name, profile, str(base_dir), status_queue),
-            daemon=True,
-        )
-        process_handle.start()
+        with lifecycle_lock:
+            status_queue = _mp_ctx.Queue()
+            process_handle = _mp_ctx.Process(
+                target=_run_profile_worker,
+                args=(project_name, profile, str(base_dir), status_queue),
+                daemon=True,
+            )
+            proc = process_handle
+        proc.start()
     except Exception as exc:
-        process_handle = None
-        if status_queue:
+        queue_to_close: Optional[mp.Queue] = None
+        with lifecycle_lock:
+            queue_to_close = status_queue
+            process_handle = None
+            status_queue = None
+        if queue_to_close:
             try:
-                status_queue.close()
-                status_queue.join_thread()
+                queue_to_close.close()
+                queue_to_close.join_thread()
             except Exception as queue_exc:  # pragma: no cover - best-effort cleanup
                 print(f"[Launcher] Failed to close status queue cleanly: {queue_exc}")
-        status_queue = None
         current_profile = None
         with status_lock:
             current_status["status"] = "error"
