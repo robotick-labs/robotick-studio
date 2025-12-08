@@ -86,6 +86,9 @@ def create_app() -> typer.Typer:
             False,
             help="Only create target-folder for each installed dependency, not full install",
         ),
+        skip_install_deps: bool = typer.Option(
+            False, help="Assume install-deps already ran and skip it during generate"
+        ),
     ) -> None:
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
@@ -99,6 +102,7 @@ def create_app() -> typer.Typer:
                 dry_run,
                 bool(stub_install),
                 workspace_dir,
+                skip_install_deps=skip_install_deps,
             )
 
     @app.command("build")
@@ -114,6 +118,9 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
+        skip_install_deps: bool = typer.Option(
+            False, help="Assume install-deps already ran and skip it during generate"
+        ),
     ):
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
@@ -129,6 +136,7 @@ def create_app() -> typer.Typer:
                 force=force,
                 verbose=verbose,
                 stub_install=False,
+                skip_install_deps=skip_install_deps,
             )
 
         if not dry_run:
@@ -147,6 +155,9 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
+        skip_install_deps: bool = typer.Option(
+            False, help="Assume install-deps already ran and skip it during generate"
+        ),
     ):
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
@@ -161,6 +172,7 @@ def create_app() -> typer.Typer:
                 no_pre,
                 force=force,
                 verbose=verbose,
+                skip_install_deps=skip_install_deps,
             )
 
         if not dry_run:
@@ -179,6 +191,9 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
+        skip_install_deps: bool = typer.Option(
+            False, help="Assume install-deps already ran and skip it during generate"
+        ),
     ):
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
@@ -193,6 +208,7 @@ def create_app() -> typer.Typer:
                 no_pre,
                 force=force,
                 verbose=verbose,
+                skip_install_deps=skip_install_deps,
             )
 
         if not dry_run:

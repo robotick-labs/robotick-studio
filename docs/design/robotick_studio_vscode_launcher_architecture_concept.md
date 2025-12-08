@@ -35,7 +35,7 @@ Launcher stays the shared backend, now with a repo-aware workflow that travels w
 
 Defines the environment by pinning repos instead of raw paths. Every project file must declare its schema version (`schema_version: 1` for this rollout) so Launcher + Studio know which layout to expect. The schema groups runtime bits together so everything the launcher needs to hydrate sits under one section:
 
-- `runtime.engine`: repo URL + ref *or* a `local_path`. Launcher mirrors pinned repos into `.launcher/<project_safe>/deps/runtime/<target>/engine/<slug>` and feeds headers/libs into the build graph; local paths are resolved relative to `${PROJECT_DIR}` and used directly.
+- `runtime.engine`: repo URL + ref _or_ a `local_path`. Launcher mirrors pinned repos into `.launcher/<project_safe>/deps/runtime/<target>/engine/<slug>` and feeds headers/libs into the build graph; local paths are resolved relative to `${PROJECT_DIR}` and used directly.
 - `runtime.workload_sources`: explicit list of workload sources. Each entry picks either a repo/ref to hydrate under `.launcher/<project_safe>/deps/runtime/<target>/workloads/<slug>` or a `local_path` for in-repo experiments (and should declare an `id` for clarity). Entries can also list `root_paths` (subfolders inside the checkout) when multiple workload trees live under the same repo. Only the expanded paths feed the auto-generated registry until repo hydration lands.
 - `runtime.shared`: optional extras (assets, helper libs) that follow the same repo/ref vs. `local_path` contract.
 - `runtime.python_roots`: explicit per-project Python entry points (`id`, `local_path`, optional `requirements`). Launcher resolves them relative to the project file and `install-deps` installs every declared requirements file into `.launcher/<project_safe>/deps/python/.venv-python`. At runtime we combine that venv’s site-packages with each root path on `PYTHONPATH` so all Python workloads see the same hydrated environment.
@@ -59,17 +59,17 @@ tooling:
   tooling_sources:
     - id: robotick-studio
       repo: https://github.com/robotick-labs/robotick-studio.git
-      ref: v0.9.1  # Alternatively: set `local_path: ${PROJECT_DIR}/../../..` if tooling lives in the workspace
+      ref: v0.9.1 # Alternatively: set `local_path: ${PROJECT_DIR}/../../..` if tooling lives in the workspace
 runtime:
   engine:
     repo: https://github.com/robotick-labs/robotick-engine.git
-    ref: 1c2d3e4  # Alternatively: set `local_path: ${PROJECT_DIR}/../../../../robotick-engine` to reuse a sibling checkout
+    ref: 1c2d3e4 # Alternatively: set `local_path: ${PROJECT_DIR}/../../../../robotick-engine` to reuse a sibling checkout
   workload_sources:
     - id: my-robot-workloads
       repo: https://github.com/robotick-labs/my-robot-workloads.git
       ref: my-robot-2024-06
     - id: prototyping-cpp
-      local_path: workloads/prototyping/cpp  # Treat in-repo experiments like any other workload root
+      local_path: workloads/prototyping/cpp # Treat in-repo experiments like any other workload root
       root_paths:
         - include
         - src
@@ -180,8 +180,8 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
     - ✅ Implemented project-level repo pinning in `install-deps` (for `runtime.engine/workload_sources/shared`, not the per-workload YAML includes)—resolve each project YAML repo entry, clone/update into `.launcher/<project>/deps/runtime/<target>/<category>/<slug>`, record commit SHAs in a lockfile, and add installer tests that verify the clone + lock lifecycle.
     - ✅ Taught `install-deps/generate/build/deploy/run` to auto-hydrate those project-level runtime repos (invoking `install-deps` when they’re missing/out-of-date) and surface a hard error only if hydration fails (e.g., git/apt needs sudo or network access); added regression tests that cover both the auto-install and failure paths.
     - ✅ Extended runtime repo pinning so Pip-E’s `runtime.engine` and `runtime.workload_sources[robotick-core-workloads]` entries hydrate via `.launcher/<project>/deps/runtime/<target>` (see `robots/pip-e/pip-e.project.yaml`); CLI + tests run against the pinned clones instead of the old git submodules.
-    - ☐ Verify `./robots/pip-e/run-pip-e.sh` works end-to-end in-place (and emits the expected launcher/CI commands) before rolling out elsewhere.
-    - ☐ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
+    - ✅ Verify `./robots/pip-e/run-pip-e.sh` works end-to-end in-place (and emits the expected launcher/CI commands) before rolling out elsewhere.
+    - ✅ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
   - **CI + documentation + follow-up**
     - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
     - ☐ Add GitHub Actions coverage so Pip-E’s bootstrap (`run-pip-e.sh`) + build steps run in CI (Linux + optional macOS runners) and block regressions; include artifact uploads/log scrapes.
@@ -194,13 +194,13 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
   - ✅ Added the `robotick-launcher install-deps` Typer command that hydrates `.launcher/<project_safe>/.venv-python`, installs each `python_root`’s requirements, and emits `python-roots-lock.json` describing the resulting PYTHONPATH segments.
   - ✅ `generate` (and the build/deploy/run cascade) now auto-runs `install-deps` whenever a project defines `python_roots`, and the run stage reads `python-roots-lock.json` to set `PYTHONPATH` before launching the model; pytest covers the CLI command plus the implicit trigger/lockfile behavior.
   - ✅ Repo pinning/apt discovery moved entirely into `install-deps`; we reuse the YAML-driven dependency graph there, write clones under `.launcher/<project_safe>/<model>/<target>` as before, and surface any missing apt packages with `sudo apt-get` instructions instead of silently shelling out inside `generate`.
+- **CI Integration**
+  - ✅ Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites)—include pipeline smoke tests.
+  - ✅ Ensure CI changes include appropriate automated test runs (pytest, renderer/Vitest) and validate the pipeline end-to-end (final reminder).
 - **Cleaning story**
   - Implement `clean-generated` (delete `.launcher/<project>/generated/<model>/<target>` build artefacts)—add CLI tests.
   - Implement `clean-deps` (delete `.launcher/<project>/deps/runtime/<target>` + optionally cascade to builds)—cover with tests and run suite.
   - Implement `clean-all` (call both, plus any temporary lockfiles), and surface them via CLI + Studio buttons—ensure tests verify cascading deletes and ☐ run the launcher test suite prior to merge.
-- **CI Integration**
-  - Prompt: Add GitHub Actions integration for both Studio + Launcher (launcher pytest + renderer/electron Vitest suites)—include pipeline smoke tests.
-  - ☐ Ensure CI changes include appropriate automated test runs (pytest, renderer/Vitest) and validate the pipeline end-to-end (final reminder).
 - **VS Code Extension MVP**
   - ✅ Baseline extension shell + packaging: `tools/vscode-extension` now builds, packages (`reinstall-vscode-robotick.sh`), registers the activity bar icon, and renders a simple panel; next step is to hydrate it with launcher data (run Vitest each time).
   - ✅ Panel scaffolding + renderer embed: the extension’s webview now copies `dist/renderer` into the package and loads the Studio renderer’s built bundle so we see the real UI (still using offline data until Launcher hooks arrive)—kept under renderer test coverage.

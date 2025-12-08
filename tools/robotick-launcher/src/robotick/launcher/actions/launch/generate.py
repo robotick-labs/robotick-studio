@@ -56,6 +56,7 @@ def generate(
     workspace_dir: Optional[Path] = typer.Option(
         None, help="Workspace root containing the .launcher folder"
     ),
+    skip_install_deps: bool = False,
 ):
     """
     Generate the .launcher folder structure and files for the given project/model/target.
@@ -67,15 +68,16 @@ def generate(
 
         base_dir = base_dir.resolve()
         workspace_root = (workspace_dir or base_dir).resolve()
-        install_deps_stage.install_deps(
-            project=project,
-            base_dir=base_dir,
-            workspace_root=workspace_root,
-            dry_run=dry_run,
-            stub_install=stub_install,
-            model=model,
-            target=target,
-        )
+        if not skip_install_deps:
+            install_deps_stage.install_deps(
+                project=project,
+                base_dir=base_dir,
+                workspace_root=workspace_root,
+                dry_run=dry_run,
+                stub_install=stub_install,
+                model=model,
+                target=target,
+            )
 
         config = Config(project, model, target, base_dir, dry_run, stub_install)
 

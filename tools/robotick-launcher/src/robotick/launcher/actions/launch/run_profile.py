@@ -10,6 +10,7 @@ import typer
 
 from robotick.launcher.utils import run_subprocess
 from robotick.launcher.actions.query.list import list_project_models
+from robotick.launcher.actions.launch import install_deps as install_deps_stage
 
 
 def stream_output(proc: subprocess.Popen, tag: str):
@@ -92,6 +93,19 @@ def run_profile(
         models=model_ids,
     )
 
+    try:
+        install_deps_stage.install_deps(
+            project=project_name,
+            base_dir=base_dir,
+            workspace_root=base_dir,
+            model=None,
+            target="linux",
+        )
+    except Exception as exc:
+        detail = f"install-deps failed: {exc}"
+        print(f"[bold red]❌ {detail}[/]")
+        return {"status": "error", "detail": detail}
+
     # --- Build phase (run all builds in parallel) ---
     print(f"[Launcher] Building {len(model_ids)} models in parallel...")
     build_procs: list[tuple[str, subprocess.Popen]] = []
@@ -108,6 +122,7 @@ def run_profile(
             str(base_dir),
             "--workspace-dir",
             str(base_dir),
+            "--skip-install-deps",
         ]
         print(f"[Launcher] Building model: {model_id} → {build_cmd}")
         _emit_status(
