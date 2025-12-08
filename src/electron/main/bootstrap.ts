@@ -22,6 +22,11 @@ type WebContentsLike = {
     event: string,
     listener: (...args: unknown[]) => void
   ) => void;
+  once?: (
+    event: string,
+    listener: (...args: unknown[]) => void
+  ) => void;
+  executeJavaScript?: (code: string) => Promise<unknown>;
   openDevTools?: (options?: Record<string, unknown>) => void;
   closeDevTools?: () => void;
   isDevToolsOpened?: () => boolean;
@@ -37,6 +42,11 @@ export type ElectronApp = {
     handler: (event: unknown, ...args: unknown[]) => void
   ) => void;
   quit: () => void;
+  exit?: (code?: number) => void;
+  setAppUserModelId?: (id: string) => void;
+  setName?: (name: string) => void;
+  name?: string;
+  setDesktopName?: (name: string) => void;
 };
 
 type BrowserWindowInstance = {
@@ -47,8 +57,13 @@ type BrowserWindowInstance = {
   maximize: () => void;
   unmaximize: () => void;
   isMaximized: () => boolean;
+  isFocused?: () => boolean;
   close: () => void;
+  focus?: () => void;
+  show?: () => void;
+  setAlwaysOnTop?: (flag: boolean, level?: string) => void;
   on: (event: string, listener: (...args: unknown[]) => void) => void;
+  once?: (event: string, listener: (...args: unknown[]) => void) => void;
   webContents: WebContentsLike;
   getBounds: () => Rectangle;
 };
@@ -93,6 +108,14 @@ const WINDOW_STATE_WRITE_DEBOUNCE_MS = 500;
 let pendingWindowState: WindowState | null = null;
 let windowStateWriteTimer: NodeJS.Timeout | null = null;
 let windowStateWriteInFlight = false;
+
+const PUBLIC_ICON_RELATIVE = path.join(
+  "public",
+  "renderer",
+  "static",
+  "images",
+  "icon.png",
+);
 
 function readWindowState(): WindowState {
   try {
@@ -178,12 +201,15 @@ function clampToDisplay(state: WindowState) {
 
 const getDefaultWindowOptions = (
   state: WindowState = DEFAULT_WINDOW_STATE,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  iconPath?: string
 ) => {
   const isMac = platform === "darwin";
   return {
     width: state.width,
     height: state.height,
+    show: false,
+    icon: iconPath,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
     trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
     frame: false,
@@ -195,6 +221,32 @@ const getDefaultWindowOptions = (
   };
 };
 
+function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
+  const candidates = [];
+  if (env.ROBOTICK_WINDOW_ICON) {
+    candidates.push(env.ROBOTICK_WINDOW_ICON);
+  }
+  const workspace =
+    env.ROBOTICK_WORKSPACE_ROOT ||
+    env.ROBOTICK_PROJECT_DIR ||
+    process.cwd();
+  candidates.push(path.join(workspace, PUBLIC_ICON_RELATIVE));
+  candidates.push(
+    path.join(__dirname, "../../../", PUBLIC_ICON_RELATIVE),
+  );
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // ignore resolution failures
+    }
+  }
+  return undefined;
+}
+
 export async function bootstrapElectron({
   app,
   BrowserWindow,
@@ -203,6 +255,41 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  const desiredCwd =
+    env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+  const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
+  if (desiredCwd && process.cwd() !== desiredCwd) {
+    try {
+      process.chdir(desiredCwd);
+      console.log("[Bootstrap] switched cwd to", desiredCwd);
+    } catch (error) {
+      console.warn(
+        "[Bootstrap] Failed to change cwd to",
+        desiredCwd,
+        error,
+      );
+    }
+  }
+  console.log(
+    "[Bootstrap] cwd:",
+    process.cwd(),
+    "ROBOTICK_PROJECT_DIR:",
+    env.ROBOTICK_PROJECT_DIR,
+  );
+  const windowIconPath = resolveWindowIconPath(env);
+  const appIdentity = "com.robotick.studio";
+  if (app.setName) {
+    app.setName("Robotick Studio");
+  }
+  if (platform === "win32" && app.setAppUserModelId) {
+    app.setAppUserModelId(appIdentity);
+  } else if (platform === "linux" && app.setDesktopName) {
+    app.setDesktopName(`${appIdentity}.desktop`);
+  }
+  process.title = "Robotick Studio";
+  if (platform === "linux") {
+    app.commandLine.appendSwitch("class", "RobotickStudio");
+  }
   await ensureLauncherReady();
 
   if (env.ELECTRON_DEV === "1") {
@@ -220,7 +307,8 @@ export async function bootstrapElectron({
       action: "allow",
       overrideBrowserWindowOptions: getDefaultWindowOptions(
         DEFAULT_WINDOW_STATE,
-        platform
+        platform,
+        windowIconPath
       ),
     }));
   });
@@ -403,19 +491,68 @@ export async function bootstrapElectron({
   });
 
   const storedState = clampToDisplay(readWindowState());
+
+  const scheduleSmokeCheck = (win: BrowserWindowInstance) => {
+    if (!isSmokeTest) {
+      return;
+    }
+    win.webContents.once?.("did-finish-load", async () => {
+      try {
+        const route = await win.webContents.executeJavaScript?.(
+          "window.location.pathname"
+        );
+        if (typeof route !== "string" || route.length === 0) {
+          throw new Error(`Invalid renderer route: ${route}`);
+        }
+        console.log(`[Smoke] Renderer route: ${route}`);
+        setTimeout(() => app.quit(), 200);
+      } catch (error) {
+        console.error("[Smoke] Renderer failed to load", error);
+        setTimeout(() => {
+          if (app.exit) {
+            app.exit(1);
+          } else {
+            process.exit(1);
+          }
+        }, 200);
+      }
+    });
+  };
   const createWindow = () => {
     const win = new BrowserWindow(
-      getDefaultWindowOptions(storedState, platform)
+      getDefaultWindowOptions(storedState, platform, windowIconPath)
     );
+    let alwaysOnTopTimer: NodeJS.Timeout | null = null;
+    const clearAlwaysOnTopTimer = () => {
+      if (alwaysOnTopTimer) {
+        clearTimeout(alwaysOnTopTimer);
+        alwaysOnTopTimer = null;
+      }
+    };
 
     if (storedState.isMaximized) {
       win.maximize();
     }
 
     win.setMenuBarVisibility(false);
+    win.on("closed", () => {
+      clearAlwaysOnTopTimer();
+    });
     registerWindowStateListeners(win);
     registerDevtoolsShortcuts(win, platform);
     win.on("ready-to-show", () => {
+      win.show?.();
+      if (!win.isFocused?.()) {
+        win.focus?.();
+      }
+      if (win.setAlwaysOnTop) {
+        clearAlwaysOnTopTimer();
+        win.setAlwaysOnTop(true, "screen-saver");
+        alwaysOnTopTimer = setTimeout(() => {
+          win.setAlwaysOnTop?.(false);
+          alwaysOnTopTimer = null;
+        }, 250);
+      }
       win.webContents.send("robotick-window-state", {
         isMaximized: win.isMaximized(),
       });
@@ -428,6 +565,7 @@ export async function bootstrapElectron({
       console.log("Launching app at:", indexPath);
       win.loadFile(indexPath);
     }
+    scheduleSmokeCheck(win);
   };
 
   app.on("window-all-closed", () => {

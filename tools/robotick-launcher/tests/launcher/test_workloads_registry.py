@@ -4,9 +4,10 @@ import json
 from robotick.launcher.listen.routes_query import get_workloads_registry
 
 
-TEST_PROJECT = Path("tests/test_data/test-project/test-project.project.yaml").resolve()
-GOLDEN_PATH = Path("tests/test_data/workloads_registry.golden.json").resolve()
-LATEST_PATH = Path("tests/test_data/workloads_registry.latest.json").resolve()
+_TESTS_ROOT = Path(__file__).resolve().parents[1]
+TEST_PROJECT = _TESTS_ROOT / "test_data" / "test-project" / "test-project.project.yaml"
+GOLDEN_PATH = _TESTS_ROOT / "test_data" / "workloads_registry.golden.json"
+LATEST_PATH = _TESTS_ROOT / "test_data" / "workloads_registry.latest.json"
 
 
 def test_workloads_registry_matches_golden():

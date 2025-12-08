@@ -263,9 +263,14 @@ def _generate_workload_auto_cpp(
     out_path = registry_path / "workloads" / f"{type_name}.gen.cpp"
 
     if not discovered:
+        runtime_roots = [
+            entry.get("local_path") or entry.get("path_override")
+            for entry in getattr(config.runtime, "workload_sources", []) or []
+            if entry.get("local_path") or entry.get("path_override")
+        ]
         raise FileNotFoundError(
             f"Could not generate auto file for {type_name}: not found in discovered map. "
-            f"Looked under workload roots: {config.project.get('local_workload_roots') or config.project.get('workload_roots', [])}"
+            f"Configured workload roots: {runtime_roots}"
         )
 
     s = discovered["structs"]

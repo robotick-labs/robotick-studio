@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AppRoutes, resolvedWorkspaces } from "../../renderer/Router";
+import { TestLauncherProviders } from "../helpers/mocks";
 
 vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
   WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
@@ -14,9 +15,11 @@ describe("workspace route smoke tests", () => {
   for (const workspace of resolvedWorkspaces) {
     it(`renders workspace '${workspace.id}' at path '${workspace.path}'`, () => {
       const markup = renderToString(
-        <MemoryRouter initialEntries={[workspace.path]}>
-          <AppRoutes />
-        </MemoryRouter>
+        <TestLauncherProviders>
+          <MemoryRouter initialEntries={[workspace.path]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
       );
 
       expect(markup).toContain(`data-testid="workspace-${workspace.id}"`);

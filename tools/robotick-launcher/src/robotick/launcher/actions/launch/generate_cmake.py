@@ -1,7 +1,11 @@
 from pathlib import Path
+import logging
 import os
 from rich import print
 from robotick.launcher.utils import render_template, write_text_if_changed
+
+
+logger = logging.getLogger(__name__)
 
 def _cmake_relpath(target: Path, start: Path) -> str:
     """Return POSIX-style relative path for CMake, or absolute if not relative-able."""
@@ -14,7 +18,7 @@ def _cmake_relpath(target: Path, start: Path) -> str:
 def generate_project_cmakelists(config) -> None:
     """Render and write .launcher/CMakeLists.txt for the given (project, model, target).
     Expects config.{base_dir, launcher_dir, model_name, model_name_safe, target, dry_run}
-    and config.project.{robotick_engine_root, local_workload_roots}.
+    and config.runtime.{engine, workloads}.
     """
 
     # Set platform macros based on target
@@ -31,14 +35,38 @@ def generate_project_cmakelists(config) -> None:
     cmakelists_dir = path.parent
 
     # Compute relative paths to use in CMake template
-    robotick_engine_root_abs = (config.base_dir / config.project.robotick_engine_root).resolve()
-    workload_root_entries = (
-        config.project.get("local_workload_roots")
-        or config.project.get("workload_roots", [])
+    runtime_cfg = getattr(config, "runtime", {})
+    engine_entry = runtime_cfg.get("engine") or {}
+    engine_path = (
+        engine_entry.get("local_path")
+        or engine_entry.get("path_override")
+        or engine_entry.get("path")
     )
-    workload_roots_abs = [
-        (config.base_dir / root).resolve() for root in workload_root_entries
-    ]
+    if engine_path:
+        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+    else:
+        raise RuntimeError("Engine repo/path not specified in runtime section.")
+
+    workload_entries = runtime_cfg.get("workload_sources") or []
+    workload_roots_abs = []
+    for idx, entry in enumerate(workload_entries):
+        base = entry.get("local_path") or entry.get("path_override")
+        if not base:
+            logger.debug(
+                "Skipping workload entry without local_path/path_override at index %s: %s",
+                idx,
+                entry,
+            )
+            continue
+        base_abs = config.resolve_project_path(base)
+        root_paths = entry.get("root_paths") or []
+        if root_paths:
+            for rel in root_paths:
+                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+        else:
+            workload_roots_abs.append(base_abs)
+    if not workload_roots_abs:
+        raise RuntimeError("No workload_sources configured with local_path/path_override entries.")
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)
     workload_roots_rel = [
@@ -83,7 +111,7 @@ def generate_project_cmakelists(config) -> None:
 def generate_component_cmakelists(config) -> None:
     """Render and write .launcher/<config.subdir_component_cmakelists>/CMakeLists.txt for the given (project, model, target).
     Expects config.{base_dir, launcher_dir, model_name, model_name_safe, target, dry_run}
-    and config.project.{robotick_engine_root, local_workload_roots}.
+    and config.runtime.{engine, workloads}.
     """
     subdir = getattr(config, "subdir_component_cmakelists", "")
 
@@ -104,14 +132,38 @@ def generate_component_cmakelists(config) -> None:
     cmakelists_dir = path.parent
 
     # Compute relative paths to use in CMake template
-    robotick_engine_root_abs = (config.base_dir / config.project.robotick_engine_root).resolve()
-    workload_root_entries = (
-        config.project.get("local_workload_roots")
-        or config.project.get("workload_roots", [])
+    runtime_cfg = getattr(config, "runtime", {})
+    engine_entry = runtime_cfg.get("engine") or {}
+    engine_path = (
+        engine_entry.get("local_path")
+        or engine_entry.get("path_override")
+        or engine_entry.get("path")
     )
-    workload_roots_abs = [
-        (config.base_dir / root).resolve() for root in workload_root_entries
-    ]
+    if engine_path:
+        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+    else:
+        raise RuntimeError("Engine repo/path not specified in runtime section.")
+
+    workload_entries = runtime_cfg.get("workload_sources") or []
+    workload_roots_abs = []
+    for idx, entry in enumerate(workload_entries):
+        base = entry.get("local_path") or entry.get("path_override")
+        if not base:
+            logger.debug(
+                "Skipping workload entry without local_path/path_override at index %s: %s",
+                idx,
+                entry,
+            )
+            continue
+        base_abs = config.resolve_project_path(base)
+        root_paths = entry.get("root_paths") or []
+        if root_paths:
+            for rel in root_paths:
+                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+        else:
+            workload_roots_abs.append(base_abs)
+    if not workload_roots_abs:
+        raise RuntimeError("No workload_sources configured with local_path/path_override entries.")
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)
     workload_roots_rel = [

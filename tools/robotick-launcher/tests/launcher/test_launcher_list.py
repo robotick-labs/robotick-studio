@@ -8,7 +8,7 @@ from robotick.launcher.cli import create_app
 runner = CliRunner()
 app = create_app()
 
-TEST_BASE = Path("tests/test_data/test-project").resolve()
+TEST_BASE = Path(__file__).resolve().parents[1] / "test_data" / "test-project"
 PROJECT_FILE = TEST_BASE / "test-project.project.yaml"
 
 
@@ -74,6 +74,32 @@ def test_list_projects_follow_symlinks(tmp_path):
 
     projects = list_projects(str(workspace))
     assert "robotick-knitware/robots/pip-e/pip-e.project.yaml" in projects
+
+
+def test_list_projects_skips_launcher_directories(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    real_project = workspace / "robots" / "pip-e" / "pip-e.project.yaml"
+    real_project.parent.mkdir(parents=True)
+    real_project.write_text("# pip-e project\n")
+
+    launcher_project = workspace / ".launcher" / "pip_e" / "pip-e.project.yaml"
+    launcher_project.parent.mkdir(parents=True)
+    launcher_project.write_text("# cached project\n")
+
+    projects = list_projects(str(workspace))
+    assert "robots/pip-e/pip-e.project.yaml" in projects
+    assert all(".launcher" not in entry for entry in projects)
+
+
+def test_list_projects_allows_launcher_when_root_inside(tmp_path):
+    launcher_root = tmp_path / ".launcher" / "pip_e"
+    launcher_project = launcher_root / "pip-e.project.yaml"
+    launcher_project.parent.mkdir(parents=True)
+    launcher_project.write_text("# cached project\n")
+
+    projects = list_projects(str(launcher_root))
+    assert projects == ["pip-e.project.yaml"]
 
 
 def test_list_project_models_accepts_relative_path(tmp_path):

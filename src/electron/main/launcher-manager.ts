@@ -2,20 +2,30 @@ import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 
-const WORKSPACE_ROOT =
+const getWorkspaceRoot = () =>
+  process.env.ROBOTICK_PROJECT_DIR ??
   process.env.ROBOTICK_WORKSPACE_ROOT ??
   process.cwd();
-const LAUNCHER_RELATIVE_PATH = process.env.ROBOTICK_LAUNCHER_DIR ?? "tools/robotick-launcher";
-const LAUNCHER_DIR = path.join(WORKSPACE_ROOT, LAUNCHER_RELATIVE_PATH);
-const VENV_DIR = path.join(WORKSPACE_ROOT, ".studio", ".venv");
-const VENV_BIN = path.join(VENV_DIR, "bin");
+const resolveLauncherDir = () => {
+  const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
+  if (launcherPathEnv) {
+    return path.isAbsolute(launcherPathEnv)
+      ? launcherPathEnv
+      : path.join(getWorkspaceRoot(), launcherPathEnv);
+  }
+  return path.join(getWorkspaceRoot(), "tools/robotick-launcher");
+};
+const LAUNCHER_DIR = () => resolveLauncherDir();
+const VENV_DIR = () => path.join(getWorkspaceRoot(), ".studio", ".venv");
+const VENV_BIN = () => path.join(VENV_DIR(), "bin");
 const PYTHON_BIN = process.env.ROBOTICK_PYTHON ?? "python3";
 const STATUS_URL = "http://localhost:7081/launcher/status";
 const STOP_URL = "http://localhost:7081/launcher/stop";
+const MAX_STOP_ATTEMPTS = 3;
 
 let managedProcess: ChildProcess | null = null;
 
-const launcherBin = () => path.join(VENV_BIN, "robotick-launcher");
+const launcherBin = () => path.join(VENV_BIN(), "robotick-launcher");
 
 function pathExists(target: string) {
   try {
@@ -27,27 +37,27 @@ function pathExists(target: string) {
 }
 
 function ensureVenv() {
-  if (pathExists(path.join(VENV_BIN, "python"))) {
+  if (pathExists(path.join(VENV_BIN(), "python"))) {
     return;
   }
-  spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR], {
-    cwd: WORKSPACE_ROOT,
+  spawnSync(PYTHON_BIN, ["-m", "venv", VENV_DIR()], {
+    cwd: getWorkspaceRoot(),
     stdio: "inherit",
   });
 }
 
 function installLauncherDependencies() {
-  const python = path.join(VENV_BIN, "python");
+  const python = path.join(VENV_BIN(), "python");
   spawnSync(
     python,
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-    { cwd: WORKSPACE_ROOT, stdio: "inherit" }
+    { cwd: getWorkspaceRoot(), stdio: "inherit" }
   );
   spawnSync(
     python,
-    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR}[dev]`],
+    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR()}[dev]`],
     {
-      cwd: WORKSPACE_ROOT,
+      cwd: getWorkspaceRoot(),
       stdio: "inherit",
     }
   );
@@ -73,23 +83,122 @@ async function isLauncherResponding() {
   }
 }
 
+async function stopLingeringLaunchers() {
+  for (let attempt = 0; attempt < MAX_STOP_ATTEMPTS; attempt += 1) {
+    if (!(await isLauncherResponding())) {
+      return;
+    }
+    try {
+      await fetch(STOP_URL, { method: "POST" });
+    } catch {
+      // ignore
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (await isLauncherResponding()) {
+    console.warn(
+      "[Launcher] Existing listener still responding after stop attempts; continuing"
+    );
+  }
+}
+
+function collectLauncherPidsUnix(targetPath: string): number[] {
+  const result = spawnSync("ps", ["-eo", "pid=,args="], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.*)$/);
+      if (!match) {
+        return null;
+      }
+      const [, pidStr, cmd] = match;
+      if (!cmd.includes(targetPath)) {
+        return null;
+      }
+      const pid = Number.parseInt(pidStr, 10);
+      return Number.isNaN(pid) ? null : pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function collectLauncherPidsWindows(targetPath: string): number[] {
+  const escapedTarget = targetPath.replace(/'/g, "''");
+  const script = `
+$target = '${escapedTarget}'
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like "*$target*" } | Select-Object -ExpandProperty ProcessId
+`.trim();
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((pidStr) => {
+      const pid = Number.parseInt(pidStr, 10);
+      return Number.isNaN(pid) ? null : pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function collectLauncherPids(targetPath: string): number[] {
+  if (process.platform === "win32") {
+    return collectLauncherPidsWindows(targetPath);
+  }
+  return collectLauncherPidsUnix(targetPath);
+}
+
+function killExistingLauncherProcesses() {
+  const binPath = launcherBin();
+  const pids = collectLauncherPids(binPath);
+  if (!pids.length) {
+    return;
+  }
+  for (const pid of pids) {
+    try {
+      process.kill(pid);
+    } catch (error) {
+      console.warn(`[Launcher] Failed to terminate lingering launcher pid ${pid}`, error);
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      }
+    }
+  }
+}
+
 export async function ensureLauncherReady() {
+  killExistingLauncherProcesses();
+  await stopLingeringLaunchers();
   if (await isLauncherResponding()) {
     return;
   }
-
   ensureVenv();
   installLauncherDependencies();
 
   const bin = launcherBin();
-  console.log(`[Launcher] Workspace root: ${WORKSPACE_ROOT}`);
-  const env = {
+  const root = getWorkspaceRoot();
+  console.log(`[Launcher] Workspace root: ${root}`);
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PATH: `${VENV_BIN}:${process.env.PATH ?? ""}`,
+    PATH: `${VENV_BIN()}${path.delimiter}${process.env.PATH ?? ""}`,
   };
-  console.log(`[Launcher] Starting listener with cwd ${WORKSPACE_ROOT}`);
+  console.log(
+    `[Launcher] Starting listener with cwd ${root}`,
+    "project dir:",
+    env.ROBOTICK_PROJECT_DIR,
+  );
   managedProcess = spawn(bin, ["listen"], {
-    cwd: WORKSPACE_ROOT,
+    cwd: root,
     stdio: "inherit",
     env,
   });

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rich import print
 import typer
@@ -17,12 +19,14 @@ from robotick.launcher.actions.launch.sync_dependencies import (
     sync_model_dependencies,
 )
 from robotick.launcher.actions.query.list import list_project_models
+from robotick.launcher.runtime_lock import load_runtime_lock, write_runtime_lock
 
 
 LAUNCHER_ROOT = ".launcher"
 PYTHON_DIRNAME = "python"
 PY_VENV_DIRNAME = ".venv-python"
 LOCK_FILENAME = "python-roots-lock.json"
+RUNTIME_DIRNAME = "runtime"
 
 
 @dataclass
@@ -34,6 +38,93 @@ class InstallDepsResult:
     git_dependencies: List[tuple[str, str, Optional[str], Path]]
     apt_packages: List[str]
     missing_apt: List[str]
+
+
+@dataclass
+class RuntimeRepoSpec:
+    category: str  # 'engine', 'workload_sources', or 'shared'
+    folder: str  # directory name used on disk (e.g., 'engine', 'workloads', 'shared')
+    entry_id: Optional[str]
+    repo: str
+    ref: str
+    dest_dir: Path
+    override_path: str
+    label: str
+
+
+@contextlib.contextmanager
+def _runtime_repo_lock(
+    project_dir: Path, project_safe: str, *, timeout: float = 300.0
+) -> None:
+    lock_dir = (
+        project_dir
+        / LAUNCHER_ROOT
+        / project_safe
+        / "deps"
+        / RUNTIME_DIRNAME
+    )
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / ".install.lock"
+    start = time.time()
+    notified_wait = False
+    fd: Optional[int] = None
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            os.write(fd, str(os.getpid()).encode("utf-8"))
+            if notified_wait:
+                print(f"[green]🔓 install-deps lock acquired:[/] {lock_path}")
+            break
+        except FileExistsError:
+            holder = None
+            try:
+                holder = lock_path.read_text().strip()
+            except Exception:
+                holder = None
+
+            if holder and holder.isdigit():
+                pid = int(holder)
+                if not _pid_alive(pid):
+                    try:
+                        lock_path.unlink()
+                        print(
+                            f"[yellow]⚠️ install-deps lock held by stale pid {pid}; removing stale lock[/] {lock_path}"
+                        )
+                        continue
+                    except OSError:
+                        pass
+
+            if not notified_wait:
+                owner_msg = f" (pid {holder})" if holder else ""
+                print(
+                    f"[yellow]⏳ install-deps already running{owner_msg}; waiting for lock[/] {lock_path}"
+                )
+                notified_wait = True
+            if (time.time() - start) > timeout:
+                raise RuntimeError(
+                    f"Timed out waiting for runtime repo lock at {lock_path}. "
+                    "If no other install-deps command is running, remove the lock file."
+                )
+            time.sleep(0.5)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+    label: str
 
 
 def _collect_model_names(
@@ -141,32 +232,200 @@ def _write_lock(lock_path: Path, payload: dict, *, dry_run: bool) -> None:
     print(f"[green]🔒 Wrote python deps lock:[/] {lock_path}")
 
 
-def install_deps(
+def _slugify_repo_label(entry: Dict[str, Any]) -> str:
+    if entry.get("id"):
+        base = entry["id"]
+    else:
+        repo = str(entry.get("repo", "repo")).rstrip("/")
+        base = repo.split("/")[-1]
+    if base.endswith(".git"):
+        base = base[:-4]
+    sanitized = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in base)
+    sanitized = sanitized.strip("_") or "repo"
+    return sanitized.lower()
+
+
+def _path_override_for_dest(dest: Path, base_dir: Path) -> str:
+    try:
+        rel = dest.resolve().relative_to(base_dir.resolve())
+        return rel.as_posix()
+    except ValueError:
+        return dest.resolve().as_posix()
+
+
+def _collect_runtime_repo_specs(
+    config: Config, workspace_root: Path, target: str
+) -> List[RuntimeRepoSpec]:
+    runtime_cfg = getattr(config, "runtime", {}) or {}
+    if not runtime_cfg:
+        return []
+
+    specs: List[RuntimeRepoSpec] = []
+    project_safe = config.project_name.replace("-", "_")
+    target_name = target or "linux"
+    runtime_root = (
+        workspace_root
+        / LAUNCHER_ROOT
+        / project_safe
+        / "deps"
+        / RUNTIME_DIRNAME
+        / target_name
+    )
+
+    def append_entry(entry: Dict[str, Any], category: str, folder: str) -> None:
+        if not entry or not isinstance(entry, dict):
+            return
+        if entry.get("local_path"):
+            return
+        repo = entry.get("repo")
+        ref = entry.get("ref")
+        if not repo or not ref:
+            return
+        slug = _slugify_repo_label(entry)
+        dest = runtime_root / folder / slug
+        override = _path_override_for_dest(dest, config.base_dir)
+        specs.append(
+            RuntimeRepoSpec(
+                category=category,
+                folder=folder,
+                entry_id=entry.get("id"),
+                repo=repo,
+                ref=ref,
+                dest_dir=dest,
+                override_path=override,
+                label=entry.get("id") or slug,
+            )
+        )
+
+    engine_entry = runtime_cfg.get("engine")
+    if engine_entry:
+        append_entry(engine_entry, "engine", "engine")
+
+    for entry in runtime_cfg.get("workload_sources") or []:
+        append_entry(entry, "workload_sources", "workloads")
+
+    for entry in runtime_cfg.get("shared") or []:
+        append_entry(entry, "shared", "shared")
+
+    return specs
+
+
+def _git_checkout_runtime_repo(
+    spec: RuntimeRepoSpec, *, dry_run: bool, stub_install: bool
+) -> Optional[str]:
+    dest = spec.dest_dir
+    repo = spec.repo
+    ref = spec.ref
+    if dry_run:
+        print(
+            f"[yellow]DRY RUN:[/] would sync runtime repo '{spec.label}' ({repo}@{ref}) → {dest}"
+        )
+        return None
+    if stub_install:
+        print(
+            f"[yellow]⚠️ Stub install — skipping runtime repo '{spec.label}' ({repo}@{ref})[/]"
+        )
+        return None
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if (dest / ".git").exists():
+        print(f"[cyan]• Updating runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])")
+        subprocess.run(["git", "fetch", "--all", "--tags", "--prune"], cwd=dest, check=True)
+    elif dest.exists():
+        raise RuntimeError(
+            f"Runtime repo destination exists but is not a git repo: {dest}"
+        )
+    else:
+        print(f"[green]• Cloning runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])")
+        subprocess.run(["git", "clone", repo, str(dest)], check=True)
+
+    subprocess.run(["git", "checkout", ref], cwd=dest, check=True)
+    subprocess.run(
+        ["git", "submodule", "update", "--init", "--recursive"], cwd=dest, check=True
+    )
+    commit = (
+        subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=dest, text=True)
+        .strip()
+    )
+    return commit
+
+
+def _sync_runtime_repo_sources(
+    config: Config,
+    workspace_root: Path,
+    target: str,
+    *,
+    dry_run: bool,
+    stub_install: bool,
+) -> None:
+    specs = _collect_runtime_repo_specs(config, workspace_root, target)
+    if not specs:
+        return
+
+    project_safe = config.project_name.replace("-", "_")
+    if dry_run or stub_install:
+        for spec in specs:
+            _git_checkout_runtime_repo(
+                spec, dry_run=dry_run, stub_install=stub_install
+            )
+        return
+
+    entries: Dict[str, Any] = {
+        "engine": None,
+        "workload_sources": [],
+        "shared": [],
+    }
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    for spec in specs:
+        commit = _git_checkout_runtime_repo(
+            spec, dry_run=dry_run, stub_install=stub_install
+        )
+        if commit is None:
+            continue
+        lock_entry = {
+            "id": spec.entry_id,
+            "repo": spec.repo,
+            "ref": spec.ref,
+            "path": spec.override_path,
+            "commit": commit,
+            "updated_at": timestamp,
+        }
+        if spec.category == "engine":
+            entries["engine"] = lock_entry
+        else:
+            entries[spec.category].append(lock_entry)
+
+    lock_data = load_runtime_lock(config.project_dir, project_safe) or {}
+    targets = lock_data.get("targets") or {}
+    targets[target] = {
+        "generated_at": timestamp,
+        "engine": entries["engine"],
+        "workload_sources": entries["workload_sources"],
+        "shared": entries["shared"],
+    }
+    lock_data["project"] = config.project_name
+    lock_data["updated_at"] = timestamp
+    lock_data["targets"] = targets
+    write_runtime_lock(
+        config.project_dir,
+        project_safe,
+        lock_data,
+        dry_run=dry_run,
+    )
+
+
+def _install_deps_locked(
+    *,
+    config: Config,
     project: str,
     base_dir: Path,
     workspace_root: Path,
-    *,
-    dry_run: bool = False,
-    stub_install: bool = False,
-    model: Optional[str] = None,
-    target: str = "linux",
-) -> Optional[InstallDepsResult]:
-    """
-    Hydrate local_python_roots into a shared .launcher/<project>/.venv-python environment.
-    """
-
-    base_dir = base_dir.resolve()
-    workspace_root = workspace_root.resolve()
-
-    config = Config(
-        project,
-        model=None,
-        target=None,
-        base_dir=base_dir,
-        dry_run=dry_run,
-        stub_install=stub_install,
-    )
-
+    dry_run: bool,
+    stub_install: bool,
+    model: Optional[str],
+    target: str,
+) -> InstallDepsResult:
     project_launcher_dir = get_project_python_dir(config.project_name, workspace_root)
     project_launcher_dir.mkdir(parents=True, exist_ok=True)
 
@@ -174,13 +433,15 @@ def install_deps(
     lock_path = project_launcher_dir / LOCK_FILENAME
     site_packages: Optional[str] = None
 
-    if config.python_roots:
+    python_roots = config.python_roots
+
+    if python_roots:
         _ensure_python_venv(venv_path, dry_run=dry_run)
         python_bin = _venv_python_bin(venv_path)
 
         requirement_files = [
             root.requirements_absolute
-            for root in config.python_roots
+            for root in python_roots
             if root.requirements_absolute is not None
         ]
 
@@ -208,13 +469,21 @@ def install_deps(
                     if root.requirements_file
                     else None,
                 }
-                for root in config.python_roots
+                for root in python_roots
             ],
         }
 
         _write_lock(lock_path, lock_payload, dry_run=dry_run)
     else:
-        print("[yellow]ℹ️ No local_python_roots defined; skipping python venv hydration.[/]")
+        print("[yellow]ℹ️ No python_roots defined; skipping python venv hydration.[/]")
+
+    _sync_runtime_repo_sources(
+        config=config,
+        workspace_root=workspace_root,
+        target=target,
+        dry_run=dry_run,
+        stub_install=stub_install,
+    )
 
     # --- Repo deps + apt packages ---
     model_names = _collect_model_names(project, base_dir, model)
@@ -266,9 +535,56 @@ def install_deps(
     )
 
 
+def install_deps(
+    project: str,
+    base_dir: Path,
+    workspace_root: Path,
+    *,
+    dry_run: bool = False,
+    stub_install: bool = False,
+    model: Optional[str] = None,
+    target: str = "linux",
+) -> Optional[InstallDepsResult]:
+    """
+    Hydrate python_roots into a shared .launcher/<project>/deps/python/.venv-python environment.
+    """
+
+    base_dir = base_dir.resolve()
+    workspace_root = workspace_root.resolve()
+
+    config = Config(
+        project,
+        model=None,
+        target=None,
+        base_dir=base_dir,
+        dry_run=dry_run,
+        stub_install=stub_install,
+    )
+
+    project_safe = config.project_name.replace("-", "_")
+
+    with _runtime_repo_lock(config.project_dir, project_safe):
+        return _install_deps_locked(
+            config=config,
+            project=project,
+            base_dir=base_dir,
+            workspace_root=workspace_root,
+            dry_run=dry_run,
+            stub_install=stub_install,
+            model=model,
+            target=target,
+        )
+
+
 def get_project_python_dir(project: str, workspace_root: Path) -> Path:
     project_safe = project.replace("-", "_")
-    return workspace_root / LAUNCHER_ROOT / project_safe / PYTHON_DIRNAME
+    return (
+        workspace_root
+        / LAUNCHER_ROOT
+        / project_safe
+        / "deps"
+        / PYTHON_DIRNAME
+    )
 
 
 def load_python_root_lock(project: str, workspace_root: Path) -> Optional[dict]:

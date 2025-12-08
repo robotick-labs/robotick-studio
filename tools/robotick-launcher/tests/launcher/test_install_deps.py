@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
 
 from robotick.launcher.actions.launch import install_deps, generate as generate_module
+from robotick.launcher.config import Config
 
 
 FIXTURE_BASE = Path(__file__).resolve().parent.parent / "test_data" / "test-project"
@@ -17,6 +19,24 @@ def _clone_fixture(tmp_path: Path) -> Path:
     dest = tmp_path / "test-project"
     shutil.copytree(FIXTURE_BASE, dest)
     return dest
+
+
+def _init_git_repo(repo_path: Path, filename: str) -> str:
+    repo_path.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["git", "config", "user.email", "ci@example.com"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "CI"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    target_file = repo_path / filename
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", filename], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return "main"
 
 
 def test_install_deps_creates_shared_venv_and_lock(tmp_path):
@@ -35,7 +55,12 @@ def test_install_deps_creates_shared_venv_and_lock(tmp_path):
     assert result is not None
 
     venv_path = (
-        workspace_dir / ".launcher" / "test_project" / "python" / ".venv-python"
+        workspace_dir
+        / ".launcher"
+        / "test_project"
+        / "deps"
+        / "python"
+        / ".venv-python"
     )
     assert venv_path.exists()
     assert result.lock_path.exists()
@@ -49,7 +74,9 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
-    data.pop("local_python_roots", None)
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        runtime.pop("python_roots", None)
     project_file.write_text(yaml.safe_dump(data))
 
     workspace_dir = tmp_path / "workspace"
@@ -65,7 +92,12 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
     assert result is not None
     assert result.python_roots == []
     assert not (
-        workspace_dir / ".launcher" / "test_project" / "python" / ".venv-python"
+        workspace_dir
+        / ".launcher"
+        / "test_project"
+        / "deps"
+        / "python"
+        / ".venv-python"
     ).exists()
 
 
@@ -104,7 +136,9 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
-    data.pop("local_python_roots", None)
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        runtime.pop("python_roots", None)
     project_file.write_text(yaml.safe_dump(data))
 
     workspace_dir = tmp_path / "workspace"
@@ -171,3 +205,64 @@ def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
     assert result is not None
     assert result.apt_packages == ["cmake", "git"]
     assert result.missing_apt == ["git"]
+
+
+def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
+    engine_repo = tmp_path / "engine-repo"
+    workloads_repo = tmp_path / "workloads-repo"
+    engine_ref = _init_git_repo(engine_repo, "CMakeLists.txt")
+    workloads_ref = _init_git_repo(workloads_repo, "README.md")
+
+    project_dir = tmp_path / "pip"
+    project_dir.mkdir()
+
+    project_yaml = {
+        "name": "pip",
+        "tooling": {
+            "tooling_sources": [
+                {"id": "local-tooling", "local_path": "${PROJECT_DIR}"}
+            ]
+        },
+        "runtime": {
+            "engine": {
+                "id": "engine-src",
+                "repo": engine_repo.as_posix(),
+                "ref": engine_ref,
+            },
+            "workload_sources": [
+                {
+                    "id": "workloads-src",
+                    "repo": workloads_repo.as_posix(),
+                    "ref": workloads_ref,
+                }
+            ],
+        },
+    }
+    (project_dir / "pip.project.yaml").write_text(yaml.safe_dump(project_yaml))
+
+    install_deps.install_deps(
+        project="pip",
+        base_dir=project_dir,
+        workspace_root=project_dir,
+        dry_run=False,
+        stub_install=False,
+        target="linux",
+    )
+
+    runtime_root = project_dir / ".launcher" / "pip" / "deps" / "runtime"
+    lock_path = runtime_root / "runtime-lock.json"
+    assert lock_path.exists()
+    data = json.loads(lock_path.read_text())
+    assert data["project"] == "pip"
+    target_blob = data["targets"]["linux"]
+    engine_entry = target_blob["engine"]
+    workload_entries = target_blob["workload_sources"]
+    assert engine_entry["repo"] == engine_repo.as_posix()
+    assert Path(engine_entry["path"]).name == "engine-src"
+    assert workload_entries[0]["repo"] == workloads_repo.as_posix()
+    assert "workloads" in workload_entries[0]["path"]
+
+    config = Config("pip", None, "linux", project_dir, False, False)
+    assert config.runtime.engine.get("path_override") == engine_entry["path"]
+    workload_override = config.runtime.workload_sources[0].get("path_override")
+    assert workload_override == workload_entries[0]["path"]

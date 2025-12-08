@@ -11,7 +11,7 @@ endif()
 
 {# --- manual workload cmake includes --- #}
 {% for workload_cmake in workload_cmakes %}
-include({{workload_cmake}})
+include("${CMAKE_CURRENT_LIST_DIR}/{{ workload_cmake }}")
 {% endfor %}
 {% endif %}
 

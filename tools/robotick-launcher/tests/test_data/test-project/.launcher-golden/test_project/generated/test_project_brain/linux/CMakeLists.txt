@@ -5,7 +5,7 @@ project(test-project-brain-linux)
 set(CMAKE_CXX_STANDARD 17)
 
 # Define where we can find the engine:
-set(ROBOTICK_ENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../../robotick-engine" CACHE PATH "Path to engine root")
+set(ROBOTICK_ENGINE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../../../robotick-engine" CACHE PATH "Path to engine root")
 
 # Define platform macros
 set(ROBOTICK_PLATFORM_DESKTOP ON CACHE BOOL "Enable platform macro")
@@ -39,10 +39,10 @@ target_compile_options(workload_registry PRIVATE -Wall -Wextra -Werror)
 target_compile_options(test-project-brain PRIVATE -Wall -Wextra -Werror)
 
 target_include_directories(workload_registry PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../workloads/cpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../workloads/cpp/include
 )
 target_include_directories(workload_registry PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../workloads/cpp/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../workloads/cpp/src
 )
 
 # Pull in aggregated deps (deduped from YAMLs)
