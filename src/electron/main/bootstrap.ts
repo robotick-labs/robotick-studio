@@ -535,7 +535,7 @@ export async function bootstrapElectron({
     }
 
     win.setMenuBarVisibility(false);
-    win.once?.("closed", () => {
+    win.on("closed", () => {
       clearAlwaysOnTopTimer();
     });
     registerWindowStateListeners(win);

@@ -5,8 +5,12 @@ from rich import print
 import typer
 
 from robotick.launcher.runtime_lock import RUNTIME_LOCK_FILENAME
-from robotick.launcher.actions.launch.install_deps import LOCK_FILENAME as PYTHON_LOCK_FILENAME
+from robotick.launcher.actions.launch.install_deps import (
+    LOCK_FILENAME as PYTHON_LOCK_FILENAME,
+)
 from robotick.launcher.utils import get_launcher_paths
+
+INSTALL_LOCK_FILENAME = ".install.lock"
 
 clean_app = typer.Typer(
     name="clean",
@@ -65,6 +69,7 @@ def clean_generated(
 def _runtime_paths(
     project: str, target: str, base_dir: Path
 ) -> tuple[Path, Path, Path, Path]:
+    """Return (runtime_target, runtime_lock, install_lock, python_lock)."""
     project_safe = project.replace("-", "_")
     target_safe = target.replace("-", "_")
     runtime_root = (
@@ -80,7 +85,7 @@ def _runtime_paths(
         / PYTHON_LOCK_FILENAME
     ).resolve()
     runtime_lock = (runtime_root / RUNTIME_LOCK_FILENAME).resolve()
-    install_lock = (runtime_root / ".install.lock").resolve()
+    install_lock = (runtime_root / INSTALL_LOCK_FILENAME).resolve()
     return runtime_target, runtime_lock, install_lock, python_lock
 
 

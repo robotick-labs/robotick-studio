@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 from robotick.launcher.actions.launch.install_deps import (
     LOCK_FILENAME as PYTHON_LOCK_FILENAME,
 )
+from robotick.launcher.actions.launch.clean import INSTALL_LOCK_FILENAME
 from robotick.launcher.cli import create_app
 from robotick.launcher.runtime_lock import RUNTIME_LOCK_FILENAME
 
@@ -39,7 +40,7 @@ def _make_paths(base_dir: Path):
         / PYTHON_LOCK_FILENAME
     )
     runtime_lock = runtime_root / RUNTIME_LOCK_FILENAME
-    install_lock = runtime_root / ".install.lock"
+    install_lock = runtime_root / INSTALL_LOCK_FILENAME
     return project, model, target, generated, runtime, runtime_lock, install_lock, python_lock
 
 
