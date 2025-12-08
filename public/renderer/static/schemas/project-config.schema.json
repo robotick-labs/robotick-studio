@@ -14,7 +14,8 @@
       "oneOf": [
         { "required": ["local_path"], "not": { "anyOf": [ { "required": ["repo"] }, { "required": ["ref"] } ] } },
         { "required": ["repo", "ref"], "not": { "required": ["local_path"] } }
-      ]
+      ],
+      "additionalProperties": false
     },
     "pythonRoot": {
       "type": "object",
@@ -23,7 +24,8 @@
         "local_path": { "type": "string" },
         "requirements": { "type": "string" }
       },
-      "required": ["id", "local_path"]
+      "required": ["id", "local_path"],
+      "additionalProperties": false
     }
   },
   "properties": {

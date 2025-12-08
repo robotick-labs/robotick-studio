@@ -262,7 +262,7 @@ class Config:
             normalized["ref"] = ref
         return normalized
 
-    def resolve_project_path(self, raw: str) -> Path:
+    def resolve_project_path(self, raw: Optional[str]) -> Path:
         if raw is None:
             raise ValueError("Path value cannot be None")
         value = str(raw)

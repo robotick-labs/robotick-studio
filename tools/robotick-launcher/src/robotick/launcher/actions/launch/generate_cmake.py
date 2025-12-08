@@ -1,7 +1,11 @@
 from pathlib import Path
+import logging
 import os
 from rich import print
 from robotick.launcher.utils import render_template, write_text_if_changed
+
+
+logger = logging.getLogger(__name__)
 
 def _cmake_relpath(target: Path, start: Path) -> str:
     """Return POSIX-style relative path for CMake, or absolute if not relative-able."""
@@ -45,9 +49,14 @@ def generate_project_cmakelists(config) -> None:
 
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
-    for entry in workload_entries:
+    for idx, entry in enumerate(workload_entries):
         base = entry.get("local_path") or entry.get("path_override")
         if not base:
+            logger.debug(
+                "Skipping workload entry without local_path/path_override at index %s: %s",
+                idx,
+                entry,
+            )
             continue
         base_abs = config.resolve_project_path(base)
         root_paths = entry.get("root_paths") or []
@@ -137,9 +146,14 @@ def generate_component_cmakelists(config) -> None:
 
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
-    for entry in workload_entries:
+    for idx, entry in enumerate(workload_entries):
         base = entry.get("local_path") or entry.get("path_override")
         if not base:
+            logger.debug(
+                "Skipping workload entry without local_path/path_override at index %s: %s",
+                idx,
+                entry,
+            )
             continue
         base_abs = config.resolve_project_path(base)
         root_paths = entry.get("root_paths") or []

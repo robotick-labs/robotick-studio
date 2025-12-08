@@ -15,18 +15,7 @@ def _write_project(tmp_path: Path, data: dict) -> Path:
     return base
 
 
-def _make_config(base_dir: Path) -> Config:
-    return Config(
-        project="my-robot",
-        model=None,
-        target=None,
-        base_dir=base_dir,
-        dry_run=True,
-        stub_install=False,
-    )
-
-
-def test_config_accepts_new_tooling_and_runtime_schema(tmp_path):
+def test_config_accepts_new_tooling_and_runtime_schema(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {
             "tooling_sources": [
@@ -49,7 +38,7 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path):
     }
 
     base_dir = _write_project(tmp_path, project_yaml)
-    config = _make_config(base_dir)
+    config = make_test_config(base_dir, project="my-robot")
 
     assert len(config.tooling.tooling_sources) == 1
     assert config.tooling.tooling_sources[0]["repo"] == "https://github.com/robotick-labs/robotick-studio.git"
@@ -64,17 +53,17 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path):
     assert config.python_roots[0].id == "brain"
 
 
-def test_tooling_schema_requires_repo_and_ref(tmp_path):
+def test_tooling_schema_requires_repo_and_ref(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {"tooling_sources": [{"id": "robotick-studio", "ref": "main"}]},
         "runtime": {"engine": {"local_path": "engine"}},
     }
     base_dir = _write_project(tmp_path, project_yaml)
     with pytest.raises(ValueError):
-        _make_config(base_dir)
+        make_test_config(base_dir, project="my-robot")
 
 
-def test_runtime_schema_validates_workload_repos(tmp_path):
+def test_runtime_schema_validates_workload_repos(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {"tooling_sources": [{"id": "robotick-studio", "repo": "https://github.com/robotick-labs/studio.git", "ref": "main"}]},
         "runtime": {
@@ -86,10 +75,10 @@ def test_runtime_schema_validates_workload_repos(tmp_path):
     }
     base_dir = _write_project(tmp_path, project_yaml)
     with pytest.raises(ValueError):
-        _make_config(base_dir)
+        make_test_config(base_dir, project="my-robot")
 
 
-def test_workload_sources_support_root_paths(tmp_path):
+def test_workload_sources_support_root_paths(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {"tooling_sources": [{"id": "robotick-studio", "repo": "https://github.com/robotick-labs/studio.git", "ref": "main"}]},
         "runtime": {
@@ -100,12 +89,12 @@ def test_workload_sources_support_root_paths(tmp_path):
         },
     }
     base_dir = _write_project(tmp_path, project_yaml)
-    config = _make_config(base_dir)
+    config = make_test_config(base_dir, project="my-robot")
     entry = config.runtime.workload_sources[0]
     assert entry["root_paths"] == ["include", "src"]
 
 
-def test_workload_sources_reject_invalid_root_paths(tmp_path):
+def test_workload_sources_reject_invalid_root_paths(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {"tooling_sources": [{"id": "robotick-studio", "repo": "https://github.com/robotick-labs/studio.git", "ref": "main"}]},
         "runtime": {
@@ -117,4 +106,4 @@ def test_workload_sources_reject_invalid_root_paths(tmp_path):
     }
     base_dir = _write_project(tmp_path, project_yaml)
     with pytest.raises(ValueError):
-        _make_config(base_dir)
+        make_test_config(base_dir, project="my-robot")

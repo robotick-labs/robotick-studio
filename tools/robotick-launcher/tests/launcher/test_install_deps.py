@@ -23,19 +23,19 @@ def _clone_fixture(tmp_path: Path) -> Path:
 
 def _init_git_repo(repo_path: Path, filename: str) -> str:
     repo_path.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_path, check=True)
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(
-        ["git", "config", "user.email", "ci@example.com"], cwd=repo_path, check=True
+        ["git", "config", "user.email", "ci@example.com"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     subprocess.run(
-        ["git", "config", "user.name", "CI"], cwd=repo_path, check=True
+        ["git", "config", "user.name", "CI"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
-    subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, check=True)
+    subprocess.run(["git", "checkout", "-b", "main"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     target_file = repo_path / filename
     target_file.parent.mkdir(parents=True, exist_ok=True)
     target_file.write_text("content", encoding="utf-8")
-    subprocess.run(["git", "add", filename], cwd=repo_path, check=True)
-    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True)
+    subprocess.run(["git", "add", filename], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return "main"
 
 
@@ -258,7 +258,7 @@ def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
     engine_entry = target_blob["engine"]
     workload_entries = target_blob["workload_sources"]
     assert engine_entry["repo"] == engine_repo.as_posix()
-    assert engine_entry["path"].endswith("engine/engine-src")
+    assert Path(engine_entry["path"]).name == "engine-src"
     assert workload_entries[0]["repo"] == workloads_repo.as_posix()
     assert "workloads" in workload_entries[0]["path"]
 

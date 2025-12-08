@@ -63,6 +63,7 @@ type BrowserWindowInstance = {
   show?: () => void;
   setAlwaysOnTop?: (flag: boolean, level?: string) => void;
   on: (event: string, listener: (...args: unknown[]) => void) => void;
+  once?: (event: string, listener: (...args: unknown[]) => void) => void;
   webContents: WebContentsLike;
   getBounds: () => Rectangle;
 };
@@ -231,7 +232,7 @@ function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
     process.cwd();
   candidates.push(path.join(workspace, PUBLIC_ICON_RELATIVE));
   candidates.push(
-    path.join(__dirname, "../../", PUBLIC_ICON_RELATIVE),
+    path.join(__dirname, "../../../", PUBLIC_ICON_RELATIVE),
   );
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -504,14 +505,16 @@ export async function bootstrapElectron({
           throw new Error(`Invalid renderer route: ${route}`);
         }
         console.log(`[Smoke] Renderer route: ${route}`);
-        setTimeout(() => app.quit(), 100);
+        setTimeout(() => app.quit(), 200);
       } catch (error) {
         console.error("[Smoke] Renderer failed to load", error);
-        if (app.exit) {
-          app.exit(1);
-        } else {
-          app.quit();
-        }
+        setTimeout(() => {
+          if (app.exit) {
+            app.exit(1);
+          } else {
+            process.exit(1);
+          }
+        }, 200);
       }
     });
   };
@@ -519,12 +522,22 @@ export async function bootstrapElectron({
     const win = new BrowserWindow(
       getDefaultWindowOptions(storedState, platform, windowIconPath)
     );
+    let alwaysOnTopTimer: NodeJS.Timeout | null = null;
+    const clearAlwaysOnTopTimer = () => {
+      if (alwaysOnTopTimer) {
+        clearTimeout(alwaysOnTopTimer);
+        alwaysOnTopTimer = null;
+      }
+    };
 
     if (storedState.isMaximized) {
       win.maximize();
     }
 
     win.setMenuBarVisibility(false);
+    win.once?.("closed", () => {
+      clearAlwaysOnTopTimer();
+    });
     registerWindowStateListeners(win);
     registerDevtoolsShortcuts(win, platform);
     win.on("ready-to-show", () => {
@@ -533,8 +546,12 @@ export async function bootstrapElectron({
         win.focus?.();
       }
       if (win.setAlwaysOnTop) {
+        clearAlwaysOnTopTimer();
         win.setAlwaysOnTop(true, "screen-saver");
-        setTimeout(() => win.setAlwaysOnTop?.(false), 250);
+        alwaysOnTopTimer = setTimeout(() => {
+          win.setAlwaysOnTop?.(false);
+          alwaysOnTopTimer = null;
+        }, 250);
       }
       win.webContents.send("robotick-window-state", {
         isMaximized: win.isMaximized(),

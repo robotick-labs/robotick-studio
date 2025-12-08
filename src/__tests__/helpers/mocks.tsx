@@ -107,7 +107,7 @@ export function createMockLauncherService({
     },
   };
 
-  if (!overrides || Object.keys(overrides).length === 0) {
+  if (!overrides) {
     return base;
   }
   return {

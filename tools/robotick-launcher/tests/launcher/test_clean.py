@@ -2,7 +2,11 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from robotick.launcher.actions.launch.install_deps import (
+    LOCK_FILENAME as PYTHON_LOCK_FILENAME,
+)
 from robotick.launcher.cli import create_app
+from robotick.launcher.runtime_lock import RUNTIME_LOCK_FILENAME
 
 
 runner = CliRunner()
@@ -15,6 +19,7 @@ def _make_paths(base_dir: Path):
     target = "linux"
     project_safe = project.replace("-", "_")
     model_safe = model.replace("-", "_")
+    target_safe = target.replace("-", "_")
     generated = (
         base_dir
         / ".launcher"
@@ -23,17 +28,18 @@ def _make_paths(base_dir: Path):
         / model_safe
         / target
     )
-    runtime = base_dir / ".launcher" / project_safe / "deps" / "runtime" / target
+    runtime_root = base_dir / ".launcher" / project_safe / "deps" / "runtime"
+    runtime = runtime_root / target_safe
     python_lock = (
         base_dir
         / ".launcher"
         / project_safe
         / "deps"
         / "python"
-        / "python-roots-lock.json"
+        / PYTHON_LOCK_FILENAME
     )
-    runtime_lock = runtime.parent / "runtime-lock.json"
-    install_lock = runtime.parent / ".install.lock"
+    runtime_lock = runtime_root / RUNTIME_LOCK_FILENAME
+    install_lock = runtime_root / ".install.lock"
     return project, model, target, generated, runtime, runtime_lock, install_lock, python_lock
 
 
@@ -75,7 +81,6 @@ def test_clean_deps_optionally_removes_generated(tmp_path):
             "clean",
             "deps",
             project,
-            model,
             target,
             "--base-dir",
             str(base_dir),
@@ -94,16 +99,40 @@ def test_clean_deps_optionally_removes_generated(tmp_path):
             "clean",
             "deps",
             project,
+            target,
+            "--base-dir",
+            str(base_dir),
+            "--clean-generated",
+            "--model",
             model,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert not runtime_dir.exists()
+    assert not generated_dir.exists()
+
+
+def test_clean_deps_requires_model_when_cleaning_generated(tmp_path):
+    base_dir = tmp_path / "repo"
+    base_dir.mkdir()
+    project, model, target, generated_dir, runtime_dir, *_ = _make_paths(base_dir)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    generated_dir.mkdir(parents=True, exist_ok=True)
+
+    result = runner.invoke(
+        app,
+        [
+            "clean",
+            "deps",
+            project,
             target,
             "--base-dir",
             str(base_dir),
             "--clean-generated",
         ],
     )
-    assert result.exit_code == 0, result.output
-    assert not runtime_dir.exists()
-    assert not generated_dir.exists()
+    assert result.exit_code != 0
+    assert "MODEL argument" in result.output
 
 
 def test_clean_all_removes_locks_and_dirs(tmp_path):

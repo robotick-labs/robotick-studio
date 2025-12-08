@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+from typing import Optional
 from rich import print
 import typer
 
@@ -89,8 +90,13 @@ def _runtime_paths(
 )
 def clean_deps(
     project: str = typer.Argument(..., help="Project name (e.g. 'pip-e')"),
-    model: str = typer.Argument(..., help="Model name (e.g. 'pip-e-brain')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model name (e.g. 'pip-e-brain') — required when --clean-generated is used",
+    ),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Base directory containing the project/.launcher"
     ),
@@ -106,6 +112,11 @@ def clean_deps(
     runtime_target, _, _, _ = _runtime_paths(project, target, base_dir)
     _delete_path(runtime_target, dry_run, "runtime dependency folder")
     if clean_generated_artifacts:
+        if not model:
+            raise typer.BadParameter(
+                "MODEL argument is required when --clean-generated is set",
+                param_hint="MODEL",
+            )
         clean_generated(project, model, target, base_dir, dry_run)
 
 
