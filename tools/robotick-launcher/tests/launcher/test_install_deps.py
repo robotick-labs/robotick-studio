@@ -74,7 +74,6 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
-    data.pop("local_python_roots", None)
     runtime = data.get("runtime")
     if isinstance(runtime, dict):
         runtime.pop("python_roots", None)
@@ -137,7 +136,6 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
-    data.pop("local_python_roots", None)
     runtime = data.get("runtime")
     if isinstance(runtime, dict):
         runtime.pop("python_roots", None)
@@ -220,6 +218,11 @@ def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
 
     project_yaml = {
         "name": "pip",
+        "tooling": {
+            "tooling_sources": [
+                {"id": "local-tooling", "local_path": "${PROJECT_DIR}"}
+            ]
+        },
         "runtime": {
             "engine": {
                 "id": "engine-src",

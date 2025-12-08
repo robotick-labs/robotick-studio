@@ -6,8 +6,8 @@ const getWorkspaceRoot = () =>
   process.env.ROBOTICK_PROJECT_DIR ??
   process.env.ROBOTICK_WORKSPACE_ROOT ??
   process.cwd();
-const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
 const resolveLauncherDir = () => {
+  const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
   if (launcherPathEnv) {
     return path.isAbsolute(launcherPathEnv)
       ? launcherPathEnv
@@ -102,16 +102,77 @@ async function stopLingeringLaunchers() {
   }
 }
 
-function killExistingLauncherProcesses() {
+function collectLauncherPidsUnix(targetPath: string): number[] {
+  const result = spawnSync("ps", ["-eo", "pid=,args="], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.*)$/);
+      if (!match) {
+        return null;
+      }
+      const [, pidStr, cmd] = match;
+      if (!cmd.includes(targetPath)) {
+        return null;
+      }
+      const pid = Number.parseInt(pidStr, 10);
+      return Number.isNaN(pid) ? null : pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function collectLauncherPidsWindows(targetPath: string): number[] {
+  const escapedTarget = targetPath.replace(/'/g, "''");
+  const script = `
+$target = '${escapedTarget}'
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like "*$target*" } | Select-Object -ExpandProperty ProcessId
+`.trim();
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return [];
+  }
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((pidStr) => {
+      const pid = Number.parseInt(pidStr, 10);
+      return Number.isNaN(pid) ? null : pid;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function collectLauncherPids(targetPath: string): number[] {
   if (process.platform === "win32") {
+    return collectLauncherPidsWindows(targetPath);
+  }
+  return collectLauncherPidsUnix(targetPath);
+}
+
+function killExistingLauncherProcesses() {
+  const binPath = launcherBin();
+  const pids = collectLauncherPids(binPath);
+  if (!pids.length) {
     return;
   }
-  try {
-    spawnSync("pkill", ["-f", "robotick-launcher"], {
-      stdio: "ignore",
-    });
-  } catch (error) {
-    console.warn("[Launcher] Failed to kill lingering launcher processes", error);
+  for (const pid of pids) {
+    try {
+      process.kill(pid);
+    } catch (error) {
+      console.warn(`[Launcher] Failed to terminate lingering launcher pid ${pid}`, error);
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+      }
+    }
   }
 }
 
@@ -129,7 +190,7 @@ export async function ensureLauncherReady() {
   console.log(`[Launcher] Workspace root: ${root}`);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PATH: `${VENV_BIN()}:${process.env.PATH ?? ""}`,
+    PATH: `${VENV_BIN()}${path.delimiter}${process.env.PATH ?? ""}`,
   };
   console.log(
     `[Launcher] Starting listener with cwd ${root}`,

@@ -4,6 +4,11 @@ name: "Test Project"
 schema_version: 1
 description: "Test Project for use in Launcher Unit Tests."
 
+tooling:
+  tooling_sources:
+    - id: test-tooling
+      local_path: ${PROJECT_DIR}
+
 # (Optional) tooling pins go here for any extra repos that launcher should hydrate automatically:
 # tooling:
 #   tooling_sources:

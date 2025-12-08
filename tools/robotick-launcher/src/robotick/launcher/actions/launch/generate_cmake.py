@@ -41,11 +41,7 @@ def generate_project_cmakelists(config) -> None:
     if engine_path:
         robotick_engine_root_abs = config.resolve_project_path(engine_path)
     else:
-        fallback = getattr(config.project, "robotick_engine_root", None)
-        if fallback:
-            robotick_engine_root_abs = config.resolve_project_path(fallback)
-        else:
-            raise RuntimeError("Engine repo/path not specified in runtime section.")
+        raise RuntimeError("Engine repo/path not specified in runtime section.")
 
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
@@ -61,10 +57,7 @@ def generate_project_cmakelists(config) -> None:
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
-        legacy_roots = config.project.get("local_workload_roots") or config.project.get(
-            "workload_roots", []
-        )
-        workload_roots_abs = [config.resolve_project_path(root) for root in legacy_roots]
+        raise RuntimeError("No workload_sources configured with local_path/path_override entries.")
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)
     workload_roots_rel = [
@@ -140,11 +133,7 @@ def generate_component_cmakelists(config) -> None:
     if engine_path:
         robotick_engine_root_abs = config.resolve_project_path(engine_path)
     else:
-        fallback = getattr(config.project, "robotick_engine_root", None)
-        if fallback:
-            robotick_engine_root_abs = config.resolve_project_path(fallback)
-        else:
-            raise RuntimeError("Engine repo/path not specified in runtime section.")
+        raise RuntimeError("Engine repo/path not specified in runtime section.")
 
     workload_entries = runtime_cfg.get("workload_sources") or []
     workload_roots_abs = []
@@ -160,10 +149,7 @@ def generate_component_cmakelists(config) -> None:
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
-        legacy_roots = config.project.get("local_workload_roots") or config.project.get(
-            "workload_roots", []
-        )
-        workload_roots_abs = [config.resolve_project_path(root) for root in legacy_roots]
+        raise RuntimeError("No workload_sources configured with local_path/path_override entries.")
 
     robotick_engine_root_rel = _cmake_relpath(robotick_engine_root_abs, cmakelists_dir)
     workload_roots_rel = [

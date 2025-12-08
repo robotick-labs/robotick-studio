@@ -39,11 +39,9 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
         else:
             roots.append((entry.get("id") or base, base_path))
     if not roots:
-        roots = list(
-            config.project.get("local_workload_roots")
-            or config.project.get("workload_roots", [])
+        raise RuntimeError(
+            "No runtime.workload_sources entries provided with a local_path/path_override."
         )
-        roots = [(str(root), (config.base_dir / root).resolve()) for root in roots]
     seen: Dict[str, Dict[str, object]] = {}
 
     for root_str, root_path in roots:

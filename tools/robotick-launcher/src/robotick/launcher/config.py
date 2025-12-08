@@ -118,71 +118,19 @@ class Config:
 
         project_dict: Dict[str, Any] = dict(self.project)
 
-        tooling_dict = dict(project_dict.get("tooling") or {})
-        if "tooling_sources" not in tooling_dict:
-            sources: List[Any] = []
-            legacy_robotick = tooling_dict.get("robotick")
-            if legacy_robotick:
-                if isinstance(legacy_robotick, list):
-                    sources.extend(legacy_robotick)
-                else:
-                    entry = dict(legacy_robotick)
-                    if "id" not in entry:
-                        entry["id"] = "robotick"
-                    sources.append(entry)
-            if sources:
-                tooling_dict["tooling_sources"] = sources
-        tooling_dict.pop("robotick", None)
-        self.tooling = DotDict(tooling_dict)
+        tooling_section = project_dict.get("tooling") or {}
+        if not isinstance(tooling_section, dict) or not tooling_section:
+            raise ValueError("Project file must define a 'tooling' section with tooling_sources.")
+        self.tooling = DotDict(dict(tooling_section))
         self._validate_tooling_schema(self.tooling)
         if not self.tooling.get("bootstrap"):
             default_bootstrap = f"./{self.project_name}.setup.sh"
             self.tooling["bootstrap"] = default_bootstrap
         self.project["tooling"] = self.tooling
-        runtime_dict = dict(project_dict.get("runtime") or {})
-
-        if "engine" not in runtime_dict:
-            legacy_engine = project_dict.get("robotick_engine_root")
-            if legacy_engine:
-                runtime_dict["engine"] = {"local_path": legacy_engine}
-
-        if "workload_sources" not in runtime_dict:
-            workload_sources: List[Any] = []
-            # Back-compat: accept old runtime.workloads entries directly.
-            legacy_runtime_workloads = runtime_dict.get("workloads")
-            if legacy_runtime_workloads is not None:
-                if not isinstance(legacy_runtime_workloads, list):
-                    raise ValueError("'runtime.workloads' must be a list when provided.")
-                workload_sources.extend(legacy_runtime_workloads)
-            workload_sources.extend(runtime_dict.get("workload_repos") or [])
-            legacy_local_roots = (
-                runtime_dict.get("local_workload_roots")
-                or project_dict.get("local_workload_roots")
-                or project_dict.get("workload_roots")
-                or []
-            )
-            workload_sources.extend(legacy_local_roots)
-            if workload_sources:
-                runtime_dict["workload_sources"] = workload_sources
-        else:
-            # Normalize older name if both present.
-            if "workloads" in runtime_dict and not runtime_dict.get("workload_sources"):
-                runtime_dict["workload_sources"] = runtime_dict.get("workloads")
-        runtime_dict.pop("workloads", None)
-
-        if "shared" not in runtime_dict:
-            shared_entries = runtime_dict.get("shared_repos")
-            if shared_entries:
-                runtime_dict["shared"] = shared_entries
-
-        if "python_roots" not in runtime_dict:
-            python_entries = runtime_dict.get("local_python_roots") or project_dict.get(
-                "local_python_roots"
-            )
-            if python_entries:
-                runtime_dict["python_roots"] = python_entries
-
-        self.runtime = DotDict(runtime_dict)
+        runtime_section = project_dict.get("runtime") or {}
+        if not isinstance(runtime_section, dict) or not runtime_section:
+            raise ValueError("Project file must define a 'runtime' section.")
+        self.runtime = DotDict(dict(runtime_section))
         self._validate_runtime_schema(self.runtime)
         self.project["runtime"] = self.runtime
         self._apply_runtime_repo_overrides()
@@ -333,11 +281,7 @@ class Config:
     def _parse_python_roots(self) -> List[PythonRootConfig]:
         """Normalize python_roots entries from the project yaml."""
 
-        entries = (
-            self.runtime.get("python_roots")
-            or self.project.get("local_python_roots")
-            or self.project.get("python_roots", [])
-        ) or []
+        entries = (self.runtime.get("python_roots") or []) or []
         python_roots: List[PythonRootConfig] = []
         seen_ids: set[str] = set()
 

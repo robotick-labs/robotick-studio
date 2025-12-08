@@ -13,6 +13,10 @@ def test_generate_respects_explicit_base_dir(tmp_path, monkeypatch):
     engine_dir.mkdir()
     (project_dir / "pip.project.yaml").write_text(
         """
+tooling:
+  tooling_sources:
+    - id: test-tooling
+      local_path: .
 runtime:
   engine:
     local_path: engine

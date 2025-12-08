@@ -49,7 +49,8 @@
         },
         "bootstrap": { "type": "string" }
       },
-      "required": ["tooling_sources"]
+      "required": ["tooling_sources"],
+      "additionalProperties": false
     },
     "runtime": {
       "type": "object",
@@ -68,7 +69,8 @@
           "items": { "$ref": "#/$defs/pythonRoot" }
         }
       },
-      "required": ["engine"]
+      "required": ["engine"],
+      "additionalProperties": false
     }
   },
   "required": ["name", "schema_version", "tooling", "runtime"],
