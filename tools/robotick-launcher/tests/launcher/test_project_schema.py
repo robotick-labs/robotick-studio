@@ -62,6 +62,15 @@ def test_tooling_schema_requires_repo_and_ref(tmp_path, make_test_config):
     with pytest.raises(ValueError):
         make_test_config(base_dir, project="my-robot")
 
+def test_tooling_section_optional(tmp_path, make_test_config):
+    project_yaml = {
+        "runtime": {"engine": {"local_path": "engine"}},
+    }
+    base_dir = _write_project(tmp_path, project_yaml)
+    config = make_test_config(base_dir, project="my-robot")
+    assert config.tooling.tooling_sources == []
+    assert config.tooling.bootstrap == "./my-robot.setup.sh"
+
 
 def test_runtime_schema_validates_workload_repos(tmp_path, make_test_config):
     project_yaml = {

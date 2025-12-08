@@ -118,9 +118,11 @@ class Config:
 
         project_dict: Dict[str, Any] = dict(self.project)
 
-        tooling_section = project_dict.get("tooling") or {}
-        if not isinstance(tooling_section, dict) or not tooling_section:
-            raise ValueError("Project file must define a 'tooling' section with tooling_sources.")
+        tooling_section = project_dict.get("tooling")
+        if tooling_section is None:
+            tooling_section = {}
+        elif not isinstance(tooling_section, dict):
+            raise ValueError("Project 'tooling' section must be a mapping when provided.")
         self.tooling = DotDict(dict(tooling_section))
         self._validate_tooling_schema(self.tooling)
         if not self.tooling.get("bootstrap"):
@@ -137,6 +139,7 @@ class Config:
 
     def _validate_tooling_schema(self, tooling: DotDict) -> None:
         if not tooling:
+            tooling["tooling_sources"] = []
             return
 
         sources = tooling.get("tooling_sources") or []
