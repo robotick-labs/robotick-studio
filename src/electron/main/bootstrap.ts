@@ -22,6 +22,11 @@ type WebContentsLike = {
     event: string,
     listener: (...args: unknown[]) => void
   ) => void;
+  once?: (
+    event: string,
+    listener: (...args: unknown[]) => void
+  ) => void;
+  executeJavaScript?: (code: string) => Promise<unknown>;
   openDevTools?: (options?: Record<string, unknown>) => void;
   closeDevTools?: () => void;
   isDevToolsOpened?: () => boolean;
@@ -37,6 +42,7 @@ export type ElectronApp = {
     handler: (event: unknown, ...args: unknown[]) => void
   ) => void;
   quit: () => void;
+  exit?: (code?: number) => void;
   setAppUserModelId?: (id: string) => void;
   setName?: (name: string) => void;
   name?: string;
@@ -250,6 +256,7 @@ export async function bootstrapElectron({
 }: BootstrapOptions) {
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+  const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
   if (desiredCwd && process.cwd() !== desiredCwd) {
     try {
       process.chdir(desiredCwd);
@@ -483,6 +490,31 @@ export async function bootstrapElectron({
   });
 
   const storedState = clampToDisplay(readWindowState());
+
+  const scheduleSmokeCheck = (win: BrowserWindowInstance) => {
+    if (!isSmokeTest) {
+      return;
+    }
+    win.webContents.once?.("did-finish-load", async () => {
+      try {
+        const route = await win.webContents.executeJavaScript?.(
+          "window.location.pathname"
+        );
+        if (typeof route !== "string" || route.length === 0) {
+          throw new Error(`Invalid renderer route: ${route}`);
+        }
+        console.log(`[Smoke] Renderer route: ${route}`);
+        setTimeout(() => app.quit(), 100);
+      } catch (error) {
+        console.error("[Smoke] Renderer failed to load", error);
+        if (app.exit) {
+          app.exit(1);
+        } else {
+          app.quit();
+        }
+      }
+    });
+  };
   const createWindow = () => {
     const win = new BrowserWindow(
       getDefaultWindowOptions(storedState, platform, windowIconPath)
@@ -516,6 +548,7 @@ export async function bootstrapElectron({
       console.log("Launching app at:", indexPath);
       win.loadFile(indexPath);
     }
+    scheduleSmokeCheck(win);
   };
 
   app.on("window-all-closed", () => {

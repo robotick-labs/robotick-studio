@@ -184,7 +184,7 @@ A cohesive ecosystem with clean boundaries and modern developer ergonomics.
     - ✅ Remove the legacy git submodules under `robotick-knitware/robotick` once the project file pins those repos, so the repo relies entirely on `install-deps`—add regression tests ensuring submodules aren’t required.
   - **CI + documentation + follow-up**
     - ☐ Document the pip-e migration (what changed, how to roll forward/back) so other robots can follow once the pilot is stable—include any doc lint/tests.
-    - ☐ Add GitHub Actions coverage so Pip-E’s bootstrap (`run-pip-e.sh`) + build steps run in CI (Linux + optional macOS runners) and block regressions; include artifact uploads/log scrapes.
+    - ☐ Add GitHub Actions coverage so Pip-E’s bootstrap (`run-pip-e.sh`) + build steps run in CI (Linux runners) and block regressions; include artifact uploads/log scrapes.
     - ☐ Plan how we runtime-test Pip-E (sim, hardware-in-loop, or telemetry assertions) once deps/builds are stable—capture the decision in the docs + follow-up ticket.
 - **Legacy cleanup**
   - ☐ Once all launcher code reads `config.runtime.*`, drop the legacy root-level keys from the test fixture (then from Pip-E) and remove the compatibility shim in `Config`.
