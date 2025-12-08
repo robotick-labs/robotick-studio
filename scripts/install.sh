@@ -88,8 +88,11 @@ echo "[install] Resolved to $resolved_sha"
 echo "[install] Installing npm deps (npm ci)..."
 (cd "$src_dir" && npm ci >/dev/null)
 
-echo "[install] Building renderer/electron bundle..."
+echo "[install] Building renderer bundle..."
 (cd "$src_dir" && npm run build >/dev/null)
+
+echo "[install] Building electron main process..."
+(cd "$src_dir" && npm run build:electron >/dev/null)
 
 version_file="$src_dir/.studio-version"
 cat >"$version_file" <<EOF
