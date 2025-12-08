@@ -167,10 +167,6 @@ function killExistingLauncherProcesses() {
     return;
   }
   for (const pid of pids) {
-  if (!pids.length) {
-    return;
-  }
-  for (const pid of pids) {
     try {
       process.kill(pid);
     } catch (error) {
