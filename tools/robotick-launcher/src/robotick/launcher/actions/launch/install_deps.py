@@ -68,6 +68,15 @@ def _runtime_repo_lock(
     start = time.time()
     notified_wait = False
     fd: Optional[int] = None
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     while True:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
@@ -76,12 +85,25 @@ def _runtime_repo_lock(
                 print(f"[green]🔓 install-deps lock acquired:[/] {lock_path}")
             break
         except FileExistsError:
-            if not notified_wait:
+            holder = None
+            try:
+                holder = lock_path.read_text().strip()
+            except Exception:
                 holder = None
-                try:
-                    holder = lock_path.read_text().strip()
-                except Exception:
-                    holder = None
+
+            if holder and holder.isdigit():
+                pid = int(holder)
+                if not _pid_alive(pid):
+                    try:
+                        lock_path.unlink()
+                        print(
+                            f"[yellow]⚠️ install-deps lock held by stale pid {pid}; removing stale lock[/] {lock_path}"
+                        )
+                        continue
+                    except OSError:
+                        pass
+
+            if not notified_wait:
                 owner_msg = f" (pid {holder})" if holder else ""
                 print(
                     f"[yellow]⏳ install-deps already running{owner_msg}; waiting for lock[/] {lock_path}"
