@@ -220,7 +220,10 @@ def create_app() -> typer.Typer:
         profile: str = typer.Argument(...),
         base_dir: Path = typer.Option(Path.cwd()),
     ):
-        run_profile.run_profile(project, profile, base_dir)
+        result = run_profile.run_profile(project, profile, base_dir)
+        status = result.get("status") if isinstance(result, dict) else None
+        if status not in {"ok", "build_completed"}:
+            raise typer.Exit(code=1)
 
     @app.command("build-profile")
     def build_profile_cmd(
@@ -228,9 +231,12 @@ def create_app() -> typer.Typer:
         profile: str = typer.Argument(...),
         base_dir: Path = typer.Option(Path.cwd()),
     ):
-        run_profile.run_profile(
+        result = run_profile.run_profile(
             project, profile, base_dir, run_after_build=False
         )
+        status = result.get("status") if isinstance(result, dict) else None
+        if status != "build_completed":
+            raise typer.Exit(code=1)
 
     # Query commands (no flags needed)
     app.command(name="list-projects")(list.list_projects_for_cli)
