@@ -63,7 +63,9 @@ require_cmd git
 require_cmd npm
 require_cmd node
 
-target="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+target_parent="$(dirname "$target")"
+mkdir -p "$target_parent"
+target="$(cd "$target_parent" && pwd)/$(basename "$target")"
 project_dir="${project_dir:-$target}"
 
 workdir="$(mktemp -d)"
