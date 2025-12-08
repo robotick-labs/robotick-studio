@@ -584,11 +584,10 @@ export async function bootstrapElectron({
   };
 
   app.on("window-all-closed", () => {
-    void cleanupLauncher().finally(() => {
-      if (platform !== "darwin") {
-        app.quit();
-      }
-    });
+    if (platform !== "darwin") {
+      void cleanupLauncher();
+      app.quit();
+    }
   });
 
   await app.whenReady();
