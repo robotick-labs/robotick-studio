@@ -135,15 +135,50 @@ Both use the same pinned Launcher as their brain, fetched from the project’s t
 
 ### 5. Tooling Bootstrap & Distribution
 
-We intentionally skip a global Studio/Launcher installer. Instead, every robot repo ships a tiny, self-contained bootstrapper per project (e.g., `MyRobot.project.yaml` paired with `MyRobot.setup.sh`, plus optional repo-root dispatcher scripts). The script lives alongside the project file, uses only POSIX shell + git/python stdlib (no launcher imports), and clones whatever Studio/Launcher bundle the project pinned before Launcher ever runs—keeping version control squarely inside the repo and letting teams iterate independently of a global installer. It can:
+We intentionally skip a global Studio/Launcher installer. Each robot keeps a tiny, self-contained bootstrap in its folder; the installer lives in the Studio repo. For first impressions we’re biasing to the smallest possible per-robot scripts and a hosted, pinned installer.
 
-- **Run an existing robot.** `git clone robot-repo && cd robot-repo && ./robots/MyRobot.setup.sh` reads that project file’s `tooling` section, clones the pinned Studio/Launcher refs into `.launcher/<project_safe>/deps/tooling/<tooling_id>`, runs `npm install`, installs the VS Code extension locally, and calls `robotick-launcher install-deps`. The generated `./run-studio.sh` script launches the bundled Studio which auto-attaches to the project-scoped launcher service.
-- **Create a new robot.** A template (or `create-robotick-project`) scaffolds `<robot>.project.yaml`, writes default tooling pins, and hydrates the tooling folder under `.launcher/<project_safe>/deps/tooling`. Developers tweak repo lists, rerun the bootstrap to hydrate runtime deps, and commit the updated project file alongside their code.
-- **Host cloud demos.** The AWS-deployed Hub clones a curated robot repo, runs the same bootstrapper for the relevant project, and serves the Studio renderer in a browser while keeping the pinned launcher service alive in the same deployment. Each hosted robot keeps its own tooling pins and `.launcher/<project_safe>/deps/tooling` tree, so multiple demos can coexist without version conflicts.
+**Hosted installer (in robotick-studio repo)**
 
-Because tooling lives next to each project, CI can cache `.launcher/<project_safe>/deps/tooling/<tooling_id>` directories keyed by the project file’s tooling hash, and developers hopping between robots can optionally point `ROBOTICK_TOOLING_CACHE` at a shared directory to reduce downloads.
+- Add `scripts/install.sh` and expose it via raw GitHub per tag/sha: `https://raw.githubusercontent.com/robotick-labs/robotick-studio/<ref>/scripts/install.sh`.
+- Installer responsibilities: validate deps, run `npm ci` + build once, configure Electron sandbox if needed, emit `<target>/bin/robotick-studio` and a simple `.studio-version` (e.g., `ref=<requested>`, `resolved=<sha>`).
 
-We explicitly prefer the sibling layout for `.launcher`: everything that defines a robot (project file, bootstrap script, hydrated tooling/runtime state) travels together, mirroring the long-standing test fixtures and avoiding repo-level coupling. Repo-root caches can still be layered on later, but the default mental model is “open the project folder and its `.launcher` lives right there.”
+**Per-robot installer (in robotick-knitware, one per robot)**
+
+Minimal wrapper that pins a Studio ref inline, downloads the hosted installer at that ref, and installs into the robot folder (no YAML needed):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REF="vX.Y.Z"  # pinned robotick-studio ref/tag/sha
+INSTALLER_URL="https://raw.githubusercontent.com/robotick-labs/robotick-studio/${REF}/scripts/install.sh"
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+echo "[install-$(basename "$PROJECT_DIR")] Installing Robotick Studio $REF..."
+curl -fsSL "$INSTALLER_URL" -o "$TMP"
+chmod +x "$TMP"
+"$TMP" --version "$REF" --target "$PROJECT_DIR/.launcher/studio" --project "$PROJECT_DIR"
+rm -f "$TMP"
+echo "[install-$(basename "$PROJECT_DIR")] Done. Launch with ./run-studio.sh"
+```
+
+**Per-robot launcher (in robotick-knitware, one per robot)**
+
+Ultra-minimal launcher that just execs the installed binary from the robot folder:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "[run-$(basename "$PROJECT_DIR")] Launching Robotick Studio..."
+exec "$PROJECT_DIR/.launcher/studio/bin/robotick-studio" "$@"
+```
+
+Why this shape: keeps installs deterministic (pinned tag/sha), launchers tiny (shows users how simple the CLI is), and avoids runtime git/npm/build work. `.launcher` stays sibling to the robot so everything travels together. CI can still cache `.launcher` per robot; devs can reuse a cache by pointing the installer at a shared target if needed.
+
+**New robot starter**
+
+Provide a tiny template repo (e.g., `robotick-robot-template`) or `create-robotick-project` script that scaffolds a fresh robot with: `install-studio.sh` (inline pin), `run-studio.sh` (minimal exec), `robot.project.yaml` stub, optional `setup-runtime.sh`, workloads/src placeholders, and `.gitignore` for `.launcher/`. User flow: clone the template, set `REF` in `install-studio.sh` to a Studio tag, run install, then run studio.
 
 ---
 
@@ -158,3 +193,14 @@ Robotick becomes:
 - suitable for embedded, desktop, expressive, and research-grade robots
 
 A cohesive ecosystem with clean boundaries and modern developer ergonomics.
+
+---
+
+## TODO (AI-sized prompts)
+
+1) **robotick-studio:** Add `scripts/install.sh` that: validates deps, runs `npm ci` + build, configures Electron sandbox if needed, produces `bin/robotick-studio`, and writes `.studio-version` with `ref=<requested>` and `resolved=<sha>`.
+2) **robotick-knitware (per robot):** Add `robots/<robot>/install-studio.sh` using an inline `REF=<tag/sha>`, downloading `https://raw.githubusercontent.com/robotick-labs/robotick-studio/${REF}/scripts/install.sh`, running it with `--version`, `--target "$PROJECT_DIR/.launcher/studio"`, `--project "$PROJECT_DIR"`, and logging start/finish.
+3) **robotick-knitware (per robot):** Add `robots/<robot>/run-studio.sh` that just execs `$PROJECT_DIR/.launcher/studio/bin/robotick-studio "$@"` (optionally prints a launch message).
+4) **robotick-knitware:** Remove legacy runtime setup from `tooling-common.sh` and related launch scripts so they rely solely on the installed `bin/robotick-studio` flow.
+5) **robotick-knitware docs:** Update README/onboarding to show the two-step flow per robot: `./robots/<robot>/install-studio.sh` then `./robots/<robot>/run-studio.sh`, noting pinned versioning, offline launch post-install, and `.studio-version` provenance.
+6) **Template/new robots:** Publish a `robotick-robot-template` (or `create-robotick-project`) with stub `install-studio.sh`/`run-studio.sh`, `robot.project.yaml`, optional `setup-runtime.sh`, workloads/src placeholders, and `.gitignore` for `.launcher/`. Document the quickstart: clone template → set `REF` → install → run → edit project.yaml.
