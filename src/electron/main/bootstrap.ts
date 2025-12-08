@@ -484,10 +484,25 @@ export async function bootstrapElectron({
     );
   }
 
+  const cleanupLauncher = (() => {
+    let done = false;
+    return async () => {
+      if (done) return;
+      done = true;
+      try {
+        await stopManagedLauncher();
+      } catch (error) {
+        console.error("[Launcher] Failed to stop cleanly", error);
+      }
+    };
+  })();
+
   app.on("before-quit", () => {
-    stopManagedLauncher().catch((error) => {
-      console.error("[Launcher] Failed to stop cleanly", error);
-    });
+    void cleanupLauncher();
+  });
+
+  app.on("will-quit", () => {
+    void cleanupLauncher();
   });
 
   const storedState = clampToDisplay(readWindowState());
@@ -570,6 +585,7 @@ export async function bootstrapElectron({
 
   app.on("window-all-closed", () => {
     if (platform !== "darwin") {
+      void cleanupLauncher();
       app.quit();
     }
   });
@@ -583,4 +599,24 @@ export async function bootstrapElectron({
       createWindow();
     }
   });
+
+  const shutdown = (code = 0) => {
+    cleanupLauncher()
+      .catch(() => {
+        // ignore cleanup errors during shutdown
+      })
+      .finally(() => {
+        if (app.exit) {
+          app.exit(code);
+        } else {
+          process.exit(code);
+        }
+      });
+  };
+
+  process.on("SIGINT", () => shutdown(0));
+  process.on("SIGTERM", () => shutdown(0));
+  process.on("SIGHUP", () => shutdown(0));
+  process.on("uncaughtException", () => shutdown(1));
+  process.on("unhandledRejection", () => shutdown(1));
 }
