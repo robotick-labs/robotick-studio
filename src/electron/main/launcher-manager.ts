@@ -102,7 +102,7 @@ async function stopLingeringLaunchers() {
   }
 }
 
-function collectLauncherPidsUnix(targetPath: string): number[] {
+function collectLauncherPidsUnix(matchString: string): number[] {
   const result = spawnSync("ps", ["-eo", "pid=,args="], {
     encoding: "utf-8",
   });
@@ -119,7 +119,7 @@ function collectLauncherPidsUnix(targetPath: string): number[] {
         return null;
       }
       const [, pidStr, cmd] = match;
-      if (!cmd.includes(targetPath)) {
+      if (!cmd.includes(matchString)) {
         return null;
       }
       const pid = Number.parseInt(pidStr, 10);
@@ -128,8 +128,8 @@ function collectLauncherPidsUnix(targetPath: string): number[] {
     .filter((pid): pid is number => pid !== null);
 }
 
-function collectLauncherPidsWindows(targetPath: string): number[] {
-  const escapedTarget = targetPath.replace(/'/g, "''");
+function collectLauncherPidsWindows(matchString: string): number[] {
+  const escapedTarget = matchString.replace(/'/g, "''");
   const script = `
 $target = '${escapedTarget}'
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like "*$target*" } | Select-Object -ExpandProperty ProcessId
@@ -159,8 +159,14 @@ function collectLauncherPids(targetPath: string): number[] {
 }
 
 function killExistingLauncherProcesses() {
-  const binPath = launcherBin();
-  const pids = collectLauncherPids(binPath);
+  const pids = new Set<number>([
+    ...collectLauncherPids(launcherBin()),
+    ...collectLauncherPids("robotick-launcher listen"),
+  ]);
+  if (!pids.size) {
+    return;
+  }
+  for (const pid of pids) {
   if (!pids.length) {
     return;
   }
