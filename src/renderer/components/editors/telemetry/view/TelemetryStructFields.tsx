@@ -167,12 +167,20 @@ function ImageField({
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
             onLoad={(e) => {
+              const target = e.currentTarget as HTMLImageElement | null;
+              if (!target) {
+                return;
+              }
               setDims((prev) => {
                 if (prev) {
                   return prev;
                 }
-                const img = e.currentTarget as HTMLImageElement;
-                return { w: img.naturalWidth, h: img.naturalHeight };
+                const width = target.naturalWidth;
+                const height = target.naturalHeight;
+                if (!width || !height) {
+                  return prev;
+                }
+                return { w: width, h: height };
               });
             }}
             onClick={handleThumbClick}
