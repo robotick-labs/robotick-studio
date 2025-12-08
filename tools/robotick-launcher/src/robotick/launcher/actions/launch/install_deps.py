@@ -521,6 +521,10 @@ def _install_deps_locked(
                 f"[yellow]⚠ Missing apt packages:[/] {', '.join(missing_apt)}\n"
                 f"[yellow]↳ Please run:[/] sudo apt-get install -y {' '.join(missing_apt)}"
             )
+            raise RuntimeError(
+                f"Missing apt packages: {', '.join(missing_apt)}. "
+                "Install them and rerun install-deps."
+            )
         else:
             print(f"[dim]✓ All required apt packages are installed[/dim]")
 
