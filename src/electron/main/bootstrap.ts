@@ -223,9 +223,6 @@ const getDefaultWindowOptions = (
 
 function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   const candidates = [];
-  if (env.ROBOTICK_WINDOW_ICON) {
-    candidates.push(env.ROBOTICK_WINDOW_ICON);
-  }
   const workspace =
     env.ROBOTICK_WORKSPACE_ROOT ||
     env.ROBOTICK_PROJECT_DIR ||
