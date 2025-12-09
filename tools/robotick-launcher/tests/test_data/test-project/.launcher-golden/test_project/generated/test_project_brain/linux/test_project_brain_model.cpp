@@ -51,18 +51,8 @@ void populate_model_test_project_brain(robotick::Model& model)
     };
 
 
-    static const WorkloadSeed camera = {
-        TypeId("SpeechToTextWorkload"),
-        StringView("camera"),
-        30.0f,
-        {},    // children
-        {},    // config
-        {}    // inputs
-    };
-
-
     static const WorkloadSeed speech_to_text = {
-        TypeId("CameraWorkload"),
+        TypeId("SpeechToTextWorkload"),
         StringView("speech_to_text"),
         30.0f,
         {},    // children
@@ -70,8 +60,18 @@ void populate_model_test_project_brain(robotick::Model& model)
         {}    // inputs
     };
 
+
+    static const WorkloadSeed camera = {
+        TypeId("CameraWorkload"),
+        StringView("camera"),
+        30.0f,
+        {},    // children
+        {},    // config
+        {}    // inputs
+    };
+
     static const WorkloadSeed* const root_group_children[] = {
-        &remote_control,        &face,        &camera    };
+        &remote_control,        &face,        &camera,        &speech_to_text    };
 
 
     static const WorkloadSeed root_group = {
@@ -86,21 +86,15 @@ void populate_model_test_project_brain(robotick::Model& model)
     static const WorkloadSeed* const all_workloads[] = {
         &remote_control,
         &face,
-        &camera,
         &speech_to_text,
+        &camera,
         &root_group
     };
 
     // === Local data connections ===
 
-    static const DataConnectionSeed conn_remote_control_inputs_jpeg_data{
-        "camera.outputs.jpeg_data",
-        "remote_control.inputs.jpeg_data"
-    };
 
-    static const DataConnectionSeed* const all_connections[] = {
-        &conn_remote_control_inputs_jpeg_data
-    };
+
     // === Remote models ===
 
     static const DataConnectionSeed spine_conn_steering_mixer_inputs_turn_rate{
@@ -131,7 +125,6 @@ void populate_model_test_project_brain(robotick::Model& model)
 
     model.set_model_name("test-project-brain");
     model.use_workload_seeds(all_workloads);
-    model.use_data_connection_seeds(all_connections);
     model.use_remote_models(all_remote_models);
     model.set_root_workload(root_group);
     model.set_telemetry_port(7090);
