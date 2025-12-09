@@ -401,6 +401,11 @@
             "name": "rest_heart_rate",
             "type": "float",
             "default_value": "60.0f"
+          },
+          {
+            "name": "render_to_texture",
+            "type": "bool",
+            "default_value": "false"
           }
         ]
       },
@@ -461,6 +466,10 @@
             "name": "activation_amount",
             "type": "float",
             "default_value": "1.0f"
+          },
+          {
+            "name": "display_png",
+            "type": "ImagePng64k"
           }
         ]
       }

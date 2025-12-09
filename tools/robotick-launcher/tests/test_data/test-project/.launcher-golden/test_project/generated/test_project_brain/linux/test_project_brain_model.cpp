@@ -38,7 +38,8 @@ void populate_model_test_project_brain(robotick::Model& model)
 
     static const FieldConfigEntry face_config[] = {
         {"blink_min_interval_sec", "1.5"},
-        {"blink_max_interval_sec", "4.0"}
+        {"blink_max_interval_sec", "4.0"},
+        {"render_to_texture", "True"}
     };
 
     static const WorkloadSeed face = {

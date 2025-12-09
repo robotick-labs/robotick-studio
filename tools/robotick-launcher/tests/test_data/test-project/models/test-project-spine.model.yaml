@@ -22,6 +22,8 @@ workloads:
   - name: heart_ui
     type: HeartbeatDisplayWorkload
     tick_rate_hz: 30.0
+    config:
+      render_to_texture: true
 
   - name: esp32_root
     type: SequencedGroupWorkload

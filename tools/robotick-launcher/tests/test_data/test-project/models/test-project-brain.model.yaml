@@ -29,6 +29,7 @@ workloads:
     config:
       blink_min_interval_sec: 1.5
       blink_max_interval_sec: 4.0
+      render_to_texture: true
 
   - name: speech_to_text # included to ensure we're testing its "bespoke cmake file" usage is working
     type: SpeechToTextWorkload
