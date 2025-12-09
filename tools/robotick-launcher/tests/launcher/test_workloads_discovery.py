@@ -17,7 +17,7 @@ class _MinimalConfig:
 def test_discover_workloads_golden(pytestconfig):
     base_dir = Path(__file__).parents[1]
     workload_roots = [
-        "test_data/workloads"
+        "test_data/robotick/robotick-core-workloads"
     ]
 
     cfg = _MinimalConfig(base_dir=base_dir, workload_roots=workload_roots)

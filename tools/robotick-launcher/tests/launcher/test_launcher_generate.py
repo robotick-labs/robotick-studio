@@ -39,8 +39,8 @@ def normalize_lines(lines):
 
 def normalize_workload_paths(text: str) -> str:
     """Replace absolute workload paths with a consistent placeholder."""
-    pattern = re.compile(r"[^ \n\r\t]*tests/test_data/workloads")
-    return pattern.sub("__WORKLOADS_ROOT__/tests/test_data/workloads", text)
+    pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-core-workloads")
+    return pattern.sub("__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads", text)
 
 
 def _list_files(dir_path: Path):

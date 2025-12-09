@@ -18,13 +18,13 @@ tooling:
 
 runtime:
   engine:
-    local_path: ${PROJECT_DIR}/../../../../robotick-engine # Resolves to the sibling engine checkout bundled with the tests
+    local_path: ${PROJECT_DIR}/../robotick/robotick-engine # Resolves to the pinned engine checkout bundled with the tests
   workload_sources:
     - id: test-workloads
-      local_path: ${PROJECT_DIR}/../workloads # Parent folder for the C++ workload fixtures
+      local_path: ${PROJECT_DIR}/../robotick/robotick-core-workloads # Parent folder for the C++ workload fixtures
       root_paths:
-        - cpp/include # Resolves to tests/launcher/test_data/workloads/cpp/include
-        - cpp/src # Resolves to tests/launcher/test_data/workloads/cpp/src
+        - cpp/include # Resolves to tests/launcher/test_data/robotick/robotick-core-workloads/cpp/include
+        - cpp/src # Resolves to tests/launcher/test_data/robotick/robotick-core-workloads/cpp/src
   shared: []
   python_roots:
     - id: main-brain

@@ -30,11 +30,11 @@ workloads:
       blink_min_interval_sec: 1.5
       blink_max_interval_sec: 4.0
 
-  - name: camera
+  - name: speech_to_text # included to ensure we're testing its "bespoke cmake file" usage is working
     type: SpeechToTextWorkload
     tick_rate_hz: 30.0
 
-  - name: speech_to_text
+  - name: camera
     type: CameraWorkload
     tick_rate_hz: 30.0
 
@@ -45,10 +45,6 @@ workloads:
       - remote_control
       - face
       - camera
-
-# local connections:
-connections:
-  - from: camera.outputs.jpeg_data
-    to: remote_control.inputs.jpeg_data
+      - speech_to_text
 
 root: root_group
