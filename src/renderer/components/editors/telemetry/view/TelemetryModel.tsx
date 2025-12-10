@@ -111,10 +111,10 @@ export function TelemetryModel({
                 <th>Config</th>
                 <th>Inputs</th>
                 <th>Outputs</th>
-                <th>Self Duration (ms)</th>
-                <th>Time Delta (ms)</th>
+                <th>Workload Duration (ms)</th>
+                <th>Actual Period (ms)</th>
                 <th>Goal Period (ms)</th>
-                <th>Usage %</th>
+                <th>Budget Usage %</th>
               </tr>
             </thead>
             <tbody>

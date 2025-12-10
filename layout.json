@@ -1,0 +1,743 @@
+{
+  "engine_session_id": "00001C1FFAA21784-test-project-brain",
+  "workloads_buffer_size_used": 155640,
+  "process_memory_used": 162541568,
+  "workloads": [
+    {
+      "name": "remote_control",
+      "type": "RemoteControlWorkload",
+      "offset_within_container": 288,
+      "config": {
+        "type": "RemoteControlConfig",
+        "offset_within_container": 0
+      },
+      "outputs": {
+        "type": "RemoteControlOutputs",
+        "offset_within_container": 132
+      },
+      "stats_offset_within_container": 0
+    },
+    {
+      "name": "face",
+      "type": "FaceDisplayWorkload",
+      "offset_within_container": 1440,
+      "config": {
+        "type": "FaceDisplayConfig",
+        "offset_within_container": 0
+      },
+      "inputs": {
+        "type": "FaceDisplayInputs",
+        "offset_within_container": 20
+      },
+      "outputs": {
+        "type": "FaceDisplayOutputs",
+        "offset_within_container": 36
+      },
+      "stats_offset_within_container": 1152
+    },
+    {
+      "name": "speech_to_text",
+      "type": "SpeechToTextWorkload",
+      "offset_within_container": 18224,
+      "config": {
+        "type": "SpeechToTextConfig",
+        "offset_within_container": 0
+      },
+      "inputs": {
+        "type": "SpeechToTextInputs",
+        "offset_within_container": 272
+      },
+      "outputs": {
+        "type": "SpeechToTextOutputs",
+        "offset_within_container": 2352
+      },
+      "stats_offset_within_container": 17936
+    },
+    {
+      "name": "camera",
+      "type": "CameraWorkload",
+      "offset_within_container": 24240,
+      "config": {
+        "type": "CameraConfig",
+        "offset_within_container": 0
+      },
+      "outputs": {
+        "type": "CameraOutputs",
+        "offset_within_container": 8
+      },
+      "stats_offset_within_container": 23952
+    },
+    {
+      "name": "root_group",
+      "type": "SyncedGroupWorkload",
+      "offset_within_container": 155632,
+      "stats_offset_within_container": 155344
+    }
+  ],
+  "types": [
+    {
+      "name": "AudioBuffer512",
+      "size": 2052,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "data_buffer",
+          "offset_within_container": 0,
+          "type": "float",
+          "element_count": 512
+        },
+        {
+          "name": "count",
+          "offset_within_container": 2048,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "AudioFrame",
+      "size": 2072,
+      "alignment": 8,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "samples",
+          "offset_within_container": 0,
+          "type": "AudioBuffer512",
+          "element_count": 1
+        },
+        {
+          "name": "timestamp",
+          "offset_within_container": 2056,
+          "type": "double",
+          "element_count": 1
+        },
+        {
+          "name": "sample_rate",
+          "offset_within_container": 2064,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CameraConfig",
+      "size": 4,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "camera_index",
+          "offset_within_container": 0,
+          "type": "int",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CameraOutputs",
+      "size": 131076,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "jpeg_data",
+          "offset_within_container": 0,
+          "type": "ImageJpeg128k",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "FaceDisplayConfig",
+      "size": 20,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "blink_min_interval_sec",
+          "offset_within_container": 0,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "blink_max_interval_sec",
+          "offset_within_container": 4,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "render_to_texture",
+          "offset_within_container": 8,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "look_offset_scale",
+          "offset_within_container": 12,
+          "type": "Vec2f",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "FaceDisplayInputs",
+      "size": 16,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "look_offset",
+          "offset_within_container": 0,
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "blink_request",
+          "offset_within_container": 8,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "max_eyes_open_norm",
+          "offset_within_container": 12,
+          "type": "float",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "FaceDisplayOutputs",
+      "size": 16388,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "face_png_data",
+          "offset_within_container": 0,
+          "type": "ImagePng16k",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "FixedString128",
+      "size": 128,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "text/plain"
+    },
+    {
+      "name": "FixedString256",
+      "size": 256,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "text/plain"
+    },
+    {
+      "name": "FixedString32",
+      "size": 32,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "text/plain"
+    },
+    {
+      "name": "FixedString512",
+      "size": 512,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "text/plain"
+    },
+    {
+      "name": "ImageJpeg128k",
+      "size": 131076,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "data_buffer",
+          "offset_within_container": 0,
+          "type": "ImageJpegByte",
+          "element_count": 131072
+        },
+        {
+          "name": "count",
+          "offset_within_container": 131072,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImageJpegByte",
+      "size": 1,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "image/jpeg"
+    },
+    {
+      "name": "ImagePng16k",
+      "size": 16388,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "data_buffer",
+          "offset_within_container": 0,
+          "type": "ImagePngByte",
+          "element_count": 16384
+        },
+        {
+          "name": "count",
+          "offset_within_container": 16384,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImagePngByte",
+      "size": 1,
+      "alignment": 1,
+      "type_category": 0,
+      "mime_type": "image/png"
+    },
+    {
+      "name": "RemoteControlConfig",
+      "size": 132,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "port",
+          "offset_within_container": 0,
+          "type": "int",
+          "element_count": 1
+        },
+        {
+          "name": "web_root_folder",
+          "offset_within_container": 4,
+          "type": "FixedString128",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "RemoteControlOutputs",
+      "size": 60,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "use_web_inputs",
+          "offset_within_container": 0,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "left",
+          "offset_within_container": 4,
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "right",
+          "offset_within_container": 12,
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "left_trigger",
+          "offset_within_container": 36,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "right_trigger",
+          "offset_within_container": 40,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "a",
+          "offset_within_container": 44,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "b",
+          "offset_within_container": 45,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "x",
+          "offset_within_container": 46,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "y",
+          "offset_within_container": 47,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "left_bumper",
+          "offset_within_container": 48,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "right_bumper",
+          "offset_within_container": 49,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "back",
+          "offset_within_container": 50,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "start",
+          "offset_within_container": 51,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "guide",
+          "offset_within_container": 52,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "left_stick_button",
+          "offset_within_container": 53,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "right_stick_button",
+          "offset_within_container": 54,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "dpad_up",
+          "offset_within_container": 55,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "dpad_down",
+          "offset_within_container": 56,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "dpad_left",
+          "offset_within_container": 57,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "dpad_right",
+          "offset_within_container": 58,
+          "type": "bool",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextConfig",
+      "size": 268,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "settings",
+          "offset_within_container": 0,
+          "type": "SpeechToTextSettings",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextInputs",
+      "size": 2080,
+      "alignment": 8,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "mono",
+          "offset_within_container": 0,
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "is_voiced",
+          "offset_within_container": 2072,
+          "type": "bool",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextOutputs",
+      "size": 3356,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "words",
+          "offset_within_container": 0,
+          "type": "TranscribedWords",
+          "element_count": 1
+        },
+        {
+          "name": "transcript",
+          "offset_within_container": 2820,
+          "type": "FixedString512",
+          "element_count": 1
+        },
+        {
+          "name": "transcribe_duration_sec",
+          "offset_within_container": 3332,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "transcript_mean_confidence",
+          "offset_within_container": 3336,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "accumulator_duration_sec",
+          "offset_within_container": 3340,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "accumulator_capacity_sec",
+          "offset_within_container": 3344,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "is_transcribe_thread_active",
+          "offset_within_container": 3348,
+          "type": "bool",
+          "element_count": 1
+        },
+        {
+          "name": "transcribe_session_count",
+          "offset_within_container": 3352,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextSettings",
+      "size": 268,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "model_path",
+          "offset_within_container": 0,
+          "type": "FixedString256",
+          "element_count": 1
+        },
+        {
+          "name": "num_threads",
+          "offset_within_container": 256,
+          "type": "uint16_t",
+          "element_count": 1
+        },
+        {
+          "name": "min_voiced_duration_sec",
+          "offset_within_container": 260,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "silence_hangover_sec",
+          "offset_within_container": 264,
+          "type": "float",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "TickDurationWindow",
+      "size": 260,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "data_buffer",
+          "offset_within_container": 0,
+          "type": "uint32_t",
+          "element_count": 64
+        },
+        {
+          "name": "count",
+          "offset_within_container": 256,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "TranscribedWord",
+      "size": 44,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "text",
+          "offset_within_container": 0,
+          "type": "FixedString32",
+          "element_count": 1
+        },
+        {
+          "name": "start_time_sec",
+          "offset_within_container": 32,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "end_time_sec",
+          "offset_within_container": 36,
+          "type": "float",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "TranscribedWords",
+      "size": 2820,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "data_buffer",
+          "offset_within_container": 0,
+          "type": "TranscribedWord",
+          "element_count": 64
+        },
+        {
+          "name": "count",
+          "offset_within_container": 2816,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "Vec2f",
+      "size": 8,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "x",
+          "offset_within_container": 0,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "y",
+          "offset_within_container": 4,
+          "type": "float",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "WorkloadInstanceStats",
+      "size": 280,
+      "alignment": 4,
+      "type_category": 1,
+      "fields": [
+        {
+          "name": "last_tick_duration_ns",
+          "offset_within_container": 0,
+          "type": "uint32_t",
+          "element_count": 1
+        },
+        {
+          "name": "last_time_delta_ns",
+          "offset_within_container": 4,
+          "type": "uint32_t",
+          "element_count": 1
+        },
+        {
+          "name": "tick_rate_hz",
+          "offset_within_container": 8,
+          "type": "float",
+          "element_count": 1
+        },
+        {
+          "name": "duration_window",
+          "offset_within_container": 12,
+          "type": "TickDurationWindow",
+          "element_count": 1
+        },
+        {
+          "name": "window_index",
+          "offset_within_container": 272,
+          "type": "uint32_t",
+          "element_count": 1
+        },
+        {
+          "name": "overrun_count",
+          "offset_within_container": 276,
+          "type": "uint32_t",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "bool",
+      "size": 1,
+      "alignment": 1,
+      "type_category": 0
+    },
+    {
+      "name": "double",
+      "size": 8,
+      "alignment": 8,
+      "type_category": 0
+    },
+    {
+      "name": "float",
+      "size": 4,
+      "alignment": 4,
+      "type_category": 0
+    },
+    {
+      "name": "int",
+      "size": 4,
+      "alignment": 4,
+      "type_category": 0
+    },
+    {
+      "name": "uint16_t",
+      "size": 2,
+      "alignment": 2,
+      "type_category": 0
+    },
+    {
+      "name": "uint32_t",
+      "size": 4,
+      "alignment": 4,
+      "type_category": 0
+    }
+  ]
+}
