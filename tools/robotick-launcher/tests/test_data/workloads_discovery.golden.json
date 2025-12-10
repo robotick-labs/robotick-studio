@@ -644,8 +644,7 @@
           },
           {
             "name": "last_read_status",
-            "type": "FixedString32",
-            "default_value": "Unknown"
+            "type": "AudioQueueResult"
           },
           {
             "name": "dropped_reads",
