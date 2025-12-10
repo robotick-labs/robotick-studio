@@ -10,19 +10,10 @@ import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
 import { spawnTelemetryImagePanel } from "../panels";
-
-export interface TelemetryField {
-  name: string;
-  path: string;
-  type: string;
-  mime_type?: string;
-  fields?: TelemetryField[];
-  getValue: () => unknown;
-}
-
-export interface TelemetryStruct {
-  fields?: TelemetryField[];
-}
+import type {
+  ITelemetryField as TelemetryField,
+  ITelemetryStruct as TelemetryStruct,
+} from "../../../../data-sources/telemetry";
 
 // -------------------------------------------------------------
 // Number formatting
@@ -35,10 +26,38 @@ function formatNumberSmart(n: number): string {
   return n.toFixed(decimals);
 }
 
-function formatValue(value: unknown, type: string): string {
+function formatEnumNumber(value: number, field?: TelemetryField): string {
+  const formatted = formatNumberSmart(value);
+  if (!field?.enum_values || field.enum_values.length === 0) return formatted;
+  const match = field.enum_values.find((entry) => entry.value === value);
+  return match ? `${formatted} (${match.name})` : formatted;
+}
+
+function formatEnumArrayPreview(
+  values: unknown[],
+  field?: TelemetryField
+): string {
+  const limit = 4;
+  const preview = values.slice(0, limit).map((entry) => {
+    if (typeof entry === "number") {
+      return formatEnumNumber(entry, field);
+    }
+    return String(entry);
+  });
+  const suffix = values.length > limit ? ", …" : "";
+  return `[${preview.join(", ")}${suffix}]`;
+}
+
+function formatValue(value: unknown, field: TelemetryField): string {
+  const type = field.type;
   if (value === null || value === undefined) return `<${type}>`;
-  if (Array.isArray(value)) return `<${type}, ${value.length}>`;
-  if (typeof value === "number") return formatNumberSmart(value);
+  if (Array.isArray(value)) {
+    if (field.enum_values && field.enum_values.length > 0) {
+      return formatEnumArrayPreview(value, field);
+    }
+    return `<${type}, ${value.length}>`;
+  }
+  if (typeof value === "number") return formatEnumNumber(value, field);
   if (typeof value === "string") return `"${value}"`;
   if (value instanceof Uint8Array || value instanceof ArrayBuffer)
     return `<${type}> (${value.byteLength} bytes)`;
@@ -103,7 +122,7 @@ export function TelemetryStructFields({
     // Primitive leaf
     return (
       <div key={f.path}>
-        {label}: {formatValue(f.getValue(), f.type)}
+        {label}: {formatValue(f.getValue(), f)}
       </div>
     );
   }

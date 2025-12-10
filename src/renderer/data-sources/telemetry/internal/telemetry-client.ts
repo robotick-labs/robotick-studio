@@ -19,6 +19,11 @@ export interface LayoutField {
   element_count: number;
 }
 
+export interface LayoutEnumValue {
+  name: string;
+  value: number;
+}
+
 export interface LayoutType {
   name: string;
   size: number;
@@ -26,6 +31,10 @@ export interface LayoutType {
   type_category?: number;
   mime_type?: string;
   fields?: LayoutField[];
+  enum_values?: LayoutEnumValue[];
+  enum_underlying_size?: number;
+  enum_is_signed?: boolean;
+  enum_is_flags?: boolean;
 }
 
 export interface LayoutWorkloadStruct {
@@ -62,6 +71,10 @@ export interface ITelemetryField {
   path: string;
   offset: number; // absolute byte offset into raw buffer
   mime_type?: string; // inherited from LayoutType.mime_type
+  enum_values?: LayoutEnumValue[];
+  enum_is_flags?: boolean;
+  enum_is_signed?: boolean;
+  enum_underlying_size?: number;
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
@@ -407,7 +420,11 @@ namespace TelemetryFactory {
                 f.element_count,
                 nested.fields,
                 childType?.size ?? 0,
-                true
+                true,
+                childType?.enum_values,
+                childType?.enum_is_flags,
+                childType?.enum_is_signed,
+                childType?.enum_underlying_size
               )
             );
           } else {
@@ -423,7 +440,11 @@ namespace TelemetryFactory {
                 f.element_count,
                 undefined,
                 0,
-                false
+                false,
+                childType?.enum_values,
+                childType?.enum_is_flags,
+                childType?.enum_is_signed,
+                childType?.enum_underlying_size
               )
             );
           }
@@ -584,7 +605,11 @@ class TelemetryField implements ITelemetryField {
     private readonly elementCount: number = 1,
     public readonly fields?: ITelemetryField[],
     private readonly childSize: number = 0, // for struct arrays
-    private readonly isCompositeNode: boolean = false
+    private readonly isCompositeNode: boolean = false,
+    public readonly enum_values?: LayoutEnumValue[],
+    public readonly enum_is_flags?: boolean,
+    public readonly enum_is_signed?: boolean,
+    public readonly enum_underlying_size?: number
   ) {}
 
   getValue(): any {
@@ -605,6 +630,10 @@ class TelemetryField implements ITelemetryField {
       }
       return this.reader.buildObject(this.model, this.type, this.offset);
     }
+    const enumValue = this.readEnumValues();
+    if (enumValue !== null) {
+      return enumValue;
+    }
     return this.reader.getLeaf(
       this.model,
       this.offset,
@@ -612,6 +641,58 @@ class TelemetryField implements ITelemetryField {
       this.mime_type,
       this.elementCount
     );
+  }
+
+  private readEnumValues(): number | number[] | null {
+    if (!this.enum_values || this.enum_values.length === 0) return null;
+    if (!this.enum_underlying_size) return null;
+    const view = this.model.view();
+    const raw = this.model.raw;
+    if (!view || !raw) return null;
+
+    const size = this.enum_underlying_size;
+    const readSingle = (offset: number): number | null => {
+      if (!withinBounds(view.byteLength, offset, size)) return null;
+      switch (size) {
+        case 1:
+          return this.enum_is_signed
+            ? view.getInt8(offset)
+            : view.getUint8(offset);
+        case 2:
+          return this.enum_is_signed
+            ? view.getInt16(offset, true)
+            : view.getUint16(offset, true);
+        case 4:
+          return this.enum_is_signed
+            ? view.getInt32(offset, true)
+            : view.getUint32(offset, true);
+        case 8: {
+          const low = view.getUint32(offset, true);
+          const high = view.getUint32(offset + 4, true);
+          const combined = high * 0x100000000 + low;
+          if (this.enum_is_signed && high & 0x80000000) {
+            return combined - 0x1_0000_0000_0000_0000;
+          }
+          return combined;
+        }
+        default:
+          return null;
+      }
+    };
+
+    if (this.elementCount <= 1) {
+      return readSingle(this.offset);
+    }
+
+    const results: number[] = [];
+    let currentOffset = this.offset;
+    for (let i = 0; i < this.elementCount; i++) {
+      const val = readSingle(currentOffset);
+      if (val === null) break;
+      results.push(val);
+      currentOffset += size;
+    }
+    return results;
   }
 }
 

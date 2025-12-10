@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { ProjectData } from "../../../../data-sources/launcher";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
@@ -52,8 +58,7 @@ export default function TelemetryTreeViewer() {
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
-  const panelInstanceId =
-    panelInstance.panelId ?? fallbackPanelIdRef.current;
+  const panelInstanceId = panelInstance.panelId ?? fallbackPanelIdRef.current;
   const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
   const buildPanelKey = useCallback(
     (base: string) =>
@@ -95,20 +100,23 @@ export default function TelemetryTreeViewer() {
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
-  const persistLocalSettings = useCallback((next: Partial<PanelSettings>) => {
-    if ("modelPath" in next) {
-      persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
-    }
-    if ("workloadName" in next) {
-      persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
-    }
-    if ("fieldPath" in next) {
-      persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
-    }
-    if ("dataKind" in next) {
-      persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
-    }
-  }, [persistPreference]);
+  const persistLocalSettings = useCallback(
+    (next: Partial<PanelSettings>) => {
+      if ("modelPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadName" in next) {
+        persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
+      }
+      if ("fieldPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
+      }
+      if ("dataKind" in next) {
+        persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
+      }
+    },
+    [persistPreference]
+  );
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const updateSettings = useCallback(
@@ -484,12 +492,47 @@ function JsonNode({
   );
 }
 
+function formatNumberSmart(n: number): string {
+  if (!isFinite(n)) return String(n);
+  if (Number.isInteger(n)) return String(n);
+  const abs = Math.abs(n);
+  const decimals = abs >= 100 ? 1 : abs >= 10 ? 2 : 3;
+  return n.toFixed(decimals);
+}
+
+function formatEnumNumber(field: ITelemetryField, value: number): string {
+  const formatted = formatNumberSmart(value);
+  if (!field.enum_values || field.enum_values.length === 0) return formatted;
+  const match = field.enum_values.find((entry) => entry.value === value);
+  return match ? `${formatted} (${match.name})` : formatted;
+}
+
+function formatEnumArrayPreview(
+  field: ITelemetryField,
+  values: unknown[]
+): string {
+  const limit = 4;
+  const preview = values.slice(0, limit).map((entry) => {
+    if (typeof entry === "number") {
+      return formatEnumNumber(field, entry);
+    }
+    return String(entry);
+  });
+  const suffix = values.length > limit ? ", …" : "";
+  return `[${preview.join(", ")}${suffix}]`;
+}
+
 function formatValue(field: ITelemetryField) {
   const value = field.getValue?.();
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number") return value.toString();
-  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (typeof value === "number") return formatEnumNumber(field, value);
+  if (Array.isArray(value)) {
+    if (field.enum_values && field.enum_values.length > 0) {
+      return formatEnumArrayPreview(field, value);
+    }
+    return `[${value.length} items]`;
+  }
   if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;
   if (typeof value === "object") return "{…}";
   return String(value);

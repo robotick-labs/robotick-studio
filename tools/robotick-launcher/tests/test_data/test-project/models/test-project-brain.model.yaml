@@ -39,6 +39,10 @@ workloads:
     type: CameraWorkload
     tick_rate_hz: 30.0
 
+  - name: mic
+    type: MicWorkload
+    tick_rate_hz: 30.0
+
   - name: root_group
     type: SyncedGroupWorkload
     tick_rate_hz: 30.0
@@ -46,6 +50,7 @@ workloads:
       - remote_control
       - face
       - camera
+      - mic
       - speech_to_text
 
 root: root_group
