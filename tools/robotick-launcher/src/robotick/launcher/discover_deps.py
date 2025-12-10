@@ -21,10 +21,13 @@ def parse_workload_yaml(path: Path) -> Optional[WorkloadSpec]:
 
 def _dep_identity(dep: Dependency) -> Tuple:
     src = dep.source
+    repo = getattr(src, "repo", None)
+    asset = getattr(src, "asset", None)
     identifier = (
         getattr(src, "package", None)
         or getattr(src, "module", None)
         or getattr(src, "url", None)
+        or ((repo or "") + (f"#{asset}" if asset else ""))
         or getattr(src, "component", None)
         or getattr(src, "path", None)
     )
@@ -43,10 +46,13 @@ def _dep_identity(dep: Dependency) -> Tuple:
 
 def _dep_sort_key(dep: Dependency) -> Tuple:
     src = dep.source
+    repo = getattr(src, "repo", None)
+    asset = getattr(src, "asset", None)
     identifier = (
         getattr(src, "package", None)
         or getattr(src, "module", None)
         or getattr(src, "url", None)
+        or ((repo or "") + (f"#{asset}" if asset else ""))
         or getattr(src, "component", None)
         or getattr(src, "path", None)
         or ""

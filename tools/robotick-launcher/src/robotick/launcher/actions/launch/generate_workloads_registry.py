@@ -166,11 +166,18 @@ def _generate_workload_deps_cmake(
         for lib in d.link_libraries or []:
             agg_targets[lib] = True
 
-        if getattr(src, "type", None) == "git":
-            # default clone dest = deps/<name> if not provided by your fetch layer
+        src_type = getattr(src, "type", None)
+        if src_type == "git":
             default_dest = f"deps/{d.name}"
             dest = getattr(src, "dest", None) or default_dest
-            sub = d.cmake_subdir or "."  # top-level by default
+            sub = d.cmake_subdir or "."
+            git_subdirs.append((d.name, f"${{CMAKE_CURRENT_SOURCE_DIR}}/{dest}/{sub}"))
+            if d.cmake_options:
+                cmake_options_map[d.name] = d.cmake_options
+        elif src_type == "git_source_archive" and d.cmake_subdir:
+            default_dest = f"deps/{d.name}"
+            dest = getattr(src, "dest", None) or default_dest
+            sub = d.cmake_subdir
             git_subdirs.append((d.name, f"${{CMAKE_CURRENT_SOURCE_DIR}}/{dest}/{sub}"))
             if d.cmake_options:
                 cmake_options_map[d.name] = d.cmake_options

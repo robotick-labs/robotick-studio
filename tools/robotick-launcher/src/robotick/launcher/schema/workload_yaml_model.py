@@ -19,6 +19,17 @@ class GitSource(BaseModel):
     dest: Optional[str] = None
 
 
+class GitSourceArchive(BaseModel):
+    type: Literal["git_source_archive"]
+    repo: Optional[str] = None
+    asset: Optional[str] = None
+    pin: Optional[str] = None
+    url: Optional[str] = None
+    dest: Optional[str] = None
+    strip_components: int = Field(default=0, ge=0)
+    checksum: Optional[str] = None
+
+
 class PkgConfigSource(BaseModel):
     type: Literal["pkgconfig"]
     module: str
@@ -38,7 +49,12 @@ class WorkloadCMakeSource(BaseModel):
 
 # Unified source union
 SourceSpec = Union[
-    AptSource, GitSource, PkgConfigSource, IdfSource, WorkloadCMakeSource
+    AptSource,
+    GitSource,
+    GitSourceArchive,
+    PkgConfigSource,
+    IdfSource,
+    WorkloadCMakeSource,
 ]
 
 
