@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from rich import print
@@ -194,7 +195,13 @@ def _install_git_source_archive(
     print(f"[green]• Fetching[/]  {dest.name}  ([dim]{label}[/dim])")
     tmp_dir = Path(tempfile.mkdtemp(prefix="robotick-archive-"))
     try:
-        archive_path = tmp_dir / "payload"
+        asset_name = getattr(src, "asset", None)
+        if asset_name:
+            archive_filename = asset_name
+        else:
+            parsed = urlparse(url)
+            archive_filename = Path(parsed.path).name or "payload"
+        archive_path = tmp_dir / archive_filename
         try:
             _download_url_to_path(url, archive_path)
         except (HTTPError, URLError) as exc:
