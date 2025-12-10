@@ -11,6 +11,7 @@ namespace robotick
         ROBOTICK_KEEP_WORKLOAD(FaceDisplayWorkload)
         ROBOTICK_KEEP_WORKLOAD(SpeechToTextWorkload)
         ROBOTICK_KEEP_WORKLOAD(CameraWorkload)
+        ROBOTICK_KEEP_WORKLOAD(MicWorkload)
         ROBOTICK_KEEP_WORKLOAD(SyncedGroupWorkload)
     }
     
@@ -71,8 +72,18 @@ void populate_model_test_project_brain(robotick::Model& model)
         {}    // inputs
     };
 
+
+    static const WorkloadSeed mic = {
+        TypeId("MicWorkload"),
+        StringView("mic"),
+        30.0f,
+        {},    // children
+        {},    // config
+        {}    // inputs
+    };
+
     static const WorkloadSeed* const root_group_children[] = {
-        &remote_control,        &face,        &camera,        &speech_to_text    };
+        &remote_control,        &face,        &camera,        &mic,        &speech_to_text    };
 
 
     static const WorkloadSeed root_group = {
@@ -89,6 +100,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         &face,
         &speech_to_text,
         &camera,
+        &mic,
         &root_group
     };
 
