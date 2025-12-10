@@ -22,12 +22,15 @@ function getStat(w: ITelemetryWorkload, fieldName: string): unknown {
   return f?.getValue();
 }
 
-function extractDurationSamples(w: ITelemetryWorkload): number[] {
-  const durationWindow = getStat(w, "duration_window");
-  if (!durationWindow || typeof durationWindow !== "object") return [];
+function extractWindowSamples(
+  w: ITelemetryWorkload,
+  fieldName: string
+): number[] {
+  const windowStruct = getStat(w, fieldName);
+  if (!windowStruct || typeof windowStruct !== "object") return [];
 
-  const buffer = (durationWindow as { data_buffer?: unknown }).data_buffer;
-  const count = (durationWindow as { count?: unknown }).count;
+  const buffer = (windowStruct as { data_buffer?: unknown }).data_buffer;
+  const count = (windowStruct as { count?: unknown }).count;
 
   if (!Array.isArray(buffer)) return [];
 
@@ -75,6 +78,23 @@ function formatDuration(value?: number): string {
   return value.toFixed(3);
 }
 
+function formatJitterPercent(
+  jitterMs?: number,
+  goalPeriodMs?: number
+): string | undefined {
+  if (
+    typeof jitterMs !== "number" ||
+    !Number.isFinite(jitterMs) ||
+    typeof goalPeriodMs !== "number" ||
+    !Number.isFinite(goalPeriodMs) ||
+    goalPeriodMs <= 0
+  ) {
+    return undefined;
+  }
+  const percent = (100 * jitterMs) / goalPeriodMs;
+  return `${percent.toFixed(1)}%`;
+}
+
 function usageClass(usagePercent: number): string {
   if (usagePercent < USAGE_THRESHOLD_WARNING_YELLOW) return styles.usageBlue;
   if (usagePercent < USAGE_THRESHOLD_ERROR_RED) return styles.usageYellow;
@@ -94,8 +114,21 @@ export function TelemetryWorkload({
   const time_delta_ms = dt_ns * 1e-6;
   const goal_period_ms = hz > 0 ? 1000.0 / hz : 0;
 
-  const windowSamples = extractDurationSamples(w);
-  const { meanMs, jitterMs } = computeWindowStats(windowSamples);
+  const durationSamples = extractWindowSamples(w, "duration_window");
+  const { meanMs, jitterMs } = computeWindowStats(durationSamples);
+  const deltaSamples = extractWindowSamples(w, "delta_window");
+  const {
+    meanMs: actualPeriodMeanMs,
+    jitterMs: actualPeriodJitterMs,
+  } = computeWindowStats(deltaSamples);
+  const workloadJitterPercent = formatJitterPercent(
+    jitterMs,
+    goal_period_ms
+  );
+  const actualJitterPercent = formatJitterPercent(
+    actualPeriodJitterMs,
+    goal_period_ms
+  );
 
   const usage_percent =
     goal_period_ms > 0 ? (100.0 * self_duration_ms) / goal_period_ms : 0;
@@ -143,11 +176,35 @@ export function TelemetryWorkload({
           <span
             title={`Jitter (standard deviation over last ${TICK_DURATION_WINDOW_SIZE} ticks)`}
           >
-            Jitter: {formatDuration(jitterMs)} ms
+            Jitter:{" "}
+            {workloadJitterPercent
+              ? `${workloadJitterPercent} (${formatDuration(jitterMs)} ms)`
+              : `${formatDuration(jitterMs)} ms`}
           </span>
         </div>
       </td>
-      <td>{time_delta_ms.toFixed(3)}</td>
+      <td>
+        <div className={styles.multiline}>
+          <span title="Last measured interval between ticks">
+            Last: {formatDuration(time_delta_ms)} ms
+          </span>
+          <span
+            title={`Rolling mean over last ${TICK_DURATION_WINDOW_SIZE} tick intervals`}
+          >
+            Mean: {formatDuration(actualPeriodMeanMs)} ms
+          </span>
+          <span
+            title={`Jitter (standard deviation over last ${TICK_DURATION_WINDOW_SIZE} tick intervals)`}
+          >
+            Jitter:{" "}
+            {actualJitterPercent
+              ? `${actualJitterPercent} (${formatDuration(
+                  actualPeriodJitterMs
+                )} ms)`
+              : `${formatDuration(actualPeriodJitterMs)} ms`}
+          </span>
+        </div>
+      </td>
       <td>{goal_period_ms.toFixed(3)}</td>
       <td className={usageClass(usage_percent)}>{usage_percent.toFixed(1)}%</td>
     </tr>
