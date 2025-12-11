@@ -72,6 +72,15 @@ export function subscribeProjectModelsState(
   return () => projectModelsListeners.delete(listener);
 }
 
+export function resetLauncherDataForTests() {
+  latestProjectModelsState = {
+    data: [],
+    loading: true,
+    error: null,
+  };
+  projectModelsListeners.clear();
+}
+
 export async function waitForProjectModelsLoaded(): Promise<ProjectModelsState> {
   const current = latestProjectModelsState;
   if (!current.loading) {

@@ -169,3 +169,6 @@ export {
   terminalLogService,
   type TerminalLogService,
 } from "./internal/terminal-log-service";
+export {
+  resetLauncherDataForTests,
+} from "./internal/LauncherDataContext";

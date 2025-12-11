@@ -15,7 +15,9 @@ import { AppRoutes } from "../../../renderer/Router";
 import { TestLauncherProviders } from "../../../__tests__/helpers/mocks";
 
 beforeEach(() => {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "http://localhost/",
+  });
   const windowObject = dom.window as unknown as Window & typeof globalThis;
   globalThis.window = windowObject;
   globalThis.document = windowObject.document;
@@ -50,6 +52,36 @@ describe("Electron renderer smoke test", () => {
     });
 
     expect(container.innerHTML).toContain('data-testid="workspace-home"');
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("renders the Telemetry workspace when navigating directly to /telemetry", async () => {
+    window.localStorage?.setItem(
+      "robotick:last-workspace:global",
+      "/telemetry"
+    );
+    window.localStorage?.setItem(
+      "robotick:last-workspace:%2Fmock%2Fproject",
+      "/telemetry"
+    );
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <TestLauncherProviders>
+          <MemoryRouter initialEntries={["/telemetry"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.innerHTML).toContain('data-testid="workspace-telemetry"');
 
     await act(async () => {
       root.unmount();

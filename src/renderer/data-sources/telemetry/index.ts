@@ -29,3 +29,5 @@ export {
   createTelemetryService,
   telemetryService,
 } from "./internal/TelemetryService";
+export type { TelemetryService } from "./internal/TelemetryService";
+export { resetTelemetryStore } from "./internal/telemetry-store";
