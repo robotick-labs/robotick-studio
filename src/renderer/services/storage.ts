@@ -3,21 +3,22 @@ type StorageResult = {
   key: string | null;
 };
 
-type StorageLike = Pick<
-  Storage,
-  "getItem" | "setItem" | "removeItem" | "clear"
->;
+type StorageBridge = {
+  getItem?: (key: string) => string | null;
+  setItem?: (key: string, value: string) => void;
+  removeItem?: (key: string) => void;
+  clear?: () => void;
+};
 
-function resolveStorage(): StorageLike | null {
+function getBridge(): StorageBridge | null {
   if (typeof window === "undefined") {
     return null;
   }
+  return window.robotick?.storage ?? null;
+}
 
-  const bridge = window.robotick?.storage;
-  if (bridge) {
-    return bridge;
-  }
-
+function getLocalStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
   try {
     return window.localStorage;
   } catch {
@@ -25,8 +26,38 @@ function resolveStorage(): StorageLike | null {
   }
 }
 
+function getFallbackStorage(): Storage | null {
+  const storage = getLocalStorage();
+  if (storage) return storage;
+  try {
+    const map = new Map<string, string>();
+    return {
+      length: map.size,
+      clear: () => map.clear(),
+      getItem: (key: string) => map.get(key) ?? null,
+      key: (index: number) => Array.from(map.keys())[index] ?? null,
+      removeItem: (key: string) => {
+        map.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        map.set(key, value);
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function readStorageValue(key: string): string | null {
-  const storage = resolveStorage();
+  const bridge = getBridge();
+  if (bridge?.getItem) {
+    try {
+      return bridge.getItem(key);
+    } catch {
+      // fall through
+    }
+  }
+  const storage = getLocalStorage();
   if (!storage) return null;
   try {
     return storage.getItem(key);
@@ -36,7 +67,16 @@ export function readStorageValue(key: string): string | null {
 }
 
 export function setStorageValue(key: string, value: string): void {
-  const storage = resolveStorage();
+  const bridge = getBridge();
+  if (bridge?.setItem) {
+    try {
+      bridge.setItem(key, value);
+      return;
+    } catch {
+      // fall back
+    }
+  }
+  const storage = getLocalStorage();
   if (!storage) return;
   try {
     storage.setItem(key, value);
@@ -46,7 +86,16 @@ export function setStorageValue(key: string, value: string): void {
 }
 
 export function removeStorageValue(key: string): void {
-  const storage = resolveStorage();
+  const bridge = getBridge();
+  if (bridge?.removeItem) {
+    try {
+      bridge.removeItem(key);
+      return;
+    } catch {
+      // ignore
+    }
+  }
+  const storage = getLocalStorage();
   if (!storage) return;
   try {
     storage.removeItem(key);

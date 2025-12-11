@@ -1,8 +1,8 @@
 import React, { act } from "react";
-import { describe, expect, it, beforeEach, vi } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("../../../../renderer/components/header/LauncherControls", () => ({
   LauncherControls: () => <div data-testid="launcher-controls" />,
@@ -31,12 +31,11 @@ const electronModule = vi.hoisted(() => ({
   isStandaloneElectron: vi.fn(),
 }));
 
-vi.mock("../../../../renderer/utils/environment", () => electronModule);
-
 const contextMenuModule = vi.hoisted(() => ({
   useContextMenu: vi.fn(),
 }));
 
+vi.mock("../../../../renderer/utils/environment", () => electronModule);
 vi.mock(
   "../../../../renderer/components/context-menu/ContextMenuProvider",
   () => contextMenuModule
@@ -48,23 +47,27 @@ import { useContextMenu } from "../../../../renderer/components/context-menu/Con
 
 const useContextMenuMock = useContextMenu as unknown as vi.Mock;
 
-describe("AppHeader window controls", () => {
+describe("AppHeader", () => {
   let contextMenuHandlers: {
-    showHeaderMenu: ReturnType<typeof vi.fn>;
     showPanelMenu: ReturnType<typeof vi.fn>;
-    hideMenu: ReturnType<typeof vi.fn>;
+    showHeaderMenu: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(false);
     contextMenuHandlers = {
-      showHeaderMenu: vi.fn(),
       showPanelMenu: vi.fn(),
-      hideMenu: vi.fn(),
+      showHeaderMenu: vi.fn(),
     };
     useContextMenuMock.mockReturnValue(contextMenuHandlers);
     if (typeof window !== "undefined") {
-      (window as typeof window & { robotick?: unknown }).robotick = undefined;
+      (window as typeof window & { robotick?: any }).robotick = {
+        environment: {
+          isStandaloneApp: true,
+          appTitle: "Robotick Studio",
+          usesNativeWindowFrame: true,
+        },
+      };
       Object.defineProperty(window.navigator, "userAgent", {
         configurable: true,
         value: "Mozilla/5.0",
@@ -72,7 +75,7 @@ describe("AppHeader window controls", () => {
     }
   });
 
-  it("does not render window controls in hosted mode", () => {
+  it("renders without custom window control markup while using native frame", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <AppHeader />
@@ -81,25 +84,23 @@ describe("AppHeader window controls", () => {
     expect(markup).not.toContain('data-testid="window-controls"');
   });
 
-  it("renders window controls when running in the Electron shell", () => {
+  it("renders custom window controls when standalone and frameless", () => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(true);
-    (window as typeof window & {
-      robotick?: {
-        environment?: { isStandaloneApp: boolean; appTitle: string };
-        windowControls?: Record<string, () => void>;
-      };
-    }).robotick = {
-      environment: { isStandaloneApp: true, appTitle: "Robotick Studio" },
+    (window as typeof window & { robotick?: any }).robotick = {
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+        usesNativeWindowFrame: false,
+      },
       windowControls: {
-        minimize: () => {},
-        maximize: () => {},
-        restore: () => {},
-        close: () => {},
-        toggleMaximize: () => {},
-        onStateChange: () => () => {},
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        restore: vi.fn(),
+        close: vi.fn(),
+        toggleMaximize: vi.fn(),
+        onStateChange: vi.fn(() => () => {}),
       },
     };
-
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <AppHeader />
@@ -108,25 +109,23 @@ describe("AppHeader window controls", () => {
     expect(markup).toContain('data-testid="window-controls"');
   });
 
-  it("requests the header context menu when right-clicking the header in standalone mode", () => {
+  it("opens the header context menu on right click when frameless", () => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(true);
-    (window as typeof window & {
-      robotick?: {
-        environment?: { isStandaloneApp: boolean; appTitle: string };
-        windowControls?: Record<string, () => void>;
-      };
-    }).robotick = {
-      environment: { isStandaloneApp: true, appTitle: "Robotick Studio" },
+    (window as typeof window & { robotick?: any }).robotick = {
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+        usesNativeWindowFrame: false,
+      },
       windowControls: {
-        minimize: () => {},
-        maximize: () => {},
-        restore: () => {},
-        close: () => {},
-        toggleMaximize: () => {},
-        onStateChange: () => () => {},
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        restore: vi.fn(),
+        close: vi.fn(),
+        toggleMaximize: vi.fn(),
+        onStateChange: vi.fn(() => () => {}),
       },
     };
-
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -141,56 +140,19 @@ describe("AppHeader window controls", () => {
 
     const header = container.querySelector("header");
     expect(header).not.toBeNull();
-    act(() => {
-      const event = new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 24,
-        clientY: 48,
-        screenX: 24,
-        screenY: 48,
-      });
-      header?.dispatchEvent(event);
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 42,
+      clientY: 64,
     });
-
+    header?.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
     expect(contextMenuHandlers.showHeaderMenu).toHaveBeenCalledWith({
-      x: 24,
-      y: 48,
-    });
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-
-  it("does not request the header menu when not in standalone mode", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-
-    act(() => {
-      root.render(
-        <MemoryRouter>
-          <AppHeader />
-        </MemoryRouter>
-      );
+      x: 42,
+      y: 64,
     });
 
-    const header = container.querySelector("header");
-    expect(header).not.toBeNull();
-    act(() => {
-      const event = new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        clientX: 10,
-        clientY: 10,
-        screenX: 10,
-        screenY: 10,
-      });
-      header?.dispatchEvent(event);
-    });
-
-    expect(contextMenuHandlers.showHeaderMenu).not.toHaveBeenCalled();
     act(() => {
       root.unmount();
     });

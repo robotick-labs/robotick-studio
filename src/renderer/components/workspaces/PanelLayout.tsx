@@ -1,5 +1,8 @@
 import React from "react";
-import { getEditorEntry, listEditorEntries } from "../../services/EditorRegistry";
+import {
+  getEditorEntry,
+  listEditorEntries,
+} from "../../services/EditorRegistry";
 import {
   FloatingPanelLayer,
   FloatingPanelsScopeProvider,
@@ -10,9 +13,7 @@ import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PanelInstanceProvider } from "./PanelInstanceContext";
 import styles from "./PanelLayout.module.css";
-import {
-  addWindowEventListener,
-} from "../../utils/domEnvironment";
+import { addWindowEventListener } from "../../utils/domEnvironment";
 import {
   readStorageValue,
   removeStorageValue,
@@ -53,7 +54,10 @@ type EditorOption = {
 
 let panelIdCounter = 0;
 function generatePanelId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   panelIdCounter += 1;
@@ -87,15 +91,14 @@ function countLeaves(node: PanelNode): number {
 function sanitizeNode(
   raw: unknown,
   fallbackEditorId: string,
-  allowedEditors: Set<string>,
+  allowedEditors: Set<string>
 ): PanelNode | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
   if (data.kind === "leaf") {
     const editorId = typeof data.editorId === "string" ? data.editorId : null;
-    const resolvedEditor = editorId && allowedEditors.has(editorId)
-      ? editorId
-      : fallbackEditorId;
+    const resolvedEditor =
+      editorId && allowedEditors.has(editorId) ? editorId : fallbackEditorId;
     const id =
       typeof data.id === "string" && data.id ? data.id : generatePanelId();
     return { id, kind: "leaf", editorId: resolvedEditor };
@@ -109,12 +112,12 @@ function sanitizeNode(
     const first = sanitizeNode(
       data.children[0],
       fallbackEditorId,
-      allowedEditors,
+      allowedEditors
     );
     const second = sanitizeNode(
       data.children[1],
       fallbackEditorId,
-      allowedEditors,
+      allowedEditors
     );
     if (!first || !second) return null;
     const ratio =
@@ -135,7 +138,7 @@ function sanitizeNode(
 function loadLayout(
   workspaceId: string,
   fallbackEditorId: string,
-  allowedEditors: Set<string>,
+  allowedEditors: Set<string>
 ): PanelNode {
   try {
     const raw = readStorageValue(`${STORAGE_PREFIX}${workspaceId}`);
@@ -161,7 +164,7 @@ function saveLayout(workspaceId: string, layout: PanelNode) {
 function updateNode(
   node: PanelNode,
   targetId: string,
-  updater: (leaf: PanelLeafNode) => PanelNode,
+  updater: (leaf: PanelLeafNode) => PanelNode
 ): PanelNode {
   if (node.kind === "leaf") {
     if (node.id !== targetId) {
@@ -172,10 +175,7 @@ function updateNode(
 
   const first = updateNode(node.children[0], targetId, updater);
   const second = updateNode(node.children[1], targetId, updater);
-  if (
-    first === node.children[0] &&
-    second === node.children[1]
-  ) {
+  if (first === node.children[0] && second === node.children[1]) {
     return node;
   }
 
@@ -218,7 +218,7 @@ function removePanel(node: PanelNode, targetId: string): PanelNode | null {
 function updateSplitRatio(
   node: PanelNode,
   splitId: string,
-  ratio: number,
+  ratio: number
 ): PanelNode {
   if (node.kind === "split") {
     if (node.id === splitId) {
@@ -259,13 +259,13 @@ export function PanelLayout({
         id: entry.id,
         label: entry.label,
       })),
-    [editorEntries],
+    [editorEntries]
   );
 
   const allowedIdsKey = editorEntries.map((entry) => entry.id).join("|");
   const allowedIdSet = React.useMemo(
     () => new Set(editorEntries.map((entry) => entry.id)),
-    [allowedIdsKey],
+    [allowedIdsKey]
   );
 
   const fallbackEditorId = allowedIdSet.has(defaultEditorId)
@@ -273,10 +273,10 @@ export function PanelLayout({
     : editorEntries[0].id;
 
   const [layout, setLayout] = React.useState<PanelNode>(() =>
-    loadLayout(workspaceId, fallbackEditorId, allowedIdSet),
+    loadLayout(workspaceId, fallbackEditorId, allowedIdSet)
   );
   const [maximizedPanelId, setMaximizedPanelId] = React.useState<string | null>(
-    null,
+    null
   );
   React.useEffect(() => {
     setLayout(loadLayout(workspaceId, fallbackEditorId, allowedIdSet));
@@ -288,10 +288,7 @@ export function PanelLayout({
   }, [workspaceId, layout]);
 
   React.useEffect(() => {
-    if (
-      maximizedPanelId &&
-      !nodeContains(layout, maximizedPanelId)
-    ) {
+    if (maximizedPanelId && !nodeContains(layout, maximizedPanelId)) {
       setMaximizedPanelId(null);
     }
   }, [layout, maximizedPanelId]);
@@ -304,14 +301,11 @@ export function PanelLayout({
           kind: "split",
           direction,
           ratio: clampRatio(ratio || DEFAULT_RATIO),
-          children: [
-            createLeaf(leaf.editorId),
-            createLeaf(leaf.editorId),
-          ],
-        })),
+          children: [createLeaf(leaf.editorId), createLeaf(leaf.editorId)],
+        }))
       );
     },
-    [],
+    []
   );
 
   const onAssign = React.useCallback((panelId: string, editorId: string) => {
@@ -319,31 +313,23 @@ export function PanelLayout({
       updateNode(current, panelId, (leaf) => ({
         ...leaf,
         editorId,
-      })),
+      }))
     );
   }, []);
 
-  const onClosePanel = React.useCallback(
-    (panelId: string) => {
-      setLayout((current) => {
-        const result = removePanel(current, panelId);
-        if (!result) {
-          return current;
-        }
-        return result;
-      });
-    },
-    [],
-  );
+  const onClosePanel = React.useCallback((panelId: string) => {
+    setLayout((current) => {
+      const result = removePanel(current, panelId);
+      if (!result) {
+        return current;
+      }
+      return result;
+    });
+  }, []);
 
-  const onToggleMaximize = React.useCallback(
-    (panelId: string) => {
-      setMaximizedPanelId((current) =>
-        current === panelId ? null : panelId,
-      );
-    },
-    [],
-  );
+  const onToggleMaximize = React.useCallback((panelId: string) => {
+    setMaximizedPanelId((current) => (current === panelId ? null : panelId));
+  }, []);
 
   const onResizeSplit = React.useCallback((splitId: string, ratio: number) => {
     setLayout((current) => updateSplitRatio(current, splitId, ratio));
@@ -359,14 +345,12 @@ export function PanelLayout({
   const handleCreateFloatingPanel = React.useCallback(
     (editorId?: string) => {
       const targetEditor =
-        editorId && allowedIdSet.has(editorId)
-          ? editorId
-          : fallbackEditorId;
+        editorId && allowedIdSet.has(editorId) ? editorId : fallbackEditorId;
       spawnFloatingPanel(workspaceId, {
         editorId: targetEditor,
       });
     },
-    [allowedIdSet, fallbackEditorId, workspaceId],
+    [allowedIdSet, fallbackEditorId, workspaceId]
   );
 
   const { showPanelMenu } = useContextMenu();
@@ -375,7 +359,7 @@ export function PanelLayout({
     (
       panelId: string,
       editorId: string,
-      event: React.MouseEvent<HTMLDivElement>,
+      event: React.MouseEvent<HTMLDivElement>
     ) => {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
@@ -399,8 +383,7 @@ export function PanelLayout({
         canClose: leafTotal > 1,
         isMaximized: maximizedPanelId === panelId,
         onSplit,
-        onAssign: (targetEditorId: string) =>
-          onAssign(panelId, targetEditorId),
+        onAssign: (targetEditorId: string) => onAssign(panelId, targetEditorId),
         onToggleMaximize: () => onToggleMaximize(panelId),
         onResetLayout: resetLayout,
         onClosePanel: () => onClosePanel(panelId),
@@ -418,7 +401,7 @@ export function PanelLayout({
       onToggleMaximize,
       resetLayout,
       showPanelMenu,
-    ],
+    ]
   );
 
   return (
@@ -434,12 +417,8 @@ export function PanelLayout({
           onSplit={onSplit}
           onResizeSplit={onResizeSplit}
         />
-
       </div>
-      <FloatingPanelLayer
-        scope={workspaceId}
-        editorEntries={editorEntries}
-      />
+      <FloatingPanelLayer scope={workspaceId} editorEntries={editorEntries} />
     </FloatingPanelsScopeProvider>
   );
 }
@@ -451,11 +430,15 @@ type PanelNodeViewProps = {
   onContextMenu: (
     panelId: string,
     editorId: string,
-    event: React.MouseEvent<HTMLDivElement>,
+    event: React.MouseEvent<HTMLDivElement>
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
   onToggleMaximize: (panelId: string) => void;
-  onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
+  onSplit: (
+    panelId: string,
+    direction: "horizontal" | "vertical",
+    ratio: number
+  ) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
   workspaceId: string;
 };
@@ -544,19 +527,19 @@ function PanelNodeView({
     );
   }
 
-    return (
-      <PanelLeaf
-        node={node}
-        editorOptions={editorOptions}
-        onContextMenu={onContextMenu}
-        onAssign={onAssign}
-        onToggleMaximize={onToggleMaximize}
-        onSplit={onSplit}
-        isMaximized={maximizedPanelId === node.id}
-        workspaceId={workspaceId}
-      />
-    );
-  }
+  return (
+    <PanelLeaf
+      node={node}
+      editorOptions={editorOptions}
+      onContextMenu={onContextMenu}
+      onAssign={onAssign}
+      onToggleMaximize={onToggleMaximize}
+      onSplit={onSplit}
+      isMaximized={maximizedPanelId === node.id}
+      workspaceId={workspaceId}
+    />
+  );
+}
 
 type SplitResizerProps = {
   splitId: string;
@@ -608,11 +591,7 @@ function SplitResizer({
       : { top: `${ratio * 100}%` };
 
   return (
-    <div
-      className={resizerClass}
-      style={style}
-      onMouseDown={handleMouseDown}
-    />
+    <div className={resizerClass} style={style} onMouseDown={handleMouseDown} />
   );
 }
 
@@ -621,11 +600,15 @@ type PanelLeafProps = {
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
-    event: React.MouseEvent<HTMLDivElement>,
+    event: React.MouseEvent<HTMLDivElement>
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
   onToggleMaximize: (panelId: string) => void;
-  onSplit: (panelId: string, direction: "horizontal" | "vertical", ratio: number) => void;
+  onSplit: (
+    panelId: string,
+    direction: "horizontal" | "vertical",
+    ratio: number
+  ) => void;
   isMaximized: boolean;
   workspaceId: string;
 };
@@ -715,7 +698,7 @@ function PanelLeaf({
       );
       dragState.current.removeUp = addWindowEventListener("mouseup", handleUp);
     },
-    [onSplit, node.id],
+    [onSplit, node.id]
   );
 
   React.useEffect(() => {

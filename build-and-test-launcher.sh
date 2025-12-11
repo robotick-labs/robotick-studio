@@ -16,8 +16,16 @@ fi
 # shellcheck source=/dev/null
 source "$VENV/bin/activate"
 
+LAUNCHER_PATH="$ROOT/tools/robotick-launcher"
+LAUNCHER_URI="$("$PYTHON" - <<'PY' "$LAUNCHER_PATH"
+import pathlib, sys
+print(pathlib.Path(sys.argv[1]).resolve().as_uri())
+PY
+)"
+LAUNCHER_SPEC="robotick-launcher[dev] @ ${LAUNCHER_URI}"
+
 pip install --upgrade pip >/dev/null
-pip install -e "$ROOT/tools/robotick-launcher[dev]" >/dev/null
+pip install -e "$LAUNCHER_SPEC" >/dev/null
 
 cd "$ROOT/tools/robotick-launcher"
 

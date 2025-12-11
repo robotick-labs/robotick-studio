@@ -18,8 +18,7 @@ export function getDocument(): Document | undefined {
 }
 
 export function getDocumentBody(): HTMLElement | undefined {
-  const doc = getDocument();
-  return doc?.body;
+  return getDocument()?.body;
 }
 
 export function getViewportSize(): { width: number; height: number } {

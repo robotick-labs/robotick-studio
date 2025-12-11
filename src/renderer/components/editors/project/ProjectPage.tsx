@@ -128,13 +128,15 @@ function formatLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function resolveProjectConfigSchemaUrl(
-  options?: { href?: string; base?: string }
-): URL {
+export function resolveProjectConfigSchemaUrl(options?: {
+  href?: string;
+  base?: string;
+}): URL {
   const href =
     options?.href ?? getWindow()?.location.href ?? "http://localhost/";
   const basePath =
-    options?.base ?? (import.meta.env.BASE_URL ? import.meta.env.BASE_URL : "./");
+    options?.base ??
+    (import.meta.env.BASE_URL ? import.meta.env.BASE_URL : "./");
   const baseUrl = new URL(basePath, href);
   return new URL("static/schemas/project-config.schema.json", baseUrl);
 }

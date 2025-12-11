@@ -1,7 +1,4 @@
-import {
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
+import { readStorageValue, setStorageValue } from "../../../services/storage";
 import { addWindowEventListener } from "../../../utils/domEnvironment";
 
 type PanelSettings = Record<string, unknown>;
@@ -216,7 +213,10 @@ export function getFloatingPanels(scope: string): FloatingPanelRecord[] {
 }
 
 function generateId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `fp-${Math.random().toString(36).slice(2, 9)}`;

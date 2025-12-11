@@ -22,10 +22,19 @@ function isInteractiveTarget(target: EventTarget | null) {
   return Boolean(target.closest("[data-window-interactive='true']"));
 }
 
+function getUsesNativeWindowFrame(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return window.robotick?.environment?.usesNativeWindowFrame !== false;
+}
+
 export function AppHeader() {
   const { workspaces } = useAppConfig();
   const grouped = useMemo(() => groupWorkspaces(workspaces), [workspaces]);
   const isStandalone = isStandaloneElectron();
+  const usesNativeFrame = getUsesNativeWindowFrame();
+  const showWindowControls = isStandalone && !usesNativeFrame;
   const noDragClass = isStandalone ? styles.noDrag : "";
   const headerRef = useRef<HTMLElement | null>(null);
   const headerClassName = [
@@ -37,7 +46,7 @@ export function AppHeader() {
   const { showHeaderMenu } = useContextMenu();
 
   useEffect(() => {
-    if (!isStandalone) return;
+    if (!showWindowControls) return;
     const handler = (event: MouseEvent) => {
       const target = event.target as Element | null;
       const header = headerRef.current;
@@ -52,7 +61,7 @@ export function AppHeader() {
       showHeaderMenu({ x: event.clientX, y: event.clientY });
     };
     return addDocumentEventListener("contextmenu", handler);
-  }, [isStandalone, showHeaderMenu]);
+  }, [showWindowControls, showHeaderMenu]);
 
   return (
     <header ref={headerRef} className={headerClassName}>
@@ -97,7 +106,7 @@ export function AppHeader() {
       <div
         className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}
       >
-        {isStandalone ? <WindowControls /> : null}
+        {showWindowControls ? <WindowControls /> : null}
       </div>
     </header>
   );

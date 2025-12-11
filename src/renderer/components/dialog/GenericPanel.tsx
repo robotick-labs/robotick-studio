@@ -3,10 +3,7 @@ import {
   addWindowEventListener,
   getViewportSize,
 } from "../../utils/domEnvironment";
-import {
-  readStorageValue,
-  setStorageValue,
-} from "../../services/storage";
+import { readStorageValue, setStorageValue } from "../../services/storage";
 import styles from "./GenericPanel.module.css";
 
 type Vec2 = { x: number; y: number };

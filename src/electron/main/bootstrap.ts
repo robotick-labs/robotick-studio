@@ -215,8 +215,9 @@ const getDefaultWindowOptions = (
     frame: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
+      sandbox: false,
+      contextIsolation: false,
     },
-    sandbox: true,
     autoHideMenuBar: true,
   };
 };

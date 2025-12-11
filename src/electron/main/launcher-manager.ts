@@ -1,11 +1,13 @@
 import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
 const getWorkspaceRoot = () =>
   process.env.ROBOTICK_PROJECT_DIR ??
   process.env.ROBOTICK_WORKSPACE_ROOT ??
   process.cwd();
+const DEFAULT_LAUNCHER_SUBDIR = "tools/robotick-launcher";
 const resolveLauncherDir = () => {
   const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
   if (launcherPathEnv) {
@@ -13,7 +15,22 @@ const resolveLauncherDir = () => {
       ? launcherPathEnv
       : path.join(getWorkspaceRoot(), launcherPathEnv);
   }
-  return path.join(getWorkspaceRoot(), "tools/robotick-launcher");
+  const workspaceCandidate = path.join(
+    getWorkspaceRoot(),
+    DEFAULT_LAUNCHER_SUBDIR
+  );
+  if (fs.existsSync(workspaceCandidate)) {
+    return workspaceCandidate;
+  }
+  const localCandidate = path.join(
+    __dirname,
+    "../../../",
+    DEFAULT_LAUNCHER_SUBDIR
+  );
+  if (fs.existsSync(localCandidate)) {
+    return localCandidate;
+  }
+  return workspaceCandidate;
 };
 const LAUNCHER_DIR = () => resolveLauncherDir();
 const VENV_DIR = () => path.join(getWorkspaceRoot(), ".studio", ".venv");
@@ -53,14 +70,14 @@ function installLauncherDependencies() {
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
     { cwd: getWorkspaceRoot(), stdio: "inherit" }
   );
-  spawnSync(
-    python,
-    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR()}[dev]`],
-    {
-      cwd: getWorkspaceRoot(),
-      stdio: "inherit",
-    }
-  );
+  const launcherDir = LAUNCHER_DIR();
+  const launcherSpec = `robotick-launcher[dev] @ ${
+    pathToFileURL(launcherDir).href
+  }`;
+  spawnSync(python, ["-m", "pip", "install", "-e", launcherSpec], {
+    cwd: getWorkspaceRoot(),
+    stdio: "inherit",
+  });
 }
 
 async function waitForLauncher(timeoutMs = 20000) {
@@ -134,9 +151,13 @@ function collectLauncherPidsWindows(matchString: string): number[] {
 $target = '${escapedTarget}'
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like "*$target*" } | Select-Object -ExpandProperty ProcessId
 `.trim();
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-Command", script],
+    {
+      encoding: "utf-8",
+    }
+  );
   if (result.status !== 0 || !result.stdout) {
     return [];
   }
@@ -170,9 +191,14 @@ function killExistingLauncherProcesses() {
     try {
       process.kill(pid);
     } catch (error) {
-      console.warn(`[Launcher] Failed to terminate lingering launcher pid ${pid}`, error);
+      console.warn(
+        `[Launcher] Failed to terminate lingering launcher pid ${pid}`,
+        error
+      );
       if (process.platform === "win32") {
-        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
       }
     }
   }
@@ -197,7 +223,7 @@ export async function ensureLauncherReady() {
   console.log(
     `[Launcher] Starting listener with cwd ${root}`,
     "project dir:",
-    env.ROBOTICK_PROJECT_DIR,
+    env.ROBOTICK_PROJECT_DIR
   );
   managedProcess = spawn(bin, ["listen"], {
     cwd: root,

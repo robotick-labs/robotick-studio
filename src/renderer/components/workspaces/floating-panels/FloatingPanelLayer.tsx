@@ -30,8 +30,9 @@ export function FloatingPanelLayer({
   const [panels, setPanels] = useState<FloatingPanelRecord[]>(() =>
     getFloatingPanels(scope)
   );
-  const [contextMenu, setContextMenu] =
-    useState<PanelContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<PanelContextMenuState | null>(
+    null
+  );
 
   useEffect(() => {
     return subscribeFloatingPanels(scope, (next) => setPanels(next));
@@ -186,73 +187,75 @@ function FloatingPanelWindow({
           close: () => removeFloatingPanel(scope, panel.id),
         }}
       >
-        <div onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}>
-          <GenericPanel
-          title={title}
-          onClose={() => removeFloatingPanel(scope, panel.id)}
-          storageKey={`floating-panel:${scope}:${panel.id}`}
-          initialPosition={panel.initialPosition}
-          initialSize={panel.initialSize}
-          minSize={panel.minSize}
+        <div
+          onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}
         >
-          <div className={styles.floatingContent}>
-            <div className={styles.panelBody}>
-              <PanelErrorBoundary
-                editorId={entry.id}
-                onRetry={() => setSelectorOpen(false)}
-              >
-                <React.Suspense
-                  fallback={<div className={styles.panelLoading}>Loading…</div>}
+          <GenericPanel
+            title={title}
+            onClose={() => removeFloatingPanel(scope, panel.id)}
+            storageKey={`floating-panel:${scope}:${panel.id}`}
+            initialPosition={panel.initialPosition}
+            initialSize={panel.initialSize}
+            minSize={panel.minSize}
+          >
+            <div className={styles.floatingContent}>
+              <div className={styles.panelBody}>
+                <PanelErrorBoundary
+                  editorId={entry.id}
+                  onRetry={() => setSelectorOpen(false)}
                 >
-                  <Component />
-                </React.Suspense>
-              </PanelErrorBoundary>
-            </div>
-            {editorOptions.length > 1 && (
-              <div className={styles.panelOverlay}>
-                {selectorOpen ? (
-                  <select
-                    ref={selectRef}
-                    className={styles.panelSelector}
-                    value={entry.id}
-                    onChange={handleEditorChange}
-                    onBlur={closeSelector}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") {
-                        event.stopPropagation();
-                        closeSelector();
-                        selectRef.current?.blur();
-                      }
-                    }}
+                  <React.Suspense
+                    fallback={
+                      <div className={styles.panelLoading}>Loading…</div>
+                    }
                   >
-                    {editorOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <button
-                    className={styles.panelSelectorButton}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setSelectorOpen(true);
-                      requestAnimationFrame(() =>
-                        selectRef.current?.focus()
-                      );
-                    }}
-                    aria-label="Open editor selector"
-                    title="Switch editor"
-                  >
-                    ▾
-                  </button>
-                )}
+                    <Component />
+                  </React.Suspense>
+                </PanelErrorBoundary>
               </div>
-            )}
-          </div>
-        </GenericPanel>
-      </div>
-    </FloatingPanelContext.Provider>
-  </PanelInstanceProvider>
+              {editorOptions.length > 1 && (
+                <div className={styles.panelOverlay}>
+                  {selectorOpen ? (
+                    <select
+                      ref={selectRef}
+                      className={styles.panelSelector}
+                      value={entry.id}
+                      onChange={handleEditorChange}
+                      onBlur={closeSelector}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.stopPropagation();
+                          closeSelector();
+                          selectRef.current?.blur();
+                        }
+                      }}
+                    >
+                      {editorOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <button
+                      className={styles.panelSelectorButton}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectorOpen(true);
+                        requestAnimationFrame(() => selectRef.current?.focus());
+                      }}
+                      aria-label="Open editor selector"
+                      title="Switch editor"
+                    >
+                      ▾
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </GenericPanel>
+        </div>
+      </FloatingPanelContext.Provider>
+    </PanelInstanceProvider>
   );
 }

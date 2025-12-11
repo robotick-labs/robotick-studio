@@ -14,11 +14,20 @@ export function rememberWorkspacePath(
   projectPath: string | undefined,
   workspacePath: string
 ): void {
-  setStorageValue(getWorkspaceKey(projectPath), workspacePath);
+  try {
+    setStorageValue(getWorkspaceKey(projectPath), workspacePath);
+  } catch (error) {
+    console.warn("[workspace-memory] Failed to persist workspace path", error);
+  }
 }
 
 export function loadRememberedWorkspacePath(
   projectPath: string | undefined
 ): string | null {
-  return readStorageValue(getWorkspaceKey(projectPath));
+  try {
+    return readStorageValue(getWorkspaceKey(projectPath));
+  } catch (error) {
+    console.warn("[workspace-memory] Failed to load workspace path", error);
+    return null;
+  }
 }

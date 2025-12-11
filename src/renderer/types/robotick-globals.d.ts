@@ -2,6 +2,7 @@ export interface RobotickEnvironment {
   readonly isStandaloneApp: boolean;
   readonly appTitle: string;
   readonly cesiumToken?: string;
+  readonly usesNativeWindowFrame?: boolean;
   [key: string]: unknown;
 }
 

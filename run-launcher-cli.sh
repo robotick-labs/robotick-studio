@@ -46,8 +46,15 @@ fi
 
 if [ "$needs_install" = true ]; then
   echo "[Launcher CLI] Installing/updating launcher dependencies..."
+  LAUNCHER_PATH="$SCRIPT_DIR/tools/robotick-launcher"
+  LAUNCHER_URI="$("$PYTHON_BIN" - <<'PY' "$LAUNCHER_PATH"
+import pathlib, sys
+print(pathlib.Path(sys.argv[1]).resolve().as_uri())
+PY
+)"
+  LAUNCHER_SPEC="robotick-launcher[dev] @ ${LAUNCHER_URI}"
   if ! pip install --upgrade pip >/dev/null || \
-     ! pip install -e "$SCRIPT_DIR/tools/robotick-launcher[dev]" >/dev/null; then
+     ! pip install -e "$LAUNCHER_SPEC" >/dev/null; then
     rm -f "$MARKER_FILE"
     echo "[Launcher CLI] Pip install failed; please rerun." >&2
     exit 1
