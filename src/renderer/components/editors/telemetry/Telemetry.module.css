@@ -42,12 +42,15 @@
 .model {
   padding: 20px;
   border-radius: 20px;
-  border: 3px solid transparent;
+  border: 3px solid
+    color-mix(in srgb, var(--app-model-hover-border) 30%, transparent);
   cursor: pointer;
+  margin-bottom: 10px;
+  transition: border-color 0.2s ease;
 }
 
 .model:hover {
-  border: 3px solid var(--app-model-hover-border);
+  border-color: var(--app-model-hover-border);
 }
 
 .table {
