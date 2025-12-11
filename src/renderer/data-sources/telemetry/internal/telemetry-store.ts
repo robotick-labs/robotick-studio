@@ -336,14 +336,12 @@ export function createTelemetryStore(
 
   function reset() {
     for (const entry of stores.values()) {
-      entry.pollingTask?.stop();
+      stopPolling(entry);
     }
     stores.clear();
     telemetrySuspended = false;
     activeFetches = 0;
     fetchQueue.length = 0;
-    unregisterLauncherListeners();
-    registerLauncherListeners();
   }
 
   return {
