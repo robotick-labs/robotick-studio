@@ -54,6 +54,12 @@ export type TelemetryStore = {
 const DEFAULT_POLLING_INTERVAL_MS = 200;
 const DEFAULT_MAX_CONCURRENT_FETCHES = 4;
 
+/**
+ * Create a telemetry polling store that manages subscriptions, per-base-url polling, and delivery of telemetry models to subscribers.
+ *
+ * @param deps - Optional overrides for network, model-creation, event target, polling task factory, and max concurrent fetches
+ * @returns A TelemetryStore exposing `subscribeTelemetry(baseUrl, pollingRateHz, subscriber)` to subscribe and receive telemetry models and `reset()` to stop and clear the store
+ */
 export function createTelemetryStore(
   deps: TelemetryStoreDeps = {}
 ): TelemetryStore {

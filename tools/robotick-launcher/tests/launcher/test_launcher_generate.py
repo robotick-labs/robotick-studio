@@ -38,12 +38,34 @@ def normalize_lines(lines):
 
 
 def normalize_workload_paths(text: str) -> str:
-    """Replace absolute workload paths with a consistent placeholder."""
+    """
+    Normalize absolute paths that point to the robotick-core-workloads directory by replacing them with a stable placeholder.
+    
+    Parameters:
+        text (str): Input text potentially containing absolute workload paths.
+    
+    Returns:
+        str: A copy of `text` where occurrences of paths ending with
+        `tests/test_data/robotick/robotick-core-workloads` are replaced with
+        `__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads`.
+    """
     pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-core-workloads")
     return pattern.sub("__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads", text)
 
 
 def _list_files(dir_path: Path):
+    """
+    Collects all files under the given directory and returns their paths relative to that directory.
+    
+    Parameters:
+        dir_path (Path): Directory whose files should be listed.
+    
+    Returns:
+        List[Path]: Deterministically sorted list of file paths relative to `dir_path`.
+    
+    Notes:
+        Fails the test via `pytest.fail` if `dir_path` does not exist or is not a directory.
+    """
     if not dir_path.exists() or not dir_path.is_dir():
         pytest.fail(f"❌ Path is missing or not a directory: {dir_path}", pytrace=False)
     # Collect, filter to files, then sort deterministically

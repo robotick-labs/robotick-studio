@@ -15,6 +15,12 @@ const navClassName = ({ isActive }: { isActive: boolean }) =>
     .filter(Boolean)
     .join(" ");
 
+/**
+ * Determines whether an event target is inside an element marked with `data-window-interactive='true'`.
+ *
+ * @param target - The event target to check (may be `null`).
+ * @returns `true` if `target` is an `Element` and is contained within an element with `data-window-interactive='true'`, `false` otherwise.
+ */
 function isInteractiveTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
@@ -22,6 +28,11 @@ function isInteractiveTarget(target: EventTarget | null) {
   return Boolean(target.closest("[data-window-interactive='true']"));
 }
 
+/**
+ * Determine whether the application should use the native window frame.
+ *
+ * @returns `true` when `window.robotick.environment.usesNativeWindowFrame` is not explicitly `false` or when `window` is unavailable, `false` otherwise.
+ */
 function getUsesNativeWindowFrame(): boolean {
   if (typeof window === "undefined") {
     return true;
@@ -29,6 +40,13 @@ function getUsesNativeWindowFrame(): boolean {
   return window.robotick?.environment?.usesNativeWindowFrame !== false;
 }
 
+/**
+ * Renders the application header with logo, grouped navigation links, profile and launcher controls, and optional window controls.
+ *
+ * When running in standalone mode without a native window frame, registers a contextmenu handler on the document that opens the header's context menu at the click coordinates unless the event target is inside an interactive element.
+ *
+ * @returns The header element containing the logo, workspace-grouped navigation links, pickers/controls, and conditional window controls.
+ */
 export function AppHeader() {
   const { workspaces } = useAppConfig();
   const grouped = useMemo(() => groupWorkspaces(workspaces), [workspaces]);

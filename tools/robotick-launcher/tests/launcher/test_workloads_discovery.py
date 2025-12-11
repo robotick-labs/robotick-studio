@@ -15,6 +15,11 @@ class _MinimalConfig:
         self.launcher_dir = self.base_dir / ".launcher"
 
 def test_discover_workloads_golden(pytestconfig):
+    """
+    Validate that discovered workloads metadata matches the stored golden JSON for the sample workload roots.
+    
+    Runs discovery using a minimal configuration, writes the discovery output to test_data/workloads_discovery.latest.json, creates test_data/workloads_discovery.golden.json with the output if it does not exist, and asserts that the discovered JSON equals the golden file's contents.
+    """
     base_dir = Path(__file__).parents[1]
     workload_roots = [
         "test_data/robotick/robotick-core-workloads"

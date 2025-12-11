@@ -61,7 +61,13 @@ function enforceLRU() {
 
 // -----------------------------------------------------------------------------
 // Central function that returns a stable blob URL for given bytes
-// -----------------------------------------------------------------------------
+/**
+ * Provide a stable object URL for the given byte content and MIME type, reusing a cached URL when the same bytes and MIME were previously requested.
+ *
+ * @param raw - The binary data to expose via the object URL
+ * @param mime - The MIME type to assign to the created Blob
+ * @returns The object URL for the provided data and MIME type; an empty string if `raw` is null or empty
+ */
 export function getOrCreateBlobURL(raw: Uint8Array, mime: string): string {
   if (!raw || raw.length === 0) return "";
 

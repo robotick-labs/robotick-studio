@@ -316,6 +316,12 @@ namespace TelemetryFactory {
     ): Record<string, unknown>[];
   }
 
+  /**
+   * Build an ITelemetryModel from a LayoutModel, wiring type metadata, workloads, and decoding helpers.
+   *
+   * @param layout - The layout describing types, workloads, and offsets used to construct the telemetry model
+   * @returns An ITelemetryModel configured from `layout`, with workloads, type map, and a path lookup; the model's raw buffer is unset until assigned so callers must set `model.raw` before reading values
+   */
   export function create(layout: LayoutModel): ITelemetryModel {
     const typeMap = new Map<string, LayoutType>();
     for (const t of layout.types) typeMap.set(t.name, t);

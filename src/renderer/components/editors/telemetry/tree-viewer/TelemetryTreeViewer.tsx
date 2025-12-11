@@ -56,6 +56,13 @@ const TREE_STORAGE_KEYS = {
   dataKind: "robotick-studio.telemetry.tree.dataKind",
 };
 
+/**
+ * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
+ *
+ * Persists per-panel and per-workspace viewer preferences and uses the selected telemetry model to populate the displayed tree.
+ *
+ * @returns The React element tree for the telemetry tree viewer.
+ */
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
@@ -497,6 +504,12 @@ function JsonNode({
   );
 }
 
+/**
+ * Formats a telemetry field's value for display in the UI.
+ *
+ * @param field - The telemetry field whose value will be formatted.
+ * @returns A string representation suitable for display: `""` for null/undefined, quoted strings for string values, formatted numeric values for numbers/bigints, array previews or `"[N items]"`, `"<bytes N>"` for byte arrays, `"{…}"` for objects, or `String(value)` as a fallback.
+ */
 function formatValue(field: ITelemetryField) {
   const value = field.getValue?.();
   if (value === null || value === undefined) return "";
@@ -520,6 +533,20 @@ function formatArraySummary(value: unknown): string {
   return `[${value.length} items]`;
 }
 
+/**
+ * Produce a concise, human-readable string summary for a JSON-like value.
+ *
+ * @param value - Any JSON-like value (primitive, array, object, or Uint8Array)
+ * @returns A compact representation:
+ *  - `""` for `null` or `undefined`
+ *  - quoted string for string values
+ *  - numeric string for numbers and bigints
+ *  - `"true"` or `"false"` for booleans
+ *  - `"[N items]"` for arrays
+ *  - `"<bytes N>"` for `Uint8Array`
+ *  - `"{…}"` for objects
+ *  - otherwise `String(value)`
+ */
 function formatJsonValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;

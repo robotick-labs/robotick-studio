@@ -25,6 +25,16 @@ ARCHIVE_STUB_FILENAME = ".archive_stub"
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, dry_run: bool = False) -> None:
+    """
+    Execute a command or, when in dry-run mode, print what would be executed.
+    
+    If dry_run is True, prints a human-readable dry-run message showing the command and optional working directory instead of executing it. Otherwise delegates execution to the underlying subprocess runner.
+    
+    Parameters:
+        cmd (List[str]): Command and arguments to run (as a list of tokens).
+        cwd (Optional[Path]): Working directory in which to run the command; if None, uses the current process directory.
+        dry_run (bool): When True, do not execute the command and only display the dry-run message.
+    """
     if dry_run:
         pretty = " ".join(cmd)
         here = f" (cwd={cwd})" if cwd else ""
@@ -41,6 +51,16 @@ def _ensure_dir(path: Path, dry_run: bool = False) -> None:
 
 
 def _resolve_dependencies_dir(config, platform: str) -> Path:
+    """
+    Determine the directory where dependencies should be placed for a given platform.
+    
+    Parameters:
+        config: Object with a `launcher_dir` attribute pointing to the base launcher directory.
+        platform (str): Target platform identifier; "esp32" maps to the "components" subdirectory, all other values map to the "deps" subdirectory.
+    
+    Returns:
+        Path: Resolved dependencies directory under the launcher's directory.
+    """
     launcher_dir = Path(getattr(config, "launcher_dir"))
     if platform == "esp32":
         return launcher_dir / "components"
@@ -48,6 +68,15 @@ def _resolve_dependencies_dir(config, platform: str) -> Path:
 
 
 def _normalize_repo_url(repo: str) -> str:
+    """
+    Normalize a Git repository URL or path by removing a trailing slash and an optional `.git` suffix.
+    
+    Parameters:
+        repo (str): Repository URL or path to normalize.
+    
+    Returns:
+        str: The normalized repository URL/path without a trailing slash or `.git` suffix.
+    """
     repo = repo.rstrip("/")
     if repo.endswith(".git"):
         repo = repo[: -len(".git")]
@@ -55,6 +84,24 @@ def _normalize_repo_url(repo: str) -> str:
 
 
 def _archive_download_url(src) -> str:
+    """
+    Compute the HTTP download URL for a git-source archive.
+    
+    If `src.url` is present, that value is returned. Otherwise constructs a GitHub-style
+    release asset URL from `repo`, `pin`, and `asset` attributes on `src`.
+    
+    Parameters:
+        src: An object with either a `url` attribute, or `repo`, `pin`, and `asset`
+             attributes used to construct the download location.
+    
+    Returns:
+        url (str): The resolved download URL (either `src.url` or
+                   "<normalized_repo>/releases/download/<pin>/<asset>").
+    
+    Raises:
+        ValueError: If neither `url` is provided nor all of `repo`, `pin`, and `asset`
+                    are present on `src`.
+    """
     url = getattr(src, "url", None)
     if url:
         return url
@@ -70,11 +117,27 @@ def _archive_download_url(src) -> str:
 
 
 def _download_url_to_path(url: str, dest: Path) -> None:
+    """
+    Download the content at the given URL and write it to the destination file.
+    
+    Parameters:
+        url (str): HTTP(S) URL of the resource to download.
+        dest (Path): Filesystem path to write the downloaded bytes to; existing file will be overwritten.
+    """
     with urlopen(url) as response, dest.open("wb") as fh:
         shutil.copyfileobj(response, fh)
 
 
 def _normalize_checksum(checksum: str) -> tuple[str, str]:
+    """
+    Parse a checksum string into its algorithm and digest components.
+    
+    Parameters:
+        checksum (str): Checksum string in the form "algorithm:digest" or just "digest". Leading/trailing whitespace is permitted.
+    
+    Returns:
+        tuple[str, str]: A pair (algorithm, digest) where `algorithm` is lowercased (defaults to "sha256" if omitted) and `digest` is trimmed and lowercased.
+    """
     raw = checksum.strip()
     if ":" in raw:
         algo, digest = raw.split(":", 1)
@@ -84,6 +147,17 @@ def _normalize_checksum(checksum: str) -> tuple[str, str]:
 
 
 def _verify_archive_checksum(path: Path, checksum: str) -> None:
+    """
+    Validate that the file at `path` matches the provided checksum.
+    
+    Parameters:
+    	path (Path): Path to the archive file to verify.
+    	checksum (str): Checksum string either in the form `algorithm:digest` or a bare hex digest (a bare value is treated as `sha256`). Comparison is case-insensitive.
+    
+    Raises:
+    	ValueError: If the checksum specifies an algorithm other than `sha256`.
+    	RuntimeError: If the computed SHA-256 digest does not match the expected digest.
+    """
     algo, expected = _normalize_checksum(checksum)
     if algo != "sha256":
         raise ValueError(f"Unsupported checksum algorithm: {algo}")
@@ -99,6 +173,16 @@ def _verify_archive_checksum(path: Path, checksum: str) -> None:
 
 
 def _archive_metadata_matches(dest: Path, meta: dict) -> bool:
+    """
+    Check whether an archive already provisioned at `dest` has metadata that matches the provided `meta`.
+    
+    Parameters:
+        dest (Path): Destination directory where the archive is installed.
+        meta (dict): Expected metadata mapping keys to values; each key/value pair must equal the corresponding entry in the stored metadata.
+    
+    Returns:
+        bool: `True` if a metadata file exists at `dest` and every key in `meta` equals the corresponding value in the stored metadata, `False` otherwise.
+    """
     if not dest.exists():
         return False
     meta_path = dest / ARCHIVE_METADATA_FILENAME
@@ -115,11 +199,34 @@ def _archive_metadata_matches(dest: Path, meta: dict) -> bool:
 
 
 def _write_archive_metadata(dest: Path, meta: dict) -> None:
+    """
+    Write archive metadata to a metadata file inside the destination directory.
+    
+    Parameters:
+        dest (Path): Directory where the metadata file will be created.
+        meta (dict): Metadata to serialize and store; keys should be JSON-serializable.
+    
+    Notes:
+        The metadata is written as formatted JSON to the file named by ARCHIVE_METADATA_FILENAME within `dest`.
+    """
     meta_path = dest / ARCHIVE_METADATA_FILENAME
     meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True))
 
 
 def _copy_with_strip(source_root: Path, dest_root: Path, strip_components: int) -> None:
+    """
+    Copy files from an extracted archive tree into a destination while removing a specified number of leading path components.
+    
+    Parameters:
+        source_root (Path): Root directory of the extracted archive to copy from.
+        dest_root (Path): Destination directory to copy files into; intermediate directories are created as needed.
+        strip_components (int): Number of leading path components to remove from each source file's relative path before writing to the destination (use 0 to keep full relative paths).
+    
+    Details:
+        - Skips any top-level "__MACOSX" entries and any ".DS_Store" files.
+        - Preserves file metadata when copying (uses shutil.copy2).
+        - Raises RuntimeError if no files are copied after applying strip_components.
+    """
     copied_any = False
     strip = max(0, int(strip_components or 0))
     for root, dirs, files in os.walk(source_root):
@@ -157,6 +264,20 @@ def _copy_with_strip(source_root: Path, dest_root: Path, strip_components: int) 
 def _install_git_source_archive(
     dest: Path, src, *, dry_run: bool, stub_install: bool
 ) -> None:
+    """
+    Install a git-hosted source archive into the destination directory and record its provisioning metadata.
+    
+    Downloads the archive identified by `src` (or uses the provided asset name), optionally verifies its checksum, extracts its contents while stripping leading path components, and writes metadata to mark the destination as provisioned. In dry-run mode the function only reports the planned action. In stub-install mode the function creates a stub marker instead of downloading or extracting. If the destination already matches the archive metadata, no action is taken.
+    
+    Parameters:
+        dest (Path): Filesystem path where the archive contents should be installed.
+        src: Source descriptor object containing archive fields such as `url`, `repo`, `asset`, `pin`, `strip_components`, and `checksum`.
+        dry_run (bool): If true, do not perform filesystem or network changes; only report the intended action.
+        stub_install (bool): If true, create a provisioning stub at `dest` instead of performing a real install.
+    
+    Raises:
+        RuntimeError: If the archive download fails or if a checksum verification fails.
+    """
     url = _archive_download_url(src)
     strip_components = max(0, int(getattr(src, "strip_components", 0) or 0))
     checksum = getattr(src, "checksum", None)
@@ -223,6 +344,16 @@ def _install_git_source_archive(
 
 
 def _is_at_pin(repo_path: Path, pin: str) -> bool:
+    """
+    Check whether the Git repository at repo_path is at the specified revision (pin).
+    
+    Parameters:
+        repo_path (Path): Path to the local Git repository.
+        pin (str): Revision identifier to compare (commit hash, tag, or ref).
+    
+    Returns:
+        `true` if the repository's HEAD matches the specified pin, `false` otherwise.
+    """
     try:
         current_rev = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=repo_path, text=True
@@ -287,6 +418,23 @@ def _git_clone_or_fetch(
 def sync_model_dependencies(
     config,
 ) -> Tuple[List[Tuple[str, str, Optional[str], Path]], List[str]]:
+    """
+    Synchronize model dependencies from the configuration into the project's dependencies directory.
+    
+    Collects dependencies used by the model's workloads for the target platform and provisions them into the resolved dependencies directory. Records APT package requirements and handles git repositories and git-source archives, honoring `config.dry_run` and `config.stub_install`, and deduplicating identical (URL/archive, pin) entries.
+    
+    Parameters:
+        config: Configuration object containing at least:
+            - model (dict): Model manifest with a "workloads" list.
+            - target (str, optional): Platform identifier (defaults to "linux").
+            - dry_run (bool, optional): When true, perform no changes.
+            - stub_install (bool, optional): When true, create stubs instead of full installs.
+    
+    Returns:
+        Tuple containing:
+            - installed (List[Tuple[str, str, Optional[str], Path]]): List of provisioned dependencies as tuples of (name, url_or_archive, pin_or_None, destination Path).
+            - apt_packages (List[str]): Sorted list of APT package names required by the model.
+    """
     platform = getattr(config, "target", "linux")
     dry_run = bool(getattr(config, "dry_run", False))
     stub_install = bool(getattr(config, "stub_install", False))

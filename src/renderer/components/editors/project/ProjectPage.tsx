@@ -123,11 +123,24 @@ export default function ProjectPage() {
   );
 }
 
-// Utility — same as legacy version
+/**
+ * Convert an underscore-separated key into a human-readable title-cased label.
+ *
+ * @param key - The input identifier, typically with words separated by underscores
+ * @returns The input with underscores replaced by spaces and each word capitalized
+ */
 function formatLabel(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Resolve the absolute URL for the project's configuration JSON schema.
+ *
+ * @param options - Optional resolution overrides.
+ * @param options.href - An explicit href to use as the reference location; if omitted the current window location is used, with a fallback of `http://localhost/`.
+ * @param options.base - A base path to resolve against (e.g., `"/app/"` or `"./"`); if omitted the build `BASE_URL` is used when available, otherwise `"./"` is used.
+ * @returns The absolute URL pointing to `static/schemas/project-config.schema.json` resolved against the computed base.
+ */
 export function resolveProjectConfigSchemaUrl(options?: {
   href?: string;
   base?: string;

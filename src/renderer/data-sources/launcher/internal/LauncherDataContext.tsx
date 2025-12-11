@@ -64,6 +64,12 @@ export function getProjectModelsStateSnapshot(): ProjectModelsState {
   return latestProjectModelsState;
 }
 
+/**
+ * Subscribes to updates of the project models state and immediately invokes the listener with the current state.
+ *
+ * @param listener - Callback invoked whenever the project models state changes; also invoked immediately with the current state.
+ * @returns A function that unsubscribes the listener so it will no longer receive updates.
+ */
 export function subscribeProjectModelsState(
   listener: ProjectModelsListener
 ): () => void {
@@ -85,6 +91,13 @@ export function resetLauncherDataForTests() {
   projectModelsListeners.clear();
 }
 
+/**
+ * Waits until the project models finish loading and returns the final state.
+ *
+ * If the models are already loaded, the current state is returned immediately.
+ *
+ * @returns The project models state when `loading` is false
+ */
 export async function waitForProjectModelsLoaded(): Promise<ProjectModelsState> {
   const current = latestProjectModelsState;
   if (!current.loading) {

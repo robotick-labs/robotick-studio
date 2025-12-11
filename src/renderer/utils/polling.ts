@@ -35,6 +35,23 @@ export type PollingTaskOptions = {
   onError?: (error: unknown) => void;
 };
 
+/**
+ * Create a configurable polling task that repeatedly invokes `handler` on a timed interval.
+ *
+ * @param handler - Function executed each poll; may be synchronous or return a Promise.
+ * @param options - Configuration for the polling task:
+ *   - `intervalMs` (number): initial interval in milliseconds (integer >= 1; defaults to 1000).
+ *   - `runImmediately` (boolean): whether to invoke `handler` immediately on start (defaults to true).
+ *   - `scheduler` (Scheduler): optional custom scheduler providing `setInterval`/`clearInterval`.
+ *   - `onError` ((err: unknown) => void): optional error handler called when `handler` throws or rejects.
+ * @returns The PollingTask with methods:
+ *   - `start({ immediate? })`: begin polling; optional `immediate` overrides `runImmediately`.
+ *   - `stop()`: stop polling and clear the scheduled interval.
+ *   - `flush()`: await any in-flight handler invocation to complete.
+ *   - `setIntervalMs(next, { immediate? })`: update the interval (>=1 ms); restarts polling if running and may trigger an immediate run.
+ *   - `getIntervalMs()`: return the current interval in milliseconds.
+ *   - `isRunning()`: return whether polling is currently active.
+ */
 export function createPollingTask(
   handler: () => void | Promise<void>,
   options: PollingTaskOptions = {}

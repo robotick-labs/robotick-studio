@@ -37,6 +37,12 @@ addWindowEventListener("storage", (event: StorageEvent) => {
   notify(scope);
 });
 
+/**
+ * Produce a shallow copy of an array of panel records with each record's `settings` object duplicated.
+ *
+ * @param records - The array of FloatingPanelRecord objects to clone
+ * @returns A new array where each record is a shallow copy and its `settings` object is a shallow copy
+ */
 function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   return records.map((record) => ({
     ...record,
@@ -44,6 +50,17 @@ function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   }));
 }
 
+/**
+ * Load and normalize floating panel records for a given scope from persistent storage.
+ *
+ * Normalizes each stored item into a valid FloatingPanelRecord: ensures a non-empty `id`
+ * (generating one if missing), coerces `editorId` to a string and filters out items with
+ * an empty `editorId`, copies `settings`, and only includes `initialPosition`, `initialSize`,
+ * and `minSize` when numeric, finite, and (for sizes) greater than zero.
+ *
+ * @param scope - The storage scope key used to read panel data
+ * @returns An array of normalized `FloatingPanelRecord` objects for the scope; returns an empty array if no valid data exists or on parse/read errors
+ */
 function load(scope: string): FloatingPanelRecord[] {
   try {
     const raw = readStorageValue(`${STORAGE_PREFIX}${scope}`);
@@ -105,6 +122,15 @@ function load(scope: string): FloatingPanelRecord[] {
   }
 }
 
+/**
+ * Persist the floating-panel records for a given scope to storage.
+ *
+ * Writes the current in-memory records for `scope` to the storage key formed by
+ * prefixing `scope` with `STORAGE_PREFIX` as JSON. Storage write failures are
+ * silently ignored.
+ *
+ * @param scope - Scope identifier used as the suffix for the storage key
+ */
 function persist(scope: string) {
   const records = store.get(scope) ?? [];
   try {
@@ -171,6 +197,15 @@ export function spawnFloatingPanel(
   return id;
 }
 
+/**
+ * Apply updates to an existing floating panel in the given scope.
+ *
+ * Updates the panel identified by `panelId` by either merging the provided partial fields or using the returned panel from the update function. If the panel does not exist, no action is taken. Updated settings are merged with the existing settings; the panel `id` is always preserved. Changes are persisted and subscribers for the scope are notified.
+ *
+ * @param scope - The storage scope for the panel collection
+ * @param panelId - The identifier of the panel to update
+ * @param update - Either a partial set of panel fields to merge (may include `editorId`) or a function that receives the current panel and returns the updated panel
+ */
 export function updateFloatingPanel(
   scope: string,
   panelId: string,
@@ -208,10 +243,21 @@ export function removeFloatingPanel(scope: string, panelId: string): void {
   notify(scope);
 }
 
+/**
+ * Get the current floating panel records for the given scope.
+ *
+ * @param scope - Identifier for the per-scope panel store
+ * @returns A snapshot array of floating panel records for `scope`
+ */
 export function getFloatingPanels(scope: string): FloatingPanelRecord[] {
   return clone(ensure(scope));
 }
 
+/**
+ * Generates a unique identifier for a floating panel.
+ *
+ * @returns A unique identifier string; if the environment provides a UUID generator, a UUID is returned, otherwise a short random id prefixed with `fp-`.
+ */
 function generateId(): string {
   if (
     typeof crypto !== "undefined" &&
