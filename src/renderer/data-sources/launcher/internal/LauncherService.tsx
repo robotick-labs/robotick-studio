@@ -2,6 +2,15 @@ import React, { createContext, useContext, useMemo } from "react";
 import type { ProjectModelDescriptor } from "./launcher-interface";
 import currentProject from "./launcher-interface";
 
+/**
+ * Public contract for anything that needs to talk to the Python Launcher.
+ *
+ * The default implementation proxies to `launcher-interface.ts`, but keeping
+ * this shape explicit allows us to inject mocks/fakes inside tests or future
+ * embedders. React code should prefer `LauncherServiceProvider` +
+ * `useLauncherService()`, while non-React code can import `launcherService`
+ * from the package root.
+ */
 export interface LauncherService {
   setProjectPath(path: string): void;
   getProjectPath(): string;

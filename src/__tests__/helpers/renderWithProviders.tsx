@@ -1,21 +1,20 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { createRoot, Root } from "react-dom/client";
-import { act } from "react-dom/test-utils";
+import { act } from "react";
 import type { LauncherService } from "../../renderer/data-sources/launcher";
-import {
-  resetLauncherDataForTests,
-} from "../../renderer/data-sources/launcher";
+import { resetLauncherDataForTests } from "../../renderer/data-sources/launcher";
 import {
   resetTelemetryStore,
   TelemetryServiceProvider,
   createTelemetryService,
   type TelemetryService,
 } from "../../renderer/data-sources/telemetry";
-import {
-  createMockLauncherService,
-  TestLauncherProviders,
-} from "./mocks";
+import { createMockLauncherService, TestLauncherProviders } from "./mocks";
+
+if (typeof globalThis !== "undefined") {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+}
 
 type RenderWithProvidersOptions = {
   route?: string | string[];
@@ -50,7 +49,7 @@ export function renderWithProviders(
     createMockLauncherService({
       projectPath: options.projectPath,
       launcherProfile: options.launcherProfile,
-      overrides: options.launcherServiceOverrides,
+      ...(options.launcherServiceOverrides ?? {}),
     });
   const telemetryService =
     options.telemetryService ?? createTelemetryService();

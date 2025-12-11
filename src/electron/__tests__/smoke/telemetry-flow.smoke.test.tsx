@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from "vitest";
 import { JSDOM } from "jsdom";
 import { TelemetryApp } from "../../../renderer/components/editors/telemetry/view/TelemetryApp";
 import {
@@ -6,8 +6,12 @@ import {
   resetTelemetryTestState,
   resetLauncherDataTestState,
 } from "../../../__tests__/helpers/renderWithProviders";
-import { createMockLauncherService } from "../../../__tests__/helpers/mocks";
+import { createMockLauncherService } from "../../../renderer/data-sources/launcher";
 import * as projectsApi from "../../../renderer/data-sources/launcher/internal/projects-api";
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
 
 describe("Telemetry smoke flow", () => {
   let settingsSpy: ReturnType<typeof vi.spyOn>;

@@ -6,9 +6,9 @@ import {
   Launcher,
   LauncherServiceProvider,
   Project,
+  createMockLauncherService,
 } from "../../../../renderer/data-sources/launcher";
 import type { LauncherService } from "../../../../renderer/data-sources/launcher";
-import { createMockLauncherService } from "../../../../renderer/data-sources/launcher/internal/__mocks__/LauncherService";
 
 function renderWithLauncherService(
   service: LauncherService,

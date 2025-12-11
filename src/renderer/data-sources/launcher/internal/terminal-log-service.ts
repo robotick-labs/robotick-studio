@@ -29,6 +29,10 @@ const STORAGE_KEYS = {
 } as const;
 
 const HAS_WEBSOCKET = typeof globalThis.WebSocket !== "undefined";
+const IS_TEST_ENV =
+  typeof process !== "undefined" &&
+  typeof process.env !== "undefined" &&
+  process.env.NODE_ENV === "test";
 
 function readString(key: string, fallback: string): string {
   return readStorageValue(key) ?? fallback;
@@ -73,9 +77,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
 
   constructor() {
-    if (HAS_WEBSOCKET) {
+    if (HAS_WEBSOCKET && !IS_TEST_ENV) {
       this.connect();
-    } else {
+    } else if (!HAS_WEBSOCKET) {
       console.warn("[terminal] WebSocket unavailable in this environment");
     }
     launcherEvents.addEventListener("run-requested", this.handleRunRequested);

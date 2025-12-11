@@ -1,6 +1,6 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { JSDOM } from "jsdom";
@@ -13,6 +13,10 @@ vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
 
 import { AppRoutes } from "../../../renderer/Router";
 import { TestLauncherProviders } from "../../../__tests__/helpers/mocks";
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
 
 beforeEach(() => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -64,7 +68,7 @@ describe("Electron renderer smoke test", () => {
       "/telemetry"
     );
     window.localStorage?.setItem(
-      "robotick:last-workspace:%2Fmock%2Fproject",
+      "robotick:last-workspace:mock-project",
       "/telemetry"
     );
     const container = document.createElement("div");

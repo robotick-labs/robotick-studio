@@ -1,11 +1,22 @@
 import type { LauncherService } from "../LauncherService";
 import type { ProjectModelDescriptor } from "../launcher-interface";
 
+export type LauncherServiceMockOptions = Partial<LauncherService> & {
+  projectPath?: string;
+  launcherProfile?: string;
+};
+
 export function createMockLauncherService(
-  overrides: Partial<LauncherService> = {}
+  options: LauncherServiceMockOptions = {}
 ): LauncherService {
-  let projectPath = "mock-project";
-  let launcherProfile = "mock-profile";
+  const {
+    projectPath: initialProjectPath = "mock-project",
+    launcherProfile: initialLauncherProfile = "mock-profile",
+    ...overrides
+  } = options;
+
+  let projectPath = initialProjectPath;
+  let launcherProfile = initialLauncherProfile;
   const projectListeners = new Set<(path: string) => void>();
   const profileListeners = new Set<(profile: string) => void>();
 
@@ -71,8 +82,9 @@ export function createMockLauncherService(
     },
   };
 
-  return {
-    ...base,
-    ...overrides,
-  };
+  if (Object.keys(overrides).length === 0) {
+    return base;
+  }
+
+  return Object.assign({}, base, overrides);
 }

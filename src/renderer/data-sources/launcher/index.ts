@@ -165,6 +165,7 @@ export {
   launcherService,
 } from "./internal/LauncherService";
 export type { LauncherService } from "./internal/LauncherService";
+export { createMockLauncherService } from "./internal/__mocks__/LauncherService";
 export {
   terminalLogService,
   type TerminalLogService,
