@@ -175,7 +175,7 @@ export function updateFloatingPanel(
   scope: string,
   panelId: string,
   update:
-    | Partial<Omit<FloatingPanelRecord, "id" | "editorId">>
+    | Partial<Omit<FloatingPanelRecord, "id">>
     | ((panel: FloatingPanelRecord) => FloatingPanelRecord)
 ): void {
   const panels = ensure(scope);

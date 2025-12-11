@@ -17,6 +17,7 @@ import { PanelContextMenu } from "../PanelContextMenu";
 import type { PanelContextMenuState } from "../PanelContextMenu";
 import { PanelErrorBoundary } from "../PanelErrorBoundary";
 import { getDocumentBody } from "../../../utils/domEnvironment";
+import { GenericPanel } from "../../dialog/GenericPanel";
 
 type FloatingPanelLayerProps = {
   scope: string;
@@ -190,20 +191,20 @@ function FloatingPanelWindow({
         <div
           onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}
         >
-          <GenericPanel
-            title={title}
-            onClose={() => removeFloatingPanel(scope, panel.id)}
-            storageKey={`floating-panel:${scope}:${panel.id}`}
-            initialPosition={panel.initialPosition}
-            initialSize={panel.initialSize}
-            minSize={panel.minSize}
+          <PanelErrorBoundary
+            editorId={entry.id}
+            onRetry={() => setSelectorOpen(false)}
           >
-            <div className={styles.floatingContent}>
-              <div className={styles.panelBody}>
-                <PanelErrorBoundary
-                  editorId={entry.id}
-                  onRetry={() => setSelectorOpen(false)}
-                >
+            <GenericPanel
+              title={title}
+              onClose={() => removeFloatingPanel(scope, panel.id)}
+              storageKey={`floating-panel:${scope}:${panel.id}`}
+              initialPosition={panel.initialPosition}
+              initialSize={panel.initialSize}
+              minSize={panel.minSize}
+            >
+              <div className={styles.floatingContent}>
+                <div className={styles.panelBody}>
                   <React.Suspense
                     fallback={
                       <div className={styles.panelLoading}>Loading…</div>
@@ -211,49 +212,51 @@ function FloatingPanelWindow({
                   >
                     <Component />
                   </React.Suspense>
-                </PanelErrorBoundary>
-              </div>
-              {editorOptions.length > 1 && (
-                <div className={styles.panelOverlay}>
-                  {selectorOpen ? (
-                    <select
-                      ref={selectRef}
-                      className={styles.panelSelector}
-                      value={entry.id}
-                      onChange={handleEditorChange}
-                      onBlur={closeSelector}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.stopPropagation();
-                          closeSelector();
-                          selectRef.current?.blur();
-                        }
-                      }}
-                    >
-                      {editorOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <button
-                      className={styles.panelSelectorButton}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectorOpen(true);
-                        requestAnimationFrame(() => selectRef.current?.focus());
-                      }}
-                      aria-label="Open editor selector"
-                      title="Switch editor"
-                    >
-                      ▾
-                    </button>
-                  )}
                 </div>
-              )}
-            </div>
-          </GenericPanel>
+                {editorOptions.length > 1 && (
+                  <div className={styles.panelOverlay}>
+                    {selectorOpen ? (
+                      <select
+                        ref={selectRef}
+                        className={styles.panelSelector}
+                        value={entry.id}
+                        onChange={handleEditorChange}
+                        onBlur={closeSelector}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.stopPropagation();
+                            closeSelector();
+                            selectRef.current?.blur();
+                          }
+                        }}
+                      >
+                        {editorOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button
+                        className={styles.panelSelectorButton}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectorOpen(true);
+                          requestAnimationFrame(() =>
+                            selectRef.current?.focus()
+                          );
+                        }}
+                        aria-label="Open editor selector"
+                        title="Switch editor"
+                      >
+                        ▾
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </GenericPanel>
+          </PanelErrorBoundary>
         </div>
       </FloatingPanelContext.Provider>
     </PanelInstanceProvider>

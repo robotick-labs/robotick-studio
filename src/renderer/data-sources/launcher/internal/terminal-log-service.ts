@@ -2,6 +2,7 @@ import { readStorageValue, setStorageValue } from "../../../services/storage";
 import { launcherEvents } from "./LauncherContext";
 import { getLauncherLogStreamUrl } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
+import { createPollingTask } from "../../../utils/polling";
 
 type TerminalLogSubscriber = () => void;
 
@@ -48,12 +49,23 @@ function writeBoolean(key: string, value: boolean) {
   setStorageValue(key, value ? "true" : "false");
 }
 
+const RECONNECT_MIN_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 8000;
+
 class TerminalLogServiceImpl implements TerminalLogService {
   private messages: string[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
   private ws: WebSocket | null = null;
-  private retryTimer: number | null = null;
-  private retryDelay = 1000;
+  private reconnectTask = createPollingTask(
+    () => {
+      if (this.ws || !HAS_WEBSOCKET) {
+        return;
+      }
+      console.log("[terminal] Attempting reconnect...");
+      this.connect();
+    },
+    { intervalMs: RECONNECT_MIN_DELAY_MS, runImmediately: false }
+  );
 
   private filter = readString(STORAGE_KEYS.filter, "");
   private wrapText = readBoolean(STORAGE_KEYS.wrapText, true);
@@ -138,6 +150,12 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private connect() {
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    if (this.ws) {
+      return;
+    }
     let ws: WebSocket;
 
     try {
@@ -152,7 +170,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
     ws.onopen = () => {
       console.log("[terminal] Connected");
-      this.retryDelay = 1000;
+      this.reconnectTask.stop();
+      this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
+        immediate: false,
+      });
     };
 
     ws.onerror = (ev) => {
@@ -173,18 +194,16 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   private scheduleReconnect() {
-    if (this.retryTimer !== null) return;
-
-    const delay = this.retryDelay;
-    const capped = Math.min(delay, 8000);
-
-    console.log(`[terminal] Reconnecting in ${capped}ms...`);
-
-    this.retryTimer = globalThis.setTimeout(() => {
-      this.retryTimer = null;
-      this.retryDelay = Math.min(delay * 2, 8000);
-      this.connect();
-    }, capped);
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    const nextDelay = Math.min(
+      this.reconnectTask.getIntervalMs() * 2,
+      RECONNECT_MAX_DELAY_MS
+    );
+    this.reconnectTask.setIntervalMs(nextDelay, { immediate: false });
+    console.log(`[terminal] Reconnecting in ${nextDelay}ms...`);
+    this.reconnectTask.start({ immediate: false });
   }
 
   private pushMessage(message: string) {

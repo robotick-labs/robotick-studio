@@ -1,15 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { subscribeTelemetry } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-store";
+import { createTelemetryStore } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-store";
 
 const fetchLayout = vi.fn();
 const fetchRaw = vi.fn();
 const createTelemetryModel = vi.fn();
 
-vi.mock("../../../../../renderer/data-sources/telemetry/internal/telemetry-client", () => ({
-  fetchLayout: (...args: any[]) => fetchLayout(...args),
-  fetchRaw: (...args: any[]) => fetchRaw(...args),
-  createTelemetryModel: (...args: any[]) => createTelemetryModel(...args),
-}));
+vi.mock(
+  "../../../../../renderer/data-sources/telemetry/internal/telemetry-client",
+  () => ({
+    fetchLayout: (...args: any[]) => fetchLayout(...args),
+    fetchRaw: (...args: any[]) => fetchRaw(...args),
+    createTelemetryModel: (...args: any[]) => createTelemetryModel(...args),
+  })
+);
 
 const layout = {
   workloads: [],
@@ -29,6 +32,9 @@ async function flushMicrotasks() {
 }
 
 describe("telemetry-store polling", () => {
+  let store: ReturnType<typeof createTelemetryStore>;
+  let eventTarget: EventTarget;
+
   beforeEach(() => {
     vi.useFakeTimers();
     fetchLayout.mockResolvedValue(layout);
@@ -37,9 +43,17 @@ describe("telemetry-store polling", () => {
       sid: "sid",
     });
     createTelemetryModel.mockImplementation(makeModel);
+    eventTarget = new EventTarget();
+    store = createTelemetryStore({
+      fetchLayout: (...args) => fetchLayout(...args),
+      fetchRaw: (...args) => fetchRaw(...args),
+      createTelemetryModel: (...args) => createTelemetryModel(...args),
+      launcherEventTarget: eventTarget,
+    });
   });
 
   afterEach(() => {
+    store.reset();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     vi.clearAllMocks();
@@ -49,7 +63,7 @@ describe("telemetry-store polling", () => {
     const fastCb = vi.fn();
     const slowCb = vi.fn();
 
-    const unsubscribeFast = subscribeTelemetry("base", 10, {
+    const unsubscribeFast = store.subscribeTelemetry("base", 10, {
       callback: fastCb,
     });
     await flushMicrotasks();
@@ -58,7 +72,7 @@ describe("telemetry-store polling", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(fetchRaw).toHaveBeenCalledTimes(2);
 
-    const unsubscribeSlow = subscribeTelemetry("base", 2, {
+    const unsubscribeSlow = store.subscribeTelemetry("base", 2, {
       callback: slowCb,
     });
     await flushMicrotasks();
@@ -82,13 +96,13 @@ describe("telemetry-store polling", () => {
     const firstCb = vi.fn();
     const secondCb = vi.fn();
 
-    const unsubscribeFirst = subscribeTelemetry("base", 5, {
+    const unsubscribeFirst = store.subscribeTelemetry("base", 5, {
       callback: firstCb,
     });
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(0);
     expect(firstCb).toHaveBeenCalled();
-    const unsubscribeSecond = subscribeTelemetry("base", 5, {
+    const unsubscribeSecond = store.subscribeTelemetry("base", 5, {
       callback: secondCb,
     });
     await flushMicrotasks();
