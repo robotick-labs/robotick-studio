@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from "react";
 import type { LauncherStatus } from "../../data-sources/launcher";
 import styles from "./styles/LauncherControls.module.css";
+import {
+  clearIntervalSafe,
+  clearTimeoutSafe,
+  setIntervalSafe,
+  setTimeoutSafe,
+} from "../../utils/domEnvironment";
 
 export function LauncherDots({
   status,
@@ -19,11 +25,11 @@ export function LauncherDots({
 
   useEffect(() => {
     if (status !== "launching") return;
-    const id = window.setInterval(() => {
+    const id = setIntervalSafe(() => {
       setActiveIndex((prev) => (prev + 1) % 3);
     }, 500);
     return () => {
-      window.clearInterval(id);
+      clearIntervalSafe(id);
     };
   }, [status]);
 
@@ -49,12 +55,12 @@ export function LauncherDots({
     }
 
     setFlatlineReady(false);
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = setTimeoutSafe(() => {
       setFlatlineReady(true);
     }, 5000 - elapsed);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      clearTimeoutSafe(timeoutId);
     };
   }, [status, robotAlive, runningSince]);
 

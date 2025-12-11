@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { EditorEntry } from "../../../services/EditorRegistry";
-import { GenericPanel } from "../../dialog/GenericPanel";
 import { FloatingPanelContext } from "./FloatingPanelContext";
 import {
   FloatingPanelRecord,
@@ -17,6 +16,7 @@ import { PanelInstanceProvider } from "../PanelInstanceContext";
 import { PanelContextMenu } from "../PanelContextMenu";
 import type { PanelContextMenuState } from "../PanelContextMenu";
 import { PanelErrorBoundary } from "../PanelErrorBoundary";
+import { getDocumentBody } from "../../../utils/domEnvironment";
 
 type FloatingPanelLayerProps = {
   scope: string;
@@ -52,11 +52,11 @@ export function FloatingPanelLayer({
     [editorEntries]
   );
 
-  if (typeof document === "undefined") {
+  if (panels.length === 0) {
     return null;
   }
-
-  if (panels.length === 0) {
+  const body = getDocumentBody();
+  if (!body) {
     return null;
   }
 
@@ -131,7 +131,7 @@ export function FloatingPanelLayer({
         />
       )}
     </>,
-    document.body
+    body
   );
 }
 

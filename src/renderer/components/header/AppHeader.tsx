@@ -6,6 +6,7 @@ import { ProjectPicker } from "./ProjectPicker";
 import { useAppConfig } from "../../services/AppConfigService";
 import { WindowControls } from "./WindowControls";
 import { isStandaloneElectron } from "../../utils/environment";
+import { addDocumentEventListener } from "../../utils/domEnvironment";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import styles from "./styles/AppHeader.module.css";
 
@@ -36,7 +37,7 @@ export function AppHeader() {
   const { showHeaderMenu } = useContextMenu();
 
   useEffect(() => {
-    if (!isStandalone || typeof document === "undefined") return;
+    if (!isStandalone) return;
     const handler = (event: MouseEvent) => {
       const target = event.target as Element | null;
       const header = headerRef.current;
@@ -50,8 +51,7 @@ export function AppHeader() {
       event.stopPropagation();
       showHeaderMenu({ x: event.clientX, y: event.clientY });
     };
-    document.addEventListener("contextmenu", handler);
-    return () => document.removeEventListener("contextmenu", handler);
+    return addDocumentEventListener("contextmenu", handler);
   }, [isStandalone, showHeaderMenu]);
 
   return (

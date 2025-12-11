@@ -1,5 +1,9 @@
 import React from "react";
 import { GenericDialog } from "../dialog/GenericDialog";
+import {
+  addWindowEventListener,
+  getViewportSize,
+} from "../../utils/domEnvironment";
 import styles from "./PanelLayout.module.css";
 
 export type PanelContextMenuState = {
@@ -72,8 +76,9 @@ export function PanelContextMenu({
     }
     const { offsetWidth: width, offsetHeight: height } = menu;
     const buffer = 8;
-    const maxX = window.innerWidth - width - buffer;
-    const maxY = window.innerHeight - height - buffer;
+    const viewport = getViewportSize();
+    const maxX = viewport.width - width - buffer;
+    const maxY = viewport.height - height - buffer;
     const safeX = Math.max(buffer, Math.min(state.x, Math.max(buffer, maxX)));
     const safeY = Math.max(buffer, Math.min(state.y, Math.max(buffer, maxY)));
     setPlacement({ left: safeX, top: safeY });
@@ -111,11 +116,11 @@ export function PanelContextMenu({
         onClose();
       }
     };
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", handleKey);
+    const removeClick = addWindowEventListener("click", close);
+    const removeKey = addWindowEventListener("keydown", handleKey);
     return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", handleKey);
+      removeClick();
+      removeKey();
       cancelClose();
     };
   }, [onClose, cancelClose]);

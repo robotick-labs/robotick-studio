@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Project, useLauncherService } from "../../../data-sources/launcher";
+import { getWindow } from "../../../utils/domEnvironment";
 
 const useProjectContext = Project.Context.use;
 import styles from "./styles/ProjectPage.module.css";
@@ -131,8 +132,7 @@ export function resolveProjectConfigSchemaUrl(
   options?: { href?: string; base?: string }
 ): URL {
   const href =
-    options?.href ??
-    (typeof window !== "undefined" ? window.location.href : "http://localhost/");
+    options?.href ?? getWindow()?.location.href ?? "http://localhost/";
   const basePath =
     options?.base ?? (import.meta.env.BASE_URL ? import.meta.env.BASE_URL : "./");
   const baseUrl = new URL(basePath, href);

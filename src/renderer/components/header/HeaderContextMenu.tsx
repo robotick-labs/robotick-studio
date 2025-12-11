@@ -1,6 +1,10 @@
 import React from "react";
 import styles from "../workspaces/PanelLayout.module.css";
 import { getWindowControlsAPI } from "./WindowControls";
+import {
+  addWindowEventListener,
+  getViewportSize,
+} from "../../utils/domEnvironment";
 
 type HeaderContextMenuProps = {
   x: number;
@@ -37,11 +41,11 @@ export function HeaderContextMenu({ x, y, onClose }: HeaderContextMenuProps) {
         onClose();
       }
     };
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", handleKey);
+    const removeClick = addWindowEventListener("click", close);
+    const removeKey = addWindowEventListener("keydown", handleKey);
     return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", handleKey);
+      removeClick();
+      removeKey();
     };
   }, [onClose]);
 
@@ -53,8 +57,9 @@ export function HeaderContextMenu({ x, y, onClose }: HeaderContextMenuProps) {
     }
     const { offsetWidth: width, offsetHeight: height } = menu;
     const buffer = 8;
-    const maxX = window.innerWidth - width - buffer;
-    const maxY = window.innerHeight - height - buffer;
+    const viewport = getViewportSize();
+    const maxX = viewport.width - width - buffer;
+    const maxY = viewport.height - height - buffer;
     const safeX = Math.max(buffer, Math.min(x, Math.max(buffer, maxX)));
     const safeY = Math.max(buffer, Math.min(y, Math.max(buffer, maxY)));
     setPlacement({ left: safeX, top: safeY });

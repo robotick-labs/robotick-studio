@@ -10,6 +10,14 @@ import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PanelInstanceProvider } from "./PanelInstanceContext";
 import styles from "./PanelLayout.module.css";
+import {
+  addWindowEventListener,
+} from "../../utils/domEnvironment";
+import {
+  readStorageValue,
+  removeStorageValue,
+  setStorageValue,
+} from "../../services/storage";
 
 type PanelLeafNode = {
   id: string;
@@ -129,11 +137,8 @@ function loadLayout(
   fallbackEditorId: string,
   allowedEditors: Set<string>,
 ): PanelNode {
-  if (typeof window === "undefined") {
-    return createLeaf(fallbackEditorId);
-  }
   try {
-    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${workspaceId}`);
+    const raw = readStorageValue(`${STORAGE_PREFIX}${workspaceId}`);
     if (!raw) {
       return createLeaf(fallbackEditorId);
     }
@@ -146,12 +151,8 @@ function loadLayout(
 }
 
 function saveLayout(workspaceId: string, layout: PanelNode) {
-  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      `${STORAGE_PREFIX}${workspaceId}`,
-      JSON.stringify(layout),
-    );
+    setStorageValue(`${STORAGE_PREFIX}${workspaceId}`, JSON.stringify(layout));
   } catch {
     // Ignore write failures (e.g., storage disabled)
   }
@@ -350,9 +351,7 @@ export function PanelLayout({
 
   const resetLayout = React.useCallback(() => {
     const fresh = createLeaf(fallbackEditorId);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(`${STORAGE_PREFIX}${workspaceId}`);
-    }
+    removeStorageValue(`${STORAGE_PREFIX}${workspaceId}`);
     setLayout(fresh);
     setMaximizedPanelId(null);
   }, [fallbackEditorId, workspaceId]);
@@ -590,12 +589,12 @@ function SplitResizer({
     };
 
     const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+      removeMove();
+      removeUp();
     };
 
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    const removeMove = addWindowEventListener("mousemove", handleMove);
+    const removeUp = addWindowEventListener("mouseup", handleUp);
   };
 
   const resizerClass =
@@ -648,11 +647,11 @@ function PanelLeaf({
   } | null>(null);
 
   const dragState = React.useRef<{
-    moveHandler: ((event: MouseEvent) => void) | null;
-    upHandler: (() => void) | null;
+    removeMove: (() => void) | null;
+    removeUp: (() => void) | null;
   }>({
-    moveHandler: null,
-    upHandler: null,
+    removeMove: null,
+    removeUp: null,
   });
   const [editorPickerOpen, setEditorPickerOpen] = React.useState(false);
   const selectRef = React.useRef<HTMLSelectElement | null>(null);
@@ -696,10 +695,10 @@ function PanelLeaf({
       };
 
       function cleanup() {
-        window.removeEventListener("mousemove", handleMove);
-        window.removeEventListener("mouseup", handleUp);
-        dragState.current.moveHandler = null;
-        dragState.current.upHandler = null;
+        dragState.current.removeMove?.();
+        dragState.current.removeUp?.();
+        dragState.current.removeMove = null;
+        dragState.current.removeUp = null;
         setSplitPreview(null);
       }
 
@@ -710,20 +709,19 @@ function PanelLeaf({
         cleanup();
       };
 
-      dragState.current.moveHandler = handleMove;
-      dragState.current.upHandler = handleUp;
-      window.addEventListener("mousemove", handleMove);
-      window.addEventListener("mouseup", handleUp);
+      dragState.current.removeMove = addWindowEventListener(
+        "mousemove",
+        handleMove,
+      );
+      dragState.current.removeUp = addWindowEventListener("mouseup", handleUp);
     },
     [onSplit, node.id],
   );
 
   React.useEffect(() => {
     return () => {
-      if (dragState.current.moveHandler && dragState.current.upHandler) {
-        window.removeEventListener("mousemove", dragState.current.moveHandler);
-        window.removeEventListener("mouseup", dragState.current.upHandler);
-      }
+      dragState.current.removeMove?.();
+      dragState.current.removeUp?.();
     };
   }, []);
 

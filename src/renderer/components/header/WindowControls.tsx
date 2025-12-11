@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { getWindow } from "../../utils/domEnvironment";
 import styles from "./styles/WindowControls.module.css";
 
 export type WindowControlsAPI = Window["robotick"] extends {
@@ -10,15 +11,20 @@ export type WindowControlsAPI = Window["robotick"] extends {
 type WindowControlsProps = React.HTMLAttributes<HTMLDivElement>;
 
 export function getWindowControlsAPI(): WindowControlsAPI | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-  return window.robotick?.windowControls;
+  const win = getWindow();
+  return win?.robotick?.windowControls;
 }
 
 export function WindowControls(props: WindowControlsProps = {}) {
-  const api = getWindowControlsAPI();
+  const [api, setApi] = useState<WindowControlsAPI | undefined>(() =>
+    getWindowControlsAPI(),
+  );
   const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (api) return;
+    setApi(getWindowControlsAPI());
+  }, [api]);
 
   useEffect(() => {
     if (!api?.onStateChange) return;

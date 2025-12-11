@@ -2,6 +2,7 @@ import {
   readStorageValue,
   setStorageValue,
 } from "../../../services/storage";
+import { addWindowEventListener } from "../../../utils/domEnvironment";
 
 type PanelSettings = Record<string, unknown>;
 
@@ -30,16 +31,14 @@ const STORAGE_PREFIX = "floating-panels:";
 const store = new Map<string, FloatingPanelRecord[]>();
 const listeners = new Map<string, Set<Listener>>();
 
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) {
-      return;
-    }
-    const scope = event.key.slice(STORAGE_PREFIX.length);
-    store.delete(scope);
-    notify(scope);
-  });
-}
+addWindowEventListener("storage", (event: StorageEvent) => {
+  if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) {
+    return;
+  }
+  const scope = event.key.slice(STORAGE_PREFIX.length);
+  store.delete(scope);
+  notify(scope);
+});
 
 function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   return records.map((record) => ({
