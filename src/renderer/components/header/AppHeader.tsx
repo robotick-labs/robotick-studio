@@ -118,9 +118,6 @@ export function AppHeader() {
     if (!leftMenuOpen && !rightMenuOpen) {
       return;
     }
-    if (typeof document === "undefined") {
-      return;
-    }
     const handlePointerDown = (event: MouseEvent) => {
       const target = (event.target as Node) ?? null;
       if (
@@ -147,11 +144,17 @@ export function AppHeader() {
         closeMenus();
       }
     };
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
+    const cleanupPointer = addDocumentEventListener(
+      "mousedown",
+      handlePointerDown
+    );
+    const cleanupKeyboard = addDocumentEventListener(
+      "keydown",
+      handleKeyDown
+    );
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
+      cleanupPointer();
+      cleanupKeyboard();
     };
   }, [leftMenuOpen, rightMenuOpen, closeMenus]);
 
