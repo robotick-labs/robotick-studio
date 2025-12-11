@@ -12,14 +12,11 @@ export function createSvgLayer(id: string): SVGGElement {
 }
 
 export function createSvgLayers(svg: SVGSVGElement): Layers {
-  const existing: Partial<Layers> = {
-    swim: (svg.querySelector("g.layer-swim") as SVGGElement | null) || undefined,
-    group:
-      (svg.querySelector("g.layer-group") as SVGGElement | null) || undefined,
-    edges:
-      (svg.querySelector("g.layer-edges") as SVGGElement | null) || undefined,
-    nodes:
-      (svg.querySelector("g.layer-nodes") as SVGGElement | null) || undefined,
+  const existing = {
+    swim: svg.querySelector("g.layer-swim") as SVGGElement | null,
+    group: svg.querySelector("g.layer-group") as SVGGElement | null,
+    edges: svg.querySelector("g.layer-edges") as SVGGElement | null,
+    nodes: svg.querySelector("g.layer-nodes") as SVGGElement | null,
   };
 
   if (existing.swim && existing.group && existing.edges && existing.nodes) {

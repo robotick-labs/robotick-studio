@@ -71,6 +71,9 @@ export function createTelemetryStore(
     typeof queueMicrotask === "function"
       ? queueMicrotask
       : (cb: () => void) => Promise.resolve().then(cb);
+  let statusChangeListener: EventListener | null = null;
+  let runRequestedListener: EventListener | null = null;
+  let stopRequestedListener: EventListener | null = null;
 
   let telemetrySuspended = false;
   let activeFetches = 0;
@@ -132,7 +135,9 @@ export function createTelemetryStore(
   function startPolling(entry: StoreEntry) {
     if (telemetrySuspended) return;
     const task = ensurePollingTask(entry);
-    task.start({ immediate: true });
+    if (!task.isRunning()) {
+      task.start({ immediate: true });
+    }
   }
 
   function stopPolling(entry: StoreEntry) {
@@ -181,7 +186,7 @@ export function createTelemetryStore(
     entry.pollingIntervalMs = fastestInterval;
     const task = ensurePollingTask(entry);
     task.setIntervalMs(fastestInterval, { immediate: true });
-    if (!telemetrySuspended) {
+    if (!telemetrySuspended && !task.isRunning()) {
       task.start({ immediate: true });
     }
   }
@@ -203,21 +208,65 @@ export function createTelemetryStore(
     setTelemetrySuspended(status !== "running");
   }
 
-  const statusListener = (event: Event) => {
+  const statusEventHandler: EventListener = (event) => {
     const detail = (event as CustomEvent<{ status: LauncherStatus }>).detail;
     handleLauncherStatus(detail?.status);
   };
-
-  launcherEventTarget?.addEventListener?.(
-    "status-changed",
-    statusListener as EventListener
-  );
-  launcherEventTarget?.addEventListener?.("run-requested", () => {
+  const runEventHandler: EventListener = () => {
     setTelemetrySuspended(false);
-  });
-  launcherEventTarget?.addEventListener?.("stop-requested", () => {
+  };
+  const stopEventHandler: EventListener = () => {
     setTelemetrySuspended(true);
-  });
+  };
+
+  function registerLauncherListeners() {
+    if (!launcherEventTarget) return;
+    if (!statusChangeListener) {
+      statusChangeListener = statusEventHandler;
+      launcherEventTarget.addEventListener(
+        "status-changed",
+        statusChangeListener
+      );
+    }
+    if (!runRequestedListener) {
+      runRequestedListener = runEventHandler;
+      launcherEventTarget.addEventListener("run-requested", runRequestedListener);
+    }
+    if (!stopRequestedListener) {
+      stopRequestedListener = stopEventHandler;
+      launcherEventTarget.addEventListener(
+        "stop-requested",
+        stopRequestedListener
+      );
+    }
+  }
+
+  function unregisterLauncherListeners() {
+    if (!launcherEventTarget) return;
+    if (statusChangeListener) {
+      launcherEventTarget.removeEventListener(
+        "status-changed",
+        statusChangeListener
+      );
+      statusChangeListener = null;
+    }
+    if (runRequestedListener) {
+      launcherEventTarget.removeEventListener(
+        "run-requested",
+        runRequestedListener
+      );
+      runRequestedListener = null;
+    }
+    if (stopRequestedListener) {
+      launcherEventTarget.removeEventListener(
+        "stop-requested",
+        stopRequestedListener
+      );
+      stopRequestedListener = null;
+    }
+  }
+
+  registerLauncherListeners();
 
   function notifySubscribers(entry: StoreEntry, model: ITelemetryModel) {
     entry.subscribers.forEach((sub) => {
@@ -284,6 +333,8 @@ export function createTelemetryStore(
     telemetrySuspended = false;
     activeFetches = 0;
     fetchQueue.length = 0;
+    unregisterLauncherListeners();
+    registerLauncherListeners();
   }
 
   return {

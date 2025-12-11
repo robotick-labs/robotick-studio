@@ -1,13 +1,12 @@
+import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from "vitest";
-import { JSDOM } from "jsdom";
+import { waitFor, within } from "@testing-library/react";
 import { TelemetryApp } from "../../../renderer/components/editors/telemetry/view/TelemetryApp";
 import {
   renderWithProviders,
-  resetTelemetryTestState,
-  resetLauncherDataTestState,
 } from "../../../__tests__/helpers/renderWithProviders";
 import { createMockLauncherService } from "../../../renderer/data-sources/launcher";
-import * as projectsApi from "../../../renderer/data-sources/launcher/internal/projects-api";
+import { setupTestDomEnvironment } from "../../../__tests__/helpers/setupTestDomEnvironment";
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -15,24 +14,18 @@ beforeAll(() => {
 
 describe("Telemetry smoke flow", () => {
   let settingsSpy: ReturnType<typeof vi.spyOn>;
+  let cleanupDom: (() => void) | null = null;
 
   beforeEach(() => {
-    const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-      url: "http://localhost/",
-    });
-    const windowObject = dom.window as unknown as Window & typeof globalThis;
-    globalThis.window = windowObject;
-    globalThis.document = windowObject.document;
-    globalThis.navigator = windowObject.navigator as Navigator;
-    resetTelemetryTestState();
-    resetLauncherDataTestState();
-    settingsSpy = vi
-      .spyOn(projectsApi, "fetchProjectSettingsList")
-      .mockResolvedValue([]);
+    const env = setupTestDomEnvironment();
+    cleanupDom = env.cleanup;
+    settingsSpy = env.createProjectSettingsSpy();
   });
 
   afterEach(() => {
     settingsSpy.mockRestore();
+    cleanupDom?.();
+    cleanupDom = null;
   });
 
   it("prompts the user to select a project when none is active", async () => {
@@ -44,10 +37,12 @@ describe("Telemetry smoke flow", () => {
       launcherService,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.textContent).toContain(
-      "Select a project to view telemetry."
-    );
+    await waitFor(() => {
+      const text = within(container).getByText(
+        "Select a project to view telemetry."
+      );
+      expect(text).toBeInTheDocument();
+    });
 
     unmount();
   });

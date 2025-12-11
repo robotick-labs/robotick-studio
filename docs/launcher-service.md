@@ -58,8 +58,8 @@ care about.
 
 ## Rules of the road
 
-- Do **not** import files from `data-sources/launcher/internal/` outside of the
-  launcher package itself.
+- Do **not** import files from `data-sources/launcher/internal/` outside the
+  launcher package.
 - When adding new launcher functionality, extend the `LauncherService`
   interface and update this document.
 - If a module needs launcher state but cannot use React hooks, depend on the

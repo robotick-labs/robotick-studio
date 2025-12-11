@@ -643,7 +643,11 @@ class TelemetryField implements ITelemetryField {
     );
   }
 
-  private readEnumValues(): number | number[] | null {
+  private readEnumValues():
+    | number
+    | bigint
+    | Array<number | bigint>
+    | null {
     if (!this.enum_values || this.enum_values.length === 0) return null;
     if (!this.enum_underlying_size) return null;
     const view = this.model.view();
@@ -651,7 +655,17 @@ class TelemetryField implements ITelemetryField {
     if (!view || !raw) return null;
 
     const size = this.enum_underlying_size;
-    const readSingle = (offset: number): number | null => {
+    const safeMax = BigInt(Number.MAX_SAFE_INTEGER);
+    const safeMin = BigInt(Number.MIN_SAFE_INTEGER);
+    const toJsValue = (value: bigint | number): number | bigint => {
+      if (typeof value === "number") return value;
+      if (value <= safeMax && value >= safeMin) {
+        return Number(value);
+      }
+      return value;
+    };
+
+    const readSingle = (offset: number): number | bigint | null => {
       if (!withinBounds(view.byteLength, offset, size)) return null;
       switch (size) {
         case 1:
@@ -667,13 +681,17 @@ class TelemetryField implements ITelemetryField {
             ? view.getInt32(offset, true)
             : view.getUint32(offset, true);
         case 8: {
-          const low = view.getUint32(offset, true);
-          const high = view.getUint32(offset + 4, true);
-          const combined = high * 0x100000000 + low;
-          if (this.enum_is_signed && high & 0x80000000) {
-            return combined - 0x1_0000_0000_0000_0000;
+          const low = BigInt(view.getUint32(offset, true));
+          const high = BigInt(view.getUint32(offset + 4, true));
+          let combined = (high << 32n) | low;
+          const isSigned = Boolean(this.enum_is_signed);
+          if (
+            isSigned &&
+            (view.getUint32(offset + 4, true) & 0x80000000) !== 0
+          ) {
+            combined -= 1n << 64n;
           }
-          return combined;
+          return toJsValue(combined);
         }
         default:
           return null;
@@ -684,7 +702,7 @@ class TelemetryField implements ITelemetryField {
       return readSingle(this.offset);
     }
 
-    const results: number[] = [];
+    const results: Array<number | bigint> = [];
     let currentOffset = this.offset;
     for (let i = 0; i < this.elementCount; i++) {
       const val = readSingle(currentOffset);

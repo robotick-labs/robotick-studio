@@ -227,7 +227,7 @@ const getDefaultWindowOptions = (
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
-      sandbox: false,
+      sandbox: false, // TODO: enable sandboxing once window-controls bridge works within sandboxed renderer.
       contextIsolation: true,
     },
   };
@@ -350,16 +350,12 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
-  const cesiumToken = env.CESIUM_TOKEN?.trim();
   const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";
   console.log(
     `[Bootstrap] Window frame mode: ${useNativeFrame ? "native" : "custom"}`
   );
-  if (!cesiumToken) {
-    console.warn(
-      "[Bootstrap] CESIUM_TOKEN is not set; Cesium viewer will be unable to authenticate."
-    );
-  } else {
+  const cesiumToken = env.CESIUM_TOKEN?.trim();
+  if (cesiumToken) {
     console.log("[Bootstrap] CESIUM_TOKEN detected.");
   }
   const desiredCwd =

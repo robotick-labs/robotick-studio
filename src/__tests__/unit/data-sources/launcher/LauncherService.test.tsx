@@ -43,22 +43,28 @@ function HookProbe({ onValue }: { onValue: (svc: LauncherService) => void }) {
 }
 
 describe("LauncherServiceProvider", () => {
-  it("throws when the hook is used without a provider", () => {
+  it("logs an error when the hook is used without a provider", () => {
     function NakedHook() {
       useLauncherService();
       return null;
     }
     const container = document.createElement("div");
     const root = createRoot(container);
-
-    expect(() => {
+    let thrown: unknown;
+    try {
       act(() => {
         root.render(<NakedHook />);
       });
-    }).toThrowError(/useLauncherService must be used within LauncherServiceProvider/);
-
-    act(() => root.unmount());
-    container.remove();
+    } catch (error) {
+      thrown = error;
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(
+      "useLauncherService must be used within LauncherServiceProvider"
+    );
   });
 
   it("exposes the shared launcherService when no override is provided", () => {

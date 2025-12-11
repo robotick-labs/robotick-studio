@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { createRoot, Root } from "react-dom/client";
 import { act } from "react";
 import type { LauncherService } from "../../renderer/data-sources/launcher";
-import { resetLauncherDataForTests } from "../../renderer/data-sources/launcher";
+import { resetLauncherDataForTests } from "../../renderer/data-sources/launcher/test-utils";
 import {
   resetTelemetryStore,
   TelemetryServiceProvider,
@@ -43,7 +43,10 @@ export function renderWithProviders(
     );
   }
   const container = document.createElement("div");
+  document.body.appendChild(container);
   const root = createRoot(container);
+  let attachedContainer: HTMLElement | null = container;
+  let attachedRoot: Root | null = root;
   const service =
     options.launcherService ??
     createMockLauncherService({
@@ -80,9 +83,17 @@ export function renderWithProviders(
       });
     },
     unmount() {
+      const rootToUnmount = attachedRoot;
+      const containerToRemove = attachedContainer;
+      if (!rootToUnmount || !containerToRemove) {
+        return;
+      }
       act(() => {
-        root.unmount();
+        rootToUnmount.unmount();
       });
+      containerToRemove.remove();
+      attachedContainer = null;
+      attachedRoot = null;
     },
   };
 }

@@ -72,6 +72,10 @@ export function subscribeProjectModelsState(
   return () => projectModelsListeners.delete(listener);
 }
 
+/**
+ * @internal
+ * @testonly Resets cached launcher data/listeners between tests.
+ */
 export function resetLauncherDataForTests() {
   latestProjectModelsState = {
     data: [],

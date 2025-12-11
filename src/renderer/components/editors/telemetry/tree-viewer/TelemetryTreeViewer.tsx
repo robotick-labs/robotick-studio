@@ -23,6 +23,11 @@ import {
   removeStorageValue,
   setStorageValue,
 } from "../../../../services/storage";
+import {
+  formatEnumArrayPreview,
+  formatEnumNumber,
+  formatNumberSmart,
+} from "../utils/telemetry-formatters";
 
 type SectionKind = "inputs" | "outputs" | "config";
 type DataKindSelection = SectionKind | "all";
@@ -492,41 +497,13 @@ function JsonNode({
   );
 }
 
-function formatNumberSmart(n: number): string {
-  if (!isFinite(n)) return String(n);
-  if (Number.isInteger(n)) return String(n);
-  const abs = Math.abs(n);
-  const decimals = abs >= 100 ? 1 : abs >= 10 ? 2 : 3;
-  return n.toFixed(decimals);
-}
-
-function formatEnumNumber(field: ITelemetryField, value: number): string {
-  const formatted = formatNumberSmart(value);
-  if (!field.enum_values || field.enum_values.length === 0) return formatted;
-  const match = field.enum_values.find((entry) => entry.value === value);
-  return match ? `${formatted} (${match.name})` : formatted;
-}
-
-function formatEnumArrayPreview(
-  field: ITelemetryField,
-  values: unknown[]
-): string {
-  const limit = 4;
-  const preview = values.slice(0, limit).map((entry) => {
-    if (typeof entry === "number") {
-      return formatEnumNumber(field, entry);
-    }
-    return String(entry);
-  });
-  const suffix = values.length > limit ? ", …" : "";
-  return `[${preview.join(", ")}${suffix}]`;
-}
-
 function formatValue(field: ITelemetryField) {
   const value = field.getValue?.();
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number") return formatEnumNumber(field, value);
+  if (typeof value === "number" || typeof value === "bigint") {
+    return formatEnumNumber(field, value);
+  }
   if (Array.isArray(value)) {
     if (field.enum_values && field.enum_values.length > 0) {
       return formatEnumArrayPreview(field, value);
@@ -546,7 +523,9 @@ function formatArraySummary(value: unknown): string {
 function formatJsonValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number") return value.toString();
+  if (typeof value === "number" || typeof value === "bigint") {
+    return value.toString();
+  }
   if (typeof value === "boolean") return value ? "true" : "false";
   if (Array.isArray(value)) return `[${value.length} items]`;
   if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;

@@ -13,8 +13,11 @@ export function getWindowControlsAPI(): WindowControlsAPI | undefined {
 }
 
 export function WindowControls(props: WindowControlsProps = {}) {
+  // Lazily resolve the window controls API so SSR renders without touching
+  // `window`, then re-check on the client after hydration in case the bridge
+  // becomes available later.
   const [api, setApi] = useState<WindowControlsAPI | undefined>(() =>
-    getWindowControlsAPI(),
+    getWindowControlsAPI()
   );
   const [isMaximized, setIsMaximized] = useState(false);
 

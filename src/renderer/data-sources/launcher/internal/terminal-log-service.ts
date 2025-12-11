@@ -207,7 +207,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
     );
     this.reconnectTask.setIntervalMs(nextDelay, { immediate: false });
     console.log(`[terminal] Reconnecting in ${nextDelay}ms...`);
-    this.reconnectTask.start({ immediate: false });
+    if (!this.reconnectTask.isRunning()) {
+      this.reconnectTask.start({ immediate: false });
+    }
   }
 
   private pushMessage(message: string) {

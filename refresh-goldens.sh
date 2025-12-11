@@ -71,4 +71,8 @@ PY
 
 log "✅ Goldens refreshed. Review changes with 'git status'."
 
-run_launcher_tests "post-refresh" && log "🏁 Launcher tests green after refresh." || log "❌ Launcher tests still failing; inspect diffs."
+if run_launcher_tests "post-refresh"; then
+  log "🏁 Launcher tests green after refresh."
+else
+  log "❌ Launcher tests still failing; inspect diffs."
+fi

@@ -45,7 +45,7 @@ export async function fetchProjectSettingsList(): Promise<ProjectSettingsSummary
   );
 
   const validSummaries = metas.filter(
-    (meta): meta is ProjectSettingsSummary => meta !== null
+    (meta): meta is ProjectSettingsSummary => meta != null
   );
 
   return validSummaries.sort((a, b) => a.name.localeCompare(b.name));

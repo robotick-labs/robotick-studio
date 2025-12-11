@@ -1,6 +1,12 @@
 import type { LauncherService } from "../LauncherService";
 import type { ProjectModelDescriptor } from "../launcher-interface";
 
+/**
+ * Initialization options for the mock launcher service.
+ * `projectPath`/`launcherProfile` seed the internal state, while any
+ * properties supplied via `Partial<LauncherService>` replace the corresponding
+ * method implementations.
+ */
 export type LauncherServiceMockOptions = Partial<LauncherService> & {
   projectPath?: string;
   launcherProfile?: string;

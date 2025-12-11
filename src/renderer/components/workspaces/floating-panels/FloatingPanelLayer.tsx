@@ -87,7 +87,7 @@ export function FloatingPanelLayer({
   const handleContextMenuOpen = (
     panelId: string,
     editorId: string,
-    event: React.MouseEvent
+    event: ContextMenuTriggerEvent
   ) => {
     event.preventDefault();
     setContextMenu({
@@ -137,6 +137,12 @@ export function FloatingPanelLayer({
   );
 }
 
+type ContextMenuTriggerEvent = {
+  preventDefault: () => void;
+  clientX: number;
+  clientY: number;
+};
+
 type FloatingPanelWindowProps = {
   scope: string;
   panel: FloatingPanelRecord;
@@ -145,7 +151,7 @@ type FloatingPanelWindowProps = {
   onContextMenu: (
     panelId: string,
     editorId: string,
-    event: React.MouseEvent<HTMLDivElement>
+    event: ContextMenuTriggerEvent
   ) => void;
 };
 
@@ -189,7 +195,37 @@ function FloatingPanelWindow({
         }}
       >
         <div
+          role="button"
+          tabIndex={0}
           onContextMenu={(event) => onContextMenu(panel.id, entry.id, event)}
+          onKeyDown={(event) => {
+            const isContextMenuKey =
+              event.key === "ContextMenu" ||
+              (event.shiftKey && event.key === "F10");
+            const isActivationKey =
+              event.key === "Enter" ||
+              event.key === " " ||
+              event.key === "Space";
+            if (!isContextMenuKey && !isActivationKey) {
+              return;
+            }
+            event.preventDefault();
+            const target = event.currentTarget as HTMLElement | null;
+            const rect = target?.getBoundingClientRect();
+            const clientX =
+              rect && Number.isFinite(rect.left)
+                ? rect.left + rect.width / 2
+                : 0;
+            const clientY =
+              rect && Number.isFinite(rect.top)
+                ? rect.top + rect.height / 2
+                : 0;
+            onContextMenu(panel.id, entry.id, {
+              preventDefault: () => event.preventDefault(),
+              clientX,
+              clientY,
+            });
+          }}
         >
           <PanelErrorBoundary
             editorId={entry.id}

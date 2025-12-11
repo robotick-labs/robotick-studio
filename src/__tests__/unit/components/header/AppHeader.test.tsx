@@ -47,6 +47,39 @@ import { useContextMenu } from "../../../../renderer/components/context-menu/Con
 
 const useContextMenuMock = useContextMenu as unknown as vi.Mock;
 
+type RobotickEnvOptions = {
+  usesNativeWindowFrame?: boolean;
+  includeWindowControls?: boolean;
+};
+
+function setRobotickEnvironment({
+  usesNativeWindowFrame = true,
+  includeWindowControls = false,
+}: RobotickEnvOptions = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const windowControls = includeWindowControls
+    ? {
+        minimize: vi.fn(),
+        maximize: vi.fn(),
+        restore: vi.fn(),
+        close: vi.fn(),
+        toggleMaximize: vi.fn(),
+        onStateChange: vi.fn(() => () => {}),
+      }
+    : undefined;
+  (window as typeof window & { robotick?: any }).robotick = {
+    environment: {
+      isStandaloneApp: true,
+      appTitle: "Robotick Studio",
+      usesNativeWindowFrame,
+    },
+    ...(windowControls ? { windowControls } : {}),
+  };
+  return windowControls;
+}
+
 describe("AppHeader", () => {
   let contextMenuHandlers: {
     showPanelMenu: ReturnType<typeof vi.fn>;
@@ -60,14 +93,8 @@ describe("AppHeader", () => {
       showHeaderMenu: vi.fn(),
     };
     useContextMenuMock.mockReturnValue(contextMenuHandlers);
+    setRobotickEnvironment();
     if (typeof window !== "undefined") {
-      (window as typeof window & { robotick?: any }).robotick = {
-        environment: {
-          isStandaloneApp: true,
-          appTitle: "Robotick Studio",
-          usesNativeWindowFrame: true,
-        },
-      };
       Object.defineProperty(window.navigator, "userAgent", {
         configurable: true,
         value: "Mozilla/5.0",
@@ -86,21 +113,10 @@ describe("AppHeader", () => {
 
   it("renders custom window controls when standalone and frameless", () => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(true);
-    (window as typeof window & { robotick?: any }).robotick = {
-      environment: {
-        isStandaloneApp: true,
-        appTitle: "Robotick Studio",
-        usesNativeWindowFrame: false,
-      },
-      windowControls: {
-        minimize: vi.fn(),
-        maximize: vi.fn(),
-        restore: vi.fn(),
-        close: vi.fn(),
-        toggleMaximize: vi.fn(),
-        onStateChange: vi.fn(() => () => {}),
-      },
-    };
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+    });
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <AppHeader />
@@ -111,21 +127,10 @@ describe("AppHeader", () => {
 
   it("opens the header context menu on right click when frameless", () => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(true);
-    (window as typeof window & { robotick?: any }).robotick = {
-      environment: {
-        isStandaloneApp: true,
-        appTitle: "Robotick Studio",
-        usesNativeWindowFrame: false,
-      },
-      windowControls: {
-        minimize: vi.fn(),
-        maximize: vi.fn(),
-        restore: vi.fn(),
-        close: vi.fn(),
-        toggleMaximize: vi.fn(),
-        onStateChange: vi.fn(() => () => {}),
-      },
-    };
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+    });
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);

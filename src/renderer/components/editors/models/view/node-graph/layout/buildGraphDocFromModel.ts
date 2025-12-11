@@ -4,7 +4,7 @@ import {
   type Edge,
   type Section,
 } from "./editorNodeGraph";
-import { DocumentStore } from "../../../document/documentStore";
+import type { DocumentStore } from "../../../document/documentStore";
 import type { Workload } from "../../../document/modelData";
 
 const nodeSize = { width: 140, height: 40 } as const;

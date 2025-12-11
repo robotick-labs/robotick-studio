@@ -1,9 +1,8 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
-import { JSDOM } from "jsdom";
 
 vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
   WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
@@ -13,30 +12,25 @@ vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
 
 import { AppRoutes } from "../../../renderer/Router";
 import { TestLauncherProviders } from "../../../__tests__/helpers/mocks";
+import { setupTestDomEnvironment } from "../../../__tests__/helpers/setupTestDomEnvironment";
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
+let cleanupDom: (() => void) | null = null;
+
 beforeEach(() => {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-    url: "http://localhost/",
+  const env = setupTestDomEnvironment({
+    resetTelemetry: false,
+    resetLauncher: false,
   });
-  const windowObject = dom.window as unknown as Window & typeof globalThis;
-  globalThis.window = windowObject;
-  globalThis.document = windowObject.document;
-  globalThis.navigator = windowObject.navigator as Navigator;
-  const props = Object.getOwnPropertyNames(windowObject).filter(
-    (prop) => !(prop in globalThis)
-  );
-  for (const prop of props) {
-    try {
-      // @ts-ignore
-      globalThis[prop] = (windowObject as Record<string, unknown>)[prop];
-    } catch {
-      // ignore read-only globals (crypto, performance, etc.)
-    }
-  }
+  cleanupDom = env.cleanup;
+});
+
+afterEach(() => {
+  cleanupDom?.();
+  cleanupDom = null;
 });
 
 describe("Electron renderer smoke test", () => {
@@ -63,11 +57,11 @@ describe("Electron renderer smoke test", () => {
   });
 
   it("renders the Telemetry workspace when navigating directly to /telemetry", async () => {
-    window.localStorage?.setItem(
+    window.localStorage.setItem(
       "robotick:last-workspace:global",
       "/telemetry"
     );
-    window.localStorage?.setItem(
+    window.localStorage.setItem(
       "robotick:last-workspace:mock-project",
       "/telemetry"
     );
@@ -77,7 +71,7 @@ describe("Electron renderer smoke test", () => {
     await act(async () => {
       root.render(
         <TestLauncherProviders>
-          <MemoryRouter initialEntries={["/telemetry"]}>
+          <MemoryRouter initialEntries={["/"]}>
             <AppRoutes />
           </MemoryRouter>
         </TestLauncherProviders>

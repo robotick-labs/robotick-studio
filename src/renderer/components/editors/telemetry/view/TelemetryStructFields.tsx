@@ -14,50 +14,22 @@ import type {
   ITelemetryField as TelemetryField,
   ITelemetryStruct as TelemetryStruct,
 } from "../../../../data-sources/telemetry";
-
-// -------------------------------------------------------------
-// Number formatting
-// -------------------------------------------------------------
-function formatNumberSmart(n: number): string {
-  if (!isFinite(n)) return String(n);
-  if (Number.isInteger(n)) return String(n);
-  const abs = Math.abs(n);
-  let decimals = abs >= 100 ? 1 : abs >= 10 ? 2 : 3;
-  return n.toFixed(decimals);
-}
-
-function formatEnumNumber(value: number, field?: TelemetryField): string {
-  const formatted = formatNumberSmart(value);
-  if (!field?.enum_values || field.enum_values.length === 0) return formatted;
-  const match = field.enum_values.find((entry) => entry.value === value);
-  return match ? `${formatted} (${match.name})` : formatted;
-}
-
-function formatEnumArrayPreview(
-  values: unknown[],
-  field?: TelemetryField
-): string {
-  const limit = 4;
-  const preview = values.slice(0, limit).map((entry) => {
-    if (typeof entry === "number") {
-      return formatEnumNumber(entry, field);
-    }
-    return String(entry);
-  });
-  const suffix = values.length > limit ? ", …" : "";
-  return `[${preview.join(", ")}${suffix}]`;
-}
+import {
+  formatEnumArrayPreview,
+  formatEnumNumber,
+} from "../utils/telemetry-formatters";
 
 function formatValue(value: unknown, field: TelemetryField): string {
   const type = field.type;
   if (value === null || value === undefined) return `<${type}>`;
   if (Array.isArray(value)) {
     if (field.enum_values && field.enum_values.length > 0) {
-      return formatEnumArrayPreview(value, field);
+      return formatEnumArrayPreview(field, value);
     }
     return `<${type}, ${value.length}>`;
   }
-  if (typeof value === "number") return formatEnumNumber(value, field);
+  if (typeof value === "number" || typeof value === "bigint")
+    return formatEnumNumber(field, value);
   if (typeof value === "string") return `"${value}"`;
   if (value instanceof Uint8Array || value instanceof ArrayBuffer)
     return `<${type}> (${value.byteLength} bytes)`;

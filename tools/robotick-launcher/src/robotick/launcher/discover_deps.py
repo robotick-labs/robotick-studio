@@ -23,11 +23,16 @@ def _dep_identity(dep: Dependency) -> Tuple:
     src = dep.source
     repo = getattr(src, "repo", None)
     asset = getattr(src, "asset", None)
+    repo_asset = None
+    if repo:
+        repo_asset = repo + (f"#{asset}" if asset else "")
+    elif asset:
+        repo_asset = asset
     identifier = (
         getattr(src, "package", None)
         or getattr(src, "module", None)
         or getattr(src, "url", None)
-        or ((repo or "") + (f"#{asset}" if asset else ""))
+        or repo_asset
         or getattr(src, "component", None)
         or getattr(src, "path", None)
     )
@@ -48,11 +53,16 @@ def _dep_sort_key(dep: Dependency) -> Tuple:
     src = dep.source
     repo = getattr(src, "repo", None)
     asset = getattr(src, "asset", None)
+    repo_asset = None
+    if repo:
+        repo_asset = repo + (f"#{asset}" if asset else "")
+    elif asset:
+        repo_asset = asset
     identifier = (
         getattr(src, "package", None)
         or getattr(src, "module", None)
         or getattr(src, "url", None)
-        or ((repo or "") + (f"#{asset}" if asset else ""))
+        or repo_asset
         or getattr(src, "component", None)
         or getattr(src, "path", None)
         or ""

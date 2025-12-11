@@ -60,6 +60,7 @@ const expose = () => {
     ? path.join(storageDir, "renderer-storage.json")
     : undefined;
   let storageCache: Record<string, string> | null = null;
+  let writeTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const readStorageFile = (): Record<string, string> | null => {
     if (!storageFile) {
@@ -70,7 +71,25 @@ const expose = () => {
     }
     try {
       const raw = fs.readFileSync(storageFile, { encoding: "utf-8" });
-      storageCache = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      if (!raw) {
+        storageCache = {};
+        return storageCache;
+      }
+      const parsed = JSON.parse(raw);
+      const isValidObject =
+        typeof parsed === "object" &&
+        parsed !== null &&
+        Object.entries(parsed).every(
+          ([key, value]) => typeof key === "string" && typeof value === "string"
+        );
+      if (isValidObject) {
+        storageCache = parsed as Record<string, string>;
+      } else {
+        console.warn(
+          "[Preload] Renderer storage contained invalid data; resetting."
+        );
+        storageCache = {};
+      }
     } catch (error) {
       storageCache = {};
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -84,16 +103,22 @@ const expose = () => {
     if (!storageFile || !storageCache) {
       return;
     }
-    try {
-      fs.mkdirSync(path.dirname(storageFile), { recursive: true });
-      fs.writeFileSync(
-        storageFile,
-        JSON.stringify(storageCache, null, 2),
-        "utf-8"
-      );
-    } catch (error) {
-      console.warn("[Preload] Failed to persist renderer storage:", error);
+    if (writeTimeout) {
+      clearTimeout(writeTimeout);
     }
+    writeTimeout = setTimeout(() => {
+      writeTimeout = null;
+      try {
+        fs.mkdirSync(path.dirname(storageFile), { recursive: true });
+        fs.writeFileSync(
+          storageFile,
+          JSON.stringify(storageCache, null, 2),
+          "utf-8"
+        );
+      } catch (error) {
+        console.warn("[Preload] Failed to persist renderer storage:", error);
+      }
+    }, 100);
   };
 
   const storageBridge = {
@@ -125,9 +150,11 @@ const expose = () => {
     },
     removeItem(key: string): void {
       const fileStore = readStorageFile();
-      if (fileStore && Object.prototype.hasOwnProperty.call(fileStore, key)) {
-        delete fileStore[key];
-        writeStorageFile();
+      if (fileStore) {
+        if (Object.prototype.hasOwnProperty.call(fileStore, key)) {
+          delete fileStore[key];
+          writeStorageFile();
+        }
         return;
       }
       try {

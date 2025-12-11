@@ -258,23 +258,25 @@ export function PanelContextMenu({
         )}
       </div>
       {confirmResetOpen && (
-        <GenericDialog
-          title="Reset layout?"
-          message="This will restore the default workspace layout. Any custom panel arrangement will be lost."
-          onClose={() => setConfirmResetOpen(false)}
-          actions={[
-            { label: "Cancel", onClick: () => setConfirmResetOpen(false) },
-            {
-              label: "Reset layout",
-              variant: "primary",
-              onClick: () => {
-                onResetLayout();
-                setConfirmResetOpen(false);
-                onClose();
+        <div onClick={(event) => event.stopPropagation()}>
+          <GenericDialog
+            title="Reset layout?"
+            message="This will restore the default workspace layout. Any custom panel arrangement will be lost."
+            onClose={() => setConfirmResetOpen(false)}
+            actions={[
+              { label: "Cancel", onClick: () => setConfirmResetOpen(false) },
+              {
+                label: "Reset layout",
+                variant: "primary",
+                onClick: () => {
+                  onResetLayout();
+                  setConfirmResetOpen(false);
+                  onClose();
+                },
               },
-            },
-          ]}
-        />
+            ]}
+          />
+        </div>
       )}
     </>
   );

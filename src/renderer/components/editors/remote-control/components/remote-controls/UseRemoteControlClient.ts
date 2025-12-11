@@ -525,11 +525,19 @@ class RemoteControlClient {
       knob,
       movePointer,
       resetKnob,
-      movePointerToCenter: () => {
-        if (!this.controlsEnabled) return;
-        this.moveStickVisual(controller, 0, 0);
-        this.sendJoystickInput(topic, 0, 0);
-      },
+      movePointerToCenter: () => {},
+    };
+    controller.movePointerToCenter = () => {
+      if (!this.controlsEnabled) return;
+      this.moveStickVisual(controller, 0, 0);
+      this.sendJoystickInput(topic, 0, 0);
+      if (!this.ticking) this.startTickLoop();
+      if (updateLocalState) {
+        const local =
+          this.localState[topic === "left_stick" ? "left" : "right"];
+        local.x = 0;
+        local.y = 0;
+      }
     };
 
     return controller;
