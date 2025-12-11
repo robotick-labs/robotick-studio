@@ -34,14 +34,34 @@ const IS_TEST_ENV =
   typeof process.env !== "undefined" &&
   process.env.NODE_ENV === "test";
 
+/**
+ * Read a string value from persistent storage for the given key, returning a fallback when absent.
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return if no stored value exists for `key`
+ * @returns The stored string associated with `key`, or `fallback` if none is present
+ */
 function readString(key: string, fallback: string): string {
   return readStorageValue(key) ?? fallback;
 }
 
+/**
+ * Persist a string value under the specified storage key.
+ *
+ * @param key - The storage key to write to
+ * @param value - The string value to persist
+ */
 function writeString(key: string, value: string) {
   setStorageValue(key, value);
 }
 
+/**
+ * Read a stored value and use the provided fallback when the stored value is not the literal strings "true" or "false".
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return when the stored value is missing or not "true"/"false"
+ * @returns `true` if the stored value is the string "true", `false` if the stored value is the string "false", otherwise returns `fallback`
+ */
 function readBoolean(key: string, fallback: boolean): boolean {
   const raw = readStorageValue(key);
   if (raw === "true") return true;
@@ -49,6 +69,12 @@ function readBoolean(key: string, fallback: boolean): boolean {
   return fallback;
 }
 
+/**
+ * Persist a boolean value to storage under the given key.
+ *
+ * @param key - Storage key where the value will be saved
+ * @param value - The boolean value to store
+ */
 function writeBoolean(key: string, value: boolean) {
   setStorageValue(key, value ? "true" : "false");
 }

@@ -37,6 +37,29 @@ export type PanelContextMenuProps = {
   showCreateFloating?: boolean;
 };
 
+/**
+ * Renders a contextual menu for panel operations (split, assign tool, maximize, close, reset, create floating).
+ *
+ * The menu positions itself near the provided coordinates, constrains to the viewport, shows an "Assign Tool"
+ * hover submenu aligned to the menu, and presents a confirmation dialog before resetting layout.
+ *
+ * @param state - Active panel/editor context including `panelId`, `editorId`, `x`, `y`, `horizontalRatio`, and `verticalRatio`
+ * @param editorOptions - Array of assignable editor options with `{ id, label }`; used to populate the Assign Tool submenu
+ * @param canClose - Whether the current panel can be closed; disables the Close Panel action when false
+ * @param isMaximized - Current maximize state; controls the Maximize/Restore menu label
+ * @param onSplit - Callback invoked to split the panel: `(panelId, direction, ratio) => void`
+ * @param onAssign - Callback invoked to assign a tool: `(editorId) => void`
+ * @param onToggleMaximize - Callback to toggle panel maximize state
+ * @param onClosePanel - Callback to close the current panel
+ * @param onResetLayout - Callback to reset the workspace layout (invoked after confirming reset)
+ * @param onClose - Callback to close the context menu
+ * @param onCreateFloatingPanel - Callback to create a floating panel; receives optional `editorId`
+ * @param showSplit - Whether split actions are shown (default `true`)
+ * @param showMaximize - Whether maximize/restore action is shown (default `true`)
+ * @param showReset - Whether the Reset Layout action is shown (default `true`)
+ * @param showCreateFloating - Whether the Create Floating Panel action is shown (default `true`)
+ * @returns The rendered context menu React element
+ */
 export function PanelContextMenu({
   state,
   editorOptions,

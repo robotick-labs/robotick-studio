@@ -17,6 +17,17 @@ type SetupResult = {
   createProjectSettingsSpy: () => ReturnType<typeof vi.spyOn>;
 };
 
+/**
+ * Create a JSDOM-based browser-like environment for tests and provide helpers to spy on project settings fetches.
+ *
+ * @param options - Optional setup flags:
+ *   - `url`: the document URL to use for the JSDOM instance (default: `"http://localhost/"`).
+ *   - `resetTelemetry`: if `false`, do not call `resetTelemetryTestState()`; otherwise telemetry state is reset.
+ *   - `resetLauncher`: if `false`, do not call `resetLauncherDataTestState()`; otherwise launcher state is reset.
+ * @returns An object containing:
+ *   - `cleanup`: a function that restores any created spies and the previous global `window`, `document`, and `navigator`.
+ *   - `createProjectSettingsSpy`: a helper that creates and returns a spy for `projectsApi.fetchProjectSettingsList` mocked to resolve to an empty array.
+ */
 export function setupTestDomEnvironment(
   options: SetupOptions = {}
 ): SetupResult {

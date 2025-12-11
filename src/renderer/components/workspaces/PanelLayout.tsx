@@ -53,6 +53,11 @@ type EditorOption = {
 };
 
 let panelIdCounter = 0;
+/**
+ * Generate a unique identifier for a panel.
+ *
+ * @returns A unique string to use as the panel's identifier
+ */
 function generatePanelId() {
   if (
     typeof crypto !== "undefined" &&
@@ -88,6 +93,20 @@ function countLeaves(node: PanelNode): number {
   return countLeaves(node.children[0]) + countLeaves(node.children[1]);
 }
 
+/**
+ * Validate and normalize a raw panel layout object into a sanitized panel tree node.
+ *
+ * The function accepts an untrusted value and returns a well-formed PanelNode if the
+ * input represents a valid leaf or split node. For leaf nodes it resolves the editor
+ * id against the allowed set and ensures an id exists. For split nodes it validates
+ * direction and children, recursively sanitizes both children, clamps the ratio, and
+ * ensures an id exists.
+ *
+ * @param raw - Untrusted input to validate and sanitize
+ * @param fallbackEditorId - Editor id to use when a leaf's editor is missing or not allowed
+ * @param allowedEditors - Set of permitted editor ids used to validate leaf editor assignments
+ * @returns A sanitized `PanelNode` when `raw` is valid, or `null` when the input is invalid
+ */
 function sanitizeNode(
   raw: unknown,
   fallbackEditorId: string,
@@ -135,6 +154,14 @@ function sanitizeNode(
   return null;
 }
 
+/**
+ * Load a persisted panel layout for a workspace and return a validated layout tree, or a fresh leaf using the fallback editor when no valid layout exists.
+ *
+ * @param workspaceId - Identifier used to locate the persisted layout for the workspace
+ * @param fallbackEditorId - Editor id to use when returning a new leaf or replacing invalid/unsupported editor entries
+ * @param allowedEditors - Set of editor ids permitted in the returned layout; any editor not in this set will be replaced by `fallbackEditorId`
+ * @returns A sanitized PanelNode representing the workspace layout, or a single-leaf node using `fallbackEditorId` if the stored layout is missing or invalid
+ */
 function loadLayout(
   workspaceId: string,
   fallbackEditorId: string,
@@ -153,6 +180,14 @@ function loadLayout(
   }
 }
 
+/**
+ * Persist the given panel layout for a workspace in durable storage.
+ *
+ * @param workspaceId - Identifier for the workspace; used as the storage key
+ * @param layout - The root panel node representing the layout to persist
+ *
+ * @remarks
+ * Write failures (for example, when storage is unavailable or disabled) are ignored. */
 function saveLayout(workspaceId: string, layout: PanelNode) {
   try {
     setStorageValue(`${STORAGE_PREFIX}${workspaceId}`, JSON.stringify(layout));
@@ -161,6 +196,16 @@ function saveLayout(workspaceId: string, layout: PanelNode) {
   }
 }
 
+/**
+ * Apply `updater` to the leaf node whose `id` equals `targetId` and return the resulting panel tree.
+ *
+ * The `updater` is invoked with the matching leaf node and should return the replacement node for that position.
+ *
+ * @param node - The root panel node to traverse
+ * @param targetId - The id of the leaf to update
+ * @param updater - Function that receives the matching leaf and returns the node that should replace it
+ * @returns The updated root `PanelNode`; if no leaf with `targetId` is found, returns the original `node`
+ */
 function updateNode(
   node: PanelNode,
   targetId: string,
@@ -215,6 +260,18 @@ function removePanel(node: PanelNode, targetId: string): PanelNode | null {
   };
 }
 
+/**
+ * Update the ratio of a split node within a panel tree and return the updated tree.
+ *
+ * Traverses the tree and, when a split node with `splitId` is found, replaces its
+ * `ratio` with the provided `ratio` (clamped to the allowed range). All other
+ * nodes are preserved; if no matching split is found the original tree is returned.
+ *
+ * @param node - The root panel node to traverse
+ * @param splitId - The identifier of the split node to update
+ * @param ratio - The desired split ratio; it will be clamped to the valid range
+ * @returns The new panel tree with the updated split ratio (or the original tree if not found)
+ */
 function updateSplitRatio(
   node: PanelNode,
   splitId: string,
@@ -235,6 +292,13 @@ function updateSplitRatio(
   return node;
 }
 
+/**
+ * Render a workspace-scoped, persistent panel layout that hosts editor instances and provides splitting, resizing, assignment, closing, maximizing, and floating-panel operations.
+ *
+ * The component loads and persists the layout per `workspaceId`, enforces `allowedEditors` when provided, and exposes interactive behaviors (split, assign editor, close, resize splits, toggle maximize, reset layout, and spawn floating panels) via UI controls and a context menu.
+ *
+ * @returns The React element for the panel layout UI
+ */
 export function PanelLayout({
   workspaceId,
   defaultEditorId,
@@ -444,6 +508,23 @@ type PanelNodeViewProps = {
   workspaceId: string;
 };
 
+/**
+ * Render a panel layout node and its children, displaying either a split container or a leaf panel.
+ *
+ * Renders a split node as two resizable panes (with a SplitResizer when both sides are visible) and
+ * renders a leaf node as a PanelLeaf. Visibility of child panes is determined by `maximizedPanelId`.
+ *
+ * @param node - The panel node (split or leaf) to render.
+ * @param maximizedPanelId - The id of the currently maximized panel, or `null` when none; controls which panes are visible.
+ * @param editorOptions - Available editor choices presented to leaf panels.
+ * @param onContextMenu - Callback invoked to show the context menu for a panel.
+ * @param onAssign - Callback to assign a different editor to a leaf panel.
+ * @param onToggleMaximize - Callback to toggle maximize/restore for a panel.
+ * @param onSplit - Callback to split a leaf panel into two panes.
+ * @param onResizeSplit - Callback invoked when a split's ratio changes.
+ * @param workspaceId - Identifier for the current workspace scope.
+ * @returns A React element that renders the given `node` and its child panes.
+ */
 function PanelNodeView({
   node,
   maximizedPanelId,
@@ -550,6 +631,17 @@ type SplitResizerProps = {
   onResize: (splitId: string, ratio: number) => void;
 };
 
+/**
+ * Render a draggable divider for a split node and report ratio changes while dragging.
+ *
+ * Attaches global pointer listeners during a drag to compute the new split ratio within the given container and calls `onResize` with the clamped ratio.
+ *
+ * @param splitId - Identifier of the split node being resized
+ * @param direction - Resize axis; `"horizontal"` means vertical divider (moves along X), `"vertical"` means horizontal divider (moves along Y)
+ * @param ratio - Current split ratio in the range [0.05, 0.95]
+ * @param containerRef - Ref to the container element used to measure bounds for ratio calculation
+ * @param onResize - Callback invoked with `(splitId, ratio)` when the divider is moved
+ */
 function SplitResizer({
   splitId,
   direction,
@@ -615,6 +707,20 @@ type PanelLeafProps = {
   workspaceId: string;
 };
 
+/**
+ * Render a single leaf panel that hosts an editor and provides UI for splitting,
+ * assigning a different editor, maximizing/restoring, and a live split-drag preview.
+ *
+ * @param node - The leaf node describing this panel (id and editorId).
+ * @param editorOptions - Available editor choices shown in the editor selector.
+ * @param onContextMenu - Invoked when the panel's context menu is requested.
+ * @param onAssign - Called with (panelId, editorId) to change the panel's editor.
+ * @param onToggleMaximize - Called with (panelId) to toggle maximize/restore for this panel.
+ * @param onSplit - Called with (panelId, direction, ratio) when a split is committed via drag.
+ * @param isMaximized - Whether this panel is currently maximized.
+ * @param workspaceId - Workspace scope used for panel instance context.
+ * @returns A React element representing the interactive leaf panel.
+ */
 function PanelLeaf({
   node,
   editorOptions,

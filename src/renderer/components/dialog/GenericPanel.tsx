@@ -32,6 +32,26 @@ const DEFAULT_SIZE: Size = { width: 640, height: 400 };
 const DEFAULT_MIN_SIZE: Size = { width: 260, height: 180 };
 const STORAGE_PREFIX = "generic-panel:";
 
+/**
+ * Renders a movable, resizable panel with an optional title, header actions, and persistent position/size.
+ *
+ * @param title - Optional header title shown in the panel's header.
+ * @param children - Panel body content.
+ * @param initialPosition - Position used when there is no persisted state.
+ * @param initialSize - Size used when there is no persisted state.
+ * @param minSize - Minimum allowed size when resizing.
+ * @param draggable - If `true`, the panel can be dragged by its header.
+ * @param resizable - If `true`, the panel can be resized via the resize handle.
+ * @param closable - If `true`, a close button is shown in the header.
+ * @param onClose - Called when the close button is clicked.
+ * @param className - Additional class for the root element.
+ * @param headerClassName - Additional class for the header element.
+ * @param bodyClassName - Additional class for the body element.
+ * @param headerActions - Additional elements rendered to the right side of the header.
+ * @param style - Inline styles applied to the root element.
+ * @param storageKey - If provided, position and size are persisted under `generic-panel:{storageKey}`; falsy disables persistence.
+ * @returns The rendered panel element.
+ */
 export function GenericPanel({
   title,
   children,

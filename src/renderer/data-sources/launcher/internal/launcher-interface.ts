@@ -1,6 +1,11 @@
 import { readStorageValue, setStorageValue } from "../../../services/storage";
 import type { LauncherService } from "./LauncherService";
 
+/**
+ * Ensure a URL string ends with a trailing slash.
+ *
+ * @returns The input `url` with a trailing `/`; returns the original string if it already ends with `/`.
+ */
 function ensureTrailingSlash(url: string) {
   return url.endsWith("/") ? url : `${url}/`;
 }
@@ -76,25 +81,54 @@ type ModelCacheEntry = {
 let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
 
+/**
+ * Set the current project path and propagate the change.
+ *
+ * Stores the given project path in persistent storage, invalidates any cached model data for the previous project, and notifies registered project-change listeners of the new path.
+ *
+ * @param path - The project path to store and broadcast to listeners
+ */
 function setProjectPath(path: string) {
   setStorageValue(KEY_PROJECT_PATH, path);
   invalidateModelCache();
   notifyProjectChanged(path);
 }
 
+/**
+ * Retrieve the stored project path.
+ *
+ * @returns The stored project path, or an empty string if no path is set
+ */
 function getProjectPath(): string {
   return readStorageValue(KEY_PROJECT_PATH) ?? "";
 }
 
+/**
+ * Persist the given launcher profile and notify registered listeners of the change.
+ *
+ * @param value - Launcher profile identifier to store and broadcast to listeners
+ */
 function setLauncherProfile(value: string) {
   setStorageValue(KEY_LAUNCHER_PROFILE, value);
   notifyLauncherProfileChanged(value);
 }
 
+/**
+ * Retrieve the stored launcher profile name.
+ *
+ * @returns The launcher profile string, or an empty string when no profile is set.
+ */
 function getLauncherProfile(): string {
   return readStorageValue(KEY_LAUNCHER_PROFILE) ?? "";
 }
 
+/**
+ * Notify all registered listeners that the current project path has changed.
+ *
+ * @param path - The new project path delivered to each listener.
+ *
+ * Exceptions thrown by individual listeners are caught and logged; notification proceeds for remaining listeners.
+ */
 function notifyProjectChanged(path: string) {
   for (const callback of projectListeners) {
     try {

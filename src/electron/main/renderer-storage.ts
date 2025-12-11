@@ -4,6 +4,12 @@ import type { IpcMain } from "electron";
 
 type StorageState = Record<string, string>;
 
+/**
+ * Parse JSON text into a StorageState when the JSON represents an object whose values are strings.
+ *
+ * @param content - JSON string to parse
+ * @returns The parsed `StorageState` if `content` is a JSON object with only string values; otherwise an empty object
+ */
 function safeParse(content: string): StorageState {
   try {
     const parsed = JSON.parse(content);
@@ -20,6 +26,13 @@ function safeParse(content: string): StorageState {
   return {};
 }
 
+/**
+ * Registers IPC handlers that provide a simple string key–value storage for renderer processes, optionally persisted to a JSON file.
+ *
+ * When a `storageFile` path is provided, the module keeps a per-process in-memory cache backed by that file and persists changes to disk. When `storageFile` is omitted, storage operations become no-ops and loads indicate the storage is not file-backed.
+ *
+ * @param storageFile - Optional filesystem path to a JSON file used to persist storage; if omitted, storage is not persisted and read/write handlers are effectively disabled
+ */
 export function registerRendererStorage(
   ipcMain: IpcMain,
   storageFile?: string

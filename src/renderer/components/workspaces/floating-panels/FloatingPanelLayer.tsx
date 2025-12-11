@@ -24,6 +24,17 @@ type FloatingPanelLayerProps = {
   editorEntries: EditorEntry[];
 };
 
+/**
+ * Render and manage a set of floating panels for a given workspace scope.
+ *
+ * Subscribes to floating panel updates for `scope`, maintains local panel state,
+ * handles panel duplication, assignment, closing and layout reset, and renders
+ * each panel plus a context menu via a portal into the document body.
+ *
+ * @param scope - The workspace or scope identifier used to read and mutate floating panels
+ * @param editorEntries - Available editor entries (id/label/component) used to populate panels and the editor selector
+ * @returns A portal containing floating panel windows and an optional panel context menu, or `null` when there are no panels or the document body is unavailable
+ */
 export function FloatingPanelLayer({
   scope,
   editorEntries,
@@ -155,6 +166,19 @@ type FloatingPanelWindowProps = {
   ) => void;
 };
 
+/**
+ * Renders a single floating panel window with its editor content, panel context, and editor-selection UI.
+ *
+ * Provides the panel's context (title, settings, setters, and close) to descendants and invokes `onContextMenu`
+ * when the user opens the panel context menu via mouse or keyboard.
+ *
+ * @param scope - Workspace identifier that owns this panel
+ * @param panel - The floating panel record (id, title, editorId, settings, position/size, etc.)
+ * @param editorEntries - Available editor entries; the entry matching `panel.editorId` is used (falls back to the first)
+ * @param editorOptions - Lightweight list of editor ids and labels used to populate the editor selector overlay
+ * @param onContextMenu - Called to open the panel's context menu; receives the panel id, current editor id, and an event-like object with `preventDefault`, `clientX`, and `clientY`
+ * @returns A React element representing the floating panel window, its content, and associated controls
+ */
 function FloatingPanelWindow({
   scope,
   panel,

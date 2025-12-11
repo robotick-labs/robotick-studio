@@ -62,6 +62,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Accesses the current project context.
+ *
+ * @returns The current ProjectContextValue containing `projectPath`, `launcherProfile`, and the corresponding setter functions.
+ * @throws Error if called outside of a `ProjectProvider` (message: "useProjectContext must be used within ProjectProvider").
+ */
 export function useProjectContext(): ProjectContextValue {
   const ctx = useContext(ProjectContext);
   if (!ctx) {

@@ -19,6 +19,21 @@ import {
   formatEnumNumber,
 } from "../utils/telemetry-formatters";
 
+/**
+ * Produce a human-readable string representation of a telemetry field's value.
+ *
+ * Uses the field's metadata (type, enum values) when applicable to choose the display format.
+ *
+ * @param value - The raw value to format for display.
+ * @param field - The telemetry field metadata (type and enum information) used to influence formatting.
+ * @returns A display string such as:
+ * - `"<type>"` for null/undefined or unknown types,
+ * - `"<type, N>"` for arrays (or an enum-aware preview when enum values exist),
+ * - a quoted string for string values,
+ * - `"<type> (X bytes)"` for binary payloads,
+ * - an enum-aware numeric representation for numbers/bigints,
+ * - `"true"` or `"false"` for booleans.
+ */
 function formatValue(value: unknown, field: TelemetryField): string {
   const type = field.type;
   if (value === null || value === undefined) return `<${type}>`;
@@ -48,6 +63,18 @@ type StructFieldProps = {
   panelScope?: string;
 };
 
+/**
+ * Render a readable view of a telemetry struct's fields, including nested structs and image thumbnails.
+ *
+ * Renders each field in `struct.fields`: nested structs are displayed with an indented child list, image fields render a thumbnail that can open a floating image panel, and primitive fields show a formatted value.
+ *
+ * @param struct - Telemetry struct containing the fields to render; if missing or empty a dash is shown.
+ * @param telemetryBaseUrl - Optional base URL used when spawning image panels.
+ * @param workloadName - Optional workload name used when spawning image panels.
+ * @param modelName - Optional model name used when spawning image panels.
+ * @param panelScope - Optional scope for floating panels; defaults to `"global-floating-panels"`.
+ * @returns A React element containing the rendered fields.
+ */
 export function TelemetryStructFields({
   struct,
   telemetryBaseUrl,

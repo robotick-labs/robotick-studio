@@ -92,6 +92,14 @@ export async function uninit(instanceId?: number): Promise<void> {
   console.log("Streaming Image Viewer unmounted");
 }
 
+/**
+ * Updates the active viewer image from a telemetry field's byte payload or resets to a black frame when unavailable.
+ *
+ * Reads the telemetry field at `fieldPath` from `model`. If the field contains a `Uint8Array` image payload, the function sets the viewer's image source to that payload using the field's `mime_type` when present (defaults to `image/jpeg`) and revokes the previous frame URL. If the field is missing or does not contain a `Uint8Array`, the viewer is set to a black placeholder.
+ *
+ * @param model - Telemetry model to read the field from
+ * @param fieldPath - Path to the telemetry field containing the image bytes
+ */
 function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
   if (!activeImg) return;
   const field = model.getField?.(fieldPath);

@@ -8,10 +8,12 @@ PROJECT_DIR="${LAUNCHER_DIR}/tests/test_data/test-project"
 GENERATED_DIR="${PROJECT_DIR}/.launcher/test_project/generated"
 GOLDEN_DIR="${PROJECT_DIR}/.launcher-golden/test_project/generated"
 
+# log prints a timestamped message to stdout, prefixing the provided arguments with the current HH:MM:SS time.
 log() {
   echo "[$(date +'%H:%M:%S')] $*"
 }
 
+# rsync_target syncs a generated relative path from GENERATED_DIR into GOLDEN_DIR, creating the destination directory and skipping the sync if the source directory does not exist.
 rsync_target() {
   local rel_path="$1"
   local src="${GENERATED_DIR}/${rel_path}"
@@ -30,6 +32,7 @@ rsync_target() {
 log "🔄 Updating submodules (engine, core workloads, nested deps)..."
 git -C "${REPO_ROOT}" submodule update --init --recursive
 
+# run_launcher_tests runs the launcher test suite for the specified stage and logs whether the tests passed or failed.
 run_launcher_tests() {
   local stage="$1"
   log "🧪 Running launcher tests (${stage})..."

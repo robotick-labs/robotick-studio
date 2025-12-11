@@ -179,6 +179,12 @@ function scheduleWindowStateWrite(state: WindowState) {
   }, WINDOW_STATE_WRITE_DEBOUNCE_MS);
 }
 
+/**
+ * Adjusts a stored window state so its position and size fit within the current display work area.
+ *
+ * @param state - Window state containing `width`, `height`, and optional `x`/`y` position to be clamped
+ * @returns A window state object with `x`, `y`, `width`, and `height` adjusted to fit inside the matched display's work area
+ */
 function clampToDisplay(state: WindowState) {
   const bounds = { ...state };
   const rect: Rectangle = {
@@ -259,6 +265,12 @@ const WINDOW_CONTROLS_SCRIPT = `
 })()
 `;
 
+/**
+ * Detects whether the renderer has custom window controls and whether it uses the native window frame.
+ *
+ * @param win - The browser window whose renderer will be probed for window control state
+ * @returns `WindowControlsState` containing `hasWindowControls` and `usesNativeFrame` when detection succeeds, or `null` if probing is unavailable or failed
+ */
 async function probeWindowControls(
   win: BrowserWindowInstance
 ): Promise<WindowControlsState | null> {
@@ -291,6 +303,11 @@ async function probeWindowControls(
   return null;
 }
 
+/**
+ * Log the renderer's window control configuration to the console.
+ *
+ * @param state - Detected window control state, or `null` if detection failed
+ */
 function logWindowControlsState(state: WindowControlsState | null) {
   if (!state) {
     console.warn(
@@ -312,6 +329,11 @@ function logWindowControlsState(state: WindowControlsState | null) {
   }
 }
 
+/**
+ * Attach a one-time probe that logs whether the renderer uses native OS window controls or custom header controls after the window's page finishes loading.
+ *
+ * @param win - The browser window to monitor
+ */
 function attachWindowControlsLogger(win: BrowserWindowInstance) {
   win.webContents.once?.("did-finish-load", () => {
     void probeWindowControls(win).then((state) => {
@@ -320,6 +342,12 @@ function attachWindowControlsLogger(win: BrowserWindowInstance) {
   });
 }
 
+/**
+ * Locates a candidate application icon file by checking project and module locations.
+ *
+ * @param env - Environment variables used to resolve project/workspace roots (`ROBOTICK_WORKSPACE_ROOT`, `ROBOTICK_PROJECT_DIR`); `process.cwd()` is used if neither is present
+ * @returns The filesystem path to the first existing icon file found, or `undefined` if none are present
+ */
 function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   const candidates = [];
   const workspace =
@@ -343,6 +371,18 @@ function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
+/**
+ * Initializes and configures the Electron application runtime, creates the main window, and wires IPC, window state persistence, and graceful shutdown handlers.
+ *
+ * Sets up app identity, command-line switches, devtools hooks, window creation and defaults, window state persistence, IPC handlers for window commands, runtime probing of window controls, smoke-test checks, and process signal/error handlers.
+ *
+ * @param app - The minimal Electron app surface used to control application lifecycle and settings.
+ * @param BrowserWindow - Constructor/utility for creating and querying browser windows.
+ * @param ipcMain - Optional IPC handler used to register renderer storage and handle window commands.
+ * @param Menu - Optional Electron Menu API used to build and show system menus.
+ * @param env - Optional environment variables object to influence behavior (e.g., DEV flags, project paths, frame mode).
+ * @param platform - Optional platform identifier (e.g., "darwin", "win32", "linux") to apply platform-specific behaviors.
+ */
 export async function bootstrapElectron({
   app,
   BrowserWindow,

@@ -12,6 +12,12 @@ export type LauncherServiceMockOptions = Partial<LauncherService> & {
   launcherProfile?: string;
 };
 
+/**
+ * Creates a mock LauncherService configured for testing.
+ *
+ * @param options - Optional seeds and overrides: `projectPath` and `launcherProfile` set the initial internal state; any other provided keys override the default mock methods.
+ * @returns A LauncherService mock that maintains internal `projectPath` and `launcherProfile` state, supports subscription callbacks for changes, provides no-op or mocked implementations for other methods, and applies any method overrides from `options`.
+ */
 export function createMockLauncherService(
   options: LauncherServiceMockOptions = {}
 ): LauncherService {

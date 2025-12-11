@@ -19,6 +19,13 @@ export interface LayoutSummary {
   globalMaxNodes: number;
 }
 
+/**
+ * Create a namespaced node identifier for an item defined in a model file.
+ *
+ * @param modelPath - Filesystem path or module path to the model file; the model's file name (without its directory) is used as the namespace
+ * @param id - Local identifier of the item within the model
+ * @returns A string in the form `basename:localId`, where `basename` is the model file name with the `.model.yaml` extension removed
+ */
 export function nodeIdFor(modelPath: string, id: string): string {
   const base =
     modelPath
@@ -28,6 +35,13 @@ export function nodeIdFor(modelPath: string, id: string): string {
   return `${base}:${id}`;
 }
 
+/**
+ * Builds a graph document of workloads and their inter-model connections from a DocumentStore and returns layout metadata.
+ *
+ * @param store - The DocumentStore containing models, workloads, connections, and lane information to render.
+ * @param doc - The GraphDoc to populate; existing sections are replaced and nodes/edges are upserted.
+ * @returns A LayoutSummary containing the document's sections, the total vertical height of the layout in pixels, and the maximum number of nodes present in any section.
+ */
 export function buildGraphDocFromModel(
   store: DocumentStore,
   doc: GraphDoc

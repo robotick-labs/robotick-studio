@@ -20,6 +20,24 @@ def parse_workload_yaml(path: Path) -> Optional[WorkloadSpec]:
 
 
 def _dep_identity(dep: Dependency) -> Tuple:
+    """
+    Compute a stable identity tuple for a Dependency.
+    
+    Parameters:
+        dep (Dependency): The dependency to describe.
+    
+    Returns:
+        tuple: A tuple with the following elements, suitable for equality checks and deduplication:
+            - name: The dependency's name.
+            - source_type: The source's type.
+            - identifier: A primary identifier for the source (one of `package`, `module`, `url`, `repo`/`asset` combined, `component`, or `path`).
+            - pin: The source's pin value or `None`.
+            - find_package: The dependency's `find_package` flag or value.
+            - components: A tuple of component names (empty tuple if none).
+            - include_dirs: A tuple of include directories (empty tuple if none).
+            - link_libraries: A tuple of link libraries (empty tuple if none).
+            - link_target: The dependency's link target value.
+    """
     src = dep.source
     repo = getattr(src, "repo", None)
     asset = getattr(src, "asset", None)
@@ -50,6 +68,22 @@ def _dep_identity(dep: Dependency) -> Tuple:
 
 
 def _dep_sort_key(dep: Dependency) -> Tuple:
+    """
+    Compute a deterministic sort key for a Dependency to provide stable ordering.
+    
+    Parameters:
+        dep (Dependency): The dependency to generate a sort key for.
+    
+    Returns:
+        tuple: A tuple key composed as (name_or_empty, source_type, identifier, pin_or_empty, find_package_or_empty, components_tuple, link_target_or_empty) where:
+            - name_or_empty: dep.name or "".
+            - source_type: dep.source.type.
+            - identifier: one of source.package, source.module, source.url, repo_asset (repo plus optional "#asset" or asset alone), source.component, source.path, or "".
+            - pin_or_empty: source.pin or "".
+            - find_package_or_empty: dep.find_package or "".
+            - components_tuple: tuple of dep.components (empty tuple if none).
+            - link_target_or_empty: dep.link_target or "".
+    """
     src = dep.source
     repo = getattr(src, "repo", None)
     asset = getattr(src, "asset", None)

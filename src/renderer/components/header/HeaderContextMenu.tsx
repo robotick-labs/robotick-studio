@@ -12,6 +12,14 @@ type HeaderContextMenuProps = {
   onClose: () => void;
 };
 
+/**
+ * Render a context menu that provides window control actions positioned near the given coordinates.
+ *
+ * @param x - Initial horizontal position (pixels) where the menu should appear
+ * @param y - Initial vertical position (pixels) where the menu should appear
+ * @param onClose - Callback invoked when the menu should be closed (e.g., on click outside, Escape, or after action)
+ * @returns The context menu element positioned within the viewport, or `null` if the window controls API is unavailable
+ */
 export function HeaderContextMenu({ x, y, onClose }: HeaderContextMenuProps) {
   const api = getWindowControlsAPI();
   const [isMaximized, setIsMaximized] = React.useState(false);
