@@ -32,6 +32,17 @@ export function formatBytesWithCommas(
   return isNegative ? "-" + formatted : formatted;
 }
 
+/**
+ * Renders a collapsible telemetry view for a single engine model.
+ *
+ * When expanded, subscribes to the model's telemetry stream, displays process and workloads
+ * memory usage, and renders a table of workload telemetry. Expansion state is persisted
+ * to localStorage (when available) and defaults to open for the first four models.
+ *
+ * @param model - The engine model to display telemetry for.
+ * @param index - The zero-based index of this model in the list; used to determine the default expanded state.
+ * @returns The rendered telemetry UI for the provided model.
+ */
 export function TelemetryModel({
   model,
   index,
@@ -111,10 +122,10 @@ export function TelemetryModel({
                 <th>Config</th>
                 <th>Inputs</th>
                 <th>Outputs</th>
-                <th>Self Duration (ms)</th>
-                <th>Time Delta (ms)</th>
+                <th>Workload Duration (ms)</th>
+                <th>Actual Period (ms)</th>
                 <th>Goal Period (ms)</th>
-                <th>Usage %</th>
+                <th>Budget Usage %</th>
               </tr>
             </thead>
             <tbody>

@@ -54,13 +54,16 @@ void populate_model_test_project_spine(robotick::Model& model)
         {}    // inputs
     };
 
+    static const FieldConfigEntry heart_ui_config[] = {
+        {"render_to_texture", "True"}
+    };
 
     static const WorkloadSeed heart_ui = {
         TypeId("HeartbeatDisplayWorkload"),
         StringView("heart_ui"),
         30.0f,
         {},    // children
-        {},    // config
+        heart_ui_config,
         {}    // inputs
     };
 

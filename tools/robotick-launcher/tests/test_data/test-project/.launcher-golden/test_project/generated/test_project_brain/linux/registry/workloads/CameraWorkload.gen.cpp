@@ -9,7 +9,7 @@ namespace robotick
     ROBOTICK_REGISTER_STRUCT_END(CameraConfig)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(CameraOutputs)
-    ROBOTICK_STRUCT_FIELD(CameraOutputs, FixedVector128k, jpeg_data)
+    ROBOTICK_STRUCT_FIELD(CameraOutputs, ImageJpeg128k, jpeg_data)
     ROBOTICK_REGISTER_STRUCT_END(CameraOutputs)
 
     ROBOTICK_REGISTER_WORKLOAD_BASE(

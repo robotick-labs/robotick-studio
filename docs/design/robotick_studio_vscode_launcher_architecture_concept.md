@@ -193,14 +193,3 @@ Robotick becomes:
 - suitable for embedded, desktop, expressive, and research-grade robots
 
 A cohesive ecosystem with clean boundaries and modern developer ergonomics.
-
----
-
-## TODO (AI-sized prompts)
-
-- [x] **robotick-studio:** Add `scripts/install.sh` that: validates deps, runs `npm ci` + build, configures Electron sandbox if needed, produces `bin/robotick-studio`, and writes `.studio-version` with `ref=<requested>` and `resolved=<sha>`.
-- [x] **robotick-knitware (per robot):** Add `robots/<robot>/install-studio.sh` using an inline `REF=<tag/sha>`, downloading `https://raw.githubusercontent.com/robotick-labs/robotick-studio/${REF}/scripts/install.sh`, running it with `--version`, `--target "$PROJECT_DIR/.launcher/studio"`, `--project "$PROJECT_DIR"`, and logging start/finish.
-- [x] **robotick-knitware (per robot):** Add `robots/<robot>/run-studio.sh` that just execs `$PROJECT_DIR/.launcher/studio/bin/robotick-studio "$@"` (optionally prints a launch message).
-- [x] **robotick-knitware:** Remove legacy runtime setup from `tooling-common.sh` and related launch scripts so they rely solely on the installed `bin/robotick-studio` flow.
-- [x] **robotick-knitware docs:** Update README/onboarding to show the two-step flow per robot: `./robots/<robot>/install-studio.sh` then `./robots/<robot>/run-studio.sh`, noting pinned versioning, offline launch post-install, and `.studio-version` provenance.
-- [ ] **Template/new robots:** Publish a `robotick-robot-template` (or `create-robotick-project`) with stub `install-studio.sh`/`run-studio.sh`, `robot.project.yaml`, optional `setup-runtime.sh`, workloads/src placeholders, and `.gitignore` for `.launcher/`. Document the quickstart: clone template → set `REF` → install → run → edit project.yaml.

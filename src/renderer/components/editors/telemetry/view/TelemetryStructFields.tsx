@@ -10,35 +10,41 @@ import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
 import { spawnTelemetryImagePanel } from "../panels";
+import type {
+  ITelemetryField as TelemetryField,
+  ITelemetryStruct as TelemetryStruct,
+} from "../../../../data-sources/telemetry";
+import {
+  formatEnumArrayPreview,
+  formatEnumNumber,
+} from "../utils/telemetry-formatters";
 
-export interface TelemetryField {
-  name: string;
-  path: string;
-  type: string;
-  mime_type?: string;
-  fields?: TelemetryField[];
-  getValue: () => unknown;
-}
-
-export interface TelemetryStruct {
-  fields?: TelemetryField[];
-}
-
-// -------------------------------------------------------------
-// Number formatting
-// -------------------------------------------------------------
-function formatNumberSmart(n: number): string {
-  if (!isFinite(n)) return String(n);
-  if (Number.isInteger(n)) return String(n);
-  const abs = Math.abs(n);
-  let decimals = abs >= 100 ? 1 : abs >= 10 ? 2 : 3;
-  return n.toFixed(decimals);
-}
-
-function formatValue(value: unknown, type: string): string {
+/**
+ * Produce a human-readable string representation of a telemetry field's value.
+ *
+ * Uses the field's metadata (type, enum values) when applicable to choose the display format.
+ *
+ * @param value - The raw value to format for display.
+ * @param field - The telemetry field metadata (type and enum information) used to influence formatting.
+ * @returns A display string such as:
+ * - `"<type>"` for null/undefined or unknown types,
+ * - `"<type, N>"` for arrays (or an enum-aware preview when enum values exist),
+ * - a quoted string for string values,
+ * - `"<type> (X bytes)"` for binary payloads,
+ * - an enum-aware numeric representation for numbers/bigints,
+ * - `"true"` or `"false"` for booleans.
+ */
+function formatValue(value: unknown, field: TelemetryField): string {
+  const type = field.type;
   if (value === null || value === undefined) return `<${type}>`;
-  if (Array.isArray(value)) return `<${type}, ${value.length}>`;
-  if (typeof value === "number") return formatNumberSmart(value);
+  if (Array.isArray(value)) {
+    if (field.enum_values && field.enum_values.length > 0) {
+      return formatEnumArrayPreview(field, value);
+    }
+    return `<${type}, ${value.length}>`;
+  }
+  if (typeof value === "number" || typeof value === "bigint")
+    return formatEnumNumber(field, value);
   if (typeof value === "string") return `"${value}"`;
   if (value instanceof Uint8Array || value instanceof ArrayBuffer)
     return `<${type}> (${value.byteLength} bytes)`;
@@ -57,6 +63,18 @@ type StructFieldProps = {
   panelScope?: string;
 };
 
+/**
+ * Render a readable view of a telemetry struct's fields, including nested structs and image thumbnails.
+ *
+ * Renders each field in `struct.fields`: nested structs are displayed with an indented child list, image fields render a thumbnail that can open a floating image panel, and primitive fields show a formatted value.
+ *
+ * @param struct - Telemetry struct containing the fields to render; if missing or empty a dash is shown.
+ * @param telemetryBaseUrl - Optional base URL used when spawning image panels.
+ * @param workloadName - Optional workload name used when spawning image panels.
+ * @param modelName - Optional model name used when spawning image panels.
+ * @param panelScope - Optional scope for floating panels; defaults to `"global-floating-panels"`.
+ * @returns A React element containing the rendered fields.
+ */
 export function TelemetryStructFields({
   struct,
   telemetryBaseUrl,
@@ -103,7 +121,7 @@ export function TelemetryStructFields({
     // Primitive leaf
     return (
       <div key={f.path}>
-        {label}: {formatValue(f.getValue(), f.type)}
+        {label}: {formatValue(f.getValue(), f)}
       </div>
     );
   }

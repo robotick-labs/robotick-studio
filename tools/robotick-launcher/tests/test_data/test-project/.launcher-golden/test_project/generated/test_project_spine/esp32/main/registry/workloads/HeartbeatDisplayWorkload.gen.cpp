@@ -6,6 +6,7 @@ namespace robotick
 {
     ROBOTICK_REGISTER_STRUCT_BEGIN(HeartbeatDisplayConfig)
     ROBOTICK_STRUCT_FIELD(HeartbeatDisplayConfig, float, rest_heart_rate)
+    ROBOTICK_STRUCT_FIELD(HeartbeatDisplayConfig, bool, render_to_texture)
     ROBOTICK_REGISTER_STRUCT_END(HeartbeatDisplayConfig)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(HeartbeatDisplayInputs)
@@ -22,6 +23,7 @@ namespace robotick
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(HeartbeatDisplayOutputs)
     ROBOTICK_STRUCT_FIELD(HeartbeatDisplayOutputs, float, activation_amount)
+    ROBOTICK_STRUCT_FIELD(HeartbeatDisplayOutputs, ImagePng64k, display_png)
     ROBOTICK_REGISTER_STRUCT_END(HeartbeatDisplayOutputs)
 
     ROBOTICK_REGISTER_WORKLOAD_BASE(

@@ -125,6 +125,16 @@ def _collect_platform_files(config, allowed_types: Optional[set] = None) -> List
 def _generate_workload_deps_cmake(
     config, registry_path: Path, allowed_types: Optional[set] = None
 ):
+    """
+    Generate a CMake fragment describing aggregated dependencies for the configured workloads and write it to `generated_workload_deps.cmake` under `registry_path`.
+    
+    The function collects all dependencies (optionally filtered by `allowed_types`), aggregates packages, link targets, IDF components, APT packages, pkg-config modules, workload CMake includes, include directories, and Git-based subdirectory dependencies. When multiple versions of the same package are encountered, the newer version is selected. Git-based sources (including `git` and `git_source_archive`) are emitted as `git_subdirs` with resolved destinations and any associated per-dependency CMake options are preserved and included in the generated fragment. The final CMake fragment is written to `registry_path/generated_workload_deps.cmake`; a write failure raises RuntimeError.
+    
+    Parameters:
+        config: Configuration object used to discover and collect dependencies.
+        registry_path (Path): Directory where the generated CMake fragment will be written.
+        allowed_types (Optional[set]): If provided, only dependencies of these workload types are considered.
+    """
     deps = collect_all_dependencies(config, allowed_types=allowed_types)
 
     agg_pkgs = OrderedDict()
@@ -166,11 +176,18 @@ def _generate_workload_deps_cmake(
         for lib in d.link_libraries or []:
             agg_targets[lib] = True
 
-        if getattr(src, "type", None) == "git":
-            # default clone dest = deps/<name> if not provided by your fetch layer
+        src_type = getattr(src, "type", None)
+        if src_type == "git":
             default_dest = f"deps/{d.name}"
             dest = getattr(src, "dest", None) or default_dest
-            sub = d.cmake_subdir or "."  # top-level by default
+            sub = d.cmake_subdir or "."
+            git_subdirs.append((d.name, f"${{CMAKE_CURRENT_SOURCE_DIR}}/{dest}/{sub}"))
+            if d.cmake_options:
+                cmake_options_map[d.name] = d.cmake_options
+        elif src_type == "git_source_archive" and d.cmake_subdir:
+            default_dest = f"deps/{d.name}"
+            dest = getattr(src, "dest", None) or default_dest
+            sub = d.cmake_subdir
             git_subdirs.append((d.name, f"${{CMAKE_CURRENT_SOURCE_DIR}}/{dest}/{sub}"))
             if d.cmake_options:
                 cmake_options_map[d.name] = d.cmake_options

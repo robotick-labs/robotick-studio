@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  addWindowEventListener,
+  getViewportSize,
+} from "../../utils/domEnvironment";
+import { readStorageValue, setStorageValue } from "../../services/storage";
 import styles from "./GenericPanel.module.css";
 
 type Vec2 = { x: number; y: number };
@@ -27,6 +32,26 @@ const DEFAULT_SIZE: Size = { width: 640, height: 400 };
 const DEFAULT_MIN_SIZE: Size = { width: 260, height: 180 };
 const STORAGE_PREFIX = "generic-panel:";
 
+/**
+ * Renders a movable, resizable panel with an optional title, header actions, and persistent position/size.
+ *
+ * @param title - Optional header title shown in the panel's header.
+ * @param children - Panel body content.
+ * @param initialPosition - Position used when there is no persisted state.
+ * @param initialSize - Size used when there is no persisted state.
+ * @param minSize - Minimum allowed size when resizing.
+ * @param draggable - If `true`, the panel can be dragged by its header.
+ * @param resizable - If `true`, the panel can be resized via the resize handle.
+ * @param closable - If `true`, a close button is shown in the header.
+ * @param onClose - Called when the close button is clicked.
+ * @param className - Additional class for the root element.
+ * @param headerClassName - Additional class for the header element.
+ * @param bodyClassName - Additional class for the body element.
+ * @param headerActions - Additional elements rendered to the right side of the header.
+ * @param style - Inline styles applied to the root element.
+ * @param storageKey - If provided, position and size are persisted under `generic-panel:{storageKey}`; falsy disables persistence.
+ * @returns The rendered panel element.
+ */
 export function GenericPanel({
   title,
   children,
@@ -45,11 +70,11 @@ export function GenericPanel({
   storageKey,
 }: GenericPanelProps) {
   const persistedState = useMemo(() => {
-    if (!storageKey || typeof window === "undefined") {
+    if (!storageKey) {
       return null;
     }
     try {
-      const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
+      const raw = readStorageValue(`${STORAGE_PREFIX}${storageKey}`);
       if (!raw) return null;
       return JSON.parse(raw) as {
         position?: Vec2;
@@ -78,9 +103,9 @@ export function GenericPanel({
     size: Size,
     viewport?: Size
   ): Vec2 {
-    if (typeof window === "undefined") return pos;
-    const width = viewport?.width ?? window.innerWidth;
-    const height = viewport?.height ?? window.innerHeight;
+    const view = viewport ?? getViewportSize();
+    const width = view.width || size.width * 2;
+    const height = view.height || size.height * 2;
     const maxX = Math.max(0, width - size.width);
     const maxY = Math.max(0, height - size.height);
     return {
@@ -97,14 +122,9 @@ export function GenericPanel({
     const el = panelRef.current;
     const width = el?.offsetWidth ?? size.width;
     const height = el?.offsetHeight ?? size.height;
-    const maxX =
-      typeof window !== "undefined"
-        ? Math.max(0, window.innerWidth - width)
-        : undefined;
-    const maxY =
-      typeof window !== "undefined"
-        ? Math.max(0, window.innerHeight - height)
-        : undefined;
+    const viewportSize = getViewportSize();
+    const maxX = Math.max(0, (viewportSize.width || width) - width);
+    const maxY = Math.max(0, (viewportSize.height || height) - height);
 
     function move(ev: MouseEvent) {
       setPosition({
@@ -113,13 +133,13 @@ export function GenericPanel({
       });
     }
 
-    function up() {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    }
+    const up = () => {
+      removeMove();
+      removeUp();
+    };
 
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    const removeMove = addWindowEventListener("mousemove", move);
+    const removeUp = addWindowEventListener("mouseup", up);
   }
 
   function handleResizeStart(event: React.MouseEvent) {
@@ -137,12 +157,12 @@ export function GenericPanel({
         ),
       });
     }
-    function up() {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    }
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    const up = () => {
+      removeMove();
+      removeUp();
+    };
+    const removeMove = addWindowEventListener("mousemove", move);
+    const removeUp = addWindowEventListener("mouseup", up);
   }
 
   const rootClass = [styles.panel, className].filter(Boolean).join(" ");
@@ -151,11 +171,7 @@ export function GenericPanel({
     .join(" ");
   const bodyClass = [styles.body, bodyClassName].filter(Boolean).join(" ");
 
-  const viewport = {
-    width: typeof window !== "undefined" ? window.innerWidth : size.width * 2,
-    height:
-      typeof window !== "undefined" ? window.innerHeight : size.height * 2,
-  };
+  const viewport = getViewportSize();
   const clampedPosition = clampPositionToViewport(position, size, viewport);
 
   const panelNode = (
@@ -201,32 +217,36 @@ export function GenericPanel({
   );
 
   useEffect(() => {
-    if (!storageKey || typeof window === "undefined") {
+    if (!storageKey) {
       return;
     }
-    const payload = JSON.stringify({ position, size });
-    window.localStorage.setItem(`${STORAGE_PREFIX}${storageKey}`, payload);
+    try {
+      const payload = JSON.stringify({ position, size });
+      setStorageValue(`${STORAGE_PREFIX}${storageKey}`, payload);
+    } catch {
+      /* ignore */
+    }
   }, [position, size, storageKey]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!storageKey) {
+      setPosition(initialPosition);
+      setSize(initialSize);
       return;
     }
-    if (storageKey) {
-      const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (parsed?.position) {
-            setPosition(parsed.position);
-          }
-          if (parsed?.size) {
-            setSize(parsed.size);
-          }
-          return;
-        } catch {
-          /* ignore */
+    const raw = readStorageValue(`${STORAGE_PREFIX}${storageKey}`);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.position) {
+          setPosition(parsed.position);
         }
+        if (parsed?.size) {
+          setSize(parsed.size);
+        }
+        return;
+      } catch {
+        /* ignore */
       }
     }
     setPosition(initialPosition);

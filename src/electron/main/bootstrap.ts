@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { screen } from "electron";
 import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
+import { registerRendererStorage } from "./renderer-storage";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -91,6 +92,11 @@ type WindowState = {
   isMaximized?: boolean;
 };
 
+type WindowControlsState = {
+  hasWindowControls: boolean;
+  usesNativeFrame: boolean | null;
+};
+
 const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1400,
   height: 900,
@@ -173,6 +179,12 @@ function scheduleWindowStateWrite(state: WindowState) {
   }, WINDOW_STATE_WRITE_DEBOUNCE_MS);
 }
 
+/**
+ * Adjusts a stored window state so its position and size fit within the current display work area.
+ *
+ * @param state - Window state containing `width`, `height`, and optional `x`/`y` position to be clamped
+ * @returns A window state object with `x`, `y`, `width`, and `height` adjusted to fit inside the matched display's work area
+ */
 function clampToDisplay(state: WindowState) {
   const bounds = { ...state };
   const rect: Rectangle = {
@@ -199,28 +211,143 @@ function clampToDisplay(state: WindowState) {
   return { ...bounds, x, y, width, height };
 }
 
+type WindowOptionsConfig = {
+  useNativeFrame?: boolean;
+};
+
 const getDefaultWindowOptions = (
   state: WindowState = DEFAULT_WINDOW_STATE,
   platform: NodeJS.Platform = process.platform,
-  iconPath?: string
+  iconPath?: string,
+  config: WindowOptionsConfig = {}
 ) => {
   const isMac = platform === "darwin";
-  return {
+  const useNativeFrame = config.useNativeFrame === true;
+  const frameless = !useNativeFrame;
+
+  const base: Record<string, unknown> = {
     width: state.width,
     height: state.height,
     show: false,
     icon: iconPath,
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
-    frame: false,
+    frame: useNativeFrame ? true : false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
+      sandbox: true,
+      contextIsolation: true,
     },
-    sandbox: true,
-    autoHideMenuBar: true,
+  };
+
+  if (frameless) {
+    Object.assign(base, {
+      titleBarStyle: isMac ? "hiddenInset" : "hidden",
+      trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
+    });
+  }
+
+  return {
+    ...base,
   };
 };
 
+const WINDOW_CONTROLS_SCRIPT = `
+(() => {
+  const robotick = window.robotick || {};
+  const env = robotick.environment || {};
+  return {
+    hasWindowControls: Boolean(robotick.windowControls),
+    usesNativeFrame:
+      typeof env.usesNativeWindowFrame === "boolean"
+        ? env.usesNativeWindowFrame
+        : null,
+  };
+})()
+`;
+
+/**
+ * Detects whether the renderer has custom window controls and whether it uses the native window frame.
+ *
+ * @param win - The browser window whose renderer will be probed for window control state
+ * @returns `WindowControlsState` containing `hasWindowControls` and `usesNativeFrame` when detection succeeds, or `null` if probing is unavailable or failed
+ */
+async function probeWindowControls(
+  win: BrowserWindowInstance
+): Promise<WindowControlsState | null> {
+  const exec = win.webContents.executeJavaScript;
+  if (typeof exec !== "function") {
+    return null;
+  }
+  try {
+    const result = await exec(WINDOW_CONTROLS_SCRIPT);
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "hasWindowControls" in result
+    ) {
+      const typed = result as {
+        hasWindowControls: unknown;
+        usesNativeFrame?: unknown;
+      };
+      return {
+        hasWindowControls: Boolean(typed.hasWindowControls),
+        usesNativeFrame:
+          typeof typed.usesNativeFrame === "boolean"
+            ? typed.usesNativeFrame
+            : null,
+      };
+    }
+  } catch (error) {
+    console.warn("[Bootstrap] Failed to inspect window controls", error);
+  }
+  return null;
+}
+
+/**
+ * Log the renderer's window control configuration to the console.
+ *
+ * @param state - Detected window control state, or `null` if detection failed
+ */
+function logWindowControlsState(state: WindowControlsState | null) {
+  if (!state) {
+    console.warn(
+      "[Bootstrap] Unable to determine renderer window control availability."
+    );
+    return;
+  }
+  const { hasWindowControls, usesNativeFrame } = state;
+  if (usesNativeFrame) {
+    console.log("[Bootstrap] Native OS window controls enabled.");
+    return;
+  }
+  if (hasWindowControls) {
+    console.log("[Bootstrap] Custom window controls registered.");
+  } else {
+    console.warn(
+      "[Bootstrap] Custom window controls missing; header buttons will not render."
+    );
+  }
+}
+
+/**
+ * Attach a one-time probe that logs whether the renderer uses native OS window controls or custom header controls after the window's page finishes loading.
+ *
+ * @param win - The browser window to monitor
+ */
+function attachWindowControlsLogger(win: BrowserWindowInstance) {
+  win.webContents.once?.("did-finish-load", () => {
+    void probeWindowControls(win).then((state) => {
+      logWindowControlsState(state);
+    });
+  });
+}
+
+/**
+ * Locates a candidate application icon file by checking project and module locations.
+ *
+ * @param env - Environment variables used to resolve project/workspace roots (`ROBOTICK_WORKSPACE_ROOT`, `ROBOTICK_PROJECT_DIR`); `process.cwd()` is used if neither is present
+ * @returns The filesystem path to the first existing icon file found, or `undefined` if none are present
+ */
 function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   const candidates = [];
   const workspace =
@@ -244,6 +371,18 @@ function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
+/**
+ * Initializes and configures the Electron application runtime, creates the main window, and wires IPC, window state persistence, and graceful shutdown handlers.
+ *
+ * Sets up app identity, command-line switches, devtools hooks, window creation and defaults, window state persistence, IPC handlers for window commands, runtime probing of window controls, smoke-test checks, and process signal/error handlers.
+ *
+ * @param app - The minimal Electron app surface used to control application lifecycle and settings.
+ * @param BrowserWindow - Constructor/utility for creating and querying browser windows.
+ * @param ipcMain - Optional IPC handler used to register renderer storage and handle window commands.
+ * @param Menu - Optional Electron Menu API used to build and show system menus.
+ * @param env - Optional environment variables object to influence behavior (e.g., DEV flags, project paths, frame mode).
+ * @param platform - Optional platform identifier (e.g., "darwin", "win32", "linux") to apply platform-specific behaviors.
+ */
 export async function bootstrapElectron({
   app,
   BrowserWindow,
@@ -252,6 +391,30 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  const projectRootEnv =
+    env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+  const resolvedProjectRoot = projectRootEnv
+    ? path.resolve(projectRootEnv)
+    : undefined;
+  const storageDir = resolvedProjectRoot
+    ? path.join(resolvedProjectRoot, ".studio")
+    : undefined;
+  const storageFile =
+    storageDir && env.ROBOTICK_DISABLE_PROJECT_STORAGE !== "1"
+      ? path.join(storageDir, "renderer-storage.json")
+      : undefined;
+  if (ipcMain) {
+    registerRendererStorage(ipcMain, storageFile);
+  }
+
+  const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  console.log(
+    `[Bootstrap] Window frame mode: ${useNativeFrame ? "native" : "custom"}`
+  );
+  const cesiumToken = env.CESIUM_TOKEN?.trim();
+  if (cesiumToken) {
+    console.log("[Bootstrap] CESIUM_TOKEN detected.");
+  }
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
@@ -305,7 +468,8 @@ export async function bootstrapElectron({
       overrideBrowserWindowOptions: getDefaultWindowOptions(
         DEFAULT_WINDOW_STATE,
         platform,
-        windowIconPath
+        windowIconPath,
+        { useNativeFrame }
       ),
     }));
   });
@@ -517,6 +681,16 @@ export async function bootstrapElectron({
           throw new Error(`Invalid renderer route: ${route}`);
         }
         console.log(`[Smoke] Renderer route: ${route}`);
+        const controls = await probeWindowControls(win);
+        if (!controls) {
+          throw new Error("[Smoke] Unable to determine window controls state");
+        }
+        console.log(
+          `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
+        );
+        if (controls.usesNativeFrame === false && !controls.hasWindowControls) {
+          throw new Error("[Smoke] Custom window controls not detected");
+        }
         setTimeout(() => app.quit(), 200);
       } catch (error) {
         console.error("[Smoke] Renderer failed to load", error);
@@ -532,7 +706,9 @@ export async function bootstrapElectron({
   };
   const createWindow = () => {
     const win = new BrowserWindow(
-      getDefaultWindowOptions(storedState, platform, windowIconPath)
+      getDefaultWindowOptions(storedState, platform, windowIconPath, {
+        useNativeFrame,
+      })
     );
     let alwaysOnTopTimer: NodeJS.Timeout | null = null;
     const clearAlwaysOnTopTimer = () => {
@@ -552,6 +728,7 @@ export async function bootstrapElectron({
     });
     registerWindowStateListeners(win);
     registerDevtoolsShortcuts(win, platform);
+    attachWindowControlsLogger(win);
     win.on("ready-to-show", () => {
       win.show?.();
       if (!win.isFocused?.()) {

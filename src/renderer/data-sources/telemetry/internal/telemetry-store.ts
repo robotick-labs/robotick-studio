@@ -1,12 +1,10 @@
 /**
- * Internal: shared polling store that fans out raw telemetry updates to any
- * subscriber. Consumers should call `subscribeTelemetry` via
- * `core/telemetry/index.ts` instead of importing this file directly.
+ * Internal telemetry polling store.
  */
 import {
   createTelemetryModel,
-  ITelemetryModel,
-  LayoutModel,
+  type ITelemetryModel,
+  type LayoutModel,
   fetchLayout,
   fetchRaw,
 } from "./telemetry-client";
@@ -14,6 +12,7 @@ import {
   launcherEvents,
   type LauncherStatus,
 } from "../../launcher/internal/LauncherContext";
+import { createPollingTask, type PollingTask } from "../../../utils/polling";
 
 type SubscriberCallbacks = {
   callback: (model: ITelemetryModel) => void;
@@ -30,204 +29,328 @@ type StoreEntry = {
   subscribers: Set<SubscriberEntry>;
   layout: LayoutModel | null;
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
-  pollingTimer: ReturnType<typeof setInterval> | null;
+  pollingTask: PollingTask | null;
   pollingIntervalMs: number;
 };
 
-const stores = new Map<string, StoreEntry>();
+type TelemetryStoreDeps = {
+  fetchLayout?: typeof fetchLayout;
+  fetchRaw?: typeof fetchRaw;
+  createTelemetryModel?: typeof createTelemetryModel;
+  launcherEventTarget?: EventTarget;
+  createPollingTask?: typeof createPollingTask;
+  maxConcurrentFetches?: number;
+};
+
+export type TelemetryStore = {
+  subscribeTelemetry: (
+    baseUrl: string,
+    pollingRateHz: number,
+    subscriber: SubscriberCallbacks
+  ) => () => void;
+  reset: () => void;
+};
+
 const DEFAULT_POLLING_INTERVAL_MS = 200;
-const MAX_CONCURRENT_FETCHES = 4;
-let telemetrySuspended = false;
+const DEFAULT_MAX_CONCURRENT_FETCHES = 4;
 
-const microtask =
-  typeof queueMicrotask === "function"
-    ? queueMicrotask
-    : (cb: () => void) => Promise.resolve().then(cb);
+/**
+ * Create a telemetry polling store that manages subscriptions, per-base-url polling, and delivery of telemetry models to subscribers.
+ *
+ * @param deps - Optional overrides for network, model-creation, event target, polling task factory, and max concurrent fetches
+ * @returns A TelemetryStore exposing `subscribeTelemetry(baseUrl, pollingRateHz, subscriber)` to subscribe and receive telemetry models and `reset()` to stop and clear the store
+ */
+export function createTelemetryStore(
+  deps: TelemetryStoreDeps = {}
+): TelemetryStore {
+  const fetchLayoutImpl = deps.fetchLayout ?? fetchLayout;
+  const fetchRawImpl = deps.fetchRaw ?? fetchRaw;
+  const createTelemetryModelImpl =
+    deps.createTelemetryModel ?? createTelemetryModel;
+  const launcherEventTarget = deps.launcherEventTarget ?? launcherEvents;
+  const createPollingTaskImpl = deps.createPollingTask ?? createPollingTask;
+  const maxConcurrentFetches =
+    deps.maxConcurrentFetches ?? DEFAULT_MAX_CONCURRENT_FETCHES;
 
-let activeFetches = 0;
-const fetchQueue: Array<() => void> = [];
+  const stores = new Map<string, StoreEntry>();
+  const microtask =
+    typeof queueMicrotask === "function"
+      ? queueMicrotask
+      : (cb: () => void) => Promise.resolve().then(cb);
+  let statusChangeListener: EventListener | null = null;
+  let runRequestedListener: EventListener | null = null;
+  let stopRequestedListener: EventListener | null = null;
 
-function enqueueFetch<T>(task: () => Promise<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const run = () => {
-      activeFetches++;
-      task()
-        .then(resolve, reject)
-        .finally(() => {
-          activeFetches--;
-          const next = fetchQueue.shift();
-          if (next) {
-            next();
-          }
-        });
-    };
+  let telemetrySuspended = false;
+  let activeFetches = 0;
+  const fetchQueue: Array<() => void> = [];
 
-    if (activeFetches < MAX_CONCURRENT_FETCHES) {
-      run();
-    } else {
-      fetchQueue.push(run);
-    }
-  });
-}
+  function enqueueFetch<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const run = () => {
+        activeFetches++;
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            activeFetches--;
+            const next = fetchQueue.shift();
+            if (next) {
+              next();
+            }
+          });
+      };
 
-export function subscribeTelemetry(
-  baseUrl: string,
-  pollingRateHz = 20,
-  subscriber: SubscriberCallbacks
-): () => void {
-  const entry = getOrCreateEntry(baseUrl);
-  const safeRate = Math.max(1, pollingRateHz);
-  const intervalMs = Math.max(1, Math.floor(1000 / safeRate));
-  const subscriberEntry: SubscriberEntry = {
-    ...subscriber,
-    intervalMs,
-    lastNotified: 0,
-  };
-  entry.subscribers.add(subscriberEntry);
-  updatePollingTimer(entry);
-
-  if (entry.layout && entry.lastRaw) {
-    microtask(() => {
-      const model = createTelemetryModel(entry.layout as LayoutModel);
-      model.raw = entry.lastRaw?.buffer ?? null;
-      deliverToSubscriber(subscriberEntry, model, true);
+      if (activeFetches < maxConcurrentFetches) {
+        run();
+      } else {
+        fetchQueue.push(run);
+      }
     });
   }
 
-  return () => {
-    const current = stores.get(baseUrl);
-    if (!current) return;
-    current.subscribers.delete(subscriberEntry);
-    updatePollingTimer(current);
-    if (current.subscribers.size === 0) {
-      stores.delete(baseUrl);
+  function getOrCreateEntry(baseUrl: string): StoreEntry {
+    let entry = stores.get(baseUrl);
+    if (!entry) {
+      entry = {
+        baseUrl,
+        subscribers: new Set(),
+        layout: null,
+        lastRaw: null,
+        pollingTask: null,
+        pollingIntervalMs: DEFAULT_POLLING_INTERVAL_MS,
+      };
+      stores.set(baseUrl, entry);
     }
-  };
-}
-
-function getOrCreateEntry(baseUrl: string): StoreEntry {
-  let entry = stores.get(baseUrl);
-  if (!entry) {
-    entry = {
-      baseUrl,
-      subscribers: new Set(),
-      layout: null,
-      lastRaw: null,
-      pollingTimer: null,
-      pollingIntervalMs: DEFAULT_POLLING_INTERVAL_MS,
-    };
-    stores.set(baseUrl, entry);
+    return entry;
   }
-  return entry;
-}
 
-function startPolling(entry: StoreEntry) {
-  if (telemetrySuspended) return;
-  if (entry.pollingTimer) return;
-  const poll = () => {
-    void pollEntry(entry);
-  };
-
-  poll();
-  entry.pollingTimer = setInterval(poll, entry.pollingIntervalMs);
-}
-
-function stopPolling(entry: StoreEntry) {
-  if (entry.pollingTimer) {
-    clearInterval(entry.pollingTimer);
+  function ensurePollingTask(entry: StoreEntry): PollingTask {
+    if (entry.pollingTask) {
+      return entry.pollingTask;
+    }
+    entry.pollingTask = createPollingTaskImpl(() => pollEntry(entry), {
+      intervalMs: entry.pollingIntervalMs,
+      runImmediately: true,
+      onError: (error) => {
+        entry.subscribers.forEach((sub) => sub.error?.(error));
+      },
+    });
+    return entry.pollingTask;
   }
-  entry.pollingTimer = null;
-}
 
-async function pollEntry(entry: StoreEntry) {
-  if (telemetrySuspended) return;
-  try {
-    if (!entry.layout) {
-      const layout = await enqueueFetch(() => fetchLayout(entry.baseUrl));
-      if (layout) {
-        entry.layout = layout;
+  function stopPolling(entry: StoreEntry) {
+    if (!entry.pollingTask) {
+      return;
+    }
+    entry.pollingTask.stop();
+    entry.pollingTask = null;
+  }
+
+  async function pollEntry(entry: StoreEntry) {
+    if (telemetrySuspended) return;
+    try {
+      if (!entry.layout) {
+        const layout = await enqueueFetch(() => fetchLayoutImpl(entry.baseUrl));
+        if (layout) {
+          entry.layout = layout;
+        }
+      }
+      if (!entry.layout) return;
+
+      const { raw, sid } = await enqueueFetch(() =>
+        fetchRawImpl(entry.baseUrl)
+      );
+      entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+      const model = createTelemetryModelImpl(entry.layout);
+      model.raw = raw;
+      notifySubscribers(entry, model);
+    } catch (err) {
+      entry.subscribers.forEach((sub) => sub.error?.(err));
+    }
+  }
+
+  function updatePollingTimer(entry: StoreEntry) {
+    if (entry.subscribers.size === 0) {
+      stopPolling(entry);
+      entry.pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS;
+      return;
+    }
+
+    const fastestInterval = Math.min(
+      ...Array.from(entry.subscribers, (sub) => sub.intervalMs)
+    );
+
+    if (entry.pollingIntervalMs !== fastestInterval) {
+      entry.pollingIntervalMs = fastestInterval;
+      if (entry.pollingTask) {
+        entry.pollingTask.setIntervalMs(fastestInterval, { immediate: true });
       }
     }
-    if (!entry.layout) return;
-
-    const { raw, sid } = await enqueueFetch(() => fetchRaw(entry.baseUrl));
-    entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
-    const model = createTelemetryModel(entry.layout);
-    model.raw = raw;
-    notifySubscribers(entry, model);
-  } catch (err) {
-    entry.subscribers.forEach((sub) => sub.error?.(err));
-  }
-}
-
-function updatePollingTimer(entry: StoreEntry) {
-  if (entry.subscribers.size === 0) {
-    stopPolling(entry);
-    entry.pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS;
-    return;
-  }
-
-  const fastestInterval = Math.min(
-    ...Array.from(entry.subscribers, (sub) => sub.intervalMs)
-  );
-
-  if (entry.pollingTimer && entry.pollingIntervalMs === fastestInterval) {
-    return;
-  }
-
-  entry.pollingIntervalMs = fastestInterval;
-  stopPolling(entry);
-  startPolling(entry);
-}
-
-function setTelemetrySuspended(next: boolean) {
-  if (telemetrySuspended === next) return;
-  telemetrySuspended = next;
-  for (const entry of stores.values()) {
-    if (telemetrySuspended) {
-      stopPolling(entry);
-    } else {
-      updatePollingTimer(entry);
+    const task = ensurePollingTask(entry);
+    if (!telemetrySuspended && !task.isRunning()) {
+      task.start({ immediate: true });
     }
   }
-}
 
-function handleLauncherStatus(status: LauncherStatus | undefined | null) {
-  if (!status) return;
-  setTelemetrySuspended(status !== "running");
-}
-
-launcherEvents.addEventListener("status-changed", (event) => {
-  const detail = (event as CustomEvent<{ status: LauncherStatus }>).detail;
-  handleLauncherStatus(detail?.status);
-});
-
-launcherEvents.addEventListener("run-requested", () => {
-  setTelemetrySuspended(false);
-});
-
-launcherEvents.addEventListener("stop-requested", () => {
-  setTelemetrySuspended(true);
-});
-
-function notifySubscribers(entry: StoreEntry, model: ITelemetryModel) {
-  entry.subscribers.forEach((sub) => {
-    deliverToSubscriber(sub, model);
-  });
-}
-
-function deliverToSubscriber(
-  subscriber: SubscriberEntry,
-  model: ITelemetryModel,
-  force = false
-) {
-  const now = Date.now();
-  if (
-    force ||
-    subscriber.lastNotified === 0 ||
-    now - subscriber.lastNotified >= subscriber.intervalMs
-  ) {
-    subscriber.lastNotified = now;
-    subscriber.callback(model);
+  function setTelemetrySuspended(next: boolean) {
+    if (telemetrySuspended === next) return;
+    telemetrySuspended = next;
+    for (const entry of stores.values()) {
+      if (telemetrySuspended) {
+        stopPolling(entry);
+      } else {
+        updatePollingTimer(entry);
+      }
+    }
   }
+
+  function handleLauncherStatus(status: LauncherStatus | undefined | null) {
+    if (!status) return;
+    setTelemetrySuspended(status !== "running");
+  }
+
+  const statusEventHandler: EventListener = (event) => {
+    const detail = (event as CustomEvent<{ status: LauncherStatus }>).detail;
+    handleLauncherStatus(detail?.status);
+  };
+  const runEventHandler: EventListener = () => {
+    setTelemetrySuspended(false);
+  };
+  const stopEventHandler: EventListener = () => {
+    setTelemetrySuspended(true);
+  };
+
+  function registerLauncherListeners() {
+    if (!launcherEventTarget) return;
+    if (!statusChangeListener) {
+      statusChangeListener = statusEventHandler;
+      launcherEventTarget.addEventListener(
+        "status-changed",
+        statusChangeListener
+      );
+    }
+    if (!runRequestedListener) {
+      runRequestedListener = runEventHandler;
+      launcherEventTarget.addEventListener("run-requested", runRequestedListener);
+    }
+    if (!stopRequestedListener) {
+      stopRequestedListener = stopEventHandler;
+      launcherEventTarget.addEventListener(
+        "stop-requested",
+        stopRequestedListener
+      );
+    }
+  }
+
+  function unregisterLauncherListeners() {
+    if (!launcherEventTarget) return;
+    if (statusChangeListener) {
+      launcherEventTarget.removeEventListener(
+        "status-changed",
+        statusChangeListener
+      );
+      statusChangeListener = null;
+    }
+    if (runRequestedListener) {
+      launcherEventTarget.removeEventListener(
+        "run-requested",
+        runRequestedListener
+      );
+      runRequestedListener = null;
+    }
+    if (stopRequestedListener) {
+      launcherEventTarget.removeEventListener(
+        "stop-requested",
+        stopRequestedListener
+      );
+      stopRequestedListener = null;
+    }
+  }
+
+  registerLauncherListeners();
+
+  function notifySubscribers(entry: StoreEntry, model: ITelemetryModel) {
+    entry.subscribers.forEach((sub) => {
+      deliverToSubscriber(sub, model);
+    });
+  }
+
+  function deliverToSubscriber(
+    subscriber: SubscriberEntry,
+    model: ITelemetryModel,
+    force = false
+  ) {
+    const now = Date.now();
+    if (
+      force ||
+      subscriber.lastNotified === 0 ||
+      now - subscriber.lastNotified >= subscriber.intervalMs
+    ) {
+      subscriber.lastNotified = now;
+      subscriber.callback(model);
+    }
+  }
+
+  function subscribeTelemetry(
+    baseUrl: string,
+    pollingRateHz = 20,
+    subscriber: SubscriberCallbacks
+  ): () => void {
+    const entry = getOrCreateEntry(baseUrl);
+    const safeRate = Math.max(1, pollingRateHz);
+    const intervalMs = Math.max(1, Math.floor(1000 / safeRate));
+    const subscriberEntry: SubscriberEntry = {
+      ...subscriber,
+      intervalMs,
+      lastNotified: 0,
+    };
+    entry.subscribers.add(subscriberEntry);
+    updatePollingTimer(entry);
+
+    if (entry.layout && entry.lastRaw) {
+      microtask(() => {
+        const current = stores.get(baseUrl);
+        if (!current || !current.subscribers.has(subscriberEntry)) {
+          return;
+        }
+        try {
+          const model = createTelemetryModelImpl(current.layout as LayoutModel);
+          model.raw = current.lastRaw?.buffer ?? null;
+          deliverToSubscriber(subscriberEntry, model, true);
+        } catch (error) {
+          subscriber.error?.(error);
+        }
+      });
+    }
+
+    return () => {
+      const current = stores.get(baseUrl);
+      if (!current) return;
+      current.subscribers.delete(subscriberEntry);
+      updatePollingTimer(current);
+      if (current.subscribers.size === 0) {
+        stores.delete(baseUrl);
+      }
+    };
+  }
+
+  function reset() {
+    for (const entry of stores.values()) {
+      stopPolling(entry);
+    }
+    stores.clear();
+    telemetrySuspended = false;
+    activeFetches = 0;
+    fetchQueue.length = 0;
+  }
+
+  return {
+    subscribeTelemetry,
+    reset,
+  };
 }
+
+const defaultTelemetryStore = createTelemetryStore();
+
+export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
+export const resetTelemetryStore = () => defaultTelemetryStore.reset();

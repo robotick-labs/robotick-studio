@@ -1,3 +1,6 @@
+import { readStorageValue, setStorageValue } from "../../../services/storage";
+import { addWindowEventListener } from "../../../utils/domEnvironment";
+
 type PanelSettings = Record<string, unknown>;
 
 export type FloatingPanelRecord = {
@@ -25,17 +28,21 @@ const STORAGE_PREFIX = "floating-panels:";
 const store = new Map<string, FloatingPanelRecord[]>();
 const listeners = new Map<string, Set<Listener>>();
 
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) {
-      return;
-    }
-    const scope = event.key.slice(STORAGE_PREFIX.length);
-    store.delete(scope);
-    notify(scope);
-  });
-}
+addWindowEventListener("storage", (event: StorageEvent) => {
+  if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) {
+    return;
+  }
+  const scope = event.key.slice(STORAGE_PREFIX.length);
+  store.delete(scope);
+  notify(scope);
+});
 
+/**
+ * Produce a shallow copy of an array of panel records with each record's `settings` object duplicated.
+ *
+ * @param records - The array of FloatingPanelRecord objects to clone
+ * @returns A new array where each record is a shallow copy and its `settings` object is a shallow copy
+ */
 function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   return records.map((record) => ({
     ...record,
@@ -43,13 +50,20 @@ function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   }));
 }
 
+/**
+ * Load and normalize floating panel records for a given scope from persistent storage.
+ *
+ * Normalizes each stored item into a valid FloatingPanelRecord: ensures a non-empty `id`
+ * (generating one if missing), coerces `editorId` to a string and filters out items with
+ * an empty `editorId`, copies `settings`, and only includes `initialPosition`, `initialSize`,
+ * and `minSize` when numeric, finite, and (for sizes) greater than zero.
+ *
+ * @param scope - The storage scope key used to read panel data
+ * @returns An array of normalized `FloatingPanelRecord` objects for the scope; returns an empty array if no valid data exists or on parse/read errors
+ */
 function load(scope: string): FloatingPanelRecord[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
   try {
-    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${scope}`);
+    const raw = readStorageValue(`${STORAGE_PREFIX}${scope}`);
     if (!raw) {
       return [];
     }
@@ -108,16 +122,19 @@ function load(scope: string): FloatingPanelRecord[] {
   }
 }
 
+/**
+ * Persist the floating-panel records for a given scope to storage.
+ *
+ * Writes the current in-memory records for `scope` to the storage key formed by
+ * prefixing `scope` with `STORAGE_PREFIX` as JSON. Storage write failures are
+ * silently ignored.
+ *
+ * @param scope - Scope identifier used as the suffix for the storage key
+ */
 function persist(scope: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
   const records = store.get(scope) ?? [];
   try {
-    window.localStorage.setItem(
-      `${STORAGE_PREFIX}${scope}`,
-      JSON.stringify(records)
-    );
+    setStorageValue(`${STORAGE_PREFIX}${scope}`, JSON.stringify(records));
   } catch {
     /* ignore storage failures */
   }
@@ -180,11 +197,20 @@ export function spawnFloatingPanel(
   return id;
 }
 
+/**
+ * Apply updates to an existing floating panel in the given scope.
+ *
+ * Updates the panel identified by `panelId` by either merging the provided partial fields or using the returned panel from the update function. If the panel does not exist, no action is taken. Updated settings are merged with the existing settings; the panel `id` is always preserved. Changes are persisted and subscribers for the scope are notified.
+ *
+ * @param scope - The storage scope for the panel collection
+ * @param panelId - The identifier of the panel to update
+ * @param update - Either a partial set of panel fields to merge (may include `editorId`) or a function that receives the current panel and returns the updated panel
+ */
 export function updateFloatingPanel(
   scope: string,
   panelId: string,
   update:
-    | Partial<Omit<FloatingPanelRecord, "id" | "editorId">>
+    | Partial<Omit<FloatingPanelRecord, "id">>
     | ((panel: FloatingPanelRecord) => FloatingPanelRecord)
 ): void {
   const panels = ensure(scope);
@@ -217,12 +243,26 @@ export function removeFloatingPanel(scope: string, panelId: string): void {
   notify(scope);
 }
 
+/**
+ * Get the current floating panel records for the given scope.
+ *
+ * @param scope - Identifier for the per-scope panel store
+ * @returns A snapshot array of floating panel records for `scope`
+ */
 export function getFloatingPanels(scope: string): FloatingPanelRecord[] {
   return clone(ensure(scope));
 }
 
+/**
+ * Generates a unique identifier for a floating panel.
+ *
+ * @returns A unique identifier string; if the environment provides a UUID generator, a UUID is returned, otherwise a short random id prefixed with `fp-`.
+ */
 function generateId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `fp-${Math.random().toString(36).slice(2, 9)}`;

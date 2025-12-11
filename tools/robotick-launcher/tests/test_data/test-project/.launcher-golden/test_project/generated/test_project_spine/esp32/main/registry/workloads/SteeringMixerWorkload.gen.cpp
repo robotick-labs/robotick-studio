@@ -13,7 +13,7 @@ namespace robotick
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(SteeringMixerInputs)
     ROBOTICK_STRUCT_FIELD(SteeringMixerInputs, float, speed)
-    ROBOTICK_STRUCT_FIELD(SteeringMixerInputs, float, turn_rate)
+    ROBOTICK_STRUCT_FIELD(SteeringMixerInputs, float, angular_speed)
     ROBOTICK_REGISTER_STRUCT_END(SteeringMixerInputs)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(SteeringMixerOutputs)

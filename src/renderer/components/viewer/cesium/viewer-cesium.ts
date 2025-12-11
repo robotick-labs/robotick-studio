@@ -93,18 +93,49 @@ let cameraFollowModelId: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Token loading
-// ---------------------------------------------------------------------------
+/**
+ * Resolve the Cesium access token from configured environment sources.
+ *
+ * Checks (in order) a token on `window.robotick.environment.cesiumToken`, `import.meta.env.CESIUM_TOKEN`,
+ * and `process.env.CESIUM_TOKEN`, returning the first non-empty value trimmed of whitespace.
+ *
+ * @returns The trimmed Cesium token string if found, or an empty string if none is configured.
+ */
+
+function resolveCesiumToken(): string {
+  const fromWindow =
+    typeof window !== "undefined"
+      ? window.robotick?.environment?.cesiumToken
+      : undefined;
+  if (typeof fromWindow === "string" && fromWindow.trim()) {
+    return fromWindow.trim();
+  }
+
+  const fromImport = import.meta.env?.CESIUM_TOKEN;
+  if (typeof fromImport === "string" && fromImport.trim()) {
+    return fromImport.trim();
+  }
+
+  const fromProcess =
+    typeof process !== "undefined" ? process.env?.CESIUM_TOKEN : undefined;
+  if (typeof fromProcess === "string" && fromProcess.trim()) {
+    return fromProcess.trim();
+  }
+
+  return "";
+}
 
 const secretsPromise: Promise<void> = (async () => {
-  try {
-    const { CESIUM_TOKEN: LOCAL } = await import("./secrets_LOCAL.js");
-    CESIUM_TOKEN = LOCAL;
-    console.log("✅ Loaded CESIUM_TOKEN from secrets_LOCAL.js");
-  } catch {
-    const { CESIUM_TOKEN: DEFAULT } = await import("./secrets.js");
-    CESIUM_TOKEN = DEFAULT;
-    console.log("ℹ️ Loaded CESIUM_TOKEN from secrets.js");
+  const token = resolveCesiumToken();
+  if (token) {
+    CESIUM_TOKEN = token;
+    console.log("✅ Loaded CESIUM_TOKEN from environment");
+    return;
   }
+
+  console.error(
+    "❌ CESIUM_TOKEN not configured. Set the CESIUM_TOKEN environment variable before launching Robotick Studio."
+  );
 })();
 
 // ---------------------------------------------------------------------------
@@ -185,7 +216,15 @@ async function init(
   await installTelemetryTrackers(config);
 }
 
-// ---------------------------------------------------------------------------
+/**
+ * Apply pan/zoom/rotate/tilt control settings from the provided viewer configuration to the Cesium camera controller.
+ *
+ * Reads the `controls` section of `config` and sets the viewer's screenSpaceCameraController flags:
+ * - when `controls.enabled` is truthy, enables rotate, tilt, look, and zoom;
+ * - enables translate (screen-space panning) only when `controls.enabled` is truthy and `controls.screenSpacePanning` is truthy.
+ *
+ * @param config - Viewer configuration containing an optional `controls` object with `enabled` and `screenSpacePanning` flags
+ */
 
 function configureControls(config: ViewerConfig): void {
   if (!viewer) return;
@@ -196,9 +235,16 @@ function configureControls(config: ViewerConfig): void {
   controller.enableTilt = enabled;
   controller.enableLook = enabled;
   controller.enableZoom = enabled;
-  controller.enableTranslate = enabled && (controlsCfg.screenSpacePanning ?? false);
+  const screenSpacePanning = controlsCfg?.screenSpacePanning ?? false;
+  controller.enableTranslate = enabled && screenSpacePanning;
 }
 
+/**
+ * Determine the list of Cesium model configurations to use based on the viewer configuration.
+ *
+ * @param config - The viewer configuration used to derive model entries.
+ * @returns An array of `CesiumModelConfig` objects: if `config.cesium?.models` is present and non-empty it is returned unchanged; otherwise a single default model is created from `config.modelUri` and the camera target (or `{ lat: 0, lon: 0, height: 0 }`); returns an empty array if no model URI is available.
+ */
 function buildModelConfigs(config: CesiumViewerConfig): CesiumModelConfig[] {
   const explicit = config.cesium?.models;
   if (explicit?.length) {

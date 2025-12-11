@@ -5,14 +5,25 @@ export interface Layers {
   edges: SVGGElement;
 }
 
+/**
+ * Create an SVG group element and assign it the given id.
+ *
+ * @param id - The value to set for the element's `id` attribute
+ * @returns The created `SVGGElement` (`<g>`) with its `id` set to `id`
+ */
 export function createSvgLayer(id: string): SVGGElement {
   const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
   g.setAttribute("id", id);
   return g;
 }
 
-export function createSvgLayers(svg: SVGSVGElement) {
-  // check if layers already exist
+/**
+ * Ensure the SVG contains four named layer groups and return them.
+ *
+ * @param svg - The root SVG element to inspect and possibly augment with layer groups
+ * @returns An object with `swim`, `group`, `edges`, and `nodes` properties, each an `SVGGElement` representing the corresponding layer; missing layers are created and appended to `svg`
+ */
+export function createSvgLayers(svg: SVGSVGElement): Layers {
   const existing = {
     swim: svg.querySelector("g.layer-swim") as SVGGElement | null,
     group: svg.querySelector("g.layer-group") as SVGGElement | null,
@@ -21,7 +32,7 @@ export function createSvgLayers(svg: SVGSVGElement) {
   };
 
   if (existing.swim && existing.group && existing.edges && existing.nodes) {
-    return existing as Required<typeof existing>;
+    return existing as Layers;
   }
 
   // first-time creation

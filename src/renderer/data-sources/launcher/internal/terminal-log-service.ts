@@ -1,6 +1,8 @@
+import { readStorageValue, setStorageValue } from "../../../services/storage";
 import { launcherEvents } from "./LauncherContext";
 import { getLauncherLogStreamUrl } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
+import { createPollingTask } from "../../../utils/polling";
 
 type TerminalLogSubscriber = () => void;
 
@@ -26,38 +28,74 @@ const STORAGE_KEYS = {
   clearOnRun: "robotick-studio.terminal.clearOnRun",
 } as const;
 
-const HAS_LOCAL_STORAGE = typeof globalThis.localStorage !== "undefined";
 const HAS_WEBSOCKET = typeof globalThis.WebSocket !== "undefined";
+const IS_TEST_ENV =
+  typeof process !== "undefined" &&
+  typeof process.env !== "undefined" &&
+  process.env.NODE_ENV === "test";
 
+/**
+ * Read a string value from persistent storage for the given key, returning a fallback when absent.
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return if no stored value exists for `key`
+ * @returns The stored string associated with `key`, or `fallback` if none is present
+ */
 function readString(key: string, fallback: string): string {
-  if (!HAS_LOCAL_STORAGE) return fallback;
-  return globalThis.localStorage.getItem(key) ?? fallback;
+  return readStorageValue(key) ?? fallback;
 }
 
+/**
+ * Persist a string value under the specified storage key.
+ *
+ * @param key - The storage key to write to
+ * @param value - The string value to persist
+ */
 function writeString(key: string, value: string) {
-  if (!HAS_LOCAL_STORAGE) return;
-  globalThis.localStorage.setItem(key, value);
+  setStorageValue(key, value);
 }
 
+/**
+ * Read a stored value and use the provided fallback when the stored value is not the literal strings "true" or "false".
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return when the stored value is missing or not "true"/"false"
+ * @returns `true` if the stored value is the string "true", `false` if the stored value is the string "false", otherwise returns `fallback`
+ */
 function readBoolean(key: string, fallback: boolean): boolean {
-  if (!HAS_LOCAL_STORAGE) return fallback;
-  const raw = globalThis.localStorage.getItem(key);
+  const raw = readStorageValue(key);
   if (raw === "true") return true;
   if (raw === "false") return false;
   return fallback;
 }
 
+/**
+ * Persist a boolean value to storage under the given key.
+ *
+ * @param key - Storage key where the value will be saved
+ * @param value - The boolean value to store
+ */
 function writeBoolean(key: string, value: boolean) {
-  if (!HAS_LOCAL_STORAGE) return;
-  globalThis.localStorage.setItem(key, value ? "true" : "false");
+  setStorageValue(key, value ? "true" : "false");
 }
+
+const RECONNECT_MIN_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 8000;
 
 class TerminalLogServiceImpl implements TerminalLogService {
   private messages: string[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
   private ws: WebSocket | null = null;
-  private retryTimer: number | null = null;
-  private retryDelay = 1000;
+  private reconnectTask = createPollingTask(
+    () => {
+      if (this.ws || !HAS_WEBSOCKET) {
+        return;
+      }
+      console.log("[terminal] Attempting reconnect...");
+      this.connect();
+    },
+    { intervalMs: RECONNECT_MIN_DELAY_MS, runImmediately: false }
+  );
 
   private filter = readString(STORAGE_KEYS.filter, "");
   private wrapText = readBoolean(STORAGE_KEYS.wrapText, true);
@@ -65,9 +103,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
 
   constructor() {
-    if (HAS_WEBSOCKET) {
+    if (HAS_WEBSOCKET && !IS_TEST_ENV) {
       this.connect();
-    } else {
+    } else if (!HAS_WEBSOCKET) {
       console.warn("[terminal] WebSocket unavailable in this environment");
     }
     launcherEvents.addEventListener("run-requested", this.handleRunRequested);
@@ -142,6 +180,12 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private connect() {
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    if (this.ws) {
+      return;
+    }
     let ws: WebSocket;
 
     try {
@@ -156,7 +200,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
     ws.onopen = () => {
       console.log("[terminal] Connected");
-      this.retryDelay = 1000;
+      this.reconnectTask.stop();
+      this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
+        immediate: false,
+      });
     };
 
     ws.onerror = (ev) => {
@@ -177,18 +224,18 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   private scheduleReconnect() {
-    if (this.retryTimer !== null) return;
-
-    const delay = this.retryDelay;
-    const capped = Math.min(delay, 8000);
-
-    console.log(`[terminal] Reconnecting in ${capped}ms...`);
-
-    this.retryTimer = globalThis.setTimeout(() => {
-      this.retryTimer = null;
-      this.retryDelay = Math.min(delay * 2, 8000);
-      this.connect();
-    }, capped);
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    const nextDelay = Math.min(
+      this.reconnectTask.getIntervalMs() * 2,
+      RECONNECT_MAX_DELAY_MS
+    );
+    this.reconnectTask.setIntervalMs(nextDelay, { immediate: false });
+    console.log(`[terminal] Reconnecting in ${nextDelay}ms...`);
+    if (!this.reconnectTask.isRunning()) {
+      this.reconnectTask.start({ immediate: false });
+    }
   }
 
   private pushMessage(message: string) {

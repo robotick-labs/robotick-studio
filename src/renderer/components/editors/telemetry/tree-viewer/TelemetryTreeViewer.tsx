@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { ProjectData } from "../../../../data-sources/launcher";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
@@ -17,6 +23,11 @@ import {
   removeStorageValue,
   setStorageValue,
 } from "../../../../services/storage";
+import {
+  formatEnumArrayPreview,
+  formatEnumNumber,
+  formatNumberSmart,
+} from "../utils/telemetry-formatters";
 
 type SectionKind = "inputs" | "outputs" | "config";
 type DataKindSelection = SectionKind | "all";
@@ -45,15 +56,21 @@ const TREE_STORAGE_KEYS = {
   dataKind: "robotick-studio.telemetry.tree.dataKind",
 };
 
+/**
+ * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
+ *
+ * Persists per-panel and per-workspace viewer preferences and uses the selected telemetry model to populate the displayed tree.
+ *
+ * @returns The React element tree for the telemetry tree viewer.
+ */
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string>();
+  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
-  const panelInstanceId =
-    panelInstance.panelId ?? fallbackPanelIdRef.current;
+  const panelInstanceId = panelInstance.panelId ?? fallbackPanelIdRef.current;
   const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
   const buildPanelKey = useCallback(
     (base: string) =>
@@ -95,20 +112,23 @@ export default function TelemetryTreeViewer() {
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
-  const persistLocalSettings = useCallback((next: Partial<PanelSettings>) => {
-    if ("modelPath" in next) {
-      persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
-    }
-    if ("workloadName" in next) {
-      persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
-    }
-    if ("fieldPath" in next) {
-      persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
-    }
-    if ("dataKind" in next) {
-      persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
-    }
-  }, [persistPreference]);
+  const persistLocalSettings = useCallback(
+    (next: Partial<PanelSettings>) => {
+      if ("modelPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadName" in next) {
+        persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
+      }
+      if ("fieldPath" in next) {
+        persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
+      }
+      if ("dataKind" in next) {
+        persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
+      }
+    },
+    [persistPreference]
+  );
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
   const updateSettings = useCallback(
@@ -182,7 +202,7 @@ export default function TelemetryTreeViewer() {
     }
   }, [settings.workloadName, updateSettings, workloads]);
 
-  const rootNodes = useMemo(() => {
+  const rootNodes = useMemo<ITelemetryField[]>(() => {
     if (!model) return [];
     const workloadsToInspect =
       workloadName && targetWorkload ? [targetWorkload] : workloads;
@@ -484,12 +504,25 @@ function JsonNode({
   );
 }
 
+/**
+ * Formats a telemetry field's value for display in the UI.
+ *
+ * @param field - The telemetry field whose value will be formatted.
+ * @returns A string representation suitable for display: `""` for null/undefined, quoted strings for string values, formatted numeric values for numbers/bigints, array previews or `"[N items]"`, `"<bytes N>"` for byte arrays, `"{…}"` for objects, or `String(value)` as a fallback.
+ */
 function formatValue(field: ITelemetryField) {
   const value = field.getValue?.();
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number") return value.toString();
-  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (typeof value === "number" || typeof value === "bigint") {
+    return formatEnumNumber(field, value);
+  }
+  if (Array.isArray(value)) {
+    if (field.enum_values && field.enum_values.length > 0) {
+      return formatEnumArrayPreview(field, value);
+    }
+    return `[${value.length} items]`;
+  }
   if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;
   if (typeof value === "object") return "{…}";
   return String(value);
@@ -500,10 +533,26 @@ function formatArraySummary(value: unknown): string {
   return `[${value.length} items]`;
 }
 
+/**
+ * Produce a concise, human-readable string summary for a JSON-like value.
+ *
+ * @param value - Any JSON-like value (primitive, array, object, or Uint8Array)
+ * @returns A compact representation:
+ *  - `""` for `null` or `undefined`
+ *  - quoted string for string values
+ *  - numeric string for numbers and bigints
+ *  - `"true"` or `"false"` for booleans
+ *  - `"[N items]"` for arrays
+ *  - `"<bytes N>"` for `Uint8Array`
+ *  - `"{…}"` for objects
+ *  - otherwise `String(value)`
+ */
 function formatJsonValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number") return value.toString();
+  if (typeof value === "number" || typeof value === "bigint") {
+    return value.toString();
+  }
   if (typeof value === "boolean") return value ? "true" : "false";
   if (Array.isArray(value)) return `[${value.length} items]`;
   if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;

@@ -9,6 +9,13 @@ import {
 } from "../../../../data-sources/launcher";
 import styles from "../Telemetry.module.css";
 
+/**
+ * Render the telemetry UI for the current project, showing status messages or a list of telemetry models.
+ *
+ * Models are ordered by their telemetry instance port (ascending); when ports are equal, models are ordered by instance URL.
+ *
+ * @returns A React element that displays either a prompt/status message or a list of TelemetryModel components for the current project
+ */
 export function TelemetryApp() {
   const { projectPath } = Project.Context.use();
   const { status } = Launcher.Context.use();
@@ -56,10 +63,11 @@ export function TelemetryApp() {
   }
 
   if (projectModels.error) {
+    const rawError: unknown = projectModels.error;
     const errorMessage =
-      projectModels.error instanceof Error
-        ? projectModels.error.message
-        : String(projectModels.error);
+      rawError instanceof Error
+        ? rawError.message
+        : String(rawError ?? "Unknown error");
     return <p>Failed to load models: {errorMessage}</p>;
   }
 

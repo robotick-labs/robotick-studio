@@ -98,11 +98,16 @@ function DefaultWorkspaceRedirect() {
   return <Navigate to={target} replace />;
 }
 
+/**
+ * Synchronizes the current route to the remembered workspace for the active project when the project changes.
+ *
+ * Reads the active project from project context and, if it differs from the previous project, resolves the remembered workspace path for that project and navigates to it using a replace navigation when the current pathname is different.
+ */
 function ProjectWorkspaceSync() {
   const { projectPath } = useProjectContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const previousProject = React.useRef<string | undefined>();
+  const previousProject = React.useRef<string | undefined>(undefined);
 
   React.useEffect(() => {
     if (previousProject.current === projectPath) {

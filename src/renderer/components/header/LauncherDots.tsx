@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from "react";
 import type { LauncherStatus } from "../../data-sources/launcher";
 import styles from "./styles/LauncherControls.module.css";
+import {
+  clearIntervalSafe,
+  clearTimeoutSafe,
+  setIntervalSafe,
+  setTimeoutSafe,
+} from "../../utils/domEnvironment";
 
+/**
+ * Render a launcher status indicator that displays animated dots or a flatline.
+ *
+ * @param status - Controls the indicator's visual state: shows cycling active dots when `"launching"`, heartbeat styles when `"running"`, and (when `"running"` and `robotAlive` is `false`) a flatline after a 5000ms delay.
+ * @param robotAlive - Whether the robot is currently alive; when `false` and `status` is `"running"`, enables the delayed transition to the flatline view.
+ * @returns The JSX element representing the launcher indicator (dots or flatline).
+ */
 export function LauncherDots({
   status,
   robotAlive,
@@ -19,11 +32,11 @@ export function LauncherDots({
 
   useEffect(() => {
     if (status !== "launching") return;
-    const id = window.setInterval(() => {
+    const id = setIntervalSafe(() => {
       setActiveIndex((prev) => (prev + 1) % 3);
     }, 500);
     return () => {
-      window.clearInterval(id);
+      clearIntervalSafe(id);
     };
   }, [status]);
 
@@ -49,12 +62,12 @@ export function LauncherDots({
     }
 
     setFlatlineReady(false);
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = setTimeoutSafe(() => {
       setFlatlineReady(true);
     }, 5000 - elapsed);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      clearTimeoutSafe(timeoutId);
     };
   }, [status, robotAlive, runningSince]);
 

@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "npm run test:renderer && npm run test:electron",
+    "typecheck": "tsc --noEmit",
     "test:launcher": "bash build-and-test-launcher.sh",
     "test:renderer": "vitest --run --project renderer",
     "pretest:renderer": "npm run test:launcher",
@@ -33,6 +34,9 @@
   },
   "homepage": "https://github.com/robotick-labs/robotick-studio#readme",
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/jsdom": "^27.0.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",

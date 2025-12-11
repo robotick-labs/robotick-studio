@@ -1,24 +1,74 @@
 import React, { useEffect, useState } from "react";
+import { getWindow } from "../../utils/domEnvironment";
+import type { RobotickWindowControls } from "../../types/robotick-globals";
 import styles from "./styles/WindowControls.module.css";
 
-export type WindowControlsAPI = Window["robotick"] extends {
-  windowControls?: infer T;
-}
-  ? NonNullable<T>
-  : never;
+export type WindowControlsAPI = RobotickWindowControls;
 
 type WindowControlsProps = React.HTMLAttributes<HTMLDivElement>;
 
+/**
+ * Retrieve the Robotick window controls bridge API from the global window object.
+ *
+ * @returns `WindowControlsAPI` if exposed at `window.robotick.windowControls`, `undefined` otherwise.
+ */
 export function getWindowControlsAPI(): WindowControlsAPI | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-  return window.robotick?.windowControls;
+  const win = getWindow();
+  return win?.robotick?.windowControls;
 }
 
+/**
+ * Render window control buttons (minimize, maximize/restore, close) that use the renderer bridge API.
+ *
+ * The component waits for the bridge API to become available (SSR-safe) and subscribes to window state
+ * changes to reflect the maximized/restored state of the window.
+ *
+ * @returns A JSX element containing the window control buttons, or `null` if the window controls API is not available.
+ */
 export function WindowControls(props: WindowControlsProps = {}) {
-  const api = getWindowControlsAPI();
+  // Lazily resolve the window controls API so SSR renders without touching
+  // `window`, then re-check on the client after hydration in case the bridge
+  // becomes available later.
+  const [api, setApi] = useState<WindowControlsAPI | undefined>(() =>
+    getWindowControlsAPI()
+  );
   const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (api) return;
+    const win = getWindow();
+    if (!win) {
+      return;
+    }
+    let cancelled = false;
+    const attemptResolve = () => {
+      if (cancelled) {
+        return true;
+      }
+      const next = getWindowControlsAPI();
+      if (next) {
+        setApi(next);
+        return true;
+      }
+      return false;
+    };
+    if (attemptResolve()) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const interval = win.setInterval(() => {
+      if (attemptResolve() && typeof interval === "number") {
+        win.clearInterval(interval);
+      }
+    }, 100);
+    return () => {
+      cancelled = true;
+      if (typeof interval === "number") {
+        win.clearInterval(interval);
+      }
+    };
+  }, [api]);
 
   useEffect(() => {
     if (!api?.onStateChange) return;

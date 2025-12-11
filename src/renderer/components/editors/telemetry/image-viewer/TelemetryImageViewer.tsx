@@ -50,10 +50,17 @@ const STORAGE_KEYS = {
 };
 
 
+/**
+ * Render a panel that lets users pick a telemetry model, workload, and image field, and previews the latest image telemetry.
+ *
+ * The component persists panel-specific selections, reads telemetry models and streams image fields, and displays a live preview when image data is available.
+ *
+ * @returns The rendered React element for the telemetry image viewer.
+ */
 export default function TelemetryImageViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string>();
+  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
@@ -213,13 +220,15 @@ export default function TelemetryImageViewer() {
   }, [availableWorkloads, workloadName, updateSettings]);
 
   const field = useMemo(() => {
-    if (!model || !fieldPath) return null;
+    if (!model || !fieldPath || typeof model.getField !== "function") {
+      return null;
+    }
     return model.getField(fieldPath) ?? null;
   }, [model, fieldPath]);
 
   const value = field?.getValue();
   const blobUrl = useBlobURL(
-    value instanceof Uint8Array ? value : undefined,
+    value instanceof Uint8Array ? value : null,
     field?.mime_type
   );
 

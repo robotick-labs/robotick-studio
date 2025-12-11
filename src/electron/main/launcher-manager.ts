@@ -1,11 +1,13 @@
 import { spawn, spawnSync, ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
 const getWorkspaceRoot = () =>
   process.env.ROBOTICK_PROJECT_DIR ??
   process.env.ROBOTICK_WORKSPACE_ROOT ??
   process.cwd();
+const DEFAULT_LAUNCHER_SUBDIR = "tools/robotick-launcher";
 const resolveLauncherDir = () => {
   const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
   if (launcherPathEnv) {
@@ -13,7 +15,22 @@ const resolveLauncherDir = () => {
       ? launcherPathEnv
       : path.join(getWorkspaceRoot(), launcherPathEnv);
   }
-  return path.join(getWorkspaceRoot(), "tools/robotick-launcher");
+  const workspaceCandidate = path.join(
+    getWorkspaceRoot(),
+    DEFAULT_LAUNCHER_SUBDIR
+  );
+  if (fs.existsSync(workspaceCandidate)) {
+    return workspaceCandidate;
+  }
+  const localCandidate = path.join(
+    __dirname,
+    "../../../",
+    DEFAULT_LAUNCHER_SUBDIR
+  );
+  if (fs.existsSync(localCandidate)) {
+    return localCandidate;
+  }
+  return workspaceCandidate;
 };
 const LAUNCHER_DIR = () => resolveLauncherDir();
 const VENV_DIR = () => path.join(getWorkspaceRoot(), ".studio", ".venv");
@@ -46,6 +63,11 @@ function ensureVenv() {
   });
 }
 
+/**
+ * Installs and upgrades packaging tools in the project's virtual environment and installs the launcher package in editable mode from the resolved launcher directory.
+ *
+ * Upgrades `pip`, `wheel`, and `setuptools` inside the virtual environment, then installs `robotick-launcher[dev]` using a file URL to the launcher directory so the development package is available in the venv.
+ */
 function installLauncherDependencies() {
   const python = path.join(VENV_BIN(), "python");
   spawnSync(
@@ -53,16 +75,22 @@ function installLauncherDependencies() {
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
     { cwd: getWorkspaceRoot(), stdio: "inherit" }
   );
-  spawnSync(
-    python,
-    ["-m", "pip", "install", "-e", `${LAUNCHER_DIR()}[dev]`],
-    {
-      cwd: getWorkspaceRoot(),
-      stdio: "inherit",
-    }
-  );
+  const launcherDir = LAUNCHER_DIR();
+  const launcherSpec = `robotick-launcher[dev] @ ${
+    pathToFileURL(launcherDir).href
+  }`;
+  spawnSync(python, ["-m", "pip", "install", "-e", launcherSpec], {
+    cwd: getWorkspaceRoot(),
+    stdio: "inherit",
+  });
 }
 
+/**
+ * Waits until the launcher responds or the given timeout elapses.
+ *
+ * @param timeoutMs - Maximum time to wait in milliseconds (default: 20000)
+ * @throws Error - If the launcher does not respond before the timeout
+ */
 async function waitForLauncher(timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -128,15 +156,27 @@ function collectLauncherPidsUnix(matchString: string): number[] {
     .filter((pid): pid is number => pid !== null);
 }
 
+/**
+ * Finds process IDs of Windows processes whose command line contains the given substring.
+ *
+ * Runs a PowerShell query for Win32_Process entries whose CommandLine matches `matchString` and returns the numeric PIDs found; returns an empty array if the query fails or no matches are found.
+ *
+ * @param matchString - Substring to search for inside process command lines
+ * @returns An array of process IDs (numbers) matching `matchString`, or an empty array if none are found
+ */
 function collectLauncherPidsWindows(matchString: string): number[] {
   const escapedTarget = matchString.replace(/'/g, "''");
   const script = `
 $target = '${escapedTarget}'
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -like "*$target*" } | Select-Object -ExpandProperty ProcessId
 `.trim();
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
-    encoding: "utf-8",
-  });
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-Command", script],
+    {
+      encoding: "utf-8",
+    }
+  );
   if (result.status !== 0 || !result.stdout) {
     return [];
   }
@@ -158,6 +198,13 @@ function collectLauncherPids(targetPath: string): number[] {
   return collectLauncherPidsUnix(targetPath);
 }
 
+/**
+ * Terminate any lingering robotick-launcher processes found on the system.
+ *
+ * Collects process IDs matching the launcher binary path and the command
+ * "robotick-launcher listen", attempts to kill each PID, and if that fails
+ * on Windows falls back to invoking `taskkill` to force termination.
+ */
 function killExistingLauncherProcesses() {
   const pids = new Set<number>([
     ...collectLauncherPids(launcherBin()),
@@ -170,14 +217,28 @@ function killExistingLauncherProcesses() {
     try {
       process.kill(pid);
     } catch (error) {
-      console.warn(`[Launcher] Failed to terminate lingering launcher pid ${pid}`, error);
+      console.warn(
+        `[Launcher] Failed to terminate lingering launcher pid ${pid}`,
+        error
+      );
       if (process.platform === "win32") {
-        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+        spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
       }
     }
   }
 }
 
+/**
+ * Ensure the robotick launcher is installed, running, and responding to status requests.
+ *
+ * This prepares a Python virtual environment and launcher dependencies if needed, terminates
+ * any existing launcher processes, starts a managed launcher listener, and waits until the
+ * launcher responds to status checks.
+ *
+ * @returns Resolves when the launcher is running and responding to the status endpoint.
+ */
 export async function ensureLauncherReady() {
   killExistingLauncherProcesses();
   await stopLingeringLaunchers();
@@ -197,7 +258,7 @@ export async function ensureLauncherReady() {
   console.log(
     `[Launcher] Starting listener with cwd ${root}`,
     "project dir:",
-    env.ROBOTICK_PROJECT_DIR,
+    env.ROBOTICK_PROJECT_DIR
   );
   managedProcess = spawn(bin, ["listen"], {
     cwd: root,

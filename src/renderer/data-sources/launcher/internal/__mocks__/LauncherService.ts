@@ -1,11 +1,34 @@
 import type { LauncherService } from "../LauncherService";
 import type { ProjectModelDescriptor } from "../launcher-interface";
 
+/**
+ * Initialization options for the mock launcher service.
+ * `projectPath`/`launcherProfile` seed the internal state, while any
+ * properties supplied via `Partial<LauncherService>` replace the corresponding
+ * method implementations.
+ */
+export type LauncherServiceMockOptions = Partial<LauncherService> & {
+  projectPath?: string;
+  launcherProfile?: string;
+};
+
+/**
+ * Creates a mock LauncherService configured for testing.
+ *
+ * @param options - Optional seeds and overrides: `projectPath` and `launcherProfile` set the initial internal state; any other provided keys override the default mock methods.
+ * @returns A LauncherService mock that maintains internal `projectPath` and `launcherProfile` state, supports subscription callbacks for changes, provides no-op or mocked implementations for other methods, and applies any method overrides from `options`.
+ */
 export function createMockLauncherService(
-  overrides: Partial<LauncherService> = {}
+  options: LauncherServiceMockOptions = {}
 ): LauncherService {
-  let projectPath = "mock-project";
-  let launcherProfile = "mock-profile";
+  const {
+    projectPath: initialProjectPath = "mock-project",
+    launcherProfile: initialLauncherProfile = "mock-profile",
+    ...overrides
+  } = options;
+
+  let projectPath = initialProjectPath;
+  let launcherProfile = initialLauncherProfile;
   const projectListeners = new Set<(path: string) => void>();
   const profileListeners = new Set<(profile: string) => void>();
 
@@ -71,8 +94,9 @@ export function createMockLauncherService(
     },
   };
 
-  return {
-    ...base,
-    ...overrides,
-  };
+  if (Object.keys(overrides).length === 0) {
+    return base;
+  }
+
+  return Object.assign({}, base, overrides);
 }
