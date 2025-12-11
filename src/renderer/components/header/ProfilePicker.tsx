@@ -70,11 +70,15 @@ export function ProfilePicker() {
     setLauncherProfile(value);
   }
 
+  const activeProfile =
+    launcherProfile && mergedOptions.some((opt) => opt.value === launcherProfile)
+      ? launcherProfile
+      : DEFAULT_PROFILES[0].value;
   return (
     <select
       className={styles.select}
       aria-label="Select launcher profile"
-      value={launcherProfile || ""}
+      value={activeProfile}
       onChange={(event) => handleChange(event.target.value)}
       disabled={!projectPath || loading}
     >
@@ -90,11 +94,7 @@ export function ProfilePicker() {
           {option.label}
         </option>
       ))}
-      {error ? (
-        <option value="__error" disabled>
-          Failed to load profiles
-        </option>
-      ) : null}
+      {error ? null : null}
     </select>
   );
 }

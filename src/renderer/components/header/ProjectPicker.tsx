@@ -40,7 +40,12 @@ export function ProjectPicker() {
     requestProjectChange(value);
   }
 
-  const selectValue = projectPath || "";
+  const selectValue =
+    projectPath && options.some((project) => project.path === projectPath)
+      ? projectPath
+      : options.length > 0
+        ? options[0].path
+        : "";
 
   return (
     <>
@@ -63,11 +68,7 @@ export function ProjectPicker() {
 
         <option value={ADD_PROJECT_VALUE}>Add Project...</option>
       </select>
-      {error ? (
-        <div role="alert" aria-live="polite" className={styles.errorMessage}>
-          Failed to load projects
-        </div>
-      ) : null}
+      {error ? null : null}
       {confirmationDialog}
     </>
   );

@@ -32,9 +32,10 @@
 }
 
 .nav {
+  margin-left: auto;
+  margin-right: auto;
   display: inline-flex;
   justify-content: center;
-  margin: 0 auto;
   gap: 0.5rem;
   align-items: center;
   flex-wrap: nowrap;
@@ -43,7 +44,6 @@
   overflow: visible;
   z-index: 2;
   flex: 0 0 auto;
-  max-width: calc(100% - 300px);
 }
 
 .navMenuProject,
