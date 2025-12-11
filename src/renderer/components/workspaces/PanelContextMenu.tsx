@@ -1,4 +1,5 @@
 import React from "react";
+import { GenericDialog } from "../dialog/GenericDialog";
 import styles from "./PanelLayout.module.css";
 
 export type PanelContextMenuState = {
@@ -61,6 +62,7 @@ export function PanelContextMenu({
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   const assignButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [confirmResetOpen, setConfirmResetOpen] = React.useState(false);
 
   React.useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -242,8 +244,7 @@ export function PanelContextMenu({
             <button
               className={styles.contextMenuItem}
               onClick={() => {
-                onResetLayout();
-                onClose();
+                setConfirmResetOpen(true);
               }}
             >
               Reset Layout
@@ -251,6 +252,25 @@ export function PanelContextMenu({
           </>
         )}
       </div>
+      {confirmResetOpen && (
+        <GenericDialog
+          title="Reset layout?"
+          message="This will restore the default workspace layout. Any custom panel arrangement will be lost."
+          onClose={() => setConfirmResetOpen(false)}
+          actions={[
+            { label: "Cancel", onClick: () => setConfirmResetOpen(false) },
+            {
+              label: "Reset layout",
+              variant: "primary",
+              onClick: () => {
+                onResetLayout();
+                setConfirmResetOpen(false);
+                onClose();
+              },
+            },
+          ]}
+        />
+      )}
     </>
   );
 }
