@@ -1,13 +1,12 @@
 .header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   position: relative;
-  padding: 0.75rem 0.75rem;
-  padding-bottom: 0.5rem;
+  padding: 0.75rem 0.75rem 0.5rem;
   color: white;
   gap: 1rem;
   z-index: 200001;
+  width: 100%;
 }
 
 .headerStandalone {
@@ -17,8 +16,9 @@
 .logoPicture {
   display: inline-flex;
   align-items: center;
-  width: 150px;
+  width: auto;
   height: 40px;
+  margin-right: 0;
 }
 
 .logo {
@@ -32,17 +32,18 @@
 }
 
 .nav {
-  grid-column: 2;
-  justify-self: center;
-  display: flex;
+  display: inline-flex;
+  justify-content: center;
+  margin: 0 auto;
   gap: 0.5rem;
   align-items: center;
   flex-wrap: nowrap;
   white-space: nowrap;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: visible;
+  min-width: auto;
+  overflow: visible;
   z-index: 2;
+  flex: 0 0 auto;
+  max-width: calc(100% - 300px);
 }
 
 .navMenuProject,
@@ -50,6 +51,8 @@
 .navMenuTest,
 .navMenuHelp {
   display: flex;
+  flex: 0 0 auto;
+  width: auto;
   gap: 0.5rem;
   border-radius: 12px;
   padding: 4px 6px;
@@ -74,16 +77,30 @@
 }
 
 .navSubmenuControl {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
   padding: 8px;
   border-radius: calc(12px - 2px);
   background: rgb(65, 112, 65);
-  flex: 1 1 auto;
-  align-self: stretch;
+  flex: 0 0 auto;
+  align-self: center;
+  width: auto;
   margin-top: -2px;
   margin-bottom: -2px;
   margin-right: 2px;
+}
+
+.profilePickerSlot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.launcherControlsSlot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .navSubmenuPages {
@@ -91,6 +108,14 @@
   gap: 8px;
   padding: 5px;
   border-radius: 10px;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.navSubmenuPagesLinks {
+  display: inline-flex;
+  gap: 8px;
 }
 
 .navLinks {
@@ -102,9 +127,102 @@
   padding: 4px 8px;
 }
 
+.mobileMenuToggle {
+  position: relative;
+  display: none;
+}
+
+.mobileMenuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(12, 18, 33, 0.85);
+  color: #fff;
+  padding: 0.4rem 0.95rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.mobileMenuButton:hover,
+.mobileMenuButton:focus-visible {
+  background: rgba(12, 147, 225, 0.25);
+  border-color: rgba(12, 147, 225, 0.8);
+  outline: none;
+}
+
+.mobileMenuButtonActive {
+  background: rgba(12, 147, 225, 0.95);
+  border-color: rgba(12, 147, 225, 1);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(12, 147, 225, 0.9);
+}
+
+.mobileMenuButtonActive:hover,
+.mobileMenuButtonActive:focus-visible {
+  background: rgba(12, 147, 225, 1);
+  border-color: rgba(12, 147, 225, 1);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(12, 147, 225, 1);
+}
+
+.menuIcon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.menuLabel {
+  line-height: 1;
+}
+
+.menuPopover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  min-width: 250px;
+  padding: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(8, 11, 24, 0.98);
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.5);
+  z-index: 200010;
+}
+
+.menuPopoverRight {
+  left: auto;
+  right: 0;
+}
+
+.menuLinks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.projectPickerSlot {
+  margin-bottom: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.menuLabelText {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.7);
+}
 .navLink {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   white-space: nowrap;
   color: #eee;
@@ -136,14 +254,14 @@
 }
 
 .headerRight {
-  grid-column: 3;
-  justify-self: end;
   display: flex;
   align-items: flex-start;
   min-width: 0;
   align-self: flex-start;
   position: relative;
   z-index: 3;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 @media (max-width: 1550px) {
@@ -155,4 +273,29 @@
 
 .noDrag {
   -webkit-app-region: no-drag;
+}
+
+.navSubmenuPages .mobileMenuToggle {
+  margin-left: 0.5rem;
+}
+
+@media (max-width: 1500px) {
+  .navMenuProject,
+  .navMenuDev,
+  .navMenuHelp {
+    display: none;
+  }
+
+  .mobileMenuToggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .navSubmenuPagesLinks {
+    display: none;
+  }
+
+  .nav {
+    justify-content: space-between;
+  }
 }

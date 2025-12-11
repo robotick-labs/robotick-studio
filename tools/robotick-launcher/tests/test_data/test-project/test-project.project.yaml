@@ -5,7 +5,7 @@ schema_version: 1
 description: "Test Project for use in Launcher Unit Tests."
 
 tooling:
-  tooling_sources:
+  tooling_sources
     - id: test-tooling
       local_path: ${PROJECT_DIR}
 
