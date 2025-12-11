@@ -91,6 +91,11 @@ type WindowState = {
   isMaximized?: boolean;
 };
 
+type WindowControlsState = {
+  hasWindowControls: boolean;
+  usesNativeFrame: boolean | null;
+};
+
 const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1400,
   height: 900,
@@ -199,28 +204,120 @@ function clampToDisplay(state: WindowState) {
   return { ...bounds, x, y, width, height };
 }
 
+type WindowOptionsConfig = {
+  useNativeFrame?: boolean;
+};
+
 const getDefaultWindowOptions = (
   state: WindowState = DEFAULT_WINDOW_STATE,
   platform: NodeJS.Platform = process.platform,
-  iconPath?: string
+  iconPath?: string,
+  config: WindowOptionsConfig = {}
 ) => {
   const isMac = platform === "darwin";
-  return {
+  const useNativeFrame = config.useNativeFrame === true;
+  const frameless = !useNativeFrame;
+
+  const base: Record<string, unknown> = {
     width: state.width,
     height: state.height,
     show: false,
     icon: iconPath,
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
-    frame: false,
+    frame: useNativeFrame ? true : false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
       sandbox: false,
-      contextIsolation: false,
+      contextIsolation: true,
     },
-    autoHideMenuBar: true,
+  };
+
+  if (frameless) {
+    Object.assign(base, {
+      titleBarStyle: isMac ? "hiddenInset" : "hidden",
+      trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
+    });
+  }
+
+  return {
+    ...base,
   };
 };
+
+const WINDOW_CONTROLS_SCRIPT = `
+(() => {
+  const robotick = window.robotick || {};
+  const env = robotick.environment || {};
+  return {
+    hasWindowControls: Boolean(robotick.windowControls),
+    usesNativeFrame:
+      typeof env.usesNativeWindowFrame === "boolean"
+        ? env.usesNativeWindowFrame
+        : null,
+  };
+})()
+`;
+
+async function probeWindowControls(
+  win: BrowserWindowInstance
+): Promise<WindowControlsState | null> {
+  const exec = win.webContents.executeJavaScript;
+  if (typeof exec !== "function") {
+    return null;
+  }
+  try {
+    const result = await exec(WINDOW_CONTROLS_SCRIPT);
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "hasWindowControls" in result
+    ) {
+      const typed = result as {
+        hasWindowControls: unknown;
+        usesNativeFrame?: unknown;
+      };
+      return {
+        hasWindowControls: Boolean(typed.hasWindowControls),
+        usesNativeFrame:
+          typeof typed.usesNativeFrame === "boolean"
+            ? typed.usesNativeFrame
+            : null,
+      };
+    }
+  } catch (error) {
+    console.warn("[Bootstrap] Failed to inspect window controls", error);
+  }
+  return null;
+}
+
+function logWindowControlsState(state: WindowControlsState | null) {
+  if (!state) {
+    console.warn(
+      "[Bootstrap] Unable to determine renderer window control availability."
+    );
+    return;
+  }
+  const { hasWindowControls, usesNativeFrame } = state;
+  if (usesNativeFrame) {
+    console.log("[Bootstrap] Native OS window controls enabled.");
+    return;
+  }
+  if (hasWindowControls) {
+    console.log("[Bootstrap] Custom window controls registered.");
+  } else {
+    console.warn(
+      "[Bootstrap] Custom window controls missing; header buttons will not render."
+    );
+  }
+}
+
+function attachWindowControlsLogger(win: BrowserWindowInstance) {
+  win.webContents.once?.("did-finish-load", () => {
+    void probeWindowControls(win).then((state) => {
+      logWindowControlsState(state);
+    });
+  });
+}
 
 function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   const candidates = [];
@@ -254,6 +351,10 @@ export async function bootstrapElectron({
   platform = process.platform,
 }: BootstrapOptions) {
   const cesiumToken = env.CESIUM_TOKEN?.trim();
+  const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  console.log(
+    `[Bootstrap] Window frame mode: ${useNativeFrame ? "native" : "custom"}`
+  );
   if (!cesiumToken) {
     console.warn(
       "[Bootstrap] CESIUM_TOKEN is not set; Cesium viewer will be unable to authenticate."
@@ -314,7 +415,8 @@ export async function bootstrapElectron({
       overrideBrowserWindowOptions: getDefaultWindowOptions(
         DEFAULT_WINDOW_STATE,
         platform,
-        windowIconPath
+        windowIconPath,
+        { useNativeFrame }
       ),
     }));
   });
@@ -526,6 +628,16 @@ export async function bootstrapElectron({
           throw new Error(`Invalid renderer route: ${route}`);
         }
         console.log(`[Smoke] Renderer route: ${route}`);
+        const controls = await probeWindowControls(win);
+        if (!controls) {
+          throw new Error("[Smoke] Unable to determine window controls state");
+        }
+        console.log(
+          `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
+        );
+        if (controls.usesNativeFrame === false && !controls.hasWindowControls) {
+          throw new Error("[Smoke] Custom window controls not detected");
+        }
         setTimeout(() => app.quit(), 200);
       } catch (error) {
         console.error("[Smoke] Renderer failed to load", error);
@@ -541,7 +653,9 @@ export async function bootstrapElectron({
   };
   const createWindow = () => {
     const win = new BrowserWindow(
-      getDefaultWindowOptions(storedState, platform, windowIconPath)
+      getDefaultWindowOptions(storedState, platform, windowIconPath, {
+        useNativeFrame,
+      })
     );
     let alwaysOnTopTimer: NodeJS.Timeout | null = null;
     const clearAlwaysOnTopTimer = () => {
@@ -561,6 +675,7 @@ export async function bootstrapElectron({
     });
     registerWindowStateListeners(win);
     registerDevtoolsShortcuts(win, platform);
+    attachWindowControlsLogger(win);
     win.on("ready-to-show", () => {
       win.show?.();
       if (!win.isFocused?.()) {

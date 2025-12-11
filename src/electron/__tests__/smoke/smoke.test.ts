@@ -156,7 +156,6 @@ describe("electron launch paths", () => {
         height: 900,
         titleBarStyle: "hidden",
         frame: false,
-        sandbox: true,
         autoHideMenuBar: true,
       }),
     );
@@ -166,6 +165,8 @@ describe("electron launch paths", () => {
     expect(result.overrideBrowserWindowOptions?.webPreferences).toEqual(
       expect.objectContaining({
         preload: expect.stringContaining("preload/preload.js"),
+        contextIsolation: true,
+        sandbox: false,
       }),
     );
   });

@@ -3,8 +3,8 @@ import fs from "fs";
 import path from "path";
 
 const expose = () => {
-  const hasNativeWindowFrame = process.platform !== "linux";
-  const windowControls = hasNativeWindowFrame
+  const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  const windowControls = usesNativeWindowFrame
     ? undefined
     : {
         minimize: () =>
@@ -156,7 +156,7 @@ const expose = () => {
       isStandaloneApp: true,
       appTitle: "Robotick Studio",
       cesiumToken,
-      usesNativeWindowFrame: hasNativeWindowFrame,
+      usesNativeWindowFrame,
     },
     windowControls,
     storage: storageBridge,
