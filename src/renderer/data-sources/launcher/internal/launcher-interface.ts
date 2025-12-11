@@ -1,3 +1,4 @@
+import { readStorageValue, setStorageValue } from "../../../services/storage";
 import type { LauncherService } from "./LauncherService";
 
 function ensureTrailingSlash(url: string) {
@@ -76,22 +77,22 @@ let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
 
 function setProjectPath(path: string) {
-  localStorage.setItem(KEY_PROJECT_PATH, path);
+  setStorageValue(KEY_PROJECT_PATH, path);
   invalidateModelCache();
   notifyProjectChanged(path);
 }
 
 function getProjectPath(): string {
-  return localStorage.getItem(KEY_PROJECT_PATH) ?? "";
+  return readStorageValue(KEY_PROJECT_PATH) ?? "";
 }
 
 function setLauncherProfile(value: string) {
-  localStorage.setItem(KEY_LAUNCHER_PROFILE, value);
+  setStorageValue(KEY_LAUNCHER_PROFILE, value);
   notifyLauncherProfileChanged(value);
 }
 
 function getLauncherProfile(): string {
-  return localStorage.getItem(KEY_LAUNCHER_PROFILE) ?? "";
+  return readStorageValue(KEY_LAUNCHER_PROFILE) ?? "";
 }
 
 function notifyProjectChanged(path: string) {

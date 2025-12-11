@@ -1,3 +1,8 @@
+import {
+  readStorageValue,
+  setStorageValue,
+} from "../../../services/storage";
+
 type PanelSettings = Record<string, unknown>;
 
 export type FloatingPanelRecord = {
@@ -44,12 +49,8 @@ function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
 }
 
 function load(scope: string): FloatingPanelRecord[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
   try {
-    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${scope}`);
+    const raw = readStorageValue(`${STORAGE_PREFIX}${scope}`);
     if (!raw) {
       return [];
     }
@@ -109,15 +110,9 @@ function load(scope: string): FloatingPanelRecord[] {
 }
 
 function persist(scope: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
   const records = store.get(scope) ?? [];
   try {
-    window.localStorage.setItem(
-      `${STORAGE_PREFIX}${scope}`,
-      JSON.stringify(records)
-    );
+    setStorageValue(`${STORAGE_PREFIX}${scope}`, JSON.stringify(records));
   } catch {
     /* ignore storage failures */
   }

@@ -1,3 +1,5 @@
+import { readStorageValue, setStorageValue } from "../services/storage";
+
 const LAST_WORKSPACE_PREFIX = "robotick:last-workspace:";
 
 function getWorkspaceKey(projectPath?: string): string {
@@ -12,26 +14,11 @@ export function rememberWorkspacePath(
   projectPath: string | undefined,
   workspacePath: string
 ): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(getWorkspaceKey(projectPath), workspacePath);
-  } catch (error) {
-    console.warn("[workspace-memory] Failed to persist workspace path", error);
-  }
+  setStorageValue(getWorkspaceKey(projectPath), workspacePath);
 }
 
 export function loadRememberedWorkspacePath(
   projectPath: string | undefined
 ): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    return window.localStorage.getItem(getWorkspaceKey(projectPath));
-  } catch (error) {
-    console.warn("[workspace-memory] Failed to load workspace path", error);
-    return null;
-  }
+  return readStorageValue(getWorkspaceKey(projectPath));
 }

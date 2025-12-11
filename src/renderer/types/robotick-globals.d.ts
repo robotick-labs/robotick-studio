@@ -21,9 +21,17 @@ export interface RobotickWindowControls {
   ) => () => void;
 }
 
+export interface RobotickStorage {
+  readonly getItem: (key: string) => string | null;
+  readonly setItem: (key: string, value: string) => void;
+  readonly removeItem: (key: string) => void;
+  readonly clear?: () => void;
+}
+
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
   readonly windowControls?: RobotickWindowControls;
+  readonly storage?: RobotickStorage;
   [key: string]: unknown;
 }
 

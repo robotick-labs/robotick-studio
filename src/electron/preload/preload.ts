@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import fs from "fs";
+import path from "path";
 
 const expose = () => {
   const windowControls = {
@@ -41,6 +43,109 @@ const expose = () => {
     );
   }
 
+  const projectRoot =
+    process.env.ROBOTICK_PROJECT_DIR || process.env.ROBOTICK_WORKSPACE_ROOT;
+  const resolvedProjectRoot = projectRoot
+    ? path.resolve(projectRoot)
+    : undefined;
+  const storageDir = resolvedProjectRoot
+    ? path.join(resolvedProjectRoot, ".studio")
+    : undefined;
+  const storageFile = storageDir
+    ? path.join(storageDir, "renderer-storage.json")
+    : undefined;
+  let storageCache: Record<string, string> | null = null;
+
+  const readStorageFile = (): Record<string, string> | null => {
+    if (!storageFile) {
+      return null;
+    }
+    if (storageCache) {
+      return storageCache;
+    }
+    try {
+      const raw = fs.readFileSync(storageFile, { encoding: "utf-8" });
+      storageCache = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch (error) {
+      storageCache = {};
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn("[Preload] Failed to read renderer storage:", error);
+      }
+    }
+    return storageCache;
+  };
+
+  const writeStorageFile = () => {
+    if (!storageFile || !storageCache) {
+      return;
+    }
+    try {
+      fs.mkdirSync(path.dirname(storageFile), { recursive: true });
+      fs.writeFileSync(
+        storageFile,
+        JSON.stringify(storageCache, null, 2),
+        "utf-8"
+      );
+    } catch (error) {
+      console.warn("[Preload] Failed to persist renderer storage:", error);
+    }
+  };
+
+  const storageBridge = {
+    getItem(key: string): string | null {
+      const fileStore = readStorageFile();
+      if (fileStore) {
+        return Object.prototype.hasOwnProperty.call(fileStore, key)
+          ? fileStore[key]
+          : null;
+      }
+      try {
+        return globalThis.localStorage?.getItem(key) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    setItem(key: string, value: string): void {
+      const fileStore = readStorageFile();
+      if (fileStore) {
+        fileStore[key] = value;
+        writeStorageFile();
+        return;
+      }
+      try {
+        globalThis.localStorage?.setItem(key, value);
+      } catch (error) {
+        console.warn("[Preload] Failed to write localStorage value:", error);
+      }
+    },
+    removeItem(key: string): void {
+      const fileStore = readStorageFile();
+      if (fileStore && Object.prototype.hasOwnProperty.call(fileStore, key)) {
+        delete fileStore[key];
+        writeStorageFile();
+        return;
+      }
+      try {
+        globalThis.localStorage?.removeItem(key);
+      } catch (error) {
+        console.warn("[Preload] Failed to remove localStorage value:", error);
+      }
+    },
+    clear(): void {
+      const fileStore = readStorageFile();
+      if (fileStore) {
+        storageCache = {};
+        writeStorageFile();
+        return;
+      }
+      try {
+        globalThis.localStorage?.clear();
+      } catch (error) {
+        console.warn("[Preload] Failed to clear localStorage:", error);
+      }
+    },
+  };
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
@@ -48,6 +153,7 @@ const expose = () => {
       cesiumToken,
     },
     windowControls,
+    storage: storageBridge,
   };
 
   contextBridge.exposeInMainWorld("robotick", robotickGlobals);

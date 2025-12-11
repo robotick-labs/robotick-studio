@@ -3,8 +3,21 @@ type StorageResult = {
   key: string | null;
 };
 
-function getLocalStorage(): Storage | null {
-  if (typeof window === "undefined") return null;
+type StorageLike = Pick<
+  Storage,
+  "getItem" | "setItem" | "removeItem" | "clear"
+>;
+
+function resolveStorage(): StorageLike | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const bridge = window.robotick?.storage;
+  if (bridge) {
+    return bridge;
+  }
+
   try {
     return window.localStorage;
   } catch {
@@ -13,7 +26,7 @@ function getLocalStorage(): Storage | null {
 }
 
 export function readStorageValue(key: string): string | null {
-  const storage = getLocalStorage();
+  const storage = resolveStorage();
   if (!storage) return null;
   try {
     return storage.getItem(key);
@@ -23,7 +36,7 @@ export function readStorageValue(key: string): string | null {
 }
 
 export function setStorageValue(key: string, value: string): void {
-  const storage = getLocalStorage();
+  const storage = resolveStorage();
   if (!storage) return;
   try {
     storage.setItem(key, value);
@@ -33,7 +46,7 @@ export function setStorageValue(key: string, value: string): void {
 }
 
 export function removeStorageValue(key: string): void {
-  const storage = getLocalStorage();
+  const storage = resolveStorage();
   if (!storage) return;
   try {
     storage.removeItem(key);

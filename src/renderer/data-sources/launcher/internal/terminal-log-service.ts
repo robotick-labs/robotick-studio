@@ -1,3 +1,4 @@
+import { readStorageValue, setStorageValue } from "../../../services/storage";
 import { launcherEvents } from "./LauncherContext";
 import { getLauncherLogStreamUrl } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
@@ -26,30 +27,25 @@ const STORAGE_KEYS = {
   clearOnRun: "robotick-studio.terminal.clearOnRun",
 } as const;
 
-const HAS_LOCAL_STORAGE = typeof globalThis.localStorage !== "undefined";
 const HAS_WEBSOCKET = typeof globalThis.WebSocket !== "undefined";
 
 function readString(key: string, fallback: string): string {
-  if (!HAS_LOCAL_STORAGE) return fallback;
-  return globalThis.localStorage.getItem(key) ?? fallback;
+  return readStorageValue(key) ?? fallback;
 }
 
 function writeString(key: string, value: string) {
-  if (!HAS_LOCAL_STORAGE) return;
-  globalThis.localStorage.setItem(key, value);
+  setStorageValue(key, value);
 }
 
 function readBoolean(key: string, fallback: boolean): boolean {
-  if (!HAS_LOCAL_STORAGE) return fallback;
-  const raw = globalThis.localStorage.getItem(key);
+  const raw = readStorageValue(key);
   if (raw === "true") return true;
   if (raw === "false") return false;
   return fallback;
 }
 
 function writeBoolean(key: string, value: boolean) {
-  if (!HAS_LOCAL_STORAGE) return;
-  globalThis.localStorage.setItem(key, value ? "true" : "false");
+  setStorageValue(key, value ? "true" : "false");
 }
 
 class TerminalLogServiceImpl implements TerminalLogService {
