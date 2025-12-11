@@ -139,7 +139,11 @@ export function createTelemetryStore(
   }
 
   function stopPolling(entry: StoreEntry) {
-    entry.pollingTask?.stop();
+    if (!entry.pollingTask) {
+      return;
+    }
+    entry.pollingTask.stop();
+    entry.pollingTask = null;
   }
 
   async function pollEntry(entry: StoreEntry) {
@@ -168,7 +172,6 @@ export function createTelemetryStore(
   function updatePollingTimer(entry: StoreEntry) {
     if (entry.subscribers.size === 0) {
       stopPolling(entry);
-      entry.pollingTask = null;
       entry.pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS;
       return;
     }
@@ -177,13 +180,13 @@ export function createTelemetryStore(
       ...Array.from(entry.subscribers, (sub) => sub.intervalMs)
     );
 
-    if (entry.pollingTask && entry.pollingIntervalMs === fastestInterval) {
-      return;
+    if (entry.pollingIntervalMs !== fastestInterval) {
+      entry.pollingIntervalMs = fastestInterval;
+      if (entry.pollingTask) {
+        entry.pollingTask.setIntervalMs(fastestInterval, { immediate: true });
+      }
     }
-
-    entry.pollingIntervalMs = fastestInterval;
     const task = ensurePollingTask(entry);
-    task.setIntervalMs(fastestInterval, { immediate: true });
     if (!telemetrySuspended && !task.isRunning()) {
       task.start({ immediate: true });
     }
