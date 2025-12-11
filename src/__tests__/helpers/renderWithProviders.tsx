@@ -29,6 +29,7 @@ type RenderResult = {
   container: HTMLElement;
   root: Root;
   service: LauncherService;
+  telemetryService: TelemetryService;
   rerender: (node: React.ReactElement) => void;
   unmount: () => void;
 };
@@ -85,14 +86,27 @@ export function renderWithProviders(
     </TelemetryServiceProvider>
   );
 
-  act(() => {
-    root.render(renderTree(ui));
-  });
+  let renderError: unknown = null;
+  try {
+    act(() => {
+      root.render(renderTree(ui));
+    });
+  } catch (error) {
+    renderError = error;
+  }
+  if (renderError) {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    throw renderError;
+  }
 
   return {
     container,
     root,
     service,
+    telemetryService,
     rerender(nextUi) {
       act(() => {
         root.render(renderTree(nextUi));

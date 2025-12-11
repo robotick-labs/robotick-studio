@@ -53,6 +53,8 @@ const expose = () => {
   let storageCache: Record<string, string> | null = null;
   let hasFileStore = false;
   try {
+    // Intentionally use synchronous IPC so storage is ready before the renderer initializes.
+    // This blocks the preload thread briefly, so if the main process is slow it can delay startup.
     const payload = ipcRenderer.sendSync(
       "robotick-storage:load"
     ) as StorageLoadResponse;

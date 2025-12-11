@@ -138,14 +138,6 @@ export function createTelemetryStore(
     return entry.pollingTask;
   }
 
-  function startPolling(entry: StoreEntry) {
-    if (telemetrySuspended) return;
-    const task = ensurePollingTask(entry);
-    if (!task.isRunning()) {
-      task.start({ immediate: true });
-    }
-  }
-
   function stopPolling(entry: StoreEntry) {
     entry.pollingTask?.stop();
   }
@@ -314,9 +306,17 @@ export function createTelemetryStore(
 
     if (entry.layout && entry.lastRaw) {
       microtask(() => {
-        const model = createTelemetryModelImpl(entry.layout as LayoutModel);
-        model.raw = entry.lastRaw?.buffer ?? null;
-        deliverToSubscriber(subscriberEntry, model, true);
+        const current = stores.get(baseUrl);
+        if (!current || !current.subscribers.has(subscriberEntry)) {
+          return;
+        }
+        try {
+          const model = createTelemetryModelImpl(current.layout as LayoutModel);
+          model.raw = current.lastRaw?.buffer ?? null;
+          deliverToSubscriber(subscriberEntry, model, true);
+        } catch (error) {
+          subscriber.error?.(error);
+        }
       });
     }
 

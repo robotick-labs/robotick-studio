@@ -55,7 +55,7 @@ type RobotickEnvOptions = {
 function setRobotickEnvironment({
   usesNativeWindowFrame = true,
   includeWindowControls = false,
-}: RobotickEnvOptions = {}) {
+}: RobotickEnvOptions = {}): void {
   if (typeof window === "undefined") {
     return;
   }
@@ -77,7 +77,6 @@ function setRobotickEnvironment({
     },
     ...(windowControls ? { windowControls } : {}),
   };
-  return windowControls;
 }
 
 describe("AppHeader", () => {

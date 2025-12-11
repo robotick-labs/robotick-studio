@@ -36,7 +36,38 @@ export function WindowControls(props: WindowControlsProps = {}) {
 
   useEffect(() => {
     if (api) return;
-    setApi(getWindowControlsAPI());
+    const win = getWindow();
+    if (!win) {
+      return;
+    }
+    let cancelled = false;
+    const attemptResolve = () => {
+      if (cancelled) {
+        return true;
+      }
+      const next = getWindowControlsAPI();
+      if (next) {
+        setApi(next);
+        return true;
+      }
+      return false;
+    };
+    if (attemptResolve()) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const interval = win.setInterval(() => {
+      if (attemptResolve() && typeof interval === "number") {
+        win.clearInterval(interval);
+      }
+    }, 100);
+    return () => {
+      cancelled = true;
+      if (typeof interval === "number") {
+        win.clearInterval(interval);
+      }
+    };
   }, [api]);
 
   useEffect(() => {

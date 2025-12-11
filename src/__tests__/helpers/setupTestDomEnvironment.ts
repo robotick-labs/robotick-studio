@@ -42,16 +42,20 @@ export function setupTestDomEnvironment(
   globalThis.document = windowObject.document;
   globalThis.navigator = windowObject.navigator as Navigator;
 
-  const props = Object.getOwnPropertyNames(windowObject).filter(
-    (prop) => !(prop in globalThis)
-  );
+  const addedGlobals: string[] = [];
+  const props = Object.getOwnPropertyNames(windowObject);
   for (const prop of props) {
+    const existed = Object.prototype.hasOwnProperty.call(globalThis, prop);
+    if (existed) {
+      continue;
+    }
     try {
       // @ts-expect-error dynamic assignment for test helpers
       globalThis[prop] = (windowObject as Record<string, unknown>)[prop];
     } catch {
       // ignore read-only globals (crypto, performance, etc.)
     }
+    addedGlobals.push(prop);
   }
 
   if (options.resetTelemetry !== false) {
@@ -72,14 +76,34 @@ export function setupTestDomEnvironment(
 
   const cleanup = () => {
     projectSettingsSpies.forEach((spy) => spy.mockRestore());
-    if (prevWindow) {
+    dom.window.close();
+    if (prevWindow !== undefined) {
       globalThis.window = prevWindow;
+    } else {
+      (globalThis as { window?: typeof globalThis.window }).window =
+        {} as Window & typeof globalThis;
     }
-    if (prevDocument) {
+    if (prevDocument !== undefined) {
       globalThis.document = prevDocument;
+    } else {
+      (globalThis as { document?: typeof globalThis.document }).document =
+        {} as Document & typeof globalThis.document;
     }
-    if (prevNavigator) {
+    if (prevNavigator !== undefined) {
       globalThis.navigator = prevNavigator;
+    } else {
+      (globalThis as { navigator?: typeof globalThis.navigator }).navigator =
+        {} as Navigator & typeof globalThis.navigator;
+    }
+    for (const key of addedGlobals) {
+      if (key === "window" || key === "document" || key === "navigator") {
+        continue;
+      }
+      try {
+        delete (globalThis as Record<string, unknown>)[key];
+      } catch {
+        // ignore failures when deleting read-only globals
+      }
     }
   };
 

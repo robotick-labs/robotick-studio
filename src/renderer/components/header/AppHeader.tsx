@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef } from "react";
+import React, { useMemo, useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
@@ -51,7 +51,14 @@ export function AppHeader() {
   const { workspaces } = useAppConfig();
   const grouped = useMemo(() => groupWorkspaces(workspaces), [workspaces]);
   const isStandalone = isStandaloneElectron();
-  const usesNativeFrame = getUsesNativeWindowFrame();
+  const [usesNativeFrame, setUsesNativeFrame] = useState<boolean>(() =>
+    getUsesNativeWindowFrame()
+  );
+  useEffect(() => {
+    // Ensure we re-check once after hydration so we pick up the preload bridge
+    // even if the first render happened before window.robotick was available.
+    setUsesNativeFrame(getUsesNativeWindowFrame());
+  }, []);
   const showWindowControls = isStandalone && !usesNativeFrame;
   const noDragClass = isStandalone ? styles.noDrag : "";
   const headerRef = useRef<HTMLElement | null>(null);

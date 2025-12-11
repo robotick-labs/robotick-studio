@@ -38,6 +38,7 @@ export function registerRendererStorage(
   storageFile?: string
 ) {
   let cache: StorageState | null = null;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   const ensureCache = (): StorageState => {
     if (cache) {
@@ -59,13 +60,13 @@ export function registerRendererStorage(
     return cache;
   };
 
-  const persist = () => {
+  const persistToDisk = async () => {
     if (!storageFile || !cache) {
       return;
     }
     try {
-      fs.mkdirSync(path.dirname(storageFile), { recursive: true });
-      fs.writeFileSync(
+      await fs.promises.mkdir(path.dirname(storageFile), { recursive: true });
+      await fs.promises.writeFile(
         storageFile,
         JSON.stringify(cache, null, 2),
         "utf-8"
@@ -73,6 +74,19 @@ export function registerRendererStorage(
     } catch (error) {
       console.warn("[Bootstrap] Failed to persist renderer storage:", error);
     }
+  };
+
+  const schedulePersist = () => {
+    if (!storageFile || !cache) {
+      return;
+    }
+    if (persistTimer) {
+      return;
+    }
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      void persistToDisk();
+    }, 50);
   };
 
   ipcMain.on("robotick-storage:load", (event) => {
@@ -91,7 +105,7 @@ export function registerRendererStorage(
       }
       const state = ensureCache();
       state[payload.key] = payload.value;
-      persist();
+      schedulePersist();
     }
   );
 
@@ -104,7 +118,7 @@ export function registerRendererStorage(
       const state = ensureCache();
       if (Object.prototype.hasOwnProperty.call(state, payload.key)) {
         delete state[payload.key];
-        persist();
+        schedulePersist();
       }
     }
   );
@@ -114,6 +128,6 @@ export function registerRendererStorage(
       return;
     }
     cache = {};
-    persist();
+    schedulePersist();
   });
 }
