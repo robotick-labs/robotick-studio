@@ -1,6 +1,7 @@
 export interface RobotickEnvironment {
   readonly isStandaloneApp: boolean;
   readonly appTitle: string;
+  readonly cesiumToken?: string;
   [key: string]: unknown;
 }
 

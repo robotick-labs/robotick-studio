@@ -34,6 +34,7 @@ const entryPoints = isVitest
 export default defineConfig({
   base: "./",
   root: "src/renderer",
+  envPrefix: ["VITE_", "CESIUM_"],
 
   publicDir: "../../public/renderer",
   plugins: [cesium()],

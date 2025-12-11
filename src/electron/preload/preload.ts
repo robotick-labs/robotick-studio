@@ -34,10 +34,18 @@ const expose = () => {
     },
   };
 
+  const cesiumToken = process.env.CESIUM_TOKEN?.trim();
+  if (!cesiumToken) {
+    console.warn(
+      "[Preload] CESIUM_TOKEN is not set; Cesium viewer may fail to load terrain."
+    );
+  }
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
       appTitle: "Robotick Studio",
+      cesiumToken,
     },
     windowControls,
   };

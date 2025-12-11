@@ -252,6 +252,14 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  const cesiumToken = env.CESIUM_TOKEN?.trim();
+  if (!cesiumToken) {
+    console.warn(
+      "[Bootstrap] CESIUM_TOKEN is not set; Cesium viewer will be unable to authenticate."
+    );
+  } else {
+    console.log("[Bootstrap] CESIUM_TOKEN detected.");
+  }
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";

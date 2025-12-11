@@ -95,14 +95,34 @@ let cameraFollowModelId: string | null = null;
 // Token loading
 // ---------------------------------------------------------------------------
 
-const secretsPromise: Promise<void> = (async () => {
-  const envToken =
-    typeof process !== "undefined" && process.env?.CESIUM_TOKEN
-      ? process.env.CESIUM_TOKEN.trim()
+function resolveCesiumToken(): string {
+  const fromWindow =
+    typeof window !== "undefined"
+      ? window.robotick?.environment?.cesiumToken
       : undefined;
-  if (envToken) {
-    CESIUM_TOKEN = envToken;
-    console.log("✅ Loaded CESIUM_TOKEN from environment variable");
+  if (typeof fromWindow === "string" && fromWindow.trim()) {
+    return fromWindow.trim();
+  }
+
+  const fromImport = import.meta.env?.CESIUM_TOKEN;
+  if (typeof fromImport === "string" && fromImport.trim()) {
+    return fromImport.trim();
+  }
+
+  const fromProcess =
+    typeof process !== "undefined" ? process.env?.CESIUM_TOKEN : undefined;
+  if (typeof fromProcess === "string" && fromProcess.trim()) {
+    return fromProcess.trim();
+  }
+
+  return "";
+}
+
+const secretsPromise: Promise<void> = (async () => {
+  const token = resolveCesiumToken();
+  if (token) {
+    CESIUM_TOKEN = token;
+    console.log("✅ Loaded CESIUM_TOKEN from environment");
     return;
   }
 
