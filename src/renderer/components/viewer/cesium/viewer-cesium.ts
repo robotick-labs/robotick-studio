@@ -96,15 +96,19 @@ let cameraFollowModelId: string | null = null;
 // ---------------------------------------------------------------------------
 
 const secretsPromise: Promise<void> = (async () => {
-  try {
-    const { CESIUM_TOKEN: LOCAL } = await import("./secrets_LOCAL.js");
-    CESIUM_TOKEN = LOCAL;
-    console.log("✅ Loaded CESIUM_TOKEN from secrets_LOCAL.js");
-  } catch {
-    const { CESIUM_TOKEN: DEFAULT } = await import("./secrets.js");
-    CESIUM_TOKEN = DEFAULT;
-    console.log("ℹ️ Loaded CESIUM_TOKEN from secrets.js");
+  const envToken =
+    typeof process !== "undefined" && process.env?.CESIUM_TOKEN
+      ? process.env.CESIUM_TOKEN.trim()
+      : undefined;
+  if (envToken) {
+    CESIUM_TOKEN = envToken;
+    console.log("✅ Loaded CESIUM_TOKEN from environment variable");
+    return;
   }
+
+  console.error(
+    "❌ CESIUM_TOKEN not configured. Set the CESIUM_TOKEN environment variable before launching Robotick Studio."
+  );
 })();
 
 // ---------------------------------------------------------------------------
