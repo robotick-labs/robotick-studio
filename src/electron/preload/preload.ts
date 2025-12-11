@@ -1,6 +1,4 @@
 import { contextBridge, ipcRenderer } from "electron";
-import fs from "fs";
-import path from "path";
 
 const expose = () => {
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
@@ -48,85 +46,29 @@ const expose = () => {
     );
   }
 
-  const projectRoot =
-    process.env.ROBOTICK_PROJECT_DIR || process.env.ROBOTICK_WORKSPACE_ROOT;
-  const resolvedProjectRoot = projectRoot
-    ? path.resolve(projectRoot)
-    : undefined;
-  const storageDir = resolvedProjectRoot
-    ? path.join(resolvedProjectRoot, ".studio")
-    : undefined;
-  const storageFile = storageDir
-    ? path.join(storageDir, "renderer-storage.json")
-    : undefined;
+  type StorageLoadResponse = {
+    data: Record<string, string> | null;
+    fileBacked: boolean;
+  };
   let storageCache: Record<string, string> | null = null;
-  let writeTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  const readStorageFile = (): Record<string, string> | null => {
-    if (!storageFile) {
-      return null;
-    }
-    if (storageCache) {
-      return storageCache;
-    }
-    try {
-      const raw = fs.readFileSync(storageFile, { encoding: "utf-8" });
-      if (!raw) {
-        storageCache = {};
-        return storageCache;
-      }
-      const parsed = JSON.parse(raw);
-      const isValidObject =
-        typeof parsed === "object" &&
-        parsed !== null &&
-        Object.entries(parsed).every(
-          ([key, value]) => typeof key === "string" && typeof value === "string"
-        );
-      if (isValidObject) {
-        storageCache = parsed as Record<string, string>;
-      } else {
-        console.warn(
-          "[Preload] Renderer storage contained invalid data; resetting."
-        );
-        storageCache = {};
-      }
-    } catch (error) {
-      storageCache = {};
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        console.warn("[Preload] Failed to read renderer storage:", error);
-      }
-    }
-    return storageCache;
-  };
-
-  const writeStorageFile = () => {
-    if (!storageFile || !storageCache) {
-      return;
-    }
-    if (writeTimeout) {
-      clearTimeout(writeTimeout);
-    }
-    writeTimeout = setTimeout(() => {
-      writeTimeout = null;
-      try {
-        fs.mkdirSync(path.dirname(storageFile), { recursive: true });
-        fs.writeFileSync(
-          storageFile,
-          JSON.stringify(storageCache, null, 2),
-          "utf-8"
-        );
-      } catch (error) {
-        console.warn("[Preload] Failed to persist renderer storage:", error);
-      }
-    }, 100);
-  };
+  let hasFileStore = false;
+  try {
+    const payload = ipcRenderer.sendSync(
+      "robotick-storage:load"
+    ) as StorageLoadResponse;
+    hasFileStore = payload.fileBacked;
+    storageCache = payload.fileBacked ? payload.data ?? {} : null;
+  } catch (error) {
+    console.warn("[Preload] Failed to bootstrap renderer storage:", error);
+    storageCache = null;
+    hasFileStore = false;
+  }
 
   const storageBridge = {
     getItem(key: string): string | null {
-      const fileStore = readStorageFile();
-      if (fileStore) {
-        return Object.prototype.hasOwnProperty.call(fileStore, key)
-          ? fileStore[key]
+      if (hasFileStore && storageCache) {
+        return Object.prototype.hasOwnProperty.call(storageCache, key)
+          ? storageCache[key]
           : null;
       }
       try {
@@ -136,10 +78,12 @@ const expose = () => {
       }
     },
     setItem(key: string, value: string): void {
-      const fileStore = readStorageFile();
-      if (fileStore) {
-        fileStore[key] = value;
-        writeStorageFile();
+      if (hasFileStore) {
+        if (!storageCache) {
+          storageCache = {};
+        }
+        storageCache[key] = value;
+        void ipcRenderer.invoke("robotick-storage:set", { key, value });
         return;
       }
       try {
@@ -149,11 +93,10 @@ const expose = () => {
       }
     },
     removeItem(key: string): void {
-      const fileStore = readStorageFile();
-      if (fileStore) {
-        if (Object.prototype.hasOwnProperty.call(fileStore, key)) {
-          delete fileStore[key];
-          writeStorageFile();
+      if (hasFileStore && storageCache) {
+        if (Object.prototype.hasOwnProperty.call(storageCache, key)) {
+          delete storageCache[key];
+          void ipcRenderer.invoke("robotick-storage:remove", { key });
         }
         return;
       }
@@ -164,10 +107,9 @@ const expose = () => {
       }
     },
     clear(): void {
-      const fileStore = readStorageFile();
-      if (fileStore) {
+      if (hasFileStore) {
         storageCache = {};
-        writeStorageFile();
+        void ipcRenderer.invoke("robotick-storage:clear");
         return;
       }
       try {

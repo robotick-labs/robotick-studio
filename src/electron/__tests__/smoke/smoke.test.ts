@@ -173,7 +173,7 @@ describe("electron launch paths", () => {
       expect.objectContaining({
         preload: expect.stringContaining("preload/preload.js"),
         contextIsolation: true,
-        sandbox: false,
+        sandbox: true,
       }),
     );
   });

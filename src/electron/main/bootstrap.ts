@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { screen } from "electron";
 import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
+import { registerRendererStorage } from "./renderer-storage";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -227,7 +228,7 @@ const getDefaultWindowOptions = (
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
-      sandbox: false, // TODO: enable sandboxing once window-controls bridge works within sandboxed renderer.
+      sandbox: true,
       contextIsolation: true,
     },
   };
@@ -350,6 +351,22 @@ export async function bootstrapElectron({
   env = process.env,
   platform = process.platform,
 }: BootstrapOptions) {
+  const projectRootEnv =
+    env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+  const resolvedProjectRoot = projectRootEnv
+    ? path.resolve(projectRootEnv)
+    : undefined;
+  const storageDir = resolvedProjectRoot
+    ? path.join(resolvedProjectRoot, ".studio")
+    : undefined;
+  const storageFile =
+    storageDir && env.ROBOTICK_DISABLE_PROJECT_STORAGE !== "1"
+      ? path.join(storageDir, "renderer-storage.json")
+      : undefined;
+  if (ipcMain) {
+    registerRendererStorage(ipcMain, storageFile);
+  }
+
   const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";
   console.log(
     `[Bootstrap] Window frame mode: ${useNativeFrame ? "native" : "custom"}`
