@@ -77,7 +77,11 @@ export function getOrCreateBlobURL(raw: Uint8Array, mime: string): string {
   }
 
   // Create new URL
-  const blob = new Blob([raw], { type: mime });
+  const slice = raw.buffer.slice(
+    raw.byteOffset,
+    raw.byteOffset + raw.byteLength
+  ) as ArrayBuffer;
+  const blob = new Blob([slice], { type: mime });
   const url = URL.createObjectURL(blob);
 
   blobCache.set(signature, {

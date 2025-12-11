@@ -22,6 +22,11 @@ function getStat(w: ITelemetryWorkload, fieldName: string): unknown {
   return f?.getValue();
 }
 
+function getNumericStat(w: ITelemetryWorkload, fieldName: string): number {
+  const value = getStat(w, fieldName);
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 function extractWindowSamples(
   w: ITelemetryWorkload,
   fieldName: string
@@ -106,9 +111,9 @@ export function TelemetryWorkload({
   telemetryBaseUrl,
   modelName,
 }: TelemetryWorkloadProps) {
-  const last_ns = getStat(w, "last_tick_duration_ns") ?? 0;
-  const dt_ns = getStat(w, "last_time_delta_ns") ?? 0;
-  const hz = getStat(w, "tick_rate_hz") ?? 0;
+  const last_ns = getNumericStat(w, "last_tick_duration_ns");
+  const dt_ns = getNumericStat(w, "last_time_delta_ns");
+  const hz = getNumericStat(w, "tick_rate_hz");
 
   const self_duration_ms = last_ns * 1e-6;
   const time_delta_ms = dt_ns * 1e-6;

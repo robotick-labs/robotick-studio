@@ -520,13 +520,19 @@ class RemoteControlClient {
       }
     };
 
-    const movePointerToCenter = () => {
-      if (!this.controlsEnabled) return;
-      this.moveStickVisual(stick, 0, 0);
-      this.sendJoystickInput(topic, 0, 0);
+    const controller: StickController = {
+      area,
+      knob,
+      movePointer,
+      resetKnob,
+      movePointerToCenter: () => {
+        if (!this.controlsEnabled) return;
+        this.moveStickVisual(controller, 0, 0);
+        this.sendJoystickInput(topic, 0, 0);
+      },
     };
 
-    return { area, knob, movePointer, resetKnob, movePointerToCenter };
+    return controller;
   }
 
   private expandCircularToSquare(x: number, y: number) {

@@ -4,7 +4,8 @@ import {
   type Edge,
   type Section,
 } from "./editorNodeGraph";
-import { ModelStore } from "../../document/documentStore";
+import { DocumentStore } from "../../../document/documentStore";
+import type { Workload } from "../../../document/modelData";
 
 const nodeSize = { width: 140, height: 40 } as const;
 const startX = 120,
@@ -28,7 +29,7 @@ export function nodeIdFor(modelPath: string, id: string): string {
 }
 
 export function buildGraphDocFromModel(
-  store: ModelStore,
+  store: DocumentStore,
   doc: GraphDoc
 ): LayoutSummary {
   doc.sections = [];
@@ -39,7 +40,7 @@ export function buildGraphDocFromModel(
 
   for (const modelId of store.getModelIds()) {
     const m = store.get(modelId)!;
-    const root = m.workloads.find((w) => w.name === m.root)!;
+    const root = m.workloads.find((w: Workload) => w.name === m.root)!;
     const lanes =
       root.type === "SyncedGroupWorkload" ? root.children ?? [] : [root.name];
 
@@ -49,9 +50,11 @@ export function buildGraphDocFromModel(
       const names = store.laneChildren(modelId, lane);
       maxSlots = Math.max(maxSlots, names.length);
 
-      names.forEach((localName, slot) => {
+      names.forEach((localName: string, slot: number) => {
         const id = nodeIdFor(modelId, localName);
-        const workload = m.workloads.find((w) => w.name === localName);
+        const workload = m.workloads.find(
+          (w: Workload) => w.name === localName
+        );
         if (!workload) return;
         const node: Node = {
           id,
@@ -69,7 +72,9 @@ export function buildGraphDocFromModel(
       });
 
       const parentName = lanes[lane];
-      const groupWorkload = m.workloads.find((w) => w.name === parentName);
+      const groupWorkload = m.workloads.find(
+        (w: Workload) => w.name === parentName
+      );
       if (groupWorkload && groupWorkload.children == null) {
         const group: Node = {
           id: nodeIdFor(modelId, parentName),
@@ -83,7 +88,7 @@ export function buildGraphDocFromModel(
           meta: {
             modelId,
             section: sectionIndex,
-            children: names.map((n) => nodeIdFor(modelId, n)),
+            children: names.map((n: string) => nodeIdFor(modelId, n)),
           },
         };
         doc.upsertNode(group);

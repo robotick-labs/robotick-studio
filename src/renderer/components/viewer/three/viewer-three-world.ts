@@ -729,7 +729,11 @@ export class ViewerWorld {
           continue;
         }
 
-        const blob = new Blob([fieldValue], { type: field.mime_type });
+        const buffer = fieldValue.buffer.slice(
+          fieldValue.byteOffset,
+          fieldValue.byteOffset + fieldValue.byteLength
+        ) as ArrayBuffer;
+        const blob = new Blob([buffer], { type: field.mime_type });
         const bitmap = await createImageBitmap(blob);
 
         const node = this.findNodeAnyModel(t.node);

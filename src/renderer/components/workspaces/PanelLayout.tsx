@@ -416,6 +416,7 @@ export function PanelLayout({
           onToggleMaximize={onToggleMaximize}
           onSplit={onSplit}
           onResizeSplit={onResizeSplit}
+          workspaceId={workspaceId}
         />
       </div>
       <FloatingPanelLayer scope={workspaceId} editorEntries={editorEntries} />
@@ -545,7 +546,7 @@ type SplitResizerProps = {
   splitId: string;
   direction: "horizontal" | "vertical";
   ratio: number;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   onResize: (splitId: string, ratio: number) => void;
 };
 
@@ -600,6 +601,7 @@ type PanelLeafProps = {
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
+    editorId: string,
     event: React.MouseEvent<HTMLDivElement>
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
@@ -623,7 +625,7 @@ function PanelLeaf({
   isMaximized,
   workspaceId,
 }: PanelLeafProps) {
-  const panelRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
   const [splitPreview, setSplitPreview] = React.useState<{
     direction: "horizontal" | "vertical";
     ratio: number;

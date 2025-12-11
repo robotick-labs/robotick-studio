@@ -54,7 +54,7 @@ const TREE_STORAGE_KEYS = {
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string>();
+  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
@@ -190,7 +190,7 @@ export default function TelemetryTreeViewer() {
     }
   }, [settings.workloadName, updateSettings, workloads]);
 
-  const rootNodes = useMemo(() => {
+  const rootNodes = useMemo<ITelemetryField[]>(() => {
     if (!model) return [];
     const workloadsToInspect =
       workloadName && targetWorkload ? [targetWorkload] : workloads;

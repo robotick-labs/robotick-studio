@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { getWindow } from "../../utils/domEnvironment";
+import type { RobotickWindowControls } from "../../types/robotick-globals";
 import styles from "./styles/WindowControls.module.css";
 
-export type WindowControlsAPI = Window["robotick"] extends {
-  windowControls?: infer T;
-}
-  ? NonNullable<T>
-  : never;
+export type WindowControlsAPI = RobotickWindowControls;
 
 type WindowControlsProps = React.HTMLAttributes<HTMLDivElement>;
 

@@ -78,13 +78,18 @@ export function createMockLauncherService({
     async fetchProjectPaths() {
       return [currentProjectPath];
     },
-    async fetchProjectSettingsData() {
-      return {} as Record<string, unknown>;
+    async fetchProjectSettingsData<T = Record<string, unknown>>(
+      _projectPath: string
+    ) {
+      return {} as T;
     },
-    async fetchProjectRemoteControlSettings() {
-      return {} as Record<string, unknown>;
+    async fetchProjectRemoteControlSettings<T = Record<string, unknown>>(
+      _projectPath: string,
+      _signal?: AbortSignal
+    ) {
+      return {} as T;
     },
-    async fetchProjectModelPaths() {
+    async fetchProjectModelPaths(_projectPath: string) {
       return [];
     },
     async getProjectModels() {

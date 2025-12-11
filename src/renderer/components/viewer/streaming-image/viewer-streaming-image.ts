@@ -106,7 +106,11 @@ function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
   }
 
   const mime = field.mime_type || "image/jpeg";
-  const blob = new Blob([value], { type: mime });
+  const buffer = value.buffer.slice(
+    value.byteOffset,
+    value.byteOffset + value.byteLength
+  ) as ArrayBuffer;
+  const blob = new Blob([buffer], { type: mime });
   const blobUrl = URL.createObjectURL(blob);
   activeImg.src = blobUrl;
   if (lastFrameBlobUrl) {

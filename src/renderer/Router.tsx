@@ -102,7 +102,7 @@ function ProjectWorkspaceSync() {
   const { projectPath } = useProjectContext();
   const location = useLocation();
   const navigate = useNavigate();
-  const previousProject = React.useRef<string | undefined>();
+  const previousProject = React.useRef<string | undefined>(undefined);
 
   React.useEffect(() => {
     if (previousProject.current === projectPath) {

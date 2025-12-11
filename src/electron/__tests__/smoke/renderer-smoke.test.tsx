@@ -16,13 +16,21 @@ import { TestLauncherProviders } from "../../../__tests__/helpers/mocks";
 
 beforeEach(() => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
-  (globalThis as typeof globalThis & {
-    window?: Window;
-    document?: Document;
-    navigator?: Navigator;
-  }).window = dom.window as unknown as Window;
-  globalThis.document = dom.window.document;
-  globalThis.navigator = dom.window.navigator as Navigator;
+  const windowObject = dom.window as unknown as Window & typeof globalThis;
+  globalThis.window = windowObject;
+  globalThis.document = windowObject.document;
+  globalThis.navigator = windowObject.navigator as Navigator;
+  const props = Object.getOwnPropertyNames(windowObject).filter(
+    (prop) => !(prop in globalThis)
+  );
+  for (const prop of props) {
+    try {
+      // @ts-ignore
+      globalThis[prop] = (windowObject as Record<string, unknown>)[prop];
+    } catch {
+      // ignore read-only globals (crypto, performance, etc.)
+    }
+  }
 });
 
 describe("Electron renderer smoke test", () => {

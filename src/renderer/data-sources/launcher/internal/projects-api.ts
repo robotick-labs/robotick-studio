@@ -31,11 +31,12 @@ export async function fetchProjectSettingsList(): Promise<ProjectSettingsSummary
     paths.map(async (path) => {
       try {
         const settings = await getProjectSettings(path);
-        return {
+        const summary: ProjectSettingsSummary = {
           path,
           name: settings.name?.trim() || path.split("/").pop() || path,
           description: settings.description?.trim(),
         };
+        return summary;
       } catch (err) {
         console.warn("Failed to fetch project settings:", path, err);
         return null;
@@ -43,9 +44,11 @@ export async function fetchProjectSettingsList(): Promise<ProjectSettingsSummary
     })
   );
 
-  return metas
-    .filter((meta): meta is ProjectSettingsSummary => Boolean(meta))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const validSummaries = metas.filter(
+    (meta): meta is ProjectSettingsSummary => meta !== null
+  );
+
+  return validSummaries.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function fetchProjectModels(

@@ -220,7 +220,8 @@ function configureControls(config: ViewerConfig): void {
   controller.enableTilt = enabled;
   controller.enableLook = enabled;
   controller.enableZoom = enabled;
-  controller.enableTranslate = enabled && (controlsCfg.screenSpacePanning ?? false);
+  const screenSpacePanning = controlsCfg?.screenSpacePanning ?? false;
+  controller.enableTranslate = enabled && screenSpacePanning;
 }
 
 function buildModelConfigs(config: CesiumViewerConfig): CesiumModelConfig[] {

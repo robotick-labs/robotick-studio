@@ -95,7 +95,13 @@ export class DocumentStore {
   ) {
     const m = this.models.get(modelId)!;
     if (!m.workloads.find((w) => w.name === spec.name)) {
-      m.workloads.push({ name: spec.name, type: spec.type });
+      m.workloads.push({
+        name: spec.name,
+        type: spec.type,
+        tick_rate_hz: 0,
+        config: {},
+        inputs: {},
+      });
     }
     const names = this.laneChildren(modelId, laneIndex);
     const clamped = Math.max(0, Math.min(slot, names.length));

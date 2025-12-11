@@ -19,6 +19,7 @@ type BrowserWindowMock = {
   isMaximized: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
+  getBounds: ReturnType<typeof vi.fn>;
   webContents: {
     send: ReturnType<typeof vi.fn>;
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -39,6 +40,12 @@ const createElectronMocks = () => {
         isMaximized: vi.fn(() => false),
         close: vi.fn(),
         on: vi.fn(),
+        getBounds: vi.fn(() => ({
+          x: 0,
+          y: 0,
+          width: 1400,
+          height: 900,
+        })),
         webContents: {
           send: vi.fn(),
           setWindowOpenHandler: vi.fn(),

@@ -12,6 +12,7 @@ export type {
   ITelemetryModel,
   ITelemetryWorkload,
   ITelemetryField,
+  ITelemetryStruct,
   LayoutModel,
 } from "./internal/telemetry-client";
 

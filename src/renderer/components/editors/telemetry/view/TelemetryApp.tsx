@@ -56,10 +56,11 @@ export function TelemetryApp() {
   }
 
   if (projectModels.error) {
+    const rawError: unknown = projectModels.error;
     const errorMessage =
-      projectModels.error instanceof Error
-        ? projectModels.error.message
-        : String(projectModels.error);
+      rawError instanceof Error
+        ? rawError.message
+        : String(rawError ?? "Unknown error");
     return <p>Failed to load models: {errorMessage}</p>;
   }
 

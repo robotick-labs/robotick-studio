@@ -1,6 +1,10 @@
 import * as LauncherReact from "./internal/react-api";
 import * as LauncherRest from "./internal/rest-api";
 import * as LauncherServiceSurface from "./internal/LauncherService";
+import type {
+  RcModuleDescriptor,
+  RcSettingsResponse,
+} from "./internal/remote-control-types";
 
 /**
  * Shared launcher service instance.

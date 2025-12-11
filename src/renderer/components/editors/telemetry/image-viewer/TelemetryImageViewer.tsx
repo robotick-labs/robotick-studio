@@ -53,7 +53,7 @@ const STORAGE_KEYS = {
 export default function TelemetryImageViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string>();
+  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
@@ -213,13 +213,15 @@ export default function TelemetryImageViewer() {
   }, [availableWorkloads, workloadName, updateSettings]);
 
   const field = useMemo(() => {
-    if (!model || !fieldPath) return null;
+    if (!model || !fieldPath || typeof model.getField !== "function") {
+      return null;
+    }
     return model.getField(fieldPath) ?? null;
   }, [model, fieldPath]);
 
   const value = field?.getValue();
   const blobUrl = useBlobURL(
-    value instanceof Uint8Array ? value : undefined,
+    value instanceof Uint8Array ? value : null,
     field?.mime_type
   );
 
