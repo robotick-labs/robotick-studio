@@ -26,10 +26,15 @@ import {
 import {
   formatEnumArrayPreview,
   formatEnumNumber,
-  formatNumberSmart,
 } from "../utils/telemetry-formatters";
+import {
+  deriveWorkloadStats,
+  formatDurationMs,
+  formatJitterPercent,
+  TICK_DURATION_WINDOW_SIZE,
+} from "../utils/workload-stats";
 
-type SectionKind = "inputs" | "outputs" | "config";
+type SectionKind = "inputs" | "outputs" | "config" | "stats";
 type DataKindSelection = SectionKind | "all";
 
 type PanelSettings = {
@@ -41,12 +46,18 @@ type PanelSettings = {
   dataKind?: DataKindSelection;
 };
 
-const SECTION_KINDS: SectionKind[] = ["config", "inputs", "outputs"];
+const SECTION_KINDS: SectionKind[] = [
+  "config",
+  "inputs",
+  "outputs",
+  "stats",
+];
 const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
   { value: "all", label: "All Sections" },
   { value: "config", label: "Config" },
   { value: "inputs", label: "Inputs" },
   { value: "outputs", label: "Outputs" },
+  { value: "stats", label: "Stats" },
 ];
 
 const TREE_STORAGE_KEYS = {
@@ -213,7 +224,7 @@ export default function TelemetryTreeViewer() {
       const seen = new Set<string>();
       for (const workload of workloadsToInspect) {
         for (const kind of activeSectionKinds) {
-          const struct = getStruct(workload, kind);
+          const struct = getStruct(model, workload, kind);
           if (!struct || !struct.fields) continue;
           collectMatchingFields(struct.fields, fieldFilter, matches, seen);
         }
@@ -223,7 +234,7 @@ export default function TelemetryTreeViewer() {
 
     if (workloadName && targetWorkload) {
       if (activeSectionKinds.length === 1) {
-        const struct = getStruct(targetWorkload, activeSectionKinds[0]);
+        const struct = getStruct(model, targetWorkload, activeSectionKinds[0]);
         return struct?.fields ?? [];
       }
       return activeSectionKinds
@@ -561,9 +572,19 @@ function formatJsonValue(value: unknown): string {
 }
 
 function getStruct(
+  model: ITelemetryModel,
   workload: ITelemetryWorkload,
-  kind: "inputs" | "outputs" | "config"
+  kind: SectionKind
 ): ITelemetryStruct | undefined {
+  if (kind === "stats") {
+    const fields = createStatsFields(model, workload);
+    if (!fields.length) return undefined;
+    return {
+      typeName: "stats",
+      offset: workload.stats?.offset ?? 0,
+      fields,
+    };
+  }
   if (kind === "config") return workload.config;
   if (kind === "inputs") return workload.inputs;
   return workload.outputs;
@@ -590,12 +611,153 @@ function collectMatchingFields(
   }
 }
 
+function createStatsFields(
+  model: ITelemetryModel,
+  workload: ITelemetryWorkload
+): ITelemetryField[] {
+  const stats = deriveWorkloadStats(workload);
+  const workloadJitterPercent = formatJitterPercent(
+    stats.workloadDuration.jitterMs,
+    stats.goalPeriodMs
+  );
+  const actualJitterPercent = formatJitterPercent(
+    stats.actualPeriod.jitterMs,
+    stats.goalPeriodMs
+  );
+  const workloadDurationField = createStatsGroupField(
+    model,
+    workload.name,
+    "Workload Duration (ms)",
+    ["workload-duration"],
+    [
+      {
+        name: "Last",
+        value: `${formatDurationMs(stats.workloadDuration.lastMs)} ms`,
+      },
+      {
+        name: `Mean (last ${TICK_DURATION_WINDOW_SIZE} ticks)`,
+        value: `${formatDurationMs(stats.workloadDuration.meanMs)} ms`,
+      },
+      {
+        name: `Jitter (last ${TICK_DURATION_WINDOW_SIZE} ticks)`,
+        value: formatJitterDisplay(
+          workloadJitterPercent,
+          stats.workloadDuration.jitterMs
+        ),
+      },
+    ]
+  );
+  const actualPeriodField = createStatsGroupField(
+    model,
+    workload.name,
+    "Actual Period (ms)",
+    ["actual-period"],
+    [
+      {
+        name: "Last",
+        value: `${formatDurationMs(stats.actualPeriod.lastMs)} ms`,
+      },
+      {
+        name: `Mean (last ${TICK_DURATION_WINDOW_SIZE} intervals)`,
+        value: `${formatDurationMs(stats.actualPeriod.meanMs)} ms`,
+      },
+      {
+        name: `Jitter (last ${TICK_DURATION_WINDOW_SIZE} intervals)`,
+        value: formatJitterDisplay(
+          actualJitterPercent,
+          stats.actualPeriod.jitterMs
+        ),
+      },
+    ]
+  );
+  const goalPeriodField = createStatsLeafField(
+    model,
+    workload.name,
+    ["goal-period"],
+    "Goal Period (ms)",
+    `${stats.goalPeriodMs.toFixed(3)} ms`
+  );
+  const budgetField = createStatsLeafField(
+    model,
+    workload.name,
+    ["budget-usage"],
+    "Budget Usage %",
+    `${stats.budgetUsagePercent.toFixed(1)}%`
+  );
+
+  return [workloadDurationField, actualPeriodField, goalPeriodField, budgetField];
+}
+
+function createStatsGroupField(
+  model: ITelemetryModel,
+  workloadName: string,
+  label: string,
+  segments: string[],
+  rows: { name: string; value: string }[]
+): ITelemetryField {
+  const path = buildStatsPath(workloadName, ...segments);
+  return {
+    name: label,
+    type: "stats",
+    path,
+    offset: 0,
+    model,
+    getValue: () => undefined,
+    fields: rows.map((row) =>
+      createStatsLeafField(
+        model,
+        workloadName,
+        [...segments, row.name],
+        row.name,
+        row.value
+      )
+    ),
+  };
+}
+
+function createStatsLeafField(
+  model: ITelemetryModel,
+  workloadName: string,
+  segments: string[],
+  label: string,
+  value: string
+): ITelemetryField {
+  return {
+    name: label,
+    type: "stat",
+    path: buildStatsPath(workloadName, ...segments),
+    offset: 0,
+    model,
+    getValue: () => value,
+  };
+}
+
+function buildStatsPath(
+  workloadName: string,
+  ...segments: string[]
+): string {
+  const sanitize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  return ["stats", sanitize(workloadName), ...segments.map(sanitize)].join(".");
+}
+
+function formatJitterDisplay(
+  percent: string | undefined,
+  jitterMs?: number
+): string {
+  const base = `${formatDurationMs(jitterMs)} ms`;
+  return percent ? `${percent} (${base})` : base;
+}
+
 function createSectionNode(
   model: ITelemetryModel,
   workload: ITelemetryWorkload,
   kind: SectionKind
 ): ITelemetryField | null {
-  const struct = getStruct(workload, kind);
+  const struct = getStruct(model, workload, kind);
   if (!struct || !struct.fields || struct.fields.length === 0) {
     return null;
   }
