@@ -20,7 +20,7 @@ This follows a "Russian Doll" metaphor — each layer contains and proxies to th
 
 ## 2. 🌍 The Stub Page
 - Served by `robotick-conductor` (or Pi5 in standalone mode)
-- Loads Hub UI from `https://hub.robotick.org/entry.js`
+- Loads Hub UI from a configurable web origin (for example: `https://<your-hub-host>/entry.js`)
 - Passes `host = location.origin` to Hub init
 
 ---
