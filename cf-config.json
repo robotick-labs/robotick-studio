@@ -2,15 +2,15 @@
   "CallerReference": "8cbeb2f2-3878-4eb1-b2ee-09ce98ed5bdb",
   "Aliases": {
     "Quantity": 1,
-    "Items": ["hub.robotick.org"]
+    "Items": ["__ROBOTICK_WEB_HOSTNAME__"]
   },
   "DefaultRootObject": "index.html",
   "Origins": {
     "Quantity": 1,
     "Items": [
       {
-        "Id": "hub.robotick.org.s3.eu-west-2.amazonaws.com",
-        "DomainName": "hub.robotick.org.s3.eu-west-2.amazonaws.com",
+        "Id": "__ROBOTICK_WEB_ORIGIN_ID__",
+        "DomainName": "__ROBOTICK_WEB_ORIGIN_DOMAIN__",
         "OriginPath": "",
         "CustomHeaders": {
           "Quantity": 0
@@ -24,7 +24,7 @@
         "OriginShield": {
           "Enabled": false
         },
-        "OriginAccessControlId": "E1IOLASBJDHFQC"
+        "OriginAccessControlId": "__ROBOTICK_WEB_ORIGIN_ACCESS_CONTROL_ID__"
       }
     ]
   },
@@ -32,7 +32,7 @@
     "Quantity": 0
   },
   "DefaultCacheBehavior": {
-    "TargetOriginId": "hub.robotick.org.s3.eu-west-2.amazonaws.com",
+    "TargetOriginId": "__ROBOTICK_WEB_ORIGIN_ID__",
     "TrustedSigners": {
       "Enabled": false,
       "Quantity": 0

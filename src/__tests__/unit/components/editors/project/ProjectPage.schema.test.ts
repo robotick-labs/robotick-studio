@@ -11,13 +11,13 @@ describe("resolveProjectConfigSchemaUrl", () => {
   });
 
   it("preserves http origins when served from the web", () => {
-    const href = "https://hub.robotick.org/home";
+    const href = "https://studio.example.com/home";
     const url = resolveProjectConfigSchemaUrl({
       href,
       base: "/",
     });
     expect(url.toString()).toBe(
-      "https://hub.robotick.org/static/schemas/project-config.schema.json"
+      "https://studio.example.com/static/schemas/project-config.schema.json"
     );
   });
 });

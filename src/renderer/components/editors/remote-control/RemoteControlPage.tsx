@@ -60,6 +60,7 @@ export default function RemoteControlPage() {
         const id = await viewer.init({
           ...(viewerModule.config ?? {}),
           viewerType,
+          projectPath,
           container: viewerContainerRef.current ?? undefined,
         });
         if (!active) {

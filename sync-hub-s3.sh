@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-BUCKET_NAME="hub.robotick.org"
-REGION="eu-west-2"
-SOURCE_DIR="./dist/renderer"
-CLOUDFRONT_DISTRIBUTION_ID="E19373VJYX7Q5H"
+BUCKET_NAME="${ROBOTICK_WEB_BUCKET_NAME:-}"
+REGION="${ROBOTICK_WEB_REGION:-eu-west-2}"
+SOURCE_DIR="${ROBOTICK_WEB_SOURCE_DIR:-./dist/renderer}"
+CLOUDFRONT_DISTRIBUTION_ID="${ROBOTICK_WEB_CLOUDFRONT_DISTRIBUTION_ID:-}"
 DRY_RUN=false
 
 usage() {
@@ -14,6 +14,12 @@ Usage: $0 [--dry-run|-n]
 
 Options:
   --dry-run, -n   Run all local checks (npm audit/test/build) without pushing to AWS.
+
+Environment:
+  ROBOTICK_WEB_BUCKET_NAME                 S3 bucket name to deploy to (required unless --dry-run)
+  ROBOTICK_WEB_CLOUDFRONT_DISTRIBUTION_ID  CloudFront distribution ID to invalidate (required unless --dry-run)
+  ROBOTICK_WEB_REGION                      AWS region (default: eu-west-2)
+  ROBOTICK_WEB_SOURCE_DIR                  Build output dir (default: ./dist/renderer)
 EOF
 }
 
@@ -53,6 +59,10 @@ run_stage "Building project with Vite..." npm run build
 if [[ "$DRY_RUN" == true ]]; then
   echo "[dry-run] Skipping sync of $SOURCE_DIR to s3://$BUCKET_NAME"
 else
+  if [[ -z "$BUCKET_NAME" ]]; then
+    echo "ERROR: ROBOTICK_WEB_BUCKET_NAME is required" >&2
+    exit 1
+  fi
   run_stage "Syncing $SOURCE_DIR to s3://$BUCKET_NAME..." \
     aws s3 sync "$SOURCE_DIR" "s3://$BUCKET_NAME" --delete --size-only
 fi
@@ -60,6 +70,10 @@ fi
 if [[ "$DRY_RUN" == true ]]; then
   echo "[dry-run] Skipping CloudFront cache invalidation for $CLOUDFRONT_DISTRIBUTION_ID"
 else
+  if [[ -z "$CLOUDFRONT_DISTRIBUTION_ID" ]]; then
+    echo "ERROR: ROBOTICK_WEB_CLOUDFRONT_DISTRIBUTION_ID is required" >&2
+    exit 1
+  fi
   run_stage "Invalidating CloudFront cache..." \
     aws cloudfront create-invalidation \
     --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
