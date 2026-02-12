@@ -32,6 +32,7 @@ const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
 };
 const RESIZE_TIMER_SEC = 0.01;
 const ENABLE_PERFORMANCE_STATS = false;
+const ENABLE_CAMERA_OVERLAY = false;
 
 type StatsRecord = {
   lastTimestamp: number | null;
@@ -89,6 +90,7 @@ export class ViewerWorld {
   };
   private statsOverlay: HTMLDivElement | null = null;
   private cameraOverlay: HTMLDivElement | null = null;
+  private _cameraOverlayScratch = new THREE.Vector3();
 
   // render loop
   private animReq: number | null = null;
@@ -186,7 +188,9 @@ export class ViewerWorld {
     if (ENABLE_PERFORMANCE_STATS) {
       this.ensureStatsOverlay();
     }
-    this.ensureCameraOverlay();
+    if (ENABLE_CAMERA_OVERLAY) {
+      this.ensureCameraOverlay();
+    }
 
     // camera + controls
     const cam = this.worldConfig.camera;
@@ -665,6 +669,7 @@ export class ViewerWorld {
   }
 
   private ensureCameraOverlay() {
+    if (!ENABLE_CAMERA_OVERLAY) return;
     if (this.cameraOverlay) return;
     if (typeof window !== "undefined") {
       const computed = window.getComputedStyle(this.containerElement).position;
@@ -695,10 +700,16 @@ export class ViewerWorld {
   }
 
   private updateCameraOverlay() {
-    if (!this.cameraOverlay || !this.camera || !this.controls) return;
+    if (
+      !ENABLE_CAMERA_OVERLAY ||
+      !this.cameraOverlay ||
+      !this.camera ||
+      !this.controls
+    )
+      return;
     const position = this.camera.position;
     const target = this.controls.target;
-    const offset = new THREE.Vector3().subVectors(position, target);
+    const offset = this._cameraOverlayScratch.subVectors(position, target);
     const formatVec = (v: THREE.Vector3) =>
       `[${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}]`;
     this.cameraOverlay.textContent =
@@ -1075,7 +1086,9 @@ export class ViewerWorld {
       this.updateDirectionalLight(d.trackerModelRef);
     this.renderer.render(this.scene, this.camera);
     this.updateStatsOverlay();
-    this.updateCameraOverlay();
+    if (ENABLE_CAMERA_OVERLAY) {
+      this.updateCameraOverlay();
+    }
   };
 
   private scheduleResize() {
