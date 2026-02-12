@@ -10,6 +10,7 @@ import {
   subscribeTelemetry,
 } from "../../../data-sources/telemetry/index.js";
 import { ProjectData } from "../../../data-sources/launcher/index.js";
+import { resolveViewerAssetUrl } from "../asset-url-resolver.js";
 
 type GeoPosition = {
   lat: number;
@@ -248,17 +249,35 @@ function configureControls(config: ViewerConfig): void {
 function buildModelConfigs(config: CesiumViewerConfig): CesiumModelConfig[] {
   const explicit = config.cesium?.models;
   if (explicit?.length) {
-    return explicit;
+    const resolved: CesiumModelConfig[] = [];
+    for (const model of explicit) {
+      try {
+        resolved.push({
+          ...model,
+          uri: resolveViewerAssetUrl(model.uri, config.projectPath),
+        });
+      } catch (err) {
+        console.warn("[Cesium viewer] Failed to resolve model URI", err);
+      }
+    }
+    return resolved;
   }
   const fallbackUri = config.modelUri?.trim();
   if (!fallbackUri) {
     console.warn("[Cesium viewer] No models configured; scene will be empty.");
     return [];
   }
+  let resolvedFallback: string;
+  try {
+    resolvedFallback = resolveViewerAssetUrl(fallbackUri, config.projectPath);
+  } catch (err) {
+    console.warn("[Cesium viewer] Failed to resolve fallback model URI", err);
+    return [];
+  }
   return [
     {
       id: "primary-model",
-      uri: fallbackUri,
+      uri: resolvedFallback,
       position: config.cesium?.camera?.target ?? {
         lat: 0,
         lon: 0,

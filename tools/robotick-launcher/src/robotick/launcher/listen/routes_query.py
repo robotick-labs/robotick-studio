@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from typing import List, Dict, Any
 from pathlib import Path
 import yaml
@@ -81,6 +81,30 @@ def _load_yaml_as_json(path: Path) -> dict:
     return data if data is not None else {}
 
 
+def _resolve_project_scoped_path(project_path: Path, relative_path: str) -> Path:
+    try:
+        project_path_full = project_path.resolve()
+    except Exception as exc:  # pragma: no cover - Path.resolve rarely fails
+        raise HTTPException(
+            status_code=400, detail=f"Invalid project path: {project_path}"
+        ) from exc
+
+    if not project_path_full.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Project file not found: {project_path_full}"
+        )
+
+    base_dir = project_path_full.parent.resolve()
+    candidate = (base_dir / relative_path).resolve()
+    try:
+        candidate.relative_to(base_dir)
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="asset_path must be under the project folder"
+        )
+    return candidate
+
+
 @router.get("/get-project-settings", response_class=JSONResponse)
 def get_project_json(
     project_path: Path = Query(
@@ -146,6 +170,29 @@ def get_model_json(
         )
 
     return _load_yaml_as_json(model_path_full)
+
+
+@router.api_route(
+    "/project-assets/{asset_path:path}",
+    methods=["GET", "HEAD"],
+    response_class=FileResponse,
+)
+def get_project_asset(
+    asset_path: str,
+    project_path: Path = Query(
+        ..., description="Absolute path to the project YAML file"
+    ),
+):
+    """
+    Read a project asset file (relative to the project folder) and stream it.
+    """
+    asset_full_path = _resolve_project_scoped_path(project_path, asset_path)
+    if not asset_full_path.exists() or not asset_full_path.is_file():
+        raise HTTPException(
+            status_code=404, detail=f"Asset file not found: {asset_full_path}"
+        )
+
+    return FileResponse(path=asset_full_path)
 
 
 @router.get("/get-workloads-registry", response_class=JSONResponse)

@@ -21,6 +21,7 @@ import {
   subscribeTelemetry,
 } from "../../../data-sources/telemetry/index.js";
 import { ProjectData } from "../../../data-sources/launcher/index.js";
+import { resolveViewerAssetUrl } from "../asset-url-resolver.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -87,6 +88,7 @@ export class ViewerWorld {
     sumSq: 0,
   };
   private statsOverlay: HTMLDivElement | null = null;
+  private cameraOverlay: HTMLDivElement | null = null;
 
   // render loop
   private animReq: number | null = null;
@@ -184,6 +186,7 @@ export class ViewerWorld {
     if (ENABLE_PERFORMANCE_STATS) {
       this.ensureStatsOverlay();
     }
+    this.ensureCameraOverlay();
 
     // camera + controls
     const cam = this.worldConfig.camera;
@@ -248,7 +251,8 @@ export class ViewerWorld {
 
     // models
     for (const m of this.worldConfig.models) {
-      await this.loadModel(m.id, m.url, m.transform);
+      const modelUrl = resolveViewerAssetUrl(m.url, this.worldConfig.projectPath);
+      await this.loadModel(m.id, modelUrl, m.transform);
     }
 
     // pollers
@@ -281,6 +285,7 @@ export class ViewerWorld {
       this.resizeTimer = null;
     }
     this.cleanupStatsOverlay();
+    this.cleanupCameraOverlay();
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
@@ -336,9 +341,13 @@ export class ViewerWorld {
     } else {
       const rec = this.envById(currentId);
       if (rec?.path) {
+        const envPath = resolveViewerAssetUrl(
+          rec.path,
+          this.worldConfig.projectPath
+        );
         envTex = await new Promise<THREE.Texture>((resolve, reject) => {
           new EXRLoader().load(
-            rec.path!,
+            envPath,
             (tex) => resolve(this.pmrem.fromEquirectangular(tex).texture),
             undefined,
             reject
@@ -653,6 +662,56 @@ export class ViewerWorld {
       this.statsOverlay.parentElement.removeChild(this.statsOverlay);
     }
     this.statsOverlay = null;
+  }
+
+  private ensureCameraOverlay() {
+    if (this.cameraOverlay) return;
+    if (typeof window !== "undefined") {
+      const computed = window.getComputedStyle(this.containerElement).position;
+      if (!computed || computed === "static") {
+        this.containerElement.style.position = "relative";
+      }
+    }
+    const overlay = document.createElement("div");
+    Object.assign(overlay.style, {
+      position: "absolute",
+      top: "8px",
+      right: "8px",
+      padding: "4px 8px",
+      background: "rgba(0, 0, 0, 0.65)",
+      color: "#f4f4f4",
+      fontSize: "0.75rem",
+      lineHeight: "1.2",
+      borderRadius: "4px",
+      pointerEvents: "none",
+      zIndex: "999",
+      whiteSpace: "pre",
+      fontFamily: "Menlo, Consolas, monospace",
+      textAlign: "left",
+    });
+    this.cameraOverlay = overlay;
+    this.containerElement.appendChild(overlay);
+    this.updateCameraOverlay();
+  }
+
+  private updateCameraOverlay() {
+    if (!this.cameraOverlay || !this.camera || !this.controls) return;
+    const position = this.camera.position;
+    const target = this.controls.target;
+    const offset = new THREE.Vector3().subVectors(position, target);
+    const formatVec = (v: THREE.Vector3) =>
+      `[${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)}]`;
+    this.cameraOverlay.textContent =
+      `camera.target:   ${formatVec(target)}\n` +
+      `camera.offset:   ${formatVec(offset)}\n` +
+      `camera.position: ${formatVec(position)}`;
+  }
+
+  private cleanupCameraOverlay() {
+    if (this.cameraOverlay && this.cameraOverlay.parentElement) {
+      this.cameraOverlay.parentElement.removeChild(this.cameraOverlay);
+    }
+    this.cameraOverlay = null;
   }
 
   private async resolvePollerBaseUrl(
@@ -1016,6 +1075,7 @@ export class ViewerWorld {
       this.updateDirectionalLight(d.trackerModelRef);
     this.renderer.render(this.scene, this.camera);
     this.updateStatsOverlay();
+    this.updateCameraOverlay();
   };
 
   private scheduleResize() {

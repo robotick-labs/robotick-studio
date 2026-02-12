@@ -31,6 +31,13 @@ export function buildWebSocketUrl(baseUrl: string, path: string): string {
   return url.toString();
 }
 
+function encodePathPreservingSlashes(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -212,6 +219,21 @@ export async function fetchProjectRemoteControlSettings<
     }
   );
   return await fetchJSON<T>(url, { signal });
+}
+
+export function buildProjectAssetUrl(
+  projectPath: string,
+  assetPath: string
+): string {
+  const normalizedProjectPath = projectPath.trim();
+  const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
+  return buildUrl(
+    LAUNCHER_LOCAL_API_BASE,
+    `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
+    {
+      project_path: normalizedProjectPath,
+    }
+  );
 }
 
 export async function requestLauncherRun(
