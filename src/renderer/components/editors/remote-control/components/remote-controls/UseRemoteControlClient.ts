@@ -380,9 +380,6 @@ class RemoteControlClient {
       let rx = gp.axes[2] || 0;
       let ry = -(gp.axes[3] || 0);
 
-      ({ x: lx, y: ly } = this.expandCircularToSquare(lx, ly));
-      ({ x: rx, y: ry } = this.expandCircularToSquare(rx, ry));
-
       const lt = gp.buttons[6]?.value || 0;
       const rt = gp.buttons[7]?.value || 0;
 
@@ -563,12 +560,6 @@ class RemoteControlClient {
     };
 
     return controller;
-  }
-
-  private expandCircularToSquare(x: number, y: number) {
-    const newX = x * Math.sqrt(1 - (y * y) / 2);
-    const newY = y * Math.sqrt(1 - (x * x) / 2);
-    return { x: newX, y: newY };
   }
 
   private startTickLoop() {
