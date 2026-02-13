@@ -290,6 +290,13 @@ class RemoteControlClient {
 
   private setupGamepadPolling() {
     let activeGamepadIndex: number | null = null;
+    const findConnectedGamepadIndex = () => {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i += 1) {
+        if (pads[i]?.connected) return i;
+      }
+      return null;
+    };
 
     const onConnected = (e: GamepadEvent) => {
       activeGamepadIndex = e.gamepad.index;
@@ -300,11 +307,19 @@ class RemoteControlClient {
       this.pollGamepad(activeGamepadIndex!);
     };
 
-    const onDisconnected = () => {
-      activeGamepadIndex = null;
+    const onDisconnected = (e: GamepadEvent) => {
+      if (activeGamepadIndex !== null && e.gamepad.index !== activeGamepadIndex) {
+        return;
+      }
+
+      const fallbackIndex = findConnectedGamepadIndex();
+      activeGamepadIndex = fallbackIndex;
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
         this.rafId = null;
+      }
+      if (fallbackIndex !== null) {
+        this.pollGamepad(fallbackIndex);
       }
     };
 
@@ -317,20 +332,39 @@ class RemoteControlClient {
     this.cleanup.push(() =>
       window.removeEventListener("gamepaddisconnected", onDisconnected)
     );
+
+    const initialIndex = findConnectedGamepadIndex();
+    if (initialIndex !== null) {
+      activeGamepadIndex = initialIndex;
+      this.pollGamepad(initialIndex);
+    }
   }
 
   private pollGamepad(index: number) {
+    let currentIndex = index;
     let lxLast = 0;
     let lyLast = 0;
     let rxLast = 0;
     let ryLast = 0;
     let lastButtons = "";
 
+    const findConnectedGamepadIndex = () => {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i += 1) {
+        if (pads[i]?.connected) return i;
+      }
+      return null;
+    };
+
     const loop = () => {
       if (this.disposed) return;
       const pads = navigator.getGamepads();
-      const gp = pads[index];
+      const gp = pads[currentIndex];
       if (!gp) {
+        const fallbackIndex = findConnectedGamepadIndex();
+        if (fallbackIndex !== null) {
+          currentIndex = fallbackIndex;
+        }
         this.allowReadGamePad = true;
         this.rafId = requestAnimationFrame(loop);
         return;
