@@ -84,6 +84,7 @@ export interface PollFieldMap {
     | "material.opacity";
   axis?: "all" | "x" | "y" | "z" | "w";
   space?: "local" | "world"; // for vector/euler components
+  sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT";
   sourceUp?: "Y" | "Z"; // default "Y"
   // Optional: scale or units conversion applied to numeric value
   multiply?: number;
@@ -103,6 +104,7 @@ export interface RestPoller {
   // Map response to scene changes:
   fields?: PollFieldMap[];
   defaultSpace?: "local" | "world";
+  sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT";
   sourceUp?: "Y" | "Z"; // default "Y"
   // For textures (blob/png/jpeg): where to apply
   textureFields?: {

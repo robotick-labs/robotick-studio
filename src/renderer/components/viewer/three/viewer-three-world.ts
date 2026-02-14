@@ -108,6 +108,17 @@ export class ViewerWorld {
     ); // +X → –Z
 
   private readonly MJ_TO_THREE_INV = this.MJ_TO_THREE.clone().invert();
+  private readonly REP103_TO_THREE = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().set(
+      // Columns are source basis vectors expressed in Three.js coordinates.
+      // REP-103: +X fwd -> (0,0,-1), +Y left -> (-1,0,0), +Z up -> (0,1,0)
+      0, -1, 0, 0,
+      0, 0, 1, 0,
+      -1, 0, 0, 0,
+      0, 0, 0, 1
+    )
+  );
+  private readonly REP103_TO_THREE_INV = this.REP103_TO_THREE.clone().invert();
 
   constructor(config: ViewerConfig) {
     this.worldConfig = config;
@@ -143,7 +154,21 @@ export class ViewerWorld {
     return out;
   }
 
-  private convertWorldPosFromSource(v: THREE.Vector3, sourceUp?: "Y" | "Z") {
+  private convertWorldPosFromSource(
+    v: THREE.Vector3,
+    sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
+    sourceUp?: "Y" | "Z"
+  ) {
+    if (sourceFrame === "REP103") {
+      // REP-103 (+X fwd, +Y left, +Z up) -> Three.js (+X right, +Y up, -Z fwd)
+      v.set(-v.y, v.z, -v.x);
+      return v;
+    }
+    if (sourceFrame === "MUJOCO_ZUP_X_FORWARD_Y_RIGHT") {
+      // MuJoCo convention used in existing Robotick scenes.
+      v.set(-v.x, v.z, -v.y);
+      return v;
+    }
     if (sourceUp === "Z") {
       v.set(-v.x, v.z, -v.y);
     }
@@ -153,8 +178,20 @@ export class ViewerWorld {
   // change-of-basis for rotations: q' = C * q * C^{-1}
   private convertWorldQuatFromSource(
     q: THREE.Quaternion,
+    sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
     sourceUp?: "Y" | "Z"
   ) {
+    if (sourceFrame === "REP103") {
+      q.premultiply(this.REP103_TO_THREE);
+      q.multiply(this.REP103_TO_THREE_INV);
+      return q;
+    }
+    if (sourceFrame === "MUJOCO_ZUP_X_FORWARD_Y_RIGHT") {
+      q.premultiply(this.MJ_TO_THREE);
+      q.multiply(this.MJ_TO_THREE_INV);
+      q.set(-q.x, q.y, -q.z, q.w);
+      return q;
+    }
     if (sourceUp !== "Z") return q;
     q.premultiply(this.MJ_TO_THREE);
     q.multiply(this.MJ_TO_THREE_INV);
@@ -773,6 +810,7 @@ export class ViewerWorld {
         poller.fields,
         telemetryModel,
         poller.defaultSpace,
+        poller.sourceFrame,
         poller.sourceUp
       );
     }
@@ -850,6 +888,7 @@ export class ViewerWorld {
     maps: Required<RestPoller>["fields"],
     telemetryModel: ITelemetryModel,
     defaultSpace?: "local" | "world",
+    defaultSourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
     defaultSourceUp?: "Y" | "Z"
   ) {
     for (const m of maps) {
@@ -899,6 +938,7 @@ export class ViewerWorld {
             );
             this.convertWorldPosFromSource(
               worldV,
+              m.sourceFrame ?? defaultSourceFrame,
               m.sourceUp ?? defaultSourceUp
             );
             const localV =
@@ -927,6 +967,7 @@ export class ViewerWorld {
           this.__TMP.qWorld.set(xq, yq, zq, wq);
           this.convertWorldQuatFromSource(
             this.__TMP.qWorld,
+            m.sourceFrame ?? defaultSourceFrame,
             m.sourceUp ?? defaultSourceUp
           );
 
@@ -970,6 +1011,7 @@ export class ViewerWorld {
             this.__TMP.qWorld.setFromEuler(eWorld);
             this.convertWorldQuatFromSource(
               this.__TMP.qWorld,
+              m.sourceFrame ?? defaultSourceFrame,
               m.sourceUp ?? defaultSourceUp
             );
 
