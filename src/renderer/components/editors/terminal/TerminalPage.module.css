@@ -14,13 +14,39 @@
   border-bottom: 1px solid #333;
 }
 
-.toolbar input[type="text"] {
+.filterInputWrapper {
+  position: relative;
+  flex: 1;
+}
+
+.filterInput {
+  width: 100%;
   flex: 1;
   background: #222;
   color: #ccc;
   border: 1px solid #444;
-  padding: 4px 8px;
+  padding: 4px 28px 4px 8px;
   border-radius: 4px;
+}
+
+.clearFilterButton {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #9aa0aa;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
+.clearFilterButton:hover {
+  color: #d0d4dc;
 }
 
 .toolbar label {
