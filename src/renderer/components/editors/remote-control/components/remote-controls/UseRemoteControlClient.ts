@@ -22,8 +22,6 @@ type JoystickState = {
   right: Vector2;
   left_trigger: number;
   right_trigger: number;
-  dead_zone_left: Vector2;
-  dead_zone_right: Vector2;
   a: boolean;
   b: boolean;
   x: boolean;
@@ -93,8 +91,6 @@ class RemoteControlClient {
       right: { x: 0.0, y: 0.0 },
       left_trigger: 0.0,
       right_trigger: 0.0,
-      dead_zone_left: { x: 0.1, y: 0.1 },
-      dead_zone_right: { x: 0.1, y: 0.1 },
       a: false,
       b: false,
       x: false,
@@ -290,6 +286,13 @@ class RemoteControlClient {
 
   private setupGamepadPolling() {
     let activeGamepadIndex: number | null = null;
+    const findConnectedGamepadIndex = () => {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i += 1) {
+        if (pads[i]?.connected) return i;
+      }
+      return null;
+    };
 
     const onConnected = (e: GamepadEvent) => {
       activeGamepadIndex = e.gamepad.index;
@@ -300,11 +303,19 @@ class RemoteControlClient {
       this.pollGamepad(activeGamepadIndex!);
     };
 
-    const onDisconnected = () => {
-      activeGamepadIndex = null;
+    const onDisconnected = (e: GamepadEvent) => {
+      if (activeGamepadIndex !== null && e.gamepad.index !== activeGamepadIndex) {
+        return;
+      }
+
+      const fallbackIndex = findConnectedGamepadIndex();
+      activeGamepadIndex = fallbackIndex;
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
         this.rafId = null;
+      }
+      if (fallbackIndex !== null) {
+        this.pollGamepad(fallbackIndex);
       }
     };
 
@@ -317,20 +328,39 @@ class RemoteControlClient {
     this.cleanup.push(() =>
       window.removeEventListener("gamepaddisconnected", onDisconnected)
     );
+
+    const initialIndex = findConnectedGamepadIndex();
+    if (initialIndex !== null) {
+      activeGamepadIndex = initialIndex;
+      this.pollGamepad(initialIndex);
+    }
   }
 
   private pollGamepad(index: number) {
+    let currentIndex = index;
     let lxLast = 0;
     let lyLast = 0;
     let rxLast = 0;
     let ryLast = 0;
     let lastButtons = "";
 
+    const findConnectedGamepadIndex = () => {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i += 1) {
+        if (pads[i]?.connected) return i;
+      }
+      return null;
+    };
+
     const loop = () => {
       if (this.disposed) return;
       const pads = navigator.getGamepads();
-      const gp = pads[index];
+      const gp = pads[currentIndex];
       if (!gp) {
+        const fallbackIndex = findConnectedGamepadIndex();
+        if (fallbackIndex !== null) {
+          currentIndex = fallbackIndex;
+        }
         this.allowReadGamePad = true;
         this.rafId = requestAnimationFrame(loop);
         return;
@@ -349,17 +379,6 @@ class RemoteControlClient {
       let ly = -(gp.axes[1] || 0);
       let rx = gp.axes[2] || 0;
       let ry = -(gp.axes[3] || 0);
-
-      ({ x: lx, y: ly } = this.expandCircularToSquare(lx, ly));
-      ({ x: rx, y: ry } = this.expandCircularToSquare(rx, ry));
-
-      const dzLeft = this.joystickState.dead_zone_left;
-      const dzRight = this.joystickState.dead_zone_right;
-
-      lx = this.applyDeadZone(lx, dzLeft.x);
-      ly = this.applyDeadZone(ly, dzLeft.y);
-      rx = this.applyDeadZone(rx, dzRight.x);
-      ry = this.applyDeadZone(ry, dzRight.y);
 
       const lt = gp.buttons[6]?.value || 0;
       const rt = gp.buttons[7]?.value || 0;
@@ -541,17 +560,6 @@ class RemoteControlClient {
     };
 
     return controller;
-  }
-
-  private expandCircularToSquare(x: number, y: number) {
-    const newX = x * Math.sqrt(1 - (y * y) / 2);
-    const newY = y * Math.sqrt(1 - (x * x) / 2);
-    return { x: newX, y: newY };
-  }
-
-  private applyDeadZone(value: number, deadZone: number) {
-    if (Math.abs(value) < deadZone) return 0;
-    return ((value - Math.sign(value) * deadZone) / (1 - deadZone)) * 1;
   }
 
   private startTickLoop() {

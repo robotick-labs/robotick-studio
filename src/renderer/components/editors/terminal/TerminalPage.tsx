@@ -7,6 +7,7 @@ export default function TerminalPage() {
   const [, forceRefresh] = useReducer((count) => count + 1, 0);
   const containerRef = useRef<HTMLDivElement>(null);
   const ansiUpRef = useRef<AnsiUp | null>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     ansiUpRef.current = new AnsiUp();
@@ -49,15 +50,32 @@ export default function TerminalPage() {
   return (
     <div className={styles.terminalPage}>
       <div className={styles.toolbar}>
-        <input
-          id="log-filter"
-          type="text"
-          placeholder="Enter filter string..."
-          value={filter}
-          onChange={(event) =>
-            terminalLogService.setFilter(event.target.value)
-          }
-        />
+        <div className={styles.filterInputWrapper}>
+          <input
+            id="log-filter"
+            ref={filterInputRef}
+            className={styles.filterInput}
+            type="text"
+            placeholder="Enter filter string..."
+            value={filter}
+            onChange={(event) =>
+              terminalLogService.setFilter(event.target.value)
+            }
+          />
+          {filter ? (
+            <button
+              type="button"
+              className={styles.clearFilterButton}
+              aria-label="Clear filter"
+              onClick={() => {
+                terminalLogService.setFilter("");
+                filterInputRef.current?.focus();
+              }}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
 
         <label>
           <input
