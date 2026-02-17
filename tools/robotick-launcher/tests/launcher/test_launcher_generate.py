@@ -7,8 +7,12 @@ from pathlib import Path
 from typer.testing import CliRunner
 import subprocess
 import pytest
+from types import SimpleNamespace
 
 from robotick.launcher.cli import create_app
+from robotick.launcher.actions.launch.generate_model_cpp import (
+    prepare_codegen_model_data,
+)
 
 runner = CliRunner()
 app = create_app()
@@ -40,29 +44,31 @@ def normalize_lines(lines):
 def normalize_workload_paths(text: str) -> str:
     """
     Normalize absolute paths that point to the robotick-core-workloads directory by replacing them with a stable placeholder.
-    
+
     Parameters:
         text (str): Input text potentially containing absolute workload paths.
-    
+
     Returns:
         str: A copy of `text` where occurrences of paths ending with
         `tests/test_data/robotick/robotick-core-workloads` are replaced with
         `__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads`.
     """
     pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-core-workloads")
-    return pattern.sub("__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads", text)
+    return pattern.sub(
+        "__WORKLOADS_ROOT__/tests/test_data/robotick/robotick-core-workloads", text
+    )
 
 
 def _list_files(dir_path: Path):
     """
     Collects all files under the given directory and returns their paths relative to that directory.
-    
+
     Parameters:
         dir_path (Path): Directory whose files should be listed.
-    
+
     Returns:
         List[Path]: Deterministically sorted list of file paths relative to `dir_path`.
-    
+
     Notes:
         Fails the test via `pytest.fail` if `dir_path` does not exist or is not a directory.
     """
@@ -71,7 +77,9 @@ def _list_files(dir_path: Path):
     # Collect, filter to files, then sort deterministically
     all_paths = list(dir_path.rglob("*"))
     file_paths = [p for p in all_paths if p.is_file()]
-    file_paths_rel = sorted((p.relative_to(dir_path) for p in file_paths), key=lambda p: str(p))
+    file_paths_rel = sorted(
+        (p.relative_to(dir_path) for p in file_paths), key=lambda p: str(p)
+    )
     return file_paths_rel
 
 
@@ -88,7 +96,7 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
             f"❌ One or both directories contain zero files.\n"
             f"- {output_dir}: {len(output_files)} files\n"
             f"- {golden_dir}: {len(golden_files)} files",
-            pytrace=False
+            pytrace=False,
         )
 
     if output_files != golden_files:
@@ -113,31 +121,39 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
             gold_lines = normalize_lines(gold_text.splitlines())
 
             if out_lines != gold_lines:
-                diff = "\n".join(difflib.unified_diff(
-                    gold_lines, out_lines,
-                    fromfile=f"expected/{rel_path}",
-                    tofile=f"actual/{rel_path}",
-                    lineterm=""
-                ))
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        gold_lines,
+                        out_lines,
+                        fromfile=f"expected/{rel_path}",
+                        tofile=f"actual/{rel_path}",
+                        lineterm="",
+                    )
+                )
 
                 # Limit diff length for big files (optional)
                 diff_lines = diff.splitlines()
                 max_lines = 80
                 if len(diff_lines) > max_lines:
-                    diff = "\n".join(diff_lines[:max_lines]) + f"\n... (diff truncated, {len(diff_lines)} total lines)"
+                    diff = (
+                        "\n".join(diff_lines[:max_lines])
+                        + f"\n... (diff truncated, {len(diff_lines)} total lines)"
+                    )
 
                 pytest.fail(
-                    f"\n📝 File content mismatch: {rel_path}\n\n{diff}",
-                    pytrace=False
+                    f"\n📝 File content mismatch: {rel_path}\n\n{diff}", pytrace=False
                 )
 
 
-@pytest.mark.parametrize("target,model", [
-    ("linux", "test-project-brain"),
-    ("esp32", "test-project-spine"),
-])
+@pytest.mark.parametrize(
+    "target,model",
+    [
+        ("linux", "test-project-brain"),
+        ("esp32", "test-project-spine"),
+    ],
+)
 def test_launcher_generate(target, model):
-    
+
     output_subdir = (
         Path("test_project")
         / "generated"
@@ -167,3 +183,45 @@ def test_launcher_generate(target, model):
     subprocess.run(cmd, check=True, env=_launcher_env())
 
     assert_dirs_match(OUTPUT_DIR, GOLDEN_DIR)
+
+
+def test_prepare_codegen_model_data_flattens_nested_field_entries():
+    cfg = SimpleNamespace(
+        model={
+            "workloads": [
+                {
+                    "name": "mind-workload",
+                    "type": "MindWorkload",
+                    "config": {
+                        "initial_expressive_state": {
+                            "joy": 0.85,
+                            "calm": 0.8,
+                        },
+                        "min_focus_duration_s": 1.0,
+                    },
+                    "inputs": {
+                        "boot": {
+                            "is_fresh_start": True,
+                        },
+                        "scene": "home",
+                    },
+                }
+            ]
+        }
+    )
+
+    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+
+    assert len(workloads) == 1
+    assert workloads[0]["config_entries"] == [
+        {"key": "initial_expressive_state.joy", "value": 0.85},
+        {"key": "initial_expressive_state.calm", "value": 0.8},
+        {"key": "min_focus_duration_s", "value": 1.0},
+    ]
+    assert workloads[0]["input_entries"] == [
+        {"key": "boot.is_fresh_start", "value": True},
+        {"key": "scene", "value": "home"},
+    ]
+    assert connections == []
+    assert remote_models == []
+    assert telemetry == {}

@@ -28,19 +28,19 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
 
     {% endif %}
-    {% if w.config %}
+    {% if w.config_entries %}
     static const FieldConfigEntry {{ w.var_name }}_config[] = {
-    {% for key, value in w.config.items() %}
-        {"{{ key }}", "{{ value }}"}{% if not loop.last %},
+    {% for entry in w.config_entries %}
+        {"{{ entry.key }}", "{{ entry.value }}"}{% if not loop.last %},
         {% endif %}
     {% endfor %}
 
     };
     {% endif %}
-    {% if w.inputs %}
+    {% if w.input_entries %}
     static const FieldConfigEntry {{ w.var_name }}_initial_inputs[] = {
-    {% for key, value in w.inputs.items() %}
-        {"{{ key }}", "{{ value }}"}{% if not loop.last %},
+    {% for entry in w.input_entries %}
+        {"{{ entry.key }}", "{{ entry.value }}"}{% if not loop.last %},
         {% endif %}
     {% endfor %}
 
@@ -60,12 +60,12 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
         {% else %}
         {},    // children
         {% endif %}
-        {% if w.config %}
+        {% if w.config_entries %}
         {{ w.var_name }}_config,
         {% else %}
         {},    // config
         {% endif %}
-        {% if w.inputs %}
+        {% if w.input_entries %}
         {{ w.var_name }}_initial_inputs,
         {% else %}
         {}    // inputs

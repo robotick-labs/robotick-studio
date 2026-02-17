@@ -2,6 +2,22 @@ from robotick.launcher.utils import render_template, write_text_if_changed
 from rich import print
 
 
+# allows both dot-notation and nested dicts for config entries, flattens to list of {"key": "a.b.c", "value": ...}
+def _flatten_field_entries(field_values, parent_key=""):
+    entries = []
+    if not isinstance(field_values, dict):
+        return entries
+
+    for key, value in field_values.items():
+        key_str = str(key)
+        dotted_key = f"{parent_key}.{key_str}" if parent_key else key_str
+        if isinstance(value, dict):
+            entries.extend(_flatten_field_entries(value, dotted_key))
+            continue
+        entries.append({"key": dotted_key, "value": value})
+    return entries
+
+
 def generate_model_cpp(config):
     filename = f"{config.model_name_safe}_model.cpp"
 
@@ -45,7 +61,14 @@ def prepare_codegen_model_data(config):
     """Prepares Jinja-safe lists for workloads, connections, and remote models."""
     workloads = []
     for w in config.model.get("workloads", []):
-        workloads.append({**w, "var_name": w["name"].replace("-", "_")})
+        workloads.append(
+            {
+                **w,
+                "var_name": w["name"].replace("-", "_"),
+                "config_entries": _flatten_field_entries(w.get("config")),
+                "input_entries": _flatten_field_entries(w.get("inputs")),
+            }
+        )
 
     connections = []
     for conn in config.model.get("connections", []):
