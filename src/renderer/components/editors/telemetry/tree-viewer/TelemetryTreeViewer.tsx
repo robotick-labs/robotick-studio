@@ -182,6 +182,8 @@ export default function TelemetryTreeViewer() {
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
 
   const { model } = useTelemetryStream(telemetryBaseUrl, 10);
+  const schemaSessionId = model?.schemaSessionId ?? "";
+  const previousSchemaSessionIdRef = useRef<string>("");
   const workloads = model?.workloads ?? [];
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
@@ -196,6 +198,9 @@ export default function TelemetryTreeViewer() {
   const targetWorkload = workloads.find(
     (workload) => workload.name === workloadName
   );
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
+    () => new Set<string>()
+  );
 
   useEffect(() => {
     if (!settings.modelPath && selectedModel) {
@@ -208,7 +213,26 @@ export default function TelemetryTreeViewer() {
   }, [selectedModel, settings.modelPath, updateSettings]);
 
   useEffect(() => {
-    if (!settings.workloadName && workloads[0]) {
+    if (!schemaSessionId) return;
+    if (!previousSchemaSessionIdRef.current) {
+      previousSchemaSessionIdRef.current = schemaSessionId;
+      return;
+    }
+    if (previousSchemaSessionIdRef.current === schemaSessionId) return;
+    previousSchemaSessionIdRef.current = schemaSessionId;
+    setExpandedNodes(new Set());
+    updateSettings({
+      workloadName: "",
+      fieldPath: "",
+    });
+  }, [schemaSessionId, updateSettings]);
+
+  useEffect(() => {
+    if (!workloads[0]) return;
+    if (
+      !settings.workloadName ||
+      !workloads.some((workload) => workload.name === settings.workloadName)
+    ) {
       updateSettings({ workloadName: workloads[0].name });
     }
   }, [settings.workloadName, updateSettings, workloads]);
@@ -255,10 +279,6 @@ export default function TelemetryTreeViewer() {
     fieldFilter,
     sectionSelection,
   ]);
-
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
-    return new Set<string>();
-  });
 
   const toggleNode = (path: string) => {
     setExpandedNodes((prev) => {

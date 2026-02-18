@@ -113,4 +113,40 @@ describe("telemetry-store polling", () => {
     unsubscribeSecond();
     await flushMicrotasks();
   });
+
+  it("refreshes layout when telemetry session id changes", async () => {
+    const layoutV1 = { ...layout, engine_session_id: "sid-old" };
+    const layoutV2 = { ...layout, engine_session_id: "sid-new" };
+    fetchLayout
+      .mockResolvedValueOnce(layoutV1)
+      .mockResolvedValueOnce(layoutV2);
+    fetchRaw
+      .mockResolvedValueOnce({
+        raw: new ArrayBuffer(0),
+        sid: "sid-old",
+      })
+      .mockResolvedValueOnce({
+        raw: new ArrayBuffer(0),
+        sid: "sid-new",
+      });
+
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+    });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+
+    expect(fetchLayout).toHaveBeenCalledTimes(2);
+    expect(createTelemetryModel).toHaveBeenNthCalledWith(1, layoutV1);
+    expect(createTelemetryModel).toHaveBeenNthCalledWith(2, layoutV2);
+    expect(callback).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    await flushMicrotasks();
+  });
 });

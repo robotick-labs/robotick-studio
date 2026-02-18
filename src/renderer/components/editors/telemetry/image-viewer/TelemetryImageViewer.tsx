@@ -158,6 +158,8 @@ export default function TelemetryImageViewer() {
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
 
   const { model } = useTelemetryStream(telemetryBaseUrl, 20);
+  const schemaSessionId = model?.schemaSessionId ?? "";
+  const previousSchemaSessionIdRef = useRef<string>("");
   const workloads = model?.workloads ?? [];
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
@@ -201,6 +203,20 @@ export default function TelemetryImageViewer() {
     }
     return options.sort((a, b) => a.label.localeCompare(b.label));
   }, [model, workloadsToScan]);
+
+  useEffect(() => {
+    if (!schemaSessionId) return;
+    if (!previousSchemaSessionIdRef.current) {
+      previousSchemaSessionIdRef.current = schemaSessionId;
+      return;
+    }
+    if (previousSchemaSessionIdRef.current === schemaSessionId) return;
+    previousSchemaSessionIdRef.current = schemaSessionId;
+    updateSettings({
+      workloadName: undefined,
+      fieldPath: undefined,
+    });
+  }, [schemaSessionId, updateSettings]);
 
   useEffect(() => {
     if (imageFieldOptions.length === 0) return;

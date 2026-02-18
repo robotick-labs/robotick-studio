@@ -157,10 +157,34 @@ export function createTelemetryStore(
       }
       if (!entry.layout) return;
 
+      const previousRaw = entry.lastRaw;
       const { raw, sid } = await enqueueFetch(() =>
         fetchRawImpl(entry.baseUrl)
       );
+
+      const hasSid = sid.length > 0;
+      const previousSid = previousRaw?.sid ?? "";
+      const layoutSid = entry.layout.engine_session_id ?? "";
+      const sessionChanged =
+        (hasSid && previousSid.length > 0 && sid !== previousSid) ||
+        (hasSid && layoutSid.length > 0 && sid !== layoutSid);
+
+      if (sessionChanged) {
+        const refreshedLayout = await enqueueFetch(() =>
+          fetchLayoutImpl(entry.baseUrl)
+        );
+        if (refreshedLayout) {
+          entry.layout = refreshedLayout;
+        } else {
+          // Avoid decoding a new session with a stale schema.
+          entry.layout = null;
+          entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+          return;
+        }
+      }
+
       entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+      if (!entry.layout) return;
       const model = createTelemetryModelImpl(entry.layout);
       model.raw = raw;
       notifySubscribers(entry, model);
