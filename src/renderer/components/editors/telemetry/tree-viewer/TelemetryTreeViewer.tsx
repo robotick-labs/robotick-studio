@@ -65,7 +65,39 @@ const TREE_STORAGE_KEYS = {
   workload: "robotick-studio.telemetry.tree.workload",
   field: "robotick-studio.telemetry.tree.field",
   dataKind: "robotick-studio.telemetry.tree.dataKind",
+  expandedPaths: "robotick-studio.telemetry.tree.expandedPaths",
 };
+
+type ExpandedPathsPreference = {
+  schemaSessionId: string;
+  paths: string[];
+};
+
+function parseExpandedPathsPreference(
+  rawValue: string | undefined
+): ExpandedPathsPreference | null {
+  if (!rawValue) return null;
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<ExpandedPathsPreference>;
+    if (!parsed || !Array.isArray(parsed.paths)) {
+      return null;
+    }
+    const schemaSessionId =
+      typeof parsed.schemaSessionId === "string" ? parsed.schemaSessionId : "";
+    const paths = parsed.paths.filter(
+      (path): path is string => typeof path === "string"
+    );
+    return { schemaSessionId, paths };
+  } catch {
+    return null;
+  }
+}
+
+function serializeExpandedPathsPreference(
+  preference: ExpandedPathsPreference
+): string {
+  return JSON.stringify(preference);
+}
 
 /**
  * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
@@ -123,6 +155,13 @@ export default function TelemetryTreeViewer() {
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
+  const storedExpandedPathsPreference = useMemo(
+    () =>
+      parseExpandedPathsPreference(
+        readPreference(TREE_STORAGE_KEYS.expandedPaths) ?? undefined
+      ),
+    [readPreference]
+  );
   const persistLocalSettings = useCallback(
     (next: Partial<PanelSettings>) => {
       if ("modelPath" in next) {
@@ -201,6 +240,7 @@ export default function TelemetryTreeViewer() {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
     () => new Set<string>()
   );
+  const didRestoreExpandedNodesRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!settings.modelPath && selectedModel) {
@@ -213,6 +253,22 @@ export default function TelemetryTreeViewer() {
   }, [selectedModel, settings.modelPath, updateSettings]);
 
   useEffect(() => {
+    if (!schemaSessionId || didRestoreExpandedNodesRef.current) {
+      return;
+    }
+    didRestoreExpandedNodesRef.current = true;
+    if (storedExpandedPathsPreference?.schemaSessionId === schemaSessionId) {
+      setExpandedNodes(new Set(storedExpandedPathsPreference.paths));
+      return;
+    }
+    persistPreference(TREE_STORAGE_KEYS.expandedPaths, undefined);
+  }, [
+    schemaSessionId,
+    storedExpandedPathsPreference,
+    persistPreference,
+  ]);
+
+  useEffect(() => {
     if (!schemaSessionId) return;
     if (!previousSchemaSessionIdRef.current) {
       previousSchemaSessionIdRef.current = schemaSessionId;
@@ -221,11 +277,23 @@ export default function TelemetryTreeViewer() {
     if (previousSchemaSessionIdRef.current === schemaSessionId) return;
     previousSchemaSessionIdRef.current = schemaSessionId;
     setExpandedNodes(new Set());
+    persistPreference(TREE_STORAGE_KEYS.expandedPaths, undefined);
     updateSettings({
       workloadName: "",
       fieldPath: "",
     });
-  }, [schemaSessionId, updateSettings]);
+  }, [schemaSessionId, updateSettings, persistPreference]);
+
+  useEffect(() => {
+    if (!schemaSessionId) return;
+    persistPreference(
+      TREE_STORAGE_KEYS.expandedPaths,
+      serializeExpandedPathsPreference({
+        schemaSessionId,
+        paths: Array.from(expandedNodes),
+      })
+    );
+  }, [schemaSessionId, expandedNodes, persistPreference]);
 
   useEffect(() => {
     if (!workloads[0]) return;
