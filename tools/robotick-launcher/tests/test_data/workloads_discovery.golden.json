@@ -550,15 +550,15 @@
         "fields": [
           {
             "name": "accel",
-            "type": "Vec3"
+            "type": "Vec3f"
           },
           {
             "name": "gyro",
-            "type": "Vec3"
+            "type": "Vec3f"
           },
           {
             "name": "mag",
-            "type": "Vec3"
+            "type": "Vec3f"
           }
         ]
       }
