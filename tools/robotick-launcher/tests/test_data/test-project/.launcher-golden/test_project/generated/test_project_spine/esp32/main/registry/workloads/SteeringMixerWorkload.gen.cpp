@@ -9,6 +9,7 @@ namespace robotick
     ROBOTICK_STRUCT_FIELD(SteeringMixerConfig, float, power_scale_both)
     ROBOTICK_STRUCT_FIELD(SteeringMixerConfig, float, power_scale_left)
     ROBOTICK_STRUCT_FIELD(SteeringMixerConfig, float, power_scale_right)
+    ROBOTICK_STRUCT_FIELD(SteeringMixerConfig, float, power_seek_rate)
     ROBOTICK_REGISTER_STRUCT_END(SteeringMixerConfig)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(SteeringMixerInputs)

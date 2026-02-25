@@ -7,6 +7,10 @@ namespace robotick
     ROBOTICK_REGISTER_STRUCT_BEGIN(RemoteControlConfig)
     ROBOTICK_STRUCT_FIELD(RemoteControlConfig, int, port)
     ROBOTICK_STRUCT_FIELD(RemoteControlConfig, FixedString128, web_root_folder)
+    ROBOTICK_STRUCT_FIELD(RemoteControlConfig, Vec2f, dead_zone_left)
+    ROBOTICK_STRUCT_FIELD(RemoteControlConfig, Vec2f, dead_zone_right)
+    ROBOTICK_STRUCT_FIELD(RemoteControlConfig, StickShapeTransform, stick_shape_transform_left)
+    ROBOTICK_STRUCT_FIELD(RemoteControlConfig, StickShapeTransform, stick_shape_transform_right)
     ROBOTICK_REGISTER_STRUCT_END(RemoteControlConfig)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(RemoteControlOutputs)
