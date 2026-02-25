@@ -3,7 +3,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Set
 from .utils import render_template, write_text_if_changed
 
 
@@ -13,6 +13,7 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
       {
         WorkloadType: {
           "abs": Path,               # absolute path to file
+          "root_abs": Path,          # absolute path to matched workload source root
           "workload_root": str,      # the runtime.workload_sources entry (local_path) that matched
           "path_from_root": str,     # file path relative to that root (POSIX-style)
         },
@@ -63,6 +64,7 @@ def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
 
             seen[wl_name] = {
                 "abs": abs_path,
+                "root_abs": root_path,
                 "workload_root": root_str,
                 "path_from_root": rel,
             }
@@ -81,7 +83,11 @@ def discover_workloads_metadata(config) -> List[Dict]:
     for wl_name in sorted(sources.keys(), key=str.lower):
         srec = sources[wl_name]
         abs_path = srec["abs"]
-        parsed = _parse_workload_cpp(abs_path, wl_name)
+        include_roots = [abs_path.parent]
+        root_abs = srec.get("root_abs")
+        if isinstance(root_abs, Path):
+            include_roots.append(root_abs)
+        parsed = _parse_workload_cpp(abs_path, wl_name, include_roots)
 
         structs_filtered: Dict[str, Dict] = {}
         for which in ("config", "inputs", "outputs"):
@@ -110,7 +116,9 @@ def discover_workloads_metadata_as_json(config) -> str:
     return json.dumps(discover_workloads_metadata(config), indent=2)
 
 
-def _parse_workload_cpp(file_path: Path, expected_workload: str) -> Dict:
+def _parse_workload_cpp(
+    file_path: Path, expected_workload: str, include_search_roots: Optional[Sequence[Path]] = None
+) -> Dict:
     source = file_path.read_text(encoding="utf-8")
 
     wl_name = expected_workload
@@ -120,12 +128,35 @@ def _parse_workload_cpp(file_path: Path, expected_workload: str) -> Dict:
     stem = wl_name[: -len("Workload")] if wl_name.endswith("Workload") else wl_name
     cfg_name, ins_name, outs_name = f"{stem}Config", f"{stem}Inputs", f"{stem}Outputs"
 
-    def pack(name: str):
-        exists = _has_struct(source, name)
+    roots: List[Path] = []
+    if include_search_roots:
+        for root in include_search_roots:
+            if root and root not in roots:
+                roots.append(root)
+    if file_path.parent not in roots:
+        roots.append(file_path.parent)
+
+    included_sources = _collect_quoted_include_sources(
+        source=source,
+        source_path=file_path,
+        include_search_roots=roots,
+    )
+    candidate_sources = [source, *included_sources]
+
+    def find_struct(name: str):
+        for candidate in candidate_sources:
+            if _has_struct(candidate, name):
+                return {
+                    "name": name,
+                    "fields": _extract_struct_fields(candidate, name),
+                }
         return {
-            "name": name if exists else None,
-            "fields": _extract_struct_fields(source, name) if exists else [],
+            "name": None,
+            "fields": [],
         }
+
+    def pack(name: str):
+        return find_struct(name)
 
     return {
         "workload_class": wl_name,
@@ -138,6 +169,47 @@ def _parse_workload_cpp(file_path: Path, expected_workload: str) -> Dict:
 def _has_struct(source: str, struct_name: str) -> bool:
     pat = rf"\bstruct\b(?:\s+[^\s{{]+)*\s+{re.escape(struct_name)}\b\s*\{{"
     return re.search(pat, source) is not None
+
+
+_QUOTED_INCLUDE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
+_HEADER_EXTS = {".h", ".hh", ".hpp", ".hxx", ".ipp", ".inl"}
+
+
+def _collect_quoted_include_sources(source: str, source_path: Path, include_search_roots: Sequence[Path]) -> List[str]:
+    visited: Set[Path] = set()
+    out: List[str] = []
+
+    def walk(current_source: str, current_path: Path) -> None:
+        for inc in _QUOTED_INCLUDE.findall(current_source):
+            resolved = _resolve_quoted_include_path(current_path, inc, include_search_roots)
+            if not resolved:
+                continue
+            if resolved in visited:
+                continue
+            visited.add(resolved)
+            try:
+                text = resolved.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            out.append(text)
+            if resolved.suffix.lower() in _HEADER_EXTS:
+                walk(text, resolved)
+
+    walk(source, source_path)
+    return out
+
+
+def _resolve_quoted_include_path(source_path: Path, include_path: str, include_search_roots: Sequence[Path]) -> Optional[Path]:
+    include_rel = Path(include_path)
+    candidates: List[Path] = [source_path.parent / include_rel]
+    for root in include_search_roots:
+        candidates.append(root / include_rel)
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+
+    return None
 
 
 _SIMPLE_BOOL = re.compile(r"^(true|false)$", re.IGNORECASE)

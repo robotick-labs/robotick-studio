@@ -141,6 +141,47 @@
     }
   },
   {
+    "name": "CanvasWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/ui/CanvasWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "CanvasConfig",
+        "fields": [
+          {
+            "name": "scene_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "render_to_texture",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "CanvasInputs",
+        "fields": [
+          {
+            "name": "controls",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "CanvasOutputs",
+        "fields": [
+          {
+            "name": "face_png_data",
+            "type": "ImagePng128k"
+          }
+        ]
+      }
+    }
+  },
+  {
     "name": "CochlearTransformWorkload",
     "source": {
       "workload_root": "test_data/robotick/robotick-core-workloads",
@@ -208,6 +249,16 @@
             "default_value": "true"
           },
           {
+            "name": "draw_pitch_info_amplitude",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "draw_harmonics",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
             "name": "pitch_visual_gain",
             "type": "float",
             "default_value": "1.0f"
@@ -221,6 +272,11 @@
             "name": "render_to_texture",
             "type": "bool",
             "default_value": "true"
+          },
+          {
+            "name": "fusion_link_alpha_gain",
+            "type": "float",
+            "default_value": "100.0f"
           }
         ]
       },
@@ -234,6 +290,10 @@
           {
             "name": "pitch_info",
             "type": "HarmonicPitchResult"
+          },
+          {
+            "name": "speech_segments",
+            "type": "ProsodicSegmentBuffer"
           }
         ]
       },
@@ -243,67 +303,6 @@
           {
             "name": "visualization_png",
             "type": "ImagePng128k"
-          }
-        ]
-      }
-    }
-  },
-  {
-    "name": "FaceDisplayWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/ui/FaceDisplayWorkload.cpp"
-    },
-    "structs": {
-      "config": {
-        "name": "FaceDisplayConfig",
-        "fields": [
-          {
-            "name": "blink_min_interval_sec",
-            "type": "float",
-            "default_value": "1.5f"
-          },
-          {
-            "name": "blink_max_interval_sec",
-            "type": "float",
-            "default_value": "4.0f"
-          },
-          {
-            "name": "render_to_texture",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "look_offset_scale",
-            "type": "Vec2f"
-          }
-        ]
-      },
-      "inputs": {
-        "name": "FaceDisplayInputs",
-        "fields": [
-          {
-            "name": "look_offset",
-            "type": "Vec2f"
-          },
-          {
-            "name": "blink_request",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "max_eyes_open_norm",
-            "type": "float",
-            "default_value": "1.0f"
-          }
-        ]
-      },
-      "outputs": {
-        "name": "FaceDisplayOutputs",
-        "fields": [
-          {
-            "name": "face_png_data",
-            "type": "ImagePng16k"
           }
         ]
       }
@@ -321,7 +320,7 @@
         "fields": [
           {
             "name": "settings",
-            "type": "HarmonicPitchSettings"
+            "type": "SnakePitchTrackerConfig"
           }
         ]
       },
@@ -550,15 +549,15 @@
         "fields": [
           {
             "name": "accel",
-            "type": "Vec3"
+            "type": "Vec3f"
           },
           {
             "name": "gyro",
-            "type": "Vec3"
+            "type": "Vec3f"
           },
           {
             "name": "mag",
-            "type": "Vec3"
+            "type": "Vec3f"
           }
         ]
       }
@@ -709,14 +708,66 @@
     }
   },
   {
-    "name": "MuJoCoWorkload",
+    "name": "MuJoCoCameraWorkload",
     "source": {
       "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoWorkload.cpp"
+      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoCameraWorkload.cpp"
     },
     "structs": {
       "config": {
-        "name": "MuJoCoConfig",
+        "name": "MuJoCoCameraConfig",
+        "fields": [
+          {
+            "name": "camera_name",
+            "type": "FixedString64"
+          },
+          {
+            "name": "texture_width",
+            "type": "uint32_t",
+            "default_value": "640"
+          },
+          {
+            "name": "texture_height",
+            "type": "uint32_t",
+            "default_value": "480"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "MuJoCoCameraInputs",
+        "fields": [
+          {
+            "name": "mujoco_scene_id",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MuJoCoCameraOutputs",
+        "fields": [
+          {
+            "name": "png_data",
+            "type": "ImagePng256k"
+          },
+          {
+            "name": "frame_count",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MuJoCoPhysicsWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoPhysicsWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MuJoCoPhysicsConfig",
         "fields": [
           {
             "name": "workload_config_file_path",
@@ -738,7 +789,7 @@
         ]
       },
       "inputs": {
-        "name": "MuJoCoInputs",
+        "name": "MuJoCoPhysicsInputs",
         "fields": [
           {
             "name": "mujoco",
@@ -747,11 +798,16 @@
         ]
       },
       "outputs": {
-        "name": "MuJoCoOutputs",
+        "name": "MuJoCoPhysicsOutputs",
         "fields": [
           {
             "name": "mujoco",
             "type": "Blackboard"
+          },
+          {
+            "name": "scene_id",
+            "type": "uint32_t",
+            "default_value": "0"
           }
         ]
       }
@@ -811,6 +867,52 @@
     }
   },
   {
+    "name": "NoiseSuppressWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/NoiseSuppressWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "NoiseSuppressConfig",
+        "fields": [
+          {
+            "name": "settings",
+            "type": "NoiseSuppressorConfig"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "NoiseSuppressInputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "NoiseSuppressOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "is_noise_only",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "noise_floor_rms",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
     "name": "ProsodyAnalyserWorkload",
     "source": {
       "workload_root": "test_data/robotick/robotick-core-workloads",
@@ -831,11 +933,6 @@
             "default_value": "0.95f"
           },
           {
-            "name": "pitch_smooth_alpha",
-            "type": "float",
-            "default_value": "0.2f"
-          },
-          {
             "name": "rms_smooth_alpha",
             "type": "float",
             "default_value": "0.2f"
@@ -846,14 +943,19 @@
             "default_value": "5.0f"
           },
           {
-            "name": "min_pitch_hz",
+            "name": "harmonic_confidence_min_db",
             "type": "float",
-            "default_value": "60.0f"
+            "default_value": "-15.0f"
           },
           {
-            "name": "max_pitch_hz",
+            "name": "harmonic_confidence_max_db",
             "type": "float",
-            "default_value": "600.0f"
+            "default_value": "25.0f"
+          },
+          {
+            "name": "harmonic_confidence_gate",
+            "type": "float",
+            "default_value": "0.35f"
           }
         ]
       },
@@ -876,6 +978,76 @@
           {
             "name": "prosody_state",
             "type": "ProsodyState"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ProsodyFusionWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyFusionWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ProsodyFusionConfig",
+        "fields": [
+          {
+            "name": "history_duration_sec",
+            "type": "float",
+            "default_value": "8.0f"
+          },
+          {
+            "name": "simplified_sample_count",
+            "type": "uint32_t",
+            "default_value": "32"
+          },
+          {
+            "name": "minimum_segment_duration_sec",
+            "type": "float",
+            "default_value": "0.1f"
+          },
+          {
+            "name": "silence_hangover_sec",
+            "type": "float",
+            "default_value": "0.2f"
+          },
+          {
+            "name": "segment_merge_tolerance_sec",
+            "type": "float",
+            "default_value": "0.25f"
+          },
+          {
+            "name": "max_pitch_jump_hz",
+            "type": "float",
+            "default_value": "80.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "ProsodyFusionInputs",
+        "fields": [
+          {
+            "name": "prosody_state",
+            "type": "ProsodyState"
+          },
+          {
+            "name": "proto_transcript",
+            "type": "Transcript"
+          },
+          {
+            "name": "transcript",
+            "type": "Transcript"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ProsodyFusionOutputs",
+        "fields": [
+          {
+            "name": "speech_segments",
+            "type": "ProsodicSegmentBuffer"
           }
         ]
       }
@@ -1134,6 +1306,22 @@
             "name": "web_root_folder",
             "type": "FixedString128",
             "default_value": "engine-data/remote_control_interface_web"
+          },
+          {
+            "name": "dead_zone_left",
+            "type": "Vec2f"
+          },
+          {
+            "name": "dead_zone_right",
+            "type": "Vec2f"
+          },
+          {
+            "name": "stick_shape_transform_left",
+            "type": "StickShapeTransform"
+          },
+          {
+            "name": "stick_shape_transform_right",
+            "type": "StickShapeTransform"
           }
         ]
       },
@@ -1358,22 +1546,12 @@
         "name": "SpeechToTextOutputs",
         "fields": [
           {
-            "name": "words",
-            "type": "TranscribedWords"
+            "name": "proto_transcript",
+            "type": "Transcript"
           },
           {
             "name": "transcript",
-            "type": "FixedString512"
-          },
-          {
-            "name": "transcribe_duration_sec",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "transcript_mean_confidence",
-            "type": "float",
-            "default_value": "0.0f"
+            "type": "Transcript"
           },
           {
             "name": "accumulator_duration_sec",
@@ -1428,6 +1606,11 @@
             "name": "power_scale_right",
             "type": "float",
             "default_value": "1.0f"
+          },
+          {
+            "name": "power_seek_rate",
+            "type": "float",
+            "default_value": "-1.0f"
           }
         ]
       },
@@ -1676,6 +1859,10 @@
           },
           {
             "name": "right",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "mono",
             "type": "AudioFrame"
           },
           {

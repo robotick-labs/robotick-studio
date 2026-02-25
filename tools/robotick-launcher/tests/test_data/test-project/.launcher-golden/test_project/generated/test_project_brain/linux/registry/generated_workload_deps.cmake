@@ -12,22 +12,6 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../../../../../robotick/robotick-core-w
 
 find_package(OpenCV REQUIRED)
 find_package(SDL2 2.0.14 REQUIRED)
-find_package(PkgConfig REQUIRED)
-
-pkg_check_modules(SDL2_GFX REQUIRED SDL2_gfx)
-
-foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
-  target_include_directories(${_target} PRIVATE ${SDL2_GFX_INCLUDE_DIRS})
-  target_link_libraries(${_target} PRIVATE ${SDL2_GFX_LIBRARIES})
-endforeach()
-
-pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
-
-foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
-  target_include_directories(${_target} PRIVATE ${SDL2_TTF_INCLUDE_DIRS})
-  target_link_libraries(${_target} PRIVATE ${SDL2_TTF_LIBRARIES})
-endforeach()
-
 foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
   target_include_directories(${_target} PRIVATE
     ${OpenCV_INCLUDE_DIRS}

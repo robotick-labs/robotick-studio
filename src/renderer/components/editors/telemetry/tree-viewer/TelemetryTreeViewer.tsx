@@ -65,7 +65,51 @@ const TREE_STORAGE_KEYS = {
   workload: "robotick-studio.telemetry.tree.workload",
   field: "robotick-studio.telemetry.tree.field",
   dataKind: "robotick-studio.telemetry.tree.dataKind",
+  expandedPaths: "robotick-studio.telemetry.tree.expandedPaths",
 };
+
+type ExpandedPathsPreference = {
+  paths: string[];
+};
+
+function parseExpandedPathsPreference(
+  rawValue: string | undefined
+): ExpandedPathsPreference | null {
+  if (!rawValue) return null;
+  try {
+    const parsed = JSON.parse(rawValue) as
+      | Partial<ExpandedPathsPreference>
+      | string[];
+    // Current format.
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      Array.isArray(parsed.paths)
+    ) {
+      const paths = parsed.paths.filter(
+        (path): path is string => typeof path === "string"
+      );
+      return { paths };
+    }
+    // Legacy format fallback (raw array of paths).
+    if (Array.isArray(parsed)) {
+      const paths = parsed.filter(
+        (path): path is string => typeof path === "string"
+      );
+      return { paths };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function serializeExpandedPathsPreference(
+  preference: ExpandedPathsPreference
+): string {
+  return JSON.stringify(preference);
+}
 
 /**
  * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
@@ -123,6 +167,13 @@ export default function TelemetryTreeViewer() {
   );
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
+  const storedExpandedPathsPreference = useMemo(
+    () =>
+      parseExpandedPathsPreference(
+        readPreference(TREE_STORAGE_KEYS.expandedPaths) ?? undefined
+      ),
+    [readPreference]
+  );
   const persistLocalSettings = useCallback(
     (next: Partial<PanelSettings>) => {
       if ("modelPath" in next) {
@@ -196,6 +247,9 @@ export default function TelemetryTreeViewer() {
   const targetWorkload = workloads.find(
     (workload) => workload.name === workloadName
   );
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
+    () => new Set<string>(storedExpandedPathsPreference?.paths ?? [])
+  );
 
   useEffect(() => {
     if (!settings.modelPath && selectedModel) {
@@ -208,7 +262,20 @@ export default function TelemetryTreeViewer() {
   }, [selectedModel, settings.modelPath, updateSettings]);
 
   useEffect(() => {
-    if (!settings.workloadName && workloads[0]) {
+    persistPreference(
+      TREE_STORAGE_KEYS.expandedPaths,
+      serializeExpandedPathsPreference({
+        paths: Array.from(expandedNodes),
+      })
+    );
+  }, [expandedNodes, persistPreference]);
+
+  useEffect(() => {
+    if (!workloads[0]) return;
+    if (
+      !settings.workloadName ||
+      !workloads.some((workload) => workload.name === settings.workloadName)
+    ) {
       updateSettings({ workloadName: workloads[0].name });
     }
   }, [settings.workloadName, updateSettings, workloads]);
@@ -256,10 +323,6 @@ export default function TelemetryTreeViewer() {
     sectionSelection,
   ]);
 
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(() => {
-    return new Set<string>();
-  });
-
   const toggleNode = (path: string) => {
     setExpandedNodes((prev) => {
       const next = new Set(prev);
@@ -276,6 +339,11 @@ export default function TelemetryTreeViewer() {
     const modelPath = event.target.value;
     const descriptor = modelOptions.find(
       (model) => model.modelPath === modelPath
+    );
+    setExpandedNodes(new Set());
+    persistPreference(
+      TREE_STORAGE_KEYS.expandedPaths,
+      serializeExpandedPathsPreference({ paths: [] })
     );
     updateSettings({
       modelPath,

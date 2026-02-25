@@ -11,6 +11,9 @@ Robotick Studio’s pitch is simple: each robot repo unlocks the entire robotics
 
 Clone the robot’s repo, run its bootstrap script, and the full stack—visual cockpit, editor, launcher, and pinned deps—is ready to fly. No global system install is required; every robot carries the toolchain it expects so demos, field robots, and CI runners remain deterministic.
 
+> **Current Decision (robotick-knitware):** we currently run Studio/Launcher from the checked-in `robotick/robotick-studio` submodule and per-robot `run-studio.sh` wrappers. We have found this workflow superior for day-to-day development and debugging.  
+> The installer-based distribution path described later in this doc is intentionally retained as a reference/fallback design, not the active default.
+
 ---
 
 ### Path Naming & Determinism
@@ -133,7 +136,9 @@ Both use the same pinned Launcher as their brain, fetched from the project’s t
 
 ---
 
-### 5. Tooling Bootstrap & Distribution
+### 5. Tooling Bootstrap & Distribution (Reference / Fallback Path)
+
+This section documents a valid installer-centric distribution model, but it is not the active default in `robotick-knitware` today.
 
 We intentionally skip a global Studio/Launcher installer. Each robot keeps a tiny, self-contained bootstrap in its folder; the installer lives in the Studio repo. For first impressions we’re biasing to the smallest possible per-robot scripts and a hosted, pinned installer.
 

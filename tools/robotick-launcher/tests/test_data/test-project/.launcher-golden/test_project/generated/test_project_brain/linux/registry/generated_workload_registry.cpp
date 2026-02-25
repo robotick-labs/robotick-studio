@@ -3,7 +3,6 @@
 // Workload extras (e.g. systems):
 #include "robotick/systems/Camera_desktop.cpp"
 #include "robotick/systems/Image.cpp"
-#include "robotick/systems/Renderer_desktop.cpp"
 #include "robotick/systems/audio/AudioFrame.cpp"
 #include "robotick/systems/audio/AudioSystem.cpp"
 #include "robotick/systems/auditory/SpeechToText.cpp"

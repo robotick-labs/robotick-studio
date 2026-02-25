@@ -29,6 +29,7 @@ type StoreEntry = {
   subscribers: Set<SubscriberEntry>;
   layout: LayoutModel | null;
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
+  lastLayoutFetchSid: string;
   pollingTask: PollingTask | null;
   pollingIntervalMs: number;
 };
@@ -116,6 +117,7 @@ export function createTelemetryStore(
         subscribers: new Set(),
         layout: null,
         lastRaw: null,
+        lastLayoutFetchSid: "",
         pollingTask: null,
         pollingIntervalMs: DEFAULT_POLLING_INTERVAL_MS,
       };
@@ -153,14 +155,49 @@ export function createTelemetryStore(
         const layout = await enqueueFetch(() => fetchLayoutImpl(entry.baseUrl));
         if (layout) {
           entry.layout = layout;
+          entry.lastLayoutFetchSid = layout.engine_session_id ?? "";
         }
       }
       if (!entry.layout) return;
 
+      const previousRaw = entry.lastRaw;
       const { raw, sid } = await enqueueFetch(() =>
         fetchRawImpl(entry.baseUrl)
       );
+
+      const hasSid = sid.length > 0;
+      const previousSid = previousRaw?.sid ?? "";
+      const layoutSid = entry.layout.engine_session_id ?? "";
+      const sessionChanged =
+        (hasSid && previousSid.length > 0 && sid !== previousSid) ||
+        (hasSid && layoutSid.length > 0 && sid !== layoutSid);
+
+      if (sessionChanged) {
+        if (hasSid && entry.lastLayoutFetchSid === sid) {
+          // We already fetched a layout that matches this sid.
+          entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+          const model = createTelemetryModelImpl(entry.layout);
+          model.raw = raw;
+          notifySubscribers(entry, model);
+          return;
+        }
+
+        const refreshedLayout = await enqueueFetch(() =>
+          fetchLayoutImpl(entry.baseUrl)
+        );
+        if (refreshedLayout && hasSid && refreshedLayout.engine_session_id === sid) {
+          entry.layout = refreshedLayout;
+          entry.lastLayoutFetchSid = sid;
+        } else {
+          // Avoid decoding a new session with a stale schema.
+          entry.layout = null;
+          entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+          return;
+        }
+      }
+
       entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
+      if (!entry.layout) return;
       const model = createTelemetryModelImpl(entry.layout);
       model.raw = raw;
       notifySubscribers(entry, model);

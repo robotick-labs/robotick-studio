@@ -1,18 +1,25 @@
 .overlay {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
-  padding-bottom: max(150px, env(safe-area-inset-bottom));
+  inset: 0;
   pointer-events: none;
   z-index: 9999;
-  display: flex;
-  justify-content: center;
   user-select: none;
   -webkit-user-select: none;
   -moz-user-select: none;
+}
+
+.anchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+.dragging {
+  cursor: grabbing;
 }
 
 .bubble {

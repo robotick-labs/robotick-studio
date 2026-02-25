@@ -56,7 +56,7 @@ export interface LayoutWorkload {
 export interface LayoutModel {
   workloads: LayoutWorkload[];
   types: LayoutType[];
-  engine_session_id: string;
+  engine_session_id?: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
 }
@@ -100,6 +100,7 @@ export interface ITelemetryWorkload {
 export interface ITelemetryModel {
   workloads: ITelemetryWorkload[];
   raw: ArrayBuffer | null;
+  schemaSessionId: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
   getField?(path: string): ITelemetryField | undefined;
@@ -393,6 +394,7 @@ namespace TelemetryFactory {
     };
 
     const model = new TelemetryModel(typeMap);
+    model.schemaSessionId = layout.engine_session_id ?? "";
 
     const buildStruct = (
       typeName: string,
@@ -548,6 +550,7 @@ namespace TelemetryFactory {
 
 class TelemetryModel implements ITelemetryModel {
   workloads: ITelemetryWorkload[] = [];
+  schemaSessionId: string = "";
   workloads_buffer_size_used: number = 0;
   process_memory_used: number = 0;
   private _raw: ArrayBuffer | null = null;

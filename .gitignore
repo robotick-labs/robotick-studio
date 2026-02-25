@@ -9,3 +9,4 @@ TODO.md
 robotick_local
 *.vsix
 tools/vscode-extension/media/renderer
+.venv-launcher-dev
