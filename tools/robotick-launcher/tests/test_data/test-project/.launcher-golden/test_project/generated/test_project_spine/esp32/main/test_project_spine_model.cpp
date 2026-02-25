@@ -55,7 +55,7 @@ void populate_model_test_project_spine(robotick::Model& model)
     };
 
     static const FieldConfigEntry heart_ui_config[] = {
-        {"render_to_texture", "True"}
+        {"render_to_texture", "true"}
     };
 
     static const WorkloadSeed heart_ui = {

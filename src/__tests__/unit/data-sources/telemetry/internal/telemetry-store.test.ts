@@ -17,7 +17,7 @@ vi.mock(
 const layout = {
   workloads: [],
   types: [],
-  engine_session_id: "test",
+  engine_session_id: "sid",
   workloads_buffer_size_used: 0,
   process_memory_used: 0,
 };

@@ -1,3 +1,5 @@
+import json
+
 from robotick.launcher.utils import render_template, write_text_if_changed
 from rich import print
 
@@ -16,6 +18,31 @@ def _flatten_field_entries(field_values, parent_key=""):
             continue
         entries.append({"key": dotted_key, "value": value})
     return entries
+
+
+def _normalize_field_value_for_cpp(value):
+    """
+    Normalize a Python value to a C++ string-literal-safe payload.
+    The returned value is unquoted and ready to place between double quotes.
+    """
+    if isinstance(value, bool):
+        normalized = "true" if value else "false"
+    elif value is None:
+        normalized = ""
+    else:
+        normalized = str(value)
+    # JSON escaping is compatible with C++ string literal escapes for this usage.
+    return json.dumps(normalized)[1:-1]
+
+
+def _build_render_entries(entries):
+    return [
+        {
+            "key": entry["key"],
+            "value_normalized": _normalize_field_value_for_cpp(entry["value"]),
+        }
+        for entry in entries
+    ]
 
 
 def generate_model_cpp(config):
@@ -61,12 +88,16 @@ def prepare_codegen_model_data(config):
     """Prepares Jinja-safe lists for workloads, connections, and remote models."""
     workloads = []
     for w in config.model.get("workloads", []):
+        config_entries = _flatten_field_entries(w.get("config"))
+        input_entries = _flatten_field_entries(w.get("inputs"))
         workloads.append(
             {
                 **w,
                 "var_name": w["name"].replace("-", "_"),
-                "config_entries": _flatten_field_entries(w.get("config")),
-                "input_entries": _flatten_field_entries(w.get("inputs")),
+                "config_entries": config_entries,
+                "config_entries_render": _build_render_entries(config_entries),
+                "input_entries": input_entries,
+                "input_entries_render": _build_render_entries(input_entries),
             }
         )
 

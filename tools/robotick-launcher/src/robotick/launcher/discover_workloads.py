@@ -189,7 +189,7 @@ def _collect_quoted_include_sources(source: str, source_path: Path, include_sear
             visited.add(resolved)
             try:
                 text = resolved.read_text(encoding="utf-8")
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 continue
             out.append(text)
             if resolved.suffix.lower() in _HEADER_EXTS:

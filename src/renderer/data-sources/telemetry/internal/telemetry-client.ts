@@ -56,7 +56,7 @@ export interface LayoutWorkload {
 export interface LayoutModel {
   workloads: LayoutWorkload[];
   types: LayoutType[];
-  engine_session_id: string;
+  engine_session_id?: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
 }

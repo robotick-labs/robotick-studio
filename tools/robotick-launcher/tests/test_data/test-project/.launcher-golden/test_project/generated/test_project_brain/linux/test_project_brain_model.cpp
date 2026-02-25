@@ -23,7 +23,7 @@ void populate_model_test_project_brain(robotick::Model& model)
 
     // === Workloads ===
     static const FieldConfigEntry remote_control_initial_inputs[] = {
-        {"use_web_inputs", "True"},
+        {"use_web_inputs", "true"},
         {"left.x", "0.0"},
         {"left.y", "0.0"}
     };
@@ -40,7 +40,7 @@ void populate_model_test_project_brain(robotick::Model& model)
     static const FieldConfigEntry face_config[] = {
         {"blink_min_interval_sec", "1.5"},
         {"blink_max_interval_sec", "4.0"},
-        {"render_to_texture", "True"}
+        {"render_to_texture", "true"}
     };
 
     static const WorkloadSeed face = {

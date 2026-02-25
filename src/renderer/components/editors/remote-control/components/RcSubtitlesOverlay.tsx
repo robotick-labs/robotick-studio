@@ -90,6 +90,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   const lastTextRef = useRef("");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const positionDirtyRef = useRef(false);
   const dragStateRef = useRef<{
     pointerId: number;
     halfXNorm: number;
@@ -103,12 +104,15 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     } else {
       setPositionNorm({ x: configuredX, y: configuredY });
     }
+    positionDirtyRef.current = false;
     setPositionStorageReadyKey(storageKey);
   }, [configuredX, configuredY, storageKey]);
 
   useEffect(() => {
     if (positionStorageReadyKey !== storageKey) return;
+    if (!positionDirtyRef.current) return;
     setStorageValue(storageKey, JSON.stringify(positionNorm));
+    positionDirtyRef.current = false;
   }, [positionNorm, positionStorageReadyKey, storageKey]);
 
   useEffect(() => {
@@ -168,6 +172,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 
     const rawX = (event.clientX - overlayRect.left) / overlayRect.width;
     const rawY = (event.clientY - overlayRect.top) / overlayRect.height;
+    positionDirtyRef.current = true;
     setPositionNorm({
       x: clamp(rawX, drag.halfXNorm, 1.0 - drag.halfXNorm),
       y: clamp(rawY, drag.halfYNorm, 1.0 - drag.halfYNorm),

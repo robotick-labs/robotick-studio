@@ -30,8 +30,8 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     {% endif %}
     {% if w.config_entries %}
     static const FieldConfigEntry {{ w.var_name }}_config[] = {
-    {% for entry in w.config_entries %}
-        {"{{ entry.key }}", "{{ entry.value }}"}{% if not loop.last %},
+    {% for entry in w.config_entries_render %}
+        {"{{ entry.key }}", "{{ entry.value_normalized }}"}{% if not loop.last %},
         {% endif %}
     {% endfor %}
 
@@ -39,8 +39,8 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     {% endif %}
     {% if w.input_entries %}
     static const FieldConfigEntry {{ w.var_name }}_initial_inputs[] = {
-    {% for entry in w.input_entries %}
-        {"{{ entry.key }}", "{{ entry.value }}"}{% if not loop.last %},
+    {% for entry in w.input_entries_render %}
+        {"{{ entry.key }}", "{{ entry.value_normalized }}"}{% if not loop.last %},
         {% endif %}
     {% endfor %}
 

@@ -340,6 +340,11 @@ export default function TelemetryTreeViewer() {
     const descriptor = modelOptions.find(
       (model) => model.modelPath === modelPath
     );
+    setExpandedNodes(new Set());
+    persistPreference(
+      TREE_STORAGE_KEYS.expandedPaths,
+      serializeExpandedPathsPreference({ paths: [] })
+    );
     updateSettings({
       modelPath,
       modelName: descriptor?.modelName,
