@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Robotick Project Config",
+  "type": "object",
+  "$defs": {
+    "repoOrLocal": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "repo": { "type": "string" },
+        "ref": { "type": "string" },
+        "local_path": { "type": "string" }
+      },
+      "oneOf": [
+        { "required": ["local_path"], "not": { "anyOf": [ { "required": ["repo"] }, { "required": ["ref"] } ] } },
+        { "required": ["repo", "ref"], "not": { "required": ["local_path"] } }
+      ],
+      "additionalProperties": false
+    },
+    "pythonRoot": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "local_path": { "type": "string" },
+        "requirements": { "type": "string" }
+      },
+      "required": ["id", "local_path"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Project readable name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tooling": {
+      "type": "object",
+      "properties": {
+        "tooling_sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" },
+          "minItems": 1
+        },
+        "bootstrap": { "type": "string" }
+      },
+      "required": ["tooling_sources"],
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "engine": { "$ref": "#/$defs/repoOrLocal" },
+        "workload_sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" }
+        },
+        "shared": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/repoOrLocal" }
+        },
+        "python_roots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pythonRoot" }
+        }
+      },
+      "required": ["engine"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["name", "schema_version", "tooling", "runtime"],
+  "additionalProperties": false
+}

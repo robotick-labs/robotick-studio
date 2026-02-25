@@ -1,0 +1,92 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug robotick-launcher listen (linux)",
+      "type": "python",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/..",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "listen"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug robotick-launcher run-profile (local:ALL)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "run-profile",
+        "test-project",
+        "local:ALL",
+        "--base-dir",
+        "${workspaceFolder}/tests/test_data/test-project"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug robotick-launcher run (linux)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "run",
+        "test-project",
+        "test-project-brain",
+        "linux",
+        "--base-dir",
+        "${workspaceFolder}/tests/test_data/test-project"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug robotick-launcher generate (linux)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "generate",
+        "test-project",
+        "test-project-brain",
+        "linux",
+        "--base-dir",
+        "${workspaceFolder}/tests/test_data/test-project",
+        "--stub-install"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug robotick-launcher generate (esp32)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "generate",
+        "test-project",
+        "test-project-spine",
+        "esp32",
+        "--base-dir",
+        "${workspaceFolder}/tests/test_data/test-project",
+        "--stub-install"
+      ],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug robotick-launcher run (esp32)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/robotick/launcher/cli.py",
+      "args": [
+        "run",
+        "test-project",
+        "test-project-spine",
+        "esp32",
+        "--base-dir",
+        "${workspaceFolder}/tests/test_data/test-project"
+      ],
+      "console": "integratedTerminal"
+    }
+  ]
+}

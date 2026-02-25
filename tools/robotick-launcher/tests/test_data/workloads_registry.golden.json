@@ -1,0 +1,5 @@
+{
+  "project": "test-project.project.yaml",
+  "target": "linux",
+  "registry": []
+}

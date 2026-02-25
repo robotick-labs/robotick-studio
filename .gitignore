@@ -1,1 +1,12 @@
-public/js/pages/secrets_LOCAL.js
+public/js/components/editors/secrets_LOCAL.js
+src/js/components/editors/secrets_LOCAL.ts
+node_modules
+dist
+log.txt
+.vite
+TODO.md
+.studio
+robotick_local
+*.vsix
+tools/vscode-extension/media/renderer
+.venv-launcher-dev

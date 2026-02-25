@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Hub | Robotick</title>
+    <script>
+      (() => {
+        const env = window.robotick?.environment;
+        if (env && env.appTitle) {
+          document.title = env.appTitle;
+        }
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#222222" />
+    <link rel="icon" type="image/png" href="./static/images/icon.png" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.min.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./Entry.tsx"></script>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
+        img-src * data: blob:;
+        media-src * data: blob:;
+        connect-src * ws: wss: http: https: blob:;
+        script-src * 'unsafe-inline' 'unsafe-eval';
+        style-src * 'unsafe-inline';
+      "
+    />
+  </head>
+  <body>
+    <div id="app"><em>Loading...</em></div>
+  </body>
+</html>

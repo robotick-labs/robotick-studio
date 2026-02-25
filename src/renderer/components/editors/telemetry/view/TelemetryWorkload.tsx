@@ -1,0 +1,138 @@
+// TelemetryWorkload.tsx
+import React from "react";
+import { TelemetryStructFields } from "./TelemetryStructFields";
+import styles from "../Telemetry.module.css";
+import type { ITelemetryWorkload } from "../../../../data-sources/telemetry";
+import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
+import {
+  classifyUsagePercent,
+  deriveWorkloadStats,
+  formatDurationMs,
+  formatJitterPercent,
+  TICK_DURATION_WINDOW_SIZE,
+} from "../utils/workload-stats";
+
+interface TelemetryWorkloadProps {
+  w: ITelemetryWorkload;
+  telemetryBaseUrl?: string;
+  modelName?: string;
+}
+
+/**
+ * Render a table row showing telemetry metrics and metadata for a single workload.
+ *
+ * Renders workload name and type, config/inputs/outputs as TelemetryStructFields, last tick duration and rolling mean/jitter, last interval and rolling mean/jitter, goal period, and CPU/period usage percentage.
+ *
+ * @param w - The telemetry workload object containing identification, configuration, I/O structs, and statistics used to compute displayed metrics.
+ * @param telemetryBaseUrl - Optional base URL used by TelemetryStructFields for deep links.
+ * @param modelName - Optional model name passed to panels and TelemetryStructFields.
+ * @returns A JSX table row (<tr>) element that presents the workload's telemetry and derived statistics.
+ */
+export function TelemetryWorkload({
+  w,
+  telemetryBaseUrl,
+  modelName,
+}: TelemetryWorkloadProps) {
+  const stats = deriveWorkloadStats(w);
+  const {
+    workloadDuration,
+    actualPeriod,
+    goalPeriodMs,
+    budgetUsagePercent,
+  } = stats;
+  const workloadJitterPercent = formatJitterPercent(
+    workloadDuration.jitterMs,
+    goalPeriodMs
+  );
+  const actualJitterPercent = formatJitterPercent(
+    actualPeriod.jitterMs,
+    goalPeriodMs
+  );
+
+  const usageSeverity = classifyUsagePercent(budgetUsagePercent);
+  const usageClassName =
+    usageSeverity === "low"
+      ? styles.usageBlue
+      : usageSeverity === "warning"
+      ? styles.usageYellow
+      : styles.usageRed;
+  const panelScope = useFloatingPanelsScope();
+
+  return (
+    <tr>
+      <td>{w.name}</td>
+      <td>{w.type}</td>
+      <td>
+        <TelemetryStructFields
+          struct={w.config}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
+      </td>
+      <td>
+        <TelemetryStructFields
+          struct={w.inputs}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
+      </td>
+      <td>
+        <TelemetryStructFields
+          struct={w.outputs}
+          telemetryBaseUrl={telemetryBaseUrl}
+          workloadName={w.name}
+          modelName={modelName}
+          panelScope={panelScope}
+        />
+      </td>
+      <td>
+        <div className={styles.multiline}>
+          <span title="Last tick duration">
+            Last: {formatDurationMs(workloadDuration.lastMs)} ms
+          </span>
+          <span title={`Rolling mean over last ${TICK_DURATION_WINDOW_SIZE} ticks`}>
+            Mean: {formatDurationMs(workloadDuration.meanMs)} ms
+          </span>
+          <span
+            title={`Jitter (standard deviation over last ${TICK_DURATION_WINDOW_SIZE} ticks)`}
+          >
+            Jitter:{" "}
+            {workloadJitterPercent
+              ? `${workloadJitterPercent} (${formatDurationMs(
+                  workloadDuration.jitterMs
+                )} ms)`
+              : `${formatDurationMs(workloadDuration.jitterMs)} ms`}
+          </span>
+        </div>
+      </td>
+      <td>
+        <div className={styles.multiline}>
+          <span title="Last measured interval between ticks">
+            Last: {formatDurationMs(actualPeriod.lastMs)} ms
+          </span>
+          <span
+            title={`Rolling mean over last ${TICK_DURATION_WINDOW_SIZE} tick intervals`}
+          >
+            Mean: {formatDurationMs(actualPeriod.meanMs)} ms
+          </span>
+          <span
+            title={`Jitter (standard deviation over last ${TICK_DURATION_WINDOW_SIZE} tick intervals)`}
+          >
+            Jitter:{" "}
+            {actualJitterPercent
+              ? `${actualJitterPercent} (${formatDurationMs(
+                  actualPeriod.jitterMs
+                )} ms)`
+              : `${formatDurationMs(actualPeriod.jitterMs)} ms`}
+          </span>
+        </div>
+      </td>
+      <td>{goalPeriodMs.toFixed(3)}</td>
+      <td className={usageClassName}>{budgetUsagePercent.toFixed(1)}%</td>
+    </tr>
+  );
+}

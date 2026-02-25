@@ -1,0 +1,34 @@
+# Project-level configuration for the 'test-project' robot
+
+name: "Test Project"
+schema_version: 1
+description: "Test Project for use in Launcher Unit Tests."
+
+tooling:
+  tooling_sources:
+    - id: test-tooling
+      local_path: ${PROJECT_DIR}
+
+# (Optional) tooling pins go here for any extra repos that launcher should hydrate automatically:
+# tooling:
+#   tooling_sources:
+#     - id: my-tooling-repo
+#       repo: https://github.com/example-org/my-tooling-repo.git
+#       ref: latest-stable
+
+runtime:
+  engine:
+    local_path: ${PROJECT_DIR}/../robotick/robotick-engine # Resolves to the pinned engine checkout bundled with the tests
+  workload_sources:
+    - id: test-workloads
+      local_path: ${PROJECT_DIR}/../robotick/robotick-core-workloads # Parent folder for the C++ workload fixtures
+      root_paths:
+        - cpp/include # Resolves to tests/launcher/test_data/robotick/robotick-core-workloads/cpp/include
+        - cpp/src # Resolves to tests/launcher/test_data/robotick/robotick-core-workloads/cpp/src
+  shared: []
+  python_roots:
+    - id: main-brain
+      local_path: ${PROJECT_DIR}/python # Resolves to tests/launcher/test_data/test-project/python
+      requirements: requirements.txt
+    - id: scripts
+      local_path: ${PROJECT_DIR}/tools/scripts # Resolves to tests/launcher/test_data/test-project/tools/scripts

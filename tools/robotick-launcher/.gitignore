@@ -1,0 +1,9 @@
+**/__pycache__/
+**/*.egg-info/
+.venv/
+**/.launcher/
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+**/workloads_discovery.latest.json
+TODO.md

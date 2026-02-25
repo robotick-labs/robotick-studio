@@ -1,0 +1,1982 @@
+[
+  {
+    "name": "BaseXWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/actuators/BaseXWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "BaseXConfig",
+        "fields": [
+          {
+            "name": "max_motor_speed",
+            "type": "float",
+            "default_value": "1.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "BaseXInputs",
+        "fields": [
+          {
+            "name": "motor1_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor2_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor3_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor4_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "BaseXOutputs",
+        "fields": [
+          {
+            "name": "motor1_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor2_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor3_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "motor4_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "BoolToFloatWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/transform/BoolToFloatWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "BoolToFloatConfig",
+        "fields": [
+          {
+            "name": "float_value_when_true",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "float_value_when_false",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "BoolToFloatInputs",
+        "fields": [
+          {
+            "name": "bool_value",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "BoolToFloatOutputs",
+        "fields": [
+          {
+            "name": "float_value",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "CameraWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/sensors/CameraWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "CameraConfig",
+        "fields": [
+          {
+            "name": "camera_index",
+            "type": "int",
+            "default_value": "0"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "CameraOutputs",
+        "fields": [
+          {
+            "name": "jpeg_data",
+            "type": "ImageJpeg128k"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "CanvasWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/ui/CanvasWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "CanvasConfig",
+        "fields": [
+          {
+            "name": "scene_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "render_to_texture",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "CanvasInputs",
+        "fields": [
+          {
+            "name": "controls",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "CanvasOutputs",
+        "fields": [
+          {
+            "name": "face_png_data",
+            "type": "ImagePng128k"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "CochlearTransformWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/CochlearTransformWorkload.cpp"
+    },
+    "structs": {
+      "inputs": {
+        "name": "CochlearTransformInputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "CochlearTransformOutputs",
+        "fields": [
+          {
+            "name": "cochlear_frame",
+            "type": "CochlearFrame"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "CochlearVisualizerWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/CochlearVisualizerWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "CochlearVisualizerConfig",
+        "fields": [
+          {
+            "name": "window_seconds",
+            "type": "float",
+            "default_value": "5.0f"
+          },
+          {
+            "name": "viewport_width",
+            "type": "int",
+            "default_value": "512"
+          },
+          {
+            "name": "viewport_height",
+            "type": "int",
+            "default_value": "128"
+          },
+          {
+            "name": "log_scale",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "cochlear_visual_gain",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "draw_pitch_info",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "draw_pitch_info_amplitude",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "draw_harmonics",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "pitch_visual_gain",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "pitch_min_amplitude",
+            "type": "float",
+            "default_value": "0.2f"
+          },
+          {
+            "name": "render_to_texture",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "fusion_link_alpha_gain",
+            "type": "float",
+            "default_value": "100.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "CochlearVisualizerInputs",
+        "fields": [
+          {
+            "name": "cochlear_frame",
+            "type": "CochlearFrame"
+          },
+          {
+            "name": "pitch_info",
+            "type": "HarmonicPitchResult"
+          },
+          {
+            "name": "speech_segments",
+            "type": "ProsodicSegmentBuffer"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "CochlearVisualizerOutputs",
+        "fields": [
+          {
+            "name": "visualization_png",
+            "type": "ImagePng128k"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "HarmonicPitchWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/HarmonicPitchWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "HarmonicPitchConfig",
+        "fields": [
+          {
+            "name": "settings",
+            "type": "SnakePitchTrackerConfig"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "HarmonicPitchInputs",
+        "fields": [
+          {
+            "name": "cochlear_frame",
+            "type": "CochlearFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "HarmonicPitchOutputs",
+        "fields": [
+          {
+            "name": "pitch_info",
+            "type": "HarmonicPitchResult"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "HarmonicWaveGeneratorWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/HarmonicWaveGeneratorWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "HarmonicWaveGeneratorConfig",
+        "fields": [
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "max_num_partials",
+            "type": "int",
+            "default_value": "8"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "HarmonicWaveGeneratorInputs",
+        "fields": [
+          {
+            "name": "pitch_info",
+            "type": "HarmonicPitchResult"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "HarmonicWaveGeneratorOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "HeartbeatDisplayWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/ui/HeartbeatDisplayWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "HeartbeatDisplayConfig",
+        "fields": [
+          {
+            "name": "rest_heart_rate",
+            "type": "float",
+            "default_value": "60.0f"
+          },
+          {
+            "name": "render_to_texture",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "HeartbeatDisplayInputs",
+        "fields": [
+          {
+            "name": "bar1_label",
+            "type": "FixedString8",
+            "default_value": "Ha"
+          },
+          {
+            "name": "bar1_fraction",
+            "type": "float",
+            "default_value": "0.9f"
+          },
+          {
+            "name": "bar2_label",
+            "type": "FixedString8",
+            "default_value": "Ti"
+          },
+          {
+            "name": "bar2_fraction",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "bar3_label",
+            "type": "FixedString8",
+            "default_value": "Ex"
+          },
+          {
+            "name": "bar3_fraction",
+            "type": "float",
+            "default_value": "0.6f"
+          },
+          {
+            "name": "bar4_label",
+            "type": "FixedString8",
+            "default_value": "Hu"
+          },
+          {
+            "name": "bar4_fraction",
+            "type": "float",
+            "default_value": "0.2f"
+          },
+          {
+            "name": "heart_rate_scale",
+            "type": "float",
+            "default_value": "1.0f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "HeartbeatDisplayOutputs",
+        "fields": [
+          {
+            "name": "activation_amount",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "display_png",
+            "type": "ImagePng64k"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "HelloWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/examples/HelloWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "HelloConfig",
+        "fields": [
+          {
+            "name": "multiplier",
+            "type": "float",
+            "default_value": "1.0"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "HelloInputs",
+        "fields": [
+          {
+            "name": "a",
+            "type": "float",
+            "default_value": "0.0"
+          },
+          {
+            "name": "b",
+            "type": "float",
+            "default_value": "0.0"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "HelloOutputs",
+        "fields": [
+          {
+            "name": "sum",
+            "type": "float",
+            "default_value": "0.0"
+          },
+          {
+            "name": "message",
+            "type": "FixedString32",
+            "default_value": "Waiting..."
+          },
+          {
+            "name": "status",
+            "type": "HelloStatus"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ImuWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/sensors/ImuWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ImuConfig",
+        "fields": [
+          {
+            "name": "enable_debug_info",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ImuOutputs",
+        "fields": [
+          {
+            "name": "accel",
+            "type": "Vec3f"
+          },
+          {
+            "name": "gyro",
+            "type": "Vec3f"
+          },
+          {
+            "name": "mag",
+            "type": "Vec3f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "LowPassFilterWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/transform/LowPassFilterWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "LowPassFilterConfig",
+        "fields": [
+          {
+            "name": "tau_seconds",
+            "type": "float",
+            "default_value": "0.25f"
+          },
+          {
+            "name": "min_tau_seconds",
+            "type": "float",
+            "default_value": "1e-4f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "LowPassFilterInputs",
+        "fields": [
+          {
+            "name": "value",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "reset",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "LowPassFilterOutputs",
+        "fields": [
+          {
+            "name": "result",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MicWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/MicWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MicConfig",
+        "fields": [
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MicOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "success",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "last_read_status",
+            "type": "AudioQueueResult"
+          },
+          {
+            "name": "dropped_reads",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MqttClientWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/telemetry/MqttClientWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MqttClientConfig",
+        "fields": [
+          {
+            "name": "broker_mqtt_port",
+            "type": "uint16_t",
+            "default_value": "1883"
+          },
+          {
+            "name": "root_topic_namespace",
+            "type": "FixedString64",
+            "default_value": "robotick"
+          },
+          {
+            "name": "enable_tls",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "publish_qos",
+            "type": "uint8_t",
+            "default_value": "1"
+          },
+          {
+            "name": "subscribe_qos",
+            "type": "uint8_t",
+            "default_value": "1"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MqttClientOutputs",
+        "fields": [
+          {
+            "name": "last_subscribe",
+            "type": "MqttOpResult"
+          },
+          {
+            "name": "connected",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MuJoCoCameraWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoCameraWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MuJoCoCameraConfig",
+        "fields": [
+          {
+            "name": "camera_name",
+            "type": "FixedString64"
+          },
+          {
+            "name": "texture_width",
+            "type": "uint32_t",
+            "default_value": "640"
+          },
+          {
+            "name": "texture_height",
+            "type": "uint32_t",
+            "default_value": "480"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "MuJoCoCameraInputs",
+        "fields": [
+          {
+            "name": "mujoco_scene_id",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MuJoCoCameraOutputs",
+        "fields": [
+          {
+            "name": "png_data",
+            "type": "ImagePng256k"
+          },
+          {
+            "name": "frame_count",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MuJoCoPhysicsWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoPhysicsWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MuJoCoPhysicsConfig",
+        "fields": [
+          {
+            "name": "workload_config_file_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "model_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "sim_tick_rate_hz",
+            "type": "float",
+            "default_value": "-1.0f"
+          },
+          {
+            "name": "mj_initial",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "MuJoCoPhysicsInputs",
+        "fields": [
+          {
+            "name": "mujoco",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MuJoCoPhysicsOutputs",
+        "fields": [
+          {
+            "name": "mujoco",
+            "type": "Blackboard"
+          },
+          {
+            "name": "scene_id",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MultiToneGeneratorWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/MultiToneGeneratorWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MultiToneGeneratorConfig",
+        "fields": [
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "MultiToneGeneratorInputs",
+        "fields": [
+          {
+            "name": "tone1",
+            "type": "ModulatedTone"
+          },
+          {
+            "name": "tone2",
+            "type": "ModulatedTone"
+          },
+          {
+            "name": "tone3",
+            "type": "ModulatedTone"
+          },
+          {
+            "name": "tone4",
+            "type": "ModulatedTone"
+          },
+          {
+            "name": "tone5",
+            "type": "ModulatedTone"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MultiToneGeneratorOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "NoiseSuppressWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/NoiseSuppressWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "NoiseSuppressConfig",
+        "fields": [
+          {
+            "name": "settings",
+            "type": "NoiseSuppressorConfig"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "NoiseSuppressInputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "NoiseSuppressOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "is_noise_only",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "noise_floor_rms",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ProsodyAnalyserWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyAnalyserWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ProsodyAnalyserConfig",
+        "fields": [
+          {
+            "name": "harmonic_floor_db",
+            "type": "float",
+            "default_value": "-60.0f"
+          },
+          {
+            "name": "speaking_rate_decay",
+            "type": "float",
+            "default_value": "0.95f"
+          },
+          {
+            "name": "rms_smooth_alpha",
+            "type": "float",
+            "default_value": "0.2f"
+          },
+          {
+            "name": "voiced_falloff_rate_hz",
+            "type": "float",
+            "default_value": "5.0f"
+          },
+          {
+            "name": "harmonic_confidence_min_db",
+            "type": "float",
+            "default_value": "-15.0f"
+          },
+          {
+            "name": "harmonic_confidence_max_db",
+            "type": "float",
+            "default_value": "25.0f"
+          },
+          {
+            "name": "harmonic_confidence_gate",
+            "type": "float",
+            "default_value": "0.35f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "ProsodyAnalyserInputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "pitch_info",
+            "type": "HarmonicPitchResult"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ProsodyAnalyserOutputs",
+        "fields": [
+          {
+            "name": "prosody_state",
+            "type": "ProsodyState"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ProsodyFusionWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyFusionWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ProsodyFusionConfig",
+        "fields": [
+          {
+            "name": "history_duration_sec",
+            "type": "float",
+            "default_value": "8.0f"
+          },
+          {
+            "name": "simplified_sample_count",
+            "type": "uint32_t",
+            "default_value": "32"
+          },
+          {
+            "name": "minimum_segment_duration_sec",
+            "type": "float",
+            "default_value": "0.1f"
+          },
+          {
+            "name": "silence_hangover_sec",
+            "type": "float",
+            "default_value": "0.2f"
+          },
+          {
+            "name": "segment_merge_tolerance_sec",
+            "type": "float",
+            "default_value": "0.25f"
+          },
+          {
+            "name": "max_pitch_jump_hz",
+            "type": "float",
+            "default_value": "80.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "ProsodyFusionInputs",
+        "fields": [
+          {
+            "name": "prosody_state",
+            "type": "ProsodyState"
+          },
+          {
+            "name": "proto_transcript",
+            "type": "Transcript"
+          },
+          {
+            "name": "transcript",
+            "type": "Transcript"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ProsodyFusionOutputs",
+        "fields": [
+          {
+            "name": "speech_segments",
+            "type": "ProsodicSegmentBuffer"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ProsodyWaveGeneratorWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyWaveGeneratorWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ProsodyWaveGeneratorConfig",
+        "fields": [
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "use_rms_for_amplitude",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "use_voiced_gate",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "enable_tone",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "tone_base",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "enable_partials",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "partials_base",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "max_num_partials",
+            "type": "int",
+            "default_value": "16"
+          },
+          {
+            "name": "enable_noise",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "noise_base",
+            "type": "float",
+            "default_value": "0.5f"
+          },
+          {
+            "name": "brightness_to_noise_scale",
+            "type": "float",
+            "default_value": "0.8f"
+          },
+          {
+            "name": "brightness_to_partial_scale",
+            "type": "float",
+            "default_value": "5.0f"
+          },
+          {
+            "name": "harmonicity_to_noise_scale",
+            "type": "float",
+            "default_value": "0.03f"
+          },
+          {
+            "name": "harmonicity_to_partial_scale",
+            "type": "float",
+            "default_value": "0.03f"
+          },
+          {
+            "name": "use_brightness_for_noise_lpf",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "noise_cutoff_default_hz",
+            "type": "float",
+            "default_value": "2000.0f"
+          },
+          {
+            "name": "mix_smooth_alpha",
+            "type": "float",
+            "default_value": "0.8f"
+          },
+          {
+            "name": "min_component_gain",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "max_component_gain",
+            "type": "float",
+            "default_value": "2.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "ProsodyWaveGeneratorInputs",
+        "fields": [
+          {
+            "name": "enabled",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "prosody_state",
+            "type": "ProsodyState"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ProsodyWaveGeneratorOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "PythonWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/scripting/PythonWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "PythonConfig",
+        "fields": [
+          {
+            "name": "script_name",
+            "type": "FixedString128"
+          },
+          {
+            "name": "class_name",
+            "type": "FixedString64"
+          },
+          {
+            "name": "script",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "PythonInputs",
+        "fields": [
+          {
+            "name": "script",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "PythonOutputs",
+        "fields": [
+          {
+            "name": "script",
+            "type": "Blackboard"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "QuatToEulerWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/transform/QuatToEulerWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "QuatToEulerConfig",
+        "fields": [
+          {
+            "name": "output_roll_source",
+            "type": "int",
+            "default_value": "0"
+          },
+          {
+            "name": "output_pitch_source",
+            "type": "int",
+            "default_value": "1"
+          },
+          {
+            "name": "output_yaw_source",
+            "type": "int",
+            "default_value": "2"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "QuatToEulerInputs",
+        "fields": [
+          {
+            "name": "quat",
+            "type": "Quatf"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "QuatToEulerOutputs",
+        "fields": [
+          {
+            "name": "roll",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "pitch",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "yaw",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "RemoteControlWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/control/RemoteControlWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "RemoteControlConfig",
+        "fields": [
+          {
+            "name": "port",
+            "type": "int",
+            "default_value": "7080"
+          },
+          {
+            "name": "web_root_folder",
+            "type": "FixedString128",
+            "default_value": "engine-data/remote_control_interface_web"
+          },
+          {
+            "name": "dead_zone_left",
+            "type": "Vec2f"
+          },
+          {
+            "name": "dead_zone_right",
+            "type": "Vec2f"
+          },
+          {
+            "name": "stick_shape_transform_left",
+            "type": "StickShapeTransform"
+          },
+          {
+            "name": "stick_shape_transform_right",
+            "type": "StickShapeTransform"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "RemoteControlOutputs",
+        "fields": [
+          {
+            "name": "use_web_inputs",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "left",
+            "type": "Vec2f"
+          },
+          {
+            "name": "right",
+            "type": "Vec2f"
+          },
+          {
+            "name": "left_trigger",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "right_trigger",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "a",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "b",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "x",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "y",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "left_bumper",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "right_bumper",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "back",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "start",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "guide",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "left_stick_button",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "right_stick_button",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "dpad_up",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "dpad_down",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "dpad_left",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "dpad_right",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "SequencedGroupWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/composition/SequencedGroupWorkload.cpp"
+    },
+    "structs": {}
+  },
+  {
+    "name": "SineWaveGeneratorWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/SineWaveGeneratorWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "SineWaveGeneratorConfig",
+        "fields": [
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "SineWaveGeneratorInputs",
+        "fields": [
+          {
+            "name": "frequency_hz",
+            "type": "float",
+            "default_value": "440.0f"
+          },
+          {
+            "name": "amplitude",
+            "type": "float",
+            "default_value": "0.1f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "SineWaveGeneratorOutputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "SpeakerWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/SpeakerWorkload.cpp"
+    },
+    "structs": {
+      "inputs": {
+        "name": "SpeakerInputs",
+        "fields": [
+          {
+            "name": "left",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "right",
+            "type": "AudioFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "SpeakerOutputs",
+        "fields": [
+          {
+            "name": "last_queue_status",
+            "type": "FixedString32"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "SpeechToTextWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "SpeechToTextConfig",
+        "fields": [
+          {
+            "name": "settings",
+            "type": "SpeechToTextSettings"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "SpeechToTextInputs",
+        "fields": [
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "is_voiced",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "SpeechToTextOutputs",
+        "fields": [
+          {
+            "name": "proto_transcript",
+            "type": "Transcript"
+          },
+          {
+            "name": "transcript",
+            "type": "Transcript"
+          },
+          {
+            "name": "accumulator_duration_sec",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "accumulator_capacity_sec",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "is_transcribe_thread_active",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "transcribe_session_count",
+            "type": "uint32_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "SteeringMixerWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/control/SteeringMixerWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "SteeringMixerConfig",
+        "fields": [
+          {
+            "name": "max_speed_differential",
+            "type": "float",
+            "default_value": "0.4f"
+          },
+          {
+            "name": "power_scale_both",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "power_scale_left",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "power_scale_right",
+            "type": "float",
+            "default_value": "1.0f"
+          },
+          {
+            "name": "power_seek_rate",
+            "type": "float",
+            "default_value": "-1.0f"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "SteeringMixerInputs",
+        "fields": [
+          {
+            "name": "speed",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "angular_speed",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "SteeringMixerOutputs",
+        "fields": [
+          {
+            "name": "left_motor",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "right_motor",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "StubWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/examples/StubWorkload.cpp"
+    },
+    "structs": {}
+  },
+  {
+    "name": "SyncedGroupWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/composition/SyncedGroupWorkload.cpp"
+    },
+    "structs": {}
+  },
+  {
+    "name": "TemplateWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/examples/TemplateWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "TemplateConfig",
+        "fields": [
+          {
+            "name": "gain",
+            "type": "float"
+          },
+          {
+            "name": "threshold",
+            "type": "int"
+          },
+          {
+            "name": "label",
+            "type": "FixedString32"
+          },
+          {
+            "name": "blackboard",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "TemplateInputs",
+        "fields": [
+          {
+            "name": "angle",
+            "type": "float"
+          },
+          {
+            "name": "sensor_value",
+            "type": "int"
+          },
+          {
+            "name": "sensor_label",
+            "type": "FixedString16"
+          },
+          {
+            "name": "blackboard",
+            "type": "Blackboard"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "TemplateOutputs",
+        "fields": [
+          {
+            "name": "command",
+            "type": "float"
+          },
+          {
+            "name": "status",
+            "type": "FixedString64"
+          },
+          {
+            "name": "sensor_ok",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "blackboard",
+            "type": "Blackboard"
+          },
+          {
+            "name": "warning_count",
+            "type": "uint32_t",
+            "default_value": "0"
+          },
+          {
+            "name": "has_called_set_children",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_set_engine",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_pre_load",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_load",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_setup",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_start",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_tick",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "has_called_stop",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "TimingDiagnosticsWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/diagnostics/TimingDiagnosticsWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "TimingDiagnosticsConfig",
+        "fields": [
+          {
+            "name": "log_rate_hz",
+            "type": "int",
+            "default_value": "1"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "TimingDiagnosticsOutputs",
+        "fields": [
+          {
+            "name": "last_tick_rate",
+            "type": "float",
+            "default_value": "0.0"
+          },
+          {
+            "name": "avg_tick_rate",
+            "type": "float",
+            "default_value": "0.0"
+          },
+          {
+            "name": "tick_stddev",
+            "type": "float",
+            "default_value": "0.0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "WavPlayerWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/WavPlayerWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "WavPlayerConfig",
+        "fields": [
+          {
+            "name": "file_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "amplitude_gain_db",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "looping",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "loop_delay_sec",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "WavPlayerOutputs",
+        "fields": [
+          {
+            "name": "left",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "right",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "mono",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "total_duration_sec",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "total_frame_count",
+            "type": "uint64_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "WavRecorderWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/audio/WavRecorderWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "WavRecorderConfig",
+        "fields": [
+          {
+            "name": "file_path",
+            "type": "FixedString256"
+          },
+          {
+            "name": "overwrite",
+            "type": "bool",
+            "default_value": "true"
+          },
+          {
+            "name": "stereo",
+            "type": "bool",
+            "default_value": "false"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "WavRecorderInputs",
+        "fields": [
+          {
+            "name": "left",
+            "type": "AudioFrame"
+          },
+          {
+            "name": "right",
+            "type": "AudioFrame"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "WavRecorderOutputs",
+        "fields": [
+          {
+            "name": "file_open",
+            "type": "bool",
+            "default_value": "false"
+          },
+          {
+            "name": "total_written",
+            "type": "uint64_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "WeightedSumWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/transform/WeightedSumWorkload.cpp"
+    },
+    "structs": {
+      "inputs": {
+        "name": "WeightedSumInputs",
+        "fields": [
+          {
+            "name": "a",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "b",
+            "type": "float",
+            "default_value": "0.0f"
+          },
+          {
+            "name": "weight_a",
+            "type": "float",
+            "default_value": "0.5f"
+          },
+          {
+            "name": "weight_b",
+            "type": "float",
+            "default_value": "0.5f"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "WeightedSumOutputs",
+        "fields": [
+          {
+            "name": "result",
+            "type": "float",
+            "default_value": "0.0f"
+          }
+        ]
+      }
+    }
+  }
+]

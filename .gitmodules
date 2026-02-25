@@ -1,0 +1,8 @@
+[submodule "tools/robotick-launcher/tests/test_data/robotick/robotick-engine"]
+	path = tools/robotick-launcher/tests/test_data/robotick/robotick-engine
+	url = https://github.com/robotick-labs/robotick-engine.git
+	branch = dev
+[submodule "tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads"]
+	path = tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads
+	url = https://github.com/robotick-labs/robotick-core-workloads.git
+	branch = dev

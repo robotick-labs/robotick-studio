@@ -1,0 +1,120 @@
+.container {
+  margin: 2rem auto;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  color: var(--app-text-primary);
+  max-width: 90%;
+  overflow: auto;
+}
+
+.container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.container::-webkit-scrollbar-thumb {
+  background: var(--app-surface-base);
+  border-radius: 4px;
+}
+
+.container h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  padding-bottom: 0.5rem;
+}
+
+.container h3 {
+  margin-bottom: 0;
+}
+
+.modelLabel {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.tableContainer {
+  background: var(--app-panel-backdrop);
+  border-radius: 10px;
+}
+
+.model {
+  padding: 20px;
+  border-radius: 20px;
+  border: 3px solid
+    color-mix(in srgb, var(--app-model-hover-border) 30%, transparent);
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.model:hover {
+  border-color: var(--app-model-hover-border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 20px;
+}
+
+.table th,
+.table td {
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid var(--app-panel-border);
+}
+
+.table th {
+  font-weight: 600;
+  color: var(--app-text-muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.table tbody tr:hover {
+  background: var(--app-surface-highlight);
+}
+
+.multiline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usageBlue {
+  color: var(--app-usage-positive);
+  font-weight: 600;
+}
+
+.usageYellow {
+  color: var(--app-usage-warning);
+  font-weight: 600;
+}
+
+.usageRed {
+  color: var(--app-usage-critical);
+  font-weight: 700;
+}
+
+.status {
+  padding: 1rem;
+  background: var(--app-panel-soft);
+  border-radius: 12px;
+  margin: 1rem 0;
+}
+
+.thumb {
+  max-width: 50px;
+  max-height: 50px;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+  border: 1px solid var(--app-panel-border);
+  margin-left: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}

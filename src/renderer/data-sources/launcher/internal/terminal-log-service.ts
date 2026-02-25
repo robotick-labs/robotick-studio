@@ -1,0 +1,282 @@
+import { readStorageValue, setStorageValue } from "../../../services/storage";
+import { launcherEvents } from "./LauncherContext";
+import { getLauncherLogStreamUrl } from "./launcher-interface";
+import { launcherService } from "./LauncherService";
+import { createPollingTask } from "../../../utils/polling";
+
+type TerminalLogSubscriber = () => void;
+
+export interface TerminalLogService {
+  subscribe(listener: TerminalLogSubscriber): () => void;
+  getMessages(): string[];
+  clearMessages(): void;
+  getFilter(): string;
+  setFilter(value: string): void;
+  getWrapText(): boolean;
+  setWrapText(enabled: boolean): void;
+  getAutoScroll(): boolean;
+  setAutoScroll(enabled: boolean): void;
+  getClearOnRun(): boolean;
+  setClearOnRun(enabled: boolean): void;
+}
+
+const MAX_MESSAGES = 5000;
+const STORAGE_KEYS = {
+  filter: "robotick-studio.terminal.filter",
+  wrapText: "robotick-studio.terminal.wrapText",
+  autoScroll: "robotick-studio.terminal.autoScroll",
+  clearOnRun: "robotick-studio.terminal.clearOnRun",
+} as const;
+
+const HAS_WEBSOCKET = typeof globalThis.WebSocket !== "undefined";
+const IS_TEST_ENV =
+  typeof process !== "undefined" &&
+  typeof process.env !== "undefined" &&
+  process.env.NODE_ENV === "test";
+
+/**
+ * Read a string value from persistent storage for the given key, returning a fallback when absent.
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return if no stored value exists for `key`
+ * @returns The stored string associated with `key`, or `fallback` if none is present
+ */
+function readString(key: string, fallback: string): string {
+  return readStorageValue(key) ?? fallback;
+}
+
+/**
+ * Persist a string value under the specified storage key.
+ *
+ * @param key - The storage key to write to
+ * @param value - The string value to persist
+ */
+function writeString(key: string, value: string) {
+  setStorageValue(key, value);
+}
+
+/**
+ * Read a stored value and use the provided fallback when the stored value is not the literal strings "true" or "false".
+ *
+ * @param key - The storage key to read
+ * @param fallback - Value to return when the stored value is missing or not "true"/"false"
+ * @returns `true` if the stored value is the string "true", `false` if the stored value is the string "false", otherwise returns `fallback`
+ */
+function readBoolean(key: string, fallback: boolean): boolean {
+  const raw = readStorageValue(key);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return fallback;
+}
+
+/**
+ * Persist a boolean value to storage under the given key.
+ *
+ * @param key - Storage key where the value will be saved
+ * @param value - The boolean value to store
+ */
+function writeBoolean(key: string, value: boolean) {
+  setStorageValue(key, value ? "true" : "false");
+}
+
+const RECONNECT_MIN_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 8000;
+
+class TerminalLogServiceImpl implements TerminalLogService {
+  private messages: string[] = [];
+  private subscribers = new Set<TerminalLogSubscriber>();
+  private ws: WebSocket | null = null;
+  private reconnectTask = createPollingTask(
+    () => {
+      if (this.ws || !HAS_WEBSOCKET) {
+        return;
+      }
+      console.log("[terminal] Attempting reconnect...");
+      this.connect();
+    },
+    { intervalMs: RECONNECT_MIN_DELAY_MS, runImmediately: false }
+  );
+
+  private filter = readString(STORAGE_KEYS.filter, "");
+  private wrapText = readBoolean(STORAGE_KEYS.wrapText, true);
+  private autoScroll = readBoolean(STORAGE_KEYS.autoScroll, true);
+  private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
+
+  constructor() {
+    if (HAS_WEBSOCKET && !IS_TEST_ENV) {
+      this.connect();
+    } else if (!HAS_WEBSOCKET) {
+      console.warn("[terminal] WebSocket unavailable in this environment");
+    }
+    launcherEvents.addEventListener("run-requested", this.handleRunRequested);
+  }
+
+  subscribe(listener: TerminalLogSubscriber) {
+    this.subscribers.add(listener);
+    listener();
+    return () => {
+      this.subscribers.delete(listener);
+    };
+  }
+
+  getMessages() {
+    return this.messages;
+  }
+
+  clearMessages() {
+    if (this.messages.length === 0) return;
+    this.messages = [];
+    this.notify();
+  }
+
+  getFilter() {
+    return this.filter;
+  }
+
+  setFilter(value: string) {
+    if (this.filter === value) return;
+    this.filter = value;
+    writeString(STORAGE_KEYS.filter, value);
+    this.notify();
+  }
+
+  getWrapText() {
+    return this.wrapText;
+  }
+
+  setWrapText(enabled: boolean) {
+    if (this.wrapText === enabled) return;
+    this.wrapText = enabled;
+    writeBoolean(STORAGE_KEYS.wrapText, enabled);
+    this.notify();
+  }
+
+  getAutoScroll() {
+    return this.autoScroll;
+  }
+
+  setAutoScroll(enabled: boolean) {
+    if (this.autoScroll === enabled) return;
+    this.autoScroll = enabled;
+    writeBoolean(STORAGE_KEYS.autoScroll, enabled);
+    this.notify();
+  }
+
+  getClearOnRun() {
+    return this.clearOnRun;
+  }
+
+  setClearOnRun(enabled: boolean) {
+    if (this.clearOnRun === enabled) return;
+    this.clearOnRun = enabled;
+    writeBoolean(STORAGE_KEYS.clearOnRun, enabled);
+    this.notify();
+  }
+
+  private handleRunRequested = () => {
+    if (this.getClearOnRun()) {
+      this.clearMessages();
+    }
+  };
+
+  private connect() {
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    if (this.ws) {
+      return;
+    }
+    let ws: WebSocket;
+
+    try {
+      const socketUrl = launcherService.getLauncherLogStreamUrl();
+      ws = new globalThis.WebSocket(socketUrl);
+      this.ws = ws;
+    } catch (err) {
+      console.warn("[terminal] WS creation failed:", err);
+      this.scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      console.log("[terminal] Connected");
+      this.reconnectTask.stop();
+      this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
+        immediate: false,
+      });
+    };
+
+    ws.onerror = (ev) => {
+      console.warn("[terminal] WebSocket error:", ev);
+      ws.close();
+    };
+
+    ws.onclose = (ev) => {
+      console.log("[terminal] Disconnected:", ev.code, ev.reason);
+      this.ws = null;
+      this.scheduleReconnect();
+    };
+
+    ws.onmessage = async (event) => {
+      const text = await this.normalizeEventData(event.data);
+      this.pushMessage(text);
+    };
+  }
+
+  private scheduleReconnect() {
+    if (!HAS_WEBSOCKET) {
+      return;
+    }
+    const nextDelay = Math.min(
+      this.reconnectTask.getIntervalMs() * 2,
+      RECONNECT_MAX_DELAY_MS
+    );
+    this.reconnectTask.setIntervalMs(nextDelay, { immediate: false });
+    console.log(`[terminal] Reconnecting in ${nextDelay}ms...`);
+    if (!this.reconnectTask.isRunning()) {
+      this.reconnectTask.start({ immediate: false });
+    }
+  }
+
+  private pushMessage(message: string) {
+    const next = [...this.messages, message];
+    if (next.length > MAX_MESSAGES) {
+      this.messages = next.slice(next.length - MAX_MESSAGES);
+    } else {
+      this.messages = next;
+    }
+    this.notify();
+  }
+
+  private notify() {
+    for (const listener of this.subscribers) {
+      try {
+        listener();
+      } catch (err) {
+        console.error("[terminal] Error in subscriber:", err);
+      }
+    }
+  }
+
+  private async normalizeEventData(data: unknown): Promise<string> {
+    if (typeof data === "string") {
+      return data;
+    }
+
+    if (data instanceof Blob) {
+      return data.text();
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return new TextDecoder().decode(data);
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      return new TextDecoder().decode(data.buffer);
+    }
+
+    return String(data);
+  }
+}
+
+export const terminalLogService = new TerminalLogServiceImpl();

@@ -1,0 +1,58 @@
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.control label {
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+
+.control select,
+.control input {
+  background: var(--app-input-background);
+  border: 1px solid var(--app-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--app-text-primary);
+  font-size: 0.9rem;
+}
+
+.preview {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-panel-overlay);
+  backdrop-filter: var(--app-panel-blur);
+  overflow: hidden;
+}
+
+.preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.message {
+  color: var(--app-message-text);
+  font-size: 0.9rem;
+}

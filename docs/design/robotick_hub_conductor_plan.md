@@ -1,6 +1,8 @@
 
 # 🪆 Robotick Hub / Conductor Architecture Plan
 
+This plan describes how the `robotick-hub` web IDE surfaces through the conductor layers and the Robotick Studio shell that hosts it.
+
 ## 🎯 Goal
 Support multi-layered bots (Dev-PC → Pi5 → ESP32) with one consistent web entrypoint and rich Hub UI.
 
@@ -18,7 +20,7 @@ This follows a "Russian Doll" metaphor — each layer contains and proxies to th
 
 ## 2. 🌍 The Stub Page
 - Served by `robotick-conductor` (or Pi5 in standalone mode)
-- Loads Hub UI from `https://hub.robotick.org/entry.js`
+- Loads Hub UI from a configurable web origin (for example: `https://<your-hub-host>/entry.js`)
 - Passes `host = location.origin` to Hub init
 
 ---
