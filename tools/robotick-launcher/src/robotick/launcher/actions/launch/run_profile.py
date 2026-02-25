@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -106,92 +107,131 @@ def run_profile(
         print(f"[bold red]❌ {detail}[/]")
         return {"status": "error", "detail": detail}
 
-    # --- Build phase (run all builds in parallel) ---
-    print(f"[Launcher] Building {len(model_ids)} models in parallel...")
-    build_procs: list[tuple[str, subprocess.Popen]] = []
-    build_threads: list[threading.Thread] = []
-
-    for model_id in model_ids:
-        build_cmd = [
-            "robotick-launcher",
-            "build",
-            project_name,
-            model_id,
-            "linux",
-            "--base-dir",
-            str(base_dir),
-            "--workspace-dir",
-            str(base_dir),
-            "--skip-install-deps",
-        ]
-        print(f"[Launcher] Building model: {model_id} → {build_cmd}")
-        _emit_status(
-            status_queue,
-            event="model",
-            model=model_id,
-            stage="build",
-            status="starting",
-        )
+    max_parallel_env = os.getenv("ROBOTICK_LAUNCHER_MAX_PARALLEL_BUILDS", "").strip()
+    max_parallel_builds = len(model_ids)
+    if max_parallel_env:
         try:
-            proc = run_subprocess(
-                command=build_cmd,
-                wait=False,  # <-- don't wait; start all
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+            max_parallel_builds = int(max_parallel_env)
+        except ValueError:
+            print(
+                "[bold yellow]"
+                "⚠️ Invalid ROBOTICK_LAUNCHER_MAX_PARALLEL_BUILDS value "
+                f"'{max_parallel_env}', defaulting to {len(model_ids)}"
+                "[/]"
             )
-            build_procs.append((model_id, proc))
-            t = threading.Thread(
-                target=stream_output,
-                args=(proc, f"build:{model_id}"),
-                daemon=True,
-            )
-            t.start()
-            build_threads.append(t)
-        except Exception as e:
-            print(f"[bold red]❌ Exception starting build of {model_id}: {e}[/]")
+            max_parallel_builds = len(model_ids)
+    if max_parallel_builds < 1:
+        print(
+            "[bold yellow]"
+            "⚠️ ROBOTICK_LAUNCHER_MAX_PARALLEL_BUILDS must be >= 1, "
+            f"defaulting to {len(model_ids)}"
+            "[/]"
+        )
+        max_parallel_builds = len(model_ids)
+    max_parallel_builds = min(max_parallel_builds, len(model_ids))
 
-    # Wait for all builds to finish
+    # --- Build phase (bounded parallelism to avoid CI over-subscription) ---
+    print(
+        "[Launcher] Building "
+        f"{len(model_ids)} models with up to {max_parallel_builds} parallel build(s)..."
+    )
+
     succeeded: list[str] = []
     failed: list[str] = []
-    for model_id, proc in build_procs:
-        try:
-            rc = proc.wait()
-            if rc == 0:
-                succeeded.append(model_id)
-                print(f"[bold green]✅ Build succeeded for {model_id}[/]")
-                _emit_status(
-                    status_queue,
-                    event="model",
-                    model=model_id,
-                    stage="build",
-                    status="succeeded",
-                )
-            else:
-                failed.append(model_id)
-                print(f"[bold red]❌ Build failed for {model_id} (rc={rc})[/]")
-                _emit_status(
-                    status_queue,
-                    event="model",
-                    model=model_id,
-                    stage="build",
-                    status="failed",
-                    returncode=rc,
-                )
-        except Exception as e:
-            failed.append(model_id)
-            print(f"[bold red]⚠️ Error waiting for build {model_id}: {e}[/]")
+
+    for start in range(0, len(model_ids), max_parallel_builds):
+        batch_model_ids = model_ids[start : start + max_parallel_builds]
+        build_procs: list[tuple[str, subprocess.Popen]] = []
+        build_threads: list[threading.Thread] = []
+
+        for model_id in batch_model_ids:
+            build_cmd = [
+                "robotick-launcher",
+                "build",
+                project_name,
+                model_id,
+                "linux",
+                "--base-dir",
+                str(base_dir),
+                "--workspace-dir",
+                str(base_dir),
+                "--skip-install-deps",
+            ]
+            print(f"[Launcher] Building model: {model_id} → {build_cmd}")
             _emit_status(
                 status_queue,
                 event="model",
                 model=model_id,
                 stage="build",
-                status="error",
-                detail=str(e),
+                status="starting",
             )
+            try:
+                proc = run_subprocess(
+                    command=build_cmd,
+                    wait=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                )
+                build_procs.append((model_id, proc))
+                t = threading.Thread(
+                    target=stream_output,
+                    args=(proc, f"build:{model_id}"),
+                    daemon=True,
+                )
+                t.start()
+                build_threads.append(t)
+            except Exception as e:
+                failed.append(model_id)
+                print(f"[bold red]❌ Exception starting build of {model_id}: {e}[/]")
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="build",
+                    status="error",
+                    detail=f"Failed to start build: {e}",
+                )
 
-    # Drain build output threads
-    for t in build_threads:
-        t.join()
+        # Wait for running builds in this batch
+        for model_id, proc in build_procs:
+            try:
+                rc = proc.wait()
+                if rc == 0:
+                    succeeded.append(model_id)
+                    print(f"[bold green]✅ Build succeeded for {model_id}[/]")
+                    _emit_status(
+                        status_queue,
+                        event="model",
+                        model=model_id,
+                        stage="build",
+                        status="succeeded",
+                    )
+                else:
+                    failed.append(model_id)
+                    print(f"[bold red]❌ Build failed for {model_id} (rc={rc})[/]")
+                    _emit_status(
+                        status_queue,
+                        event="model",
+                        model=model_id,
+                        stage="build",
+                        status="failed",
+                        returncode=rc,
+                    )
+            except Exception as e:
+                failed.append(model_id)
+                print(f"[bold red]⚠️ Error waiting for build {model_id}: {e}[/]")
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="build",
+                    status="error",
+                    detail=str(e),
+                )
+
+        # Drain build output threads for this batch
+        for t in build_threads:
+            t.join()
 
     # After build loop:
     if failed:
