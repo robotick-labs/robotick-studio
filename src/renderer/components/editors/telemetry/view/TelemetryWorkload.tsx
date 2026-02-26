@@ -1,6 +1,7 @@
 // TelemetryWorkload.tsx
 import React from "react";
 import { TelemetryStructFields } from "./TelemetryStructFields";
+import type { FieldConnectionHint } from "./types";
 import styles from "../Telemetry.module.css";
 import type { ITelemetryWorkload } from "../../../../data-sources/telemetry";
 import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
@@ -16,6 +17,7 @@ interface TelemetryWorkloadProps {
   w: ITelemetryWorkload;
   telemetryBaseUrl?: string;
   modelName?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }
 
 /**
@@ -32,6 +34,7 @@ export function TelemetryWorkload({
   w,
   telemetryBaseUrl,
   modelName,
+  fieldConnectionHints,
 }: TelemetryWorkloadProps) {
   const stats = deriveWorkloadStats(w);
   const {
@@ -69,6 +72,7 @@ export function TelemetryWorkload({
           workloadName={w.name}
           modelName={modelName}
           panelScope={panelScope}
+          fieldConnectionHints={fieldConnectionHints}
         />
       </td>
       <td>
@@ -78,6 +82,7 @@ export function TelemetryWorkload({
           workloadName={w.name}
           modelName={modelName}
           panelScope={panelScope}
+          fieldConnectionHints={fieldConnectionHints}
         />
       </td>
       <td>
@@ -87,6 +92,7 @@ export function TelemetryWorkload({
           workloadName={w.name}
           modelName={modelName}
           panelScope={panelScope}
+          fieldConnectionHints={fieldConnectionHints}
         />
       </td>
       <td>

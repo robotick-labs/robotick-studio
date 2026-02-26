@@ -161,9 +161,14 @@ export function createTelemetryStore(
       if (!entry.layout) return;
 
       const previousRaw = entry.lastRaw;
-      const { raw, sid } = await enqueueFetch(() =>
+      const { raw, sid, frameSeq } = await enqueueFetch(() =>
         fetchRawImpl(entry.baseUrl)
       );
+
+      if (typeof frameSeq === "number" && (frameSeq & 1) === 1) {
+        // Odd frame sequence means engine write in progress; skip this sample.
+        return;
+      }
 
       const hasSid = sid.length > 0;
       const previousSid = previousRaw?.sid ?? "";

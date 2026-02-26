@@ -8,6 +8,7 @@ import {
   Launcher,
 } from "../../../../data-sources/launcher";
 import styles from "../Telemetry.module.css";
+import { buildFieldConnectionHintsByModelPath } from "./field-connections";
 
 /**
  * Render the telemetry UI for the current project, showing status messages or a list of telemetry models.
@@ -32,11 +33,21 @@ export function TelemetryApp() {
       }
     };
 
+    const hintsByModelPath = buildFieldConnectionHintsByModelPath(
+      projectModels.data.map((model) => ({
+        modelPath: model.modelPath,
+        modelShortName: model.modelShortName,
+        modelName: model.modelName,
+        data: model.data,
+      }))
+    );
+
     return [...projectModels.data]
       .map((model) => ({
         modelName: model.modelName,
         modelPath: model.modelPath,
         instanceURL: model.telemetryBaseUrl,
+        fieldConnectionHints: hintsByModelPath.get(model.modelPath) ?? {},
       }))
       .sort((a, b) => {
         const portA = extractPort(a.instanceURL);

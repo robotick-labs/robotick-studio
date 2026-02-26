@@ -118,3 +118,133 @@
   cursor: pointer;
   border-radius: 4px;
 }
+
+.inputWriteRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.inputWriteLabelText,
+.inputWriteLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inputWriteControls {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.inputWriteInput,
+.inputWriteSelect {
+  min-width: 120px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-surface-base);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.inputWriteInput {
+  width: 140px;
+  min-width: 140px;
+  max-width: 140px;
+  flex: 0 0 140px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inputWriteScrubHotspot,
+.inputWriteScrubHotspotSpacer {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.inputWriteScrubHotspot {
+  border: 1px solid var(--app-panel-border);
+  border-radius: 999px;
+  background: var(--app-panel-soft);
+  color: var(--app-text-muted);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+}
+
+.inputWriteScrubDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.inputWriteScrubHotspotSpacer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.inputWriteCheckboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inputWriteCheckbox {
+  width: 14px;
+  height: 14px;
+}
+
+.inputWriteLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inputWriteStepperButton {
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-panel-soft);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.inputWriteStepperSpacer {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.localConnectedCapsule,
+.remoteConnectedCapsule,
+.bothConnectedCapsule {
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.localConnectedCapsule {
+  border: 1px solid #d6a500;
+  background: color-mix(in srgb, #d6a500 18%, transparent);
+}
+
+.remoteConnectedCapsule {
+  border: 1px solid green;
+  background: color-mix(in srgb, green 18%, transparent);
+}
+
+.bothConnectedCapsule {
+  border: 1px solid #b2b200;
+  background: color-mix(in srgb, #b2b200 16%, transparent);
+}

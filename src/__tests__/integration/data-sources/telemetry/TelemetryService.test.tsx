@@ -59,7 +59,8 @@ describe("TelemetryServiceProvider", () => {
   it("routes useTelemetryStream subscriptions through the injected service", () => {
     const unsubscribe = vi.fn();
     const subscribeTelemetry = vi.fn(() => unsubscribe);
-    const mockService = { subscribeTelemetry };
+    const setWorkloadInputFieldData = vi.fn();
+    const mockService = { subscribeTelemetry, setWorkloadInputFieldData };
 
     const tree = render(
       <TelemetryServiceProvider service={mockService}>

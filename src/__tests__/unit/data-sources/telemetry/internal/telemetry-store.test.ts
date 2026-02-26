@@ -41,6 +41,7 @@ describe("telemetry-store polling", () => {
     fetchRaw.mockResolvedValue({
       raw: new ArrayBuffer(0),
       sid: "sid",
+      frameSeq: null,
     });
     createTelemetryModel.mockImplementation(makeModel);
     eventTarget = new EventTarget();
@@ -124,10 +125,12 @@ describe("telemetry-store polling", () => {
       .mockResolvedValueOnce({
         raw: new ArrayBuffer(0),
         sid: "sid-old",
+        frameSeq: null,
       })
       .mockResolvedValueOnce({
         raw: new ArrayBuffer(0),
         sid: "sid-new",
+        frameSeq: null,
       });
 
     const callback = vi.fn();
@@ -145,6 +148,36 @@ describe("telemetry-store polling", () => {
     expect(createTelemetryModel).toHaveBeenNthCalledWith(1, layoutV1);
     expect(createTelemetryModel).toHaveBeenNthCalledWith(2, layoutV2);
     expect(callback).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    await flushMicrotasks();
+  });
+
+  it("skips odd frame sequence telemetry samples", async () => {
+    fetchRaw
+      .mockResolvedValueOnce({
+        raw: new ArrayBuffer(0),
+        sid: "sid",
+        frameSeq: 3,
+      })
+      .mockResolvedValueOnce({
+        raw: new ArrayBuffer(0),
+        sid: "sid",
+        frameSeq: 4,
+      });
+
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+    });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callback).toHaveBeenCalledTimes(0);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+    expect(callback).toHaveBeenCalledTimes(1);
 
     unsubscribe();
     await flushMicrotasks();

@@ -53,12 +53,20 @@ export interface LayoutWorkload {
   outputs?: LayoutWorkloadStruct;
 }
 
+export interface LayoutWritableInput {
+  field_handle: number;
+  field_path: string;
+  type?: string;
+  size?: number;
+}
+
 export interface LayoutModel {
   workloads: LayoutWorkload[];
   types: LayoutType[];
   engine_session_id?: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
+  writable_inputs?: LayoutWritableInput[];
 }
 
 // -----------------------------------------------------------------------------
@@ -75,6 +83,7 @@ export interface ITelemetryField {
   enum_is_flags?: boolean;
   enum_is_signed?: boolean;
   enum_underlying_size?: number;
+  writable_input_handle?: number;
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
@@ -103,6 +112,7 @@ export interface ITelemetryModel {
   schemaSessionId: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
+  writable_inputs_by_path?: ReadonlyMap<string, LayoutWritableInput>;
   getField?(path: string): ITelemetryField | undefined;
 }
 
@@ -126,7 +136,7 @@ export async function fetchLayout(
 
 export async function fetchRaw(
   base_url: string
-): Promise<{ raw: ArrayBuffer; sid: string }> {
+): Promise<{ raw: ArrayBuffer; sid: string; frameSeq: number | null }> {
   const requestUrl = `${base_url}/api/telemetry/workloads_buffer/raw`;
   try {
     const r = await fetch(requestUrl, {
@@ -137,11 +147,138 @@ export async function fetchRaw(
     }
     const buf = await r.arrayBuffer();
     const sid = r.headers.get("x-robotick-session-id") || "";
-    return { raw: buf, sid };
+    const frameSeqHeader = r.headers.get("x-robotick-frame-seq");
+    const frameSeq =
+      frameSeqHeader !== null ? Number.parseInt(frameSeqHeader, 10) : null;
+    return {
+      raw: buf,
+      sid,
+      frameSeq: Number.isFinite(frameSeq) ? frameSeq : null,
+    };
   } catch (error) {
     console.warn(`fetchRaw() failed for '${requestUrl}'`, error);
     throw error instanceof Error ? error : new Error(String(error));
   }
+}
+
+export interface SetWorkloadInputFieldDataRequest {
+  engine_session_id: string;
+  field_handle?: number;
+  field_path?: string;
+  value: unknown;
+  seq?: number;
+}
+
+export interface SetWorkloadInputFieldDataResponseBody {
+  [key: string]: unknown;
+}
+
+export interface SetWorkloadInputFieldDataResult {
+  ok: boolean;
+  status: number;
+  body: SetWorkloadInputFieldDataResponseBody | null;
+}
+
+export interface SetWorkloadInputFieldDataOptions {
+  maxAttempts?: number;
+  baseRetryDelayMs?: number;
+  maxRetryDelayMs?: number;
+}
+
+const RETRYABLE_WRITE_STATUS_CODES = new Set([409, 429, 503]);
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function computeRetryDelayMs(
+  attempt: number,
+  status: number,
+  body: SetWorkloadInputFieldDataResponseBody | null,
+  baseRetryDelayMs: number,
+  maxRetryDelayMs: number
+): number {
+  const bodyRetryRaw = body?.retry_after_ms;
+  const bodyRetry =
+    typeof bodyRetryRaw === "number" && Number.isFinite(bodyRetryRaw)
+      ? Math.max(0, Math.floor(bodyRetryRaw))
+      : null;
+  if (status === 429 && bodyRetry !== null) {
+    return Math.min(bodyRetry, maxRetryDelayMs);
+  }
+
+  const expo = Math.min(maxRetryDelayMs, baseRetryDelayMs * 2 ** (attempt - 1));
+  const jitter = Math.floor(expo * (0.2 * Math.random()));
+  return Math.min(maxRetryDelayMs, expo + jitter);
+}
+
+export async function setWorkloadInputFieldData(
+  base_url: string,
+  request: SetWorkloadInputFieldDataRequest,
+  options: SetWorkloadInputFieldDataOptions = {}
+): Promise<SetWorkloadInputFieldDataResult> {
+  const endpoint = `${base_url}/api/telemetry/set_workload_input_field_data`;
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+  const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
+  const maxRetryDelayMs = Math.max(baseRetryDelayMs, options.maxRetryDelayMs ?? 500);
+
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(request),
+      });
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        return {
+          ok: false,
+          status: 0,
+          body: {
+            error: "network_error",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+      await delay(computeRetryDelayMs(attempt, 503, null, baseRetryDelayMs, maxRetryDelayMs));
+      continue;
+    }
+
+    let body: SetWorkloadInputFieldDataResponseBody | null = null;
+    try {
+      body = (await response.json()) as SetWorkloadInputFieldDataResponseBody;
+    } catch {
+      body = null;
+    }
+
+    if (response.ok) {
+      return { ok: true, status: response.status, body };
+    }
+
+    if (
+      !RETRYABLE_WRITE_STATUS_CODES.has(response.status) ||
+      attempt >= maxAttempts
+    ) {
+      return { ok: false, status: response.status, body };
+    }
+
+    await delay(
+      computeRetryDelayMs(
+        attempt,
+        response.status,
+        body,
+        baseRetryDelayMs,
+        maxRetryDelayMs
+      )
+    );
+  }
+
+  return { ok: false, status: 0, body: { error: "unexpected_retry_exit" } };
 }
 
 // -----------------------------------------------------------------------------
@@ -395,6 +532,17 @@ namespace TelemetryFactory {
 
     const model = new TelemetryModel(typeMap);
     model.schemaSessionId = layout.engine_session_id ?? "";
+    const writableInputsByPath = new Map<string, LayoutWritableInput>();
+    for (const writable of layout.writable_inputs ?? []) {
+      if (
+        writable &&
+        typeof writable.field_path === "string" &&
+        Number.isFinite(writable.field_handle)
+      ) {
+        writableInputsByPath.set(writable.field_path, writable);
+      }
+    }
+    model.writable_inputs_by_path = writableInputsByPath;
 
     const buildStruct = (
       typeName: string,
@@ -412,6 +560,7 @@ namespace TelemetryFactory {
             childType?.fields && childType.fields.length > 0
           );
           const childPath = `${path}.${f.name}`;
+          const writableMeta = writableInputsByPath.get(childPath);
 
           if (isComposite) {
             // Schema for one instance, array handled at getValue()
@@ -432,7 +581,8 @@ namespace TelemetryFactory {
                 childType?.enum_values,
                 childType?.enum_is_flags,
                 childType?.enum_is_signed,
-                childType?.enum_underlying_size
+                childType?.enum_underlying_size,
+                writableMeta?.field_handle
               )
             );
           } else {
@@ -452,7 +602,8 @@ namespace TelemetryFactory {
                 childType?.enum_values,
                 childType?.enum_is_flags,
                 childType?.enum_is_signed,
-                childType?.enum_underlying_size
+                childType?.enum_underlying_size,
+                writableMeta?.field_handle
               )
             );
           }
@@ -553,6 +704,8 @@ class TelemetryModel implements ITelemetryModel {
   schemaSessionId: string = "";
   workloads_buffer_size_used: number = 0;
   process_memory_used: number = 0;
+  writable_inputs_by_path: ReadonlyMap<string, LayoutWritableInput> =
+    new Map();
   private _raw: ArrayBuffer | null = null;
   private _view: DataView | null = null;
 
@@ -618,7 +771,8 @@ class TelemetryField implements ITelemetryField {
     public readonly enum_values?: LayoutEnumValue[],
     public readonly enum_is_flags?: boolean,
     public readonly enum_is_signed?: boolean,
-    public readonly enum_underlying_size?: number
+    public readonly enum_underlying_size?: number,
+    public readonly writable_input_handle?: number
   ) {}
 
   getValue(): any {

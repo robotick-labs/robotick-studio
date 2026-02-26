@@ -6,7 +6,9 @@ import React, {
   useCallback,
 } from "react";
 import { ProjectData } from "../../../../data-sources/launcher";
-import { useTelemetryStream } from "../../../../data-sources/telemetry";
+import {
+  useTelemetryStream,
+} from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
 import {
   ITelemetryField,
@@ -15,6 +17,7 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
+import sharedStyles from "../Telemetry.module.css";
 import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
 import {
   buildNamespacedKey,
@@ -33,6 +36,16 @@ import {
   formatJitterPercent,
   TICK_DURATION_WINDOW_SIZE,
 } from "../utils/workload-stats";
+import type { FieldConnectionHint } from "../view/types";
+import { WritableTelemetryInputField } from "../view/WritableTelemetryInputField";
+import {
+  buildFieldConnectionHintsByModelPath,
+  type ConnectionKind,
+  getConnectionHint,
+  getConnectionKindFromHint,
+  getConnectionTooltip,
+  isInputConnectionDriven,
+} from "../view/field-connections";
 
 type SectionKind = "inputs" | "outputs" | "config" | "stats";
 type DataKindSelection = SectionKind | "all";
@@ -109,6 +122,13 @@ function serializeExpandedPathsPreference(
   preference: ExpandedPathsPreference
 ): string {
   return JSON.stringify(preference);
+}
+
+function getConnectionCapsuleClass(kind: ConnectionKind | null): string {
+  if (kind === "local") return sharedStyles.localConnectedCapsule;
+  if (kind === "remote") return sharedStyles.remoteConnectedCapsule;
+  if (kind === "both") return sharedStyles.bothConnectedCapsule;
+  return "";
 }
 
 /**
@@ -205,6 +225,18 @@ export default function TelemetryTreeViewer() {
     [panel, persistLocalSettings]
   );
   const { projectModels } = ProjectData.use();
+  const fieldConnectionHintsByModelPath = useMemo(
+    () =>
+      buildFieldConnectionHintsByModelPath(
+        projectModels.data.map((projectModel) => ({
+          modelPath: projectModel.modelPath,
+          modelShortName: projectModel.modelShortName,
+          modelName: projectModel.modelName,
+          data: projectModel.data,
+        }))
+      ),
+    [projectModels.data]
+  );
 
   const modelOptions = projectModels.data;
   const hasModels = modelOptions.length > 0;
@@ -231,6 +263,14 @@ export default function TelemetryTreeViewer() {
 
   const telemetryBaseUrl =
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
+  const fieldConnectionHints = useMemo(() => {
+    if (!selectedModel) {
+      return new Map<string, FieldConnectionHint>();
+    }
+    const serializedHints =
+      fieldConnectionHintsByModelPath.get(selectedModel.modelPath) ?? {};
+    return new Map<string, FieldConnectionHint>(Object.entries(serializedHints));
+  }, [fieldConnectionHintsByModelPath, selectedModel]);
 
   const { model } = useTelemetryStream(telemetryBaseUrl, 10);
   const workloads = model?.workloads ?? [];
@@ -452,6 +492,8 @@ export default function TelemetryTreeViewer() {
               field={node}
               expandedPaths={expandedNodes}
               toggle={toggleNode}
+              telemetryBaseUrl={telemetryBaseUrl}
+              fieldConnectionHints={fieldConnectionHints}
             />
           ))
         )}
@@ -464,33 +506,65 @@ function TreeNode({
   field,
   expandedPaths,
   toggle,
+  telemetryBaseUrl,
+  fieldConnectionHints,
 }: {
   field: ITelemetryField;
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
+  telemetryBaseUrl?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
   const value = field.getValue?.();
   const isArray = Array.isArray(value);
   const hasChildren = isArray || (field.fields && field.fields.length > 0);
   const expanded = expandedPaths.has(field.path);
+  const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
+  const connectionKind = getConnectionKindFromHint(connectionHint);
+  const capsuleClass = getConnectionCapsuleClass(connectionKind);
+  const tooltipText = getConnectionTooltip(field.path, connectionHint);
+  const inputIsConnectionDriven = isInputConnectionDriven(field.path, connectionHint);
+  const isWritableInput =
+    typeof field.writable_input_handle === "number" &&
+    field.path.includes(".inputs.") &&
+    !inputIsConnectionDriven &&
+    !hasChildren;
 
   return (
     <div className={styles.node}>
-      {hasChildren ? (
-        <button
-          type="button"
-          className={styles.nodeToggle}
-          onClick={() => toggle(field.path)}
-        >
-          {expanded ? "▼" : "▶"}
-        </button>
-      ) : (
-        <span style={{ marginRight: 8 }} />
-      )}
-      <span>{field.name}: </span>
-      <span className={styles.nodeValue}>
-        {isArray ? formatArraySummary(value) : formatValue(field)}
-      </span>
+      <div className={styles.nodeRow}>
+        {hasChildren ? (
+          <button
+            type="button"
+            className={styles.nodeToggle}
+            onClick={() => toggle(field.path)}
+          >
+            {expanded ? "▼" : "▶"}
+          </button>
+        ) : (
+          <span className={styles.nodeToggleSpacer} aria-hidden="true" />
+        )}
+        {isWritableInput ? (
+          <WritableTelemetryInputField
+            field={field}
+            telemetryBaseUrl={telemetryBaseUrl}
+            className={styles.writableNodeEntry}
+            capsuleClassName={capsuleClass}
+            tooltipText={tooltipText}
+            formatCurrentValue={formatValue}
+          />
+        ) : (
+          <span
+            className={`${styles.nodeEntry} ${capsuleClass}`.trim()}
+            title={tooltipText ?? undefined}
+          >
+            <span>{field.name}:</span>
+            <span className={styles.nodeValue}>
+              {isArray ? formatArraySummary(value) : formatValue(field)}
+            </span>
+          </span>
+        )}
+      </div>
       {expanded && hasChildren
         ? isArray && Array.isArray(value)
           ? value.map((entry, index) => (
@@ -509,6 +583,8 @@ function TreeNode({
                 field={child}
                 expandedPaths={expandedPaths}
                 toggle={toggle}
+                telemetryBaseUrl={telemetryBaseUrl}
+                fieldConnectionHints={fieldConnectionHints}
               />
             ))
         : null}
