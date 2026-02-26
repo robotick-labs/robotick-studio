@@ -39,13 +39,17 @@ type JoystickState = {
   dpad_right: boolean;
 };
 
+type WriteTelemetryFieldFn = (fieldPath: string, value: unknown) => void;
+
 type UseRemoteControlClientOptions = {
   leftArea: HTMLDivElement | null;
   leftKnob: HTMLDivElement | null;
   rightArea: HTMLDivElement | null;
   rightKnob: HTMLDivElement | null;
   useWebInputs: boolean;
-  remoteControlServer?: string | null;
+  workloadName?: string | null;
+  writeTelemetryField?: WriteTelemetryFieldFn | null;
+  writesReady?: boolean;
 };
 
 function cloneState(state: JoystickState): JoystickState {
@@ -56,7 +60,8 @@ class RemoteControlClient {
   private leftStick: StickController;
   private rightStick: StickController;
   private joystickState: JoystickState;
-  private readonly remoteControlServer: string | null;
+  private readonly workloadName: string;
+  private readonly writeTelemetryField: WriteTelemetryFieldFn | null;
   private readonly controlsEnabled: boolean;
   private readonly localState = {
     left: { x: 0.0, y: 0.0 },
@@ -76,13 +81,15 @@ class RemoteControlClient {
     leftKnob: HTMLDivElement;
     rightArea: HTMLDivElement;
     rightKnob: HTMLDivElement;
-    remoteControlServer: string | null;
+    workloadName: string;
+    writeTelemetryField: WriteTelemetryFieldFn | null;
   }) {
-    this.remoteControlServer = options.remoteControlServer;
-    this.controlsEnabled = Boolean(this.remoteControlServer);
+    this.workloadName = options.workloadName;
+    this.writeTelemetryField = options.writeTelemetryField;
+    this.controlsEnabled = Boolean(this.writeTelemetryField);
     if (!this.controlsEnabled) {
       console.warn(
-        "[remote-controls] remoteControlServer is not configured; controls disabled."
+        "[remote-controls] telemetry writer is not configured; controls disabled."
       );
     }
     this.joystickState = {
@@ -573,33 +580,95 @@ class RemoteControlClient {
     tick();
   }
 
+  private sendField(fieldSuffix: string, value: unknown) {
+    if (!this.controlsEnabled || !this.writeTelemetryField) {
+      return;
+    }
+    this.writeTelemetryField(`${this.workloadName}.inputs.${fieldSuffix}`, value);
+  }
+
+  private sendStateKeys(
+    state: JoystickState,
+    keys: ReadonlyArray<keyof JoystickState>
+  ) {
+    for (const key of keys) {
+      switch (key) {
+        case "use_web_inputs":
+          this.sendField("use_web_inputs", state.use_web_inputs);
+          break;
+        case "left":
+          this.sendField("gamepad_state_raw.left.x", state.left.x);
+          this.sendField("gamepad_state_raw.left.y", state.left.y);
+          break;
+        case "right":
+          this.sendField("gamepad_state_raw.right.x", state.right.x);
+          this.sendField("gamepad_state_raw.right.y", state.right.y);
+          break;
+        case "left_trigger":
+          this.sendField("gamepad_state_raw.left_trigger", state.left_trigger);
+          break;
+        case "right_trigger":
+          this.sendField("gamepad_state_raw.right_trigger", state.right_trigger);
+          break;
+        case "a":
+        case "b":
+        case "x":
+        case "y":
+        case "left_bumper":
+        case "right_bumper":
+        case "back":
+        case "start":
+        case "guide":
+        case "left_stick_button":
+        case "right_stick_button":
+        case "dpad_up":
+        case "dpad_down":
+        case "dpad_left":
+        case "dpad_right":
+          this.sendField(`gamepad_state_raw.${key}`, state[key]);
+          break;
+      }
+    }
+  }
+
   private sendDirtyKeys() {
     if (this.dirtyKeys.size === 0) return;
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
+    const dirtyKeys = Array.from(this.dirtyKeys);
     this.dirtyKeys.clear();
-
-    if (!this.controlsEnabled || !this.remoteControlServer) {
-      return;
-    }
-    fetch(`${this.remoteControlServer}/api/rc_state`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(nextState),
-    }).catch((err) => console.warn("Failed to send joystick state", err));
+    this.sendStateKeys(nextState, dirtyKeys);
   }
 
   private sendFullState() {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
-    if (!this.controlsEnabled || !this.remoteControlServer) {
-      return;
-    }
-    fetch(`${this.remoteControlServer}/api/rc_state`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(nextState),
-    }).catch((err) => console.warn("Failed to send joystick state", err));
+    this.sendStateKeys(nextState, [
+      "use_web_inputs",
+      "left",
+      "right",
+      "left_trigger",
+      "right_trigger",
+      "a",
+      "b",
+      "x",
+      "y",
+      "left_bumper",
+      "right_bumper",
+      "back",
+      "start",
+      "guide",
+      "left_stick_button",
+      "right_stick_button",
+      "dpad_up",
+      "dpad_down",
+      "dpad_left",
+      "dpad_right",
+    ]);
+  }
+
+  syncNow() {
+    this.sendFullState();
   }
 }
 
@@ -609,7 +678,9 @@ export function useRemoteControlClient({
   rightArea,
   rightKnob,
   useWebInputs,
-  remoteControlServer,
+  workloadName,
+  writeTelemetryField,
+  writesReady,
 }: UseRemoteControlClientOptions) {
   const clientRef = useRef<RemoteControlClient | null>(null);
 
@@ -623,7 +694,8 @@ export function useRemoteControlClient({
       leftKnob,
       rightArea,
       rightKnob,
-      remoteControlServer: remoteControlServer ?? null,
+      workloadName: workloadName ?? "remote_control",
+      writeTelemetryField: writeTelemetryField ?? null,
     });
     client.setUseWebInputs(useWebInputs);
     clientRef.current = client;
@@ -632,11 +704,25 @@ export function useRemoteControlClient({
       client.dispose();
       clientRef.current = null;
     };
-  }, [leftArea, leftKnob, rightArea, rightKnob, remoteControlServer]);
+  }, [
+    leftArea,
+    leftKnob,
+    rightArea,
+    rightKnob,
+    workloadName,
+    writeTelemetryField,
+  ]);
 
   useEffect(() => {
     if (clientRef.current) {
       clientRef.current.setUseWebInputs(useWebInputs);
     }
   }, [useWebInputs]);
+
+  useEffect(() => {
+    if (!writesReady) {
+      return;
+    }
+    clientRef.current?.syncNow();
+  }, [writesReady]);
 }
