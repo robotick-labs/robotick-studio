@@ -70,7 +70,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     telemetryBaseUrl,
   ]);
 
-  const { model } = useTelemetryStream(
+  const { model, revision } = useTelemetryStream(
     telemetryBaseUrl ?? "",
     SUBTITLES_POLL_RATE_HZ
   );
@@ -127,7 +127,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       setVisible(Boolean(normalized));
       setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
-  }, [model, fieldPath, telemetryBaseUrl]);
+  }, [fieldPath, model, revision, telemetryBaseUrl]);
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 
