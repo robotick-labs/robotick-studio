@@ -78,6 +78,7 @@ export interface ITelemetryField {
   type: string;
   path: string;
   offset: number; // absolute byte offset into raw buffer
+  elementCount: number;
   mime_type?: string; // inherited from LayoutType.mime_type
   enum_values?: LayoutEnumValue[];
   enum_is_flags?: boolean;
@@ -764,7 +765,7 @@ class TelemetryField implements ITelemetryField {
       ) => Record<string, unknown>[];
     },
     public readonly mime_type?: string,
-    private readonly elementCount: number = 1,
+    public readonly elementCount: number = 1,
     public readonly fields?: ITelemetryField[],
     private readonly childSize: number = 0, // for struct arrays
     private readonly isCompositeNode: boolean = false,
