@@ -153,6 +153,40 @@ describe("telemetry-store polling", () => {
     await flushMicrotasks();
   });
 
+  it("reuses the telemetry model across steady-state samples", async () => {
+    const firstRaw = new ArrayBuffer(4);
+    const secondRaw = new ArrayBuffer(8);
+    fetchRaw
+      .mockResolvedValueOnce({
+        raw: firstRaw,
+        sid: "sid",
+        frameSeq: null,
+      })
+      .mockResolvedValueOnce({
+        raw: secondRaw,
+        sid: "sid",
+        frameSeq: null,
+      });
+
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+    });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(100);
+    await flushMicrotasks();
+
+    expect(createTelemetryModel).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback.mock.calls[0]?.[0]).toBe(callback.mock.calls[1]?.[0]);
+    expect(callback.mock.calls[0]?.[0]?.raw).toBe(secondRaw);
+
+    unsubscribe();
+    await flushMicrotasks();
+  });
+
   it("skips odd frame sequence telemetry samples", async () => {
     fetchRaw
       .mockResolvedValueOnce({

@@ -43,6 +43,22 @@ function StreamConsumer({
   return null;
 }
 
+function StreamValueConsumer({
+  baseUrl,
+  pollingRateHz,
+  onValue,
+}: {
+  baseUrl: string;
+  pollingRateHz: number;
+  onValue: (value: ArrayBuffer | null) => void;
+}) {
+  const { model } = useTelemetryStream(baseUrl, pollingRateHz);
+  useLayoutEffect(() => {
+    onValue(model?.raw ?? null);
+  }, [model, model?.raw, onValue]);
+  return null;
+}
+
 describe("TelemetryServiceProvider", () => {
   it("provides the telemetry service instance", () => {
     const service = createTelemetryService();
@@ -73,6 +89,54 @@ describe("TelemetryServiceProvider", () => {
       15,
       expect.objectContaining({ callback: expect.any(Function) })
     );
+
+    tree.unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("rerenders when a reused telemetry model receives a new raw sample", () => {
+    const unsubscribe = vi.fn();
+    let subscriber:
+      | {
+          callback: (model: any) => void;
+          error?: (error: unknown) => void;
+        }
+      | undefined;
+    const subscribeTelemetry = vi.fn((_baseUrl, _pollingRateHz, nextSubscriber) => {
+      subscriber = nextSubscriber;
+      return unsubscribe;
+    });
+    const setWorkloadInputFieldData = vi.fn();
+    const mockService = { subscribeTelemetry, setWorkloadInputFieldData };
+    const onValue = vi.fn();
+    const reusedModel = { raw: null };
+
+    const tree = render(
+      <TelemetryServiceProvider service={mockService}>
+        <StreamValueConsumer
+          baseUrl="http://example"
+          pollingRateHz={15}
+          onValue={onValue}
+        />
+      </TelemetryServiceProvider>
+    );
+
+    expect(onValue).toHaveBeenLastCalledWith(null);
+
+    act(() => {
+      reusedModel.raw = new ArrayBuffer(4);
+      subscriber?.callback(reusedModel);
+    });
+
+    expect(onValue).toHaveBeenLastCalledWith(reusedModel.raw);
+
+    act(() => {
+      reusedModel.raw = new ArrayBuffer(8);
+      subscriber?.callback(reusedModel);
+    });
+
+    expect(onValue).toHaveBeenCalledTimes(3);
+    expect(onValue).toHaveBeenLastCalledWith(reusedModel.raw);
 
     tree.unmount();
     expect(unsubscribe).toHaveBeenCalled();
