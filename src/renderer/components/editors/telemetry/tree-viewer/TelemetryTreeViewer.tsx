@@ -560,24 +560,31 @@ function TreeArrayChildren({
   field,
   expandedPaths,
   toggle,
+  telemetryBaseUrl,
+  fieldConnectionHints,
 }: {
   field: ITelemetryField;
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
+  telemetryBaseUrl?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
   React.useContext(TelemetrySampleRevisionContext);
-  const value = field.getValue?.();
-  if (!Array.isArray(value)) {
+  const arrayChildren = Array.from({ length: field.elementCount }, (_, index) =>
+    field.getArrayElement?.(index)
+  ).filter((entry): entry is ITelemetryField => Boolean(entry));
+  if (arrayChildren.length === 0) {
     return null;
   }
-  return value.map((entry, index) => (
-    <JsonNode
-      key={`${field.path}[${index}]`}
-      label={`[${index}]`}
-      path={`${field.path}[${index}]`}
-      value={entry}
+  return arrayChildren.map((entry) => (
+    <TreeNode
+      key={entry.path}
+      field={entry}
+      expanded={expandedPaths.has(entry.path)}
       expandedPaths={expandedPaths}
       toggle={toggle}
+      telemetryBaseUrl={telemetryBaseUrl}
+      fieldConnectionHints={fieldConnectionHints}
     />
   ));
 }
@@ -608,6 +615,8 @@ const TreeNodeChildren = React.memo(function TreeNodeChildren({
         field={field}
         expandedPaths={expandedPaths}
         toggle={toggle}
+        telemetryBaseUrl={telemetryBaseUrl}
+        fieldConnectionHints={fieldConnectionHints}
       />
     );
   }
