@@ -7,9 +7,42 @@ type RendererErrorReport = {
   source?: string;
   lineno?: number;
   colno?: number;
-  reason?: unknown;
+  reason?: string;
   href?: string;
 };
+
+function describeUnknownError(value: unknown): string {
+  if (value instanceof Error) {
+    return value.stack ?? `${value.name}: ${value.message}`;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "message" in value &&
+    typeof (value as { message?: unknown }).message === "string"
+  ) {
+    const withMaybeStack = value as { message: string; stack?: unknown; name?: unknown };
+    if (typeof withMaybeStack.stack === "string" && withMaybeStack.stack.length > 0) {
+      return withMaybeStack.stack;
+    }
+    const name =
+      typeof withMaybeStack.name === "string" && withMaybeStack.name.length > 0
+        ? withMaybeStack.name
+        : "Error";
+    return `${name}: ${withMaybeStack.message}`;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
 
 function reportRendererError(payload: RendererErrorReport) {
   try {
@@ -49,7 +82,7 @@ function installRendererErrorForwarding() {
           ? reason
           : "Unhandled promise rejection",
       stack: reason instanceof Error ? reason.stack : undefined,
-      reason,
+      reason: describeUnknownError(reason),
       href: window.location.href,
     });
   });

@@ -98,6 +98,31 @@ function extractBinaryBytes(value: unknown): Uint8Array | null {
   return count > 0 ? raw.subarray(0, count) : null;
 }
 
+function extractBinaryFieldBytes(
+  telemetryModel: ITelemetryModel,
+  fieldPath: string,
+  fieldValue: unknown,
+): Uint8Array | null {
+  const countedBytes = extractBinaryBytes(fieldValue);
+  if (countedBytes && !(fieldValue instanceof Uint8Array)) {
+    return countedBytes;
+  }
+
+  if (fieldValue instanceof Uint8Array) {
+    const lastDot = fieldPath.lastIndexOf(".");
+    if (lastDot > 0) {
+      const parentFieldPath = fieldPath.slice(0, lastDot);
+      const parentValue = telemetryModel.getField?.(parentFieldPath)?.getValue();
+      const parentBytes = extractBinaryBytes(parentValue);
+      if (parentBytes) {
+        return parentBytes;
+      }
+    }
+  }
+
+  return countedBytes;
+}
+
 export class ViewerWorld {
   // temp scratch
   private __TMP = {
@@ -908,7 +933,11 @@ export class ViewerWorld {
           }
 
           const fieldValue = field.getValue();
-          const fieldBytes = extractBinaryBytes(fieldValue);
+          const fieldBytes = extractBinaryFieldBytes(
+            telemetryModel,
+            fieldPath,
+            fieldValue,
+          );
           if (!fieldBytes) {
             console.warn(
               "Texture field is not binary or is empty:",
