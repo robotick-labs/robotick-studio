@@ -1,6 +1,63 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+type RendererErrorReport = {
+  type: "error" | "unhandledrejection";
+  message: string;
+  stack?: string;
+  source?: string;
+  lineno?: number;
+  colno?: number;
+  reason?: unknown;
+  href?: string;
+};
+
+function reportRendererError(payload: RendererErrorReport) {
+  try {
+    ipcRenderer.send("robotick-renderer-error", payload);
+  } catch (error) {
+    console.error("[Preload] Failed to report renderer error:", error);
+  }
+}
+
+function installRendererErrorForwarding() {
+  window.addEventListener("error", (event) => {
+    const maybeError = event.error;
+    reportRendererError({
+      type: "error",
+      message: event.message || maybeError?.message || "Unknown renderer error",
+      stack:
+        maybeError instanceof Error
+          ? maybeError.stack
+          : typeof maybeError === "string"
+          ? maybeError
+          : undefined,
+      source: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      href: window.location.href,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    reportRendererError({
+      type: "unhandledrejection",
+      message:
+        reason instanceof Error
+          ? reason.message
+          : typeof reason === "string"
+          ? reason
+          : "Unhandled promise rejection",
+      stack: reason instanceof Error ? reason.stack : undefined,
+      reason,
+      href: window.location.href,
+    });
+  });
+}
+
 const expose = () => {
+  installRendererErrorForwarding();
+
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
   const windowControls = usesNativeWindowFrame
     ? undefined
