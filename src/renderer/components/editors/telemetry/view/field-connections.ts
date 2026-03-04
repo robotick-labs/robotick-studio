@@ -11,6 +11,8 @@ type RawDirectConnection = {
 type RawRemoteConnection = {
   from?: unknown;
   to_remote?: unknown;
+  from_remote?: unknown;
+  to?: unknown;
 };
 
 type RawRemoteModelSpec = {
@@ -150,13 +152,25 @@ export function buildFieldConnectionHintsByModelPath(
       for (const connection of remoteConnections) {
         const from = normalizeTelemetryFieldPath(connection?.from);
         const toRemote = normalizeTelemetryFieldPath(connection?.to_remote);
-        if (!from || !toRemote) continue;
+        if (from && toRemote) {
+          ensureHint(sourceHints, from).remoteOutgoingTo.add(
+            `${remoteName}.${toRemote}`
+          );
+          ensureHint(targetHints, toRemote).remoteIncomingFrom.add(
+            `${sourceModel.modelShortName}.${from}`
+          );
+          continue;
+        }
 
-        ensureHint(sourceHints, from).remoteOutgoingTo.add(
-          `${remoteName}.${toRemote}`
+        const fromRemote = normalizeTelemetryFieldPath(connection?.from_remote);
+        const to = normalizeTelemetryFieldPath(connection?.to);
+        if (!fromRemote || !to) continue;
+
+        ensureHint(sourceHints, to).remoteIncomingFrom.add(
+          `${remoteName}.${fromRemote}`
         );
-        ensureHint(targetHints, toRemote).remoteIncomingFrom.add(
-          `${sourceModel.modelShortName}.${from}`
+        ensureHint(targetHints, fromRemote).remoteOutgoingTo.add(
+          `${sourceModel.modelShortName}.${to}`
         );
       }
     }

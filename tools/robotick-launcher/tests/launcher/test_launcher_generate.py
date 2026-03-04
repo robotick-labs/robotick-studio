@@ -225,3 +225,81 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert connections == []
     assert remote_models == []
     assert telemetry == {}
+
+
+def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):
+    project_file = tmp_path / "test.project.yaml"
+    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+
+    (tmp_path / "auditory.model.yaml").write_text("workloads: []\n")
+    (tmp_path / "mind.model.yaml").write_text(
+        """
+remote_models:
+  - name: auditory
+    mode: IP
+    connections:
+      - from_remote: prosody.outputs.prosody_state.is_voiced
+        to: voice_presence.inputs.is_present
+"""
+    )
+
+    cfg = SimpleNamespace(
+        model_name="auditory",
+        project_file=project_file,
+        model={"workloads": []},
+    )
+
+    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+
+    assert workloads == []
+    assert connections == []
+    assert telemetry == {}
+    assert len(remote_models) == 1
+    assert remote_models[0]["name"] == "mind"
+    assert remote_models[0]["connections"] == [
+        {
+            "from": "prosody.outputs.prosody_state.is_voiced",
+            "to_remote": "voice_presence.inputs.is_present",
+            "var_name": (
+                "mind_conn_prosody_outputs_prosody_state_is_voiced__to__"
+                "voice_presence_inputs_is_present"
+            ),
+        }
+    ]
+
+
+def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declarations(
+    tmp_path,
+):
+    project_file = tmp_path / "test.project.yaml"
+    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+
+    (tmp_path / "auditory.model.yaml").write_text(
+        """
+remote_models:
+  - name: mind
+    mode: IP
+    connections:
+      - from: prosody.outputs.prosody_state.is_voiced
+        to_remote: voice_presence.inputs.is_present
+"""
+    )
+    (tmp_path / "mind.model.yaml").write_text(
+        """
+remote_models:
+  - name: auditory
+    mode: IP
+    connections:
+      - from_remote: prosody.outputs.prosody_state.is_voiced
+        to: voice_presence.inputs.is_present
+"""
+    )
+
+    cfg = SimpleNamespace(
+        model_name="auditory",
+        project_file=project_file,
+        model={"workloads": []},
+    )
+
+    with pytest.raises(ValueError, match="Duplicate remote connection declaration"):
+        prepare_codegen_model_data(cfg)
