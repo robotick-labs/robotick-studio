@@ -158,6 +158,13 @@ def _broadcast_log(line: str, loop: asyncio.AbstractEventLoop):
             loop.call_soon_threadsafe(queue.put_nowait, msg)
 
 
+def _close_log_subscribers():
+    with log_lock:
+        subscribers = list(log_subscribers)
+    for subscriber in subscribers:
+        subscriber.put_nowait(None)
+
+
 def _status_consumer(loop: asyncio.AbstractEventLoop):
     global process_handle, status_queue, status_thread, current_profile, log_loop
 
@@ -243,12 +250,15 @@ async def launcher_log_stream(websocket: WebSocket):
     try:
         while True:
             line = await queue.get()
+            if line is None:
+                break
             await websocket.send_text(line)
     except WebSocketDisconnect:
         print("[WebSocket] Client disconnected")
     finally:
         with log_lock:
-            log_subscribers.remove(queue)
+            if queue in log_subscribers:
+                log_subscribers.remove(queue)
         print("[WebSocket] Closed")
 
 
@@ -331,7 +341,7 @@ async def run_launcher(
 
 
 @router.post("/stop")
-def stop_launcher():
+async def stop_launcher():
     global process_handle, status_queue, status_thread, current_profile, log_loop
 
     print("[Launcher] Requested stop")
@@ -345,6 +355,8 @@ def stop_launcher():
         status_thread = None
         current_profile = None
         log_loop = None
+
+    _close_log_subscribers()
 
     if proc and proc.is_alive():
         proc.terminate()

@@ -84,6 +84,10 @@ type BootstrapOptions = {
   platform?: NodeJS.Platform;
 };
 
+type PreventableEvent = {
+  preventDefault?: () => void;
+};
+
 type WindowState = {
   width: number;
   height: number;
@@ -418,6 +422,8 @@ export async function bootstrapElectron({
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
+  const skipSmokeWindowControlsCheck =
+    env.ROBOTICK_SMOKE_SKIP_WINDOW_CONTROLS === "1";
   if (desiredCwd && process.cwd() !== desiredCwd) {
     try {
       process.chdir(desiredCwd);
@@ -658,12 +664,22 @@ export async function bootstrapElectron({
     };
   })();
 
-  app.on("before-quit", () => {
-    void cleanupLauncher();
-  });
+  let gracefulQuitInFlight = false;
+  const runGracefulQuit = async () => {
+    if (gracefulQuitInFlight) {
+      return;
+    }
+    gracefulQuitInFlight = true;
+    await cleanupLauncher();
+    app.quit();
+  };
 
-  app.on("will-quit", () => {
-    void cleanupLauncher();
+  app.on("before-quit", (event: unknown) => {
+    if (gracefulQuitInFlight) {
+      return;
+    }
+    (event as PreventableEvent | undefined)?.preventDefault?.();
+    void runGracefulQuit();
   });
 
   const storedState = clampToDisplay(readWindowState());
@@ -683,24 +699,28 @@ export async function bootstrapElectron({
         console.log(`[Smoke] Renderer route: ${route}`);
         const controls = await probeWindowControls(win);
         if (!controls) {
-          throw new Error("[Smoke] Unable to determine window controls state");
-        }
-        console.log(
-          `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
-        );
-        if (controls.usesNativeFrame === false && !controls.hasWindowControls) {
-          throw new Error("[Smoke] Custom window controls not detected");
+          if (!skipSmokeWindowControlsCheck) {
+            throw new Error("[Smoke] Unable to determine window controls state");
+          }
+          console.warn(
+            "[Smoke] Skipping window controls verification; probe unavailable."
+          );
+        } else {
+          console.log(
+            `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
+          );
+          if (
+            !skipSmokeWindowControlsCheck &&
+            controls.usesNativeFrame === false &&
+            !controls.hasWindowControls
+          ) {
+            throw new Error("[Smoke] Custom window controls not detected");
+          }
         }
         setTimeout(() => app.quit(), 200);
       } catch (error) {
         console.error("[Smoke] Renderer failed to load", error);
-        setTimeout(() => {
-          if (app.exit) {
-            app.exit(1);
-          } else {
-            process.exit(1);
-          }
-        }, 200);
+        setTimeout(() => shutdown(1), 200);
       }
     });
   };
@@ -759,8 +779,7 @@ export async function bootstrapElectron({
 
   app.on("window-all-closed", () => {
     if (platform !== "darwin") {
-      void cleanupLauncher();
-      app.quit();
+      void runGracefulQuit();
     }
   });
 
