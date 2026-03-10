@@ -143,7 +143,9 @@ describe("electron launch paths", () => {
 
     handler?.();
 
-    expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("registers a window-open handler for middle-clicked links", async () => {
