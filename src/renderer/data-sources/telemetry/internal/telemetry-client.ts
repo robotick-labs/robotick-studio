@@ -53,12 +53,20 @@ export interface LayoutWorkload {
   outputs?: LayoutWorkloadStruct;
 }
 
+export interface LayoutWritableInput {
+  field_handle: number;
+  field_path: string;
+  type?: string;
+  size?: number;
+}
+
 export interface LayoutModel {
   workloads: LayoutWorkload[];
   types: LayoutType[];
   engine_session_id?: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
+  writable_inputs?: LayoutWritableInput[];
 }
 
 // -----------------------------------------------------------------------------
@@ -70,15 +78,18 @@ export interface ITelemetryField {
   type: string;
   path: string;
   offset: number; // absolute byte offset into raw buffer
+  elementCount: number;
   mime_type?: string; // inherited from LayoutType.mime_type
   enum_values?: LayoutEnumValue[];
   enum_is_flags?: boolean;
   enum_is_signed?: boolean;
   enum_underlying_size?: number;
+  writable_input_handle?: number;
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
   getValue(): any;
+  getArrayElement?(index: number): ITelemetryField | null;
 }
 
 export interface ITelemetryStruct {
@@ -103,6 +114,7 @@ export interface ITelemetryModel {
   schemaSessionId: string;
   workloads_buffer_size_used: number;
   process_memory_used: number;
+  writable_inputs_by_path?: ReadonlyMap<string, LayoutWritableInput>;
   getField?(path: string): ITelemetryField | undefined;
 }
 
@@ -111,7 +123,7 @@ export interface ITelemetryModel {
 // -----------------------------------------------------------------------------
 
 export async function fetchLayout(
-  base_url: string
+  base_url: string,
 ): Promise<LayoutModel | null> {
   try {
     const r = await fetch(`${base_url}/api/telemetry/workloads_buffer/layout`, {
@@ -125,8 +137,8 @@ export async function fetchLayout(
 }
 
 export async function fetchRaw(
-  base_url: string
-): Promise<{ raw: ArrayBuffer; sid: string }> {
+  base_url: string,
+): Promise<{ raw: ArrayBuffer; sid: string; frameSeq: number | null }> {
   const requestUrl = `${base_url}/api/telemetry/workloads_buffer/raw`;
   try {
     const r = await fetch(requestUrl, {
@@ -137,11 +149,149 @@ export async function fetchRaw(
     }
     const buf = await r.arrayBuffer();
     const sid = r.headers.get("x-robotick-session-id") || "";
-    return { raw: buf, sid };
+    const frameSeqHeader = r.headers.get("x-robotick-frame-seq");
+    const frameSeq =
+      frameSeqHeader !== null ? Number.parseInt(frameSeqHeader, 10) : null;
+    return {
+      raw: buf,
+      sid,
+      frameSeq: Number.isFinite(frameSeq) ? frameSeq : null,
+    };
   } catch (error) {
     console.warn(`fetchRaw() failed for '${requestUrl}'`, error);
     throw error instanceof Error ? error : new Error(String(error));
   }
+}
+
+export interface SetWorkloadInputFieldDataRequest {
+  engine_session_id: string;
+  field_handle?: number;
+  field_path?: string;
+  value: unknown;
+  seq?: number;
+}
+
+export interface SetWorkloadInputFieldDataResponseBody {
+  [key: string]: unknown;
+}
+
+export interface SetWorkloadInputFieldDataResult {
+  ok: boolean;
+  status: number;
+  body: SetWorkloadInputFieldDataResponseBody | null;
+}
+
+export interface SetWorkloadInputFieldDataOptions {
+  maxAttempts?: number;
+  baseRetryDelayMs?: number;
+  maxRetryDelayMs?: number;
+}
+
+const RETRYABLE_WRITE_STATUS_CODES = new Set([409, 429, 503]);
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function computeRetryDelayMs(
+  attempt: number,
+  status: number,
+  body: SetWorkloadInputFieldDataResponseBody | null,
+  baseRetryDelayMs: number,
+  maxRetryDelayMs: number,
+): number {
+  const bodyRetryRaw = body?.retry_after_ms;
+  const bodyRetry =
+    typeof bodyRetryRaw === "number" && Number.isFinite(bodyRetryRaw)
+      ? Math.max(0, Math.floor(bodyRetryRaw))
+      : null;
+  if (status === 429 && bodyRetry !== null) {
+    return Math.min(bodyRetry, maxRetryDelayMs);
+  }
+
+  const expo = Math.min(maxRetryDelayMs, baseRetryDelayMs * 2 ** (attempt - 1));
+  const jitter = Math.floor(expo * (0.2 * Math.random()));
+  return Math.min(maxRetryDelayMs, expo + jitter);
+}
+
+export async function setWorkloadInputFieldData(
+  base_url: string,
+  request: SetWorkloadInputFieldDataRequest,
+  options: SetWorkloadInputFieldDataOptions = {},
+): Promise<SetWorkloadInputFieldDataResult> {
+  const endpoint = `${base_url}/api/telemetry/set_workload_input_field_data`;
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+  const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
+  const maxRetryDelayMs = Math.max(
+    baseRetryDelayMs,
+    options.maxRetryDelayMs ?? 500,
+  );
+
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(request),
+      });
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        return {
+          ok: false,
+          status: 0,
+          body: {
+            error: "network_error",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+      await delay(
+        computeRetryDelayMs(
+          attempt,
+          503,
+          null,
+          baseRetryDelayMs,
+          maxRetryDelayMs,
+        ),
+      );
+      continue;
+    }
+
+    let body: SetWorkloadInputFieldDataResponseBody | null = null;
+    try {
+      body = (await response.json()) as SetWorkloadInputFieldDataResponseBody;
+    } catch {
+      body = null;
+    }
+
+    if (response.ok) {
+      return { ok: true, status: response.status, body };
+    }
+
+    if (
+      !RETRYABLE_WRITE_STATUS_CODES.has(response.status) ||
+      attempt >= maxAttempts
+    ) {
+      return { ok: false, status: response.status, body };
+    }
+
+    await delay(
+      computeRetryDelayMs(
+        attempt,
+        response.status,
+        body,
+        baseRetryDelayMs,
+        maxRetryDelayMs,
+      ),
+    );
+  }
+
+  return { ok: false, status: 0, body: { error: "unexpected_retry_exit" } };
 }
 
 // -----------------------------------------------------------------------------
@@ -157,7 +307,7 @@ function withinBounds(total: number, offset: number, bytes: number): boolean {
 function safeUint8Slice(
   raw: ArrayBuffer,
   offset: number,
-  length: number
+  length: number,
 ): Uint8Array | null {
   if (!withinBounds(raw.byteLength, offset, length)) {
     return null;
@@ -174,7 +324,7 @@ function readSingle(
   raw: ArrayBuffer,
   offset: number,
   type: string,
-  mime_type: string
+  mime_type: string,
 ): any {
   const safeRead = <T>(bytes: number, reader: () => T): T | null => {
     if (!withinBounds(view.byteLength, offset, bytes)) return null;
@@ -267,7 +417,7 @@ export function readValue(
   offset: number,
   type: string,
   mime_type: string,
-  element_count: number
+  element_count: number,
 ): any {
   try {
     if (element_count <= 1) {
@@ -301,19 +451,19 @@ namespace TelemetryFactory {
       abs: number,
       type: string,
       mime_type?: string,
-      count?: number
+      count?: number,
     ): unknown;
     buildObject(
       model: TelemetryModel,
       typeName: string,
-      baseOffset: number
+      baseOffset: number,
     ): Record<string, unknown>;
     buildArray(
       model: TelemetryModel,
       typeName: string,
       baseOffset: number,
       count: number,
-      strideBytes: number
+      strideBytes: number,
     ): Record<string, unknown>[];
   }
 
@@ -362,7 +512,7 @@ namespace TelemetryFactory {
                 f.type,
                 childAbs,
                 f.element_count,
-                childType?.size ?? 0
+                childType?.size ?? 0,
               );
             } else {
               out[f.name] = reader.buildObject(model, f.type, childAbs);
@@ -373,7 +523,7 @@ namespace TelemetryFactory {
               childAbs,
               f.type,
               childType?.mime_type,
-              f.element_count
+              f.element_count,
             );
           }
         }
@@ -395,11 +545,22 @@ namespace TelemetryFactory {
 
     const model = new TelemetryModel(typeMap);
     model.schemaSessionId = layout.engine_session_id ?? "";
+    const writableInputsByPath = new Map<string, LayoutWritableInput>();
+    for (const writable of layout.writable_inputs ?? []) {
+      if (
+        writable &&
+        typeof writable.field_path === "string" &&
+        Number.isFinite(writable.field_handle)
+      ) {
+        writableInputsByPath.set(writable.field_path, writable);
+      }
+    }
+    model.writable_inputs_by_path = writableInputsByPath;
 
     const buildStruct = (
       typeName: string,
       base: number,
-      path: string
+      path: string,
     ): TelemetryStruct => {
       const t = typeMap.get(typeName);
       const fields: ITelemetryField[] = [];
@@ -412,6 +573,7 @@ namespace TelemetryFactory {
             childType?.fields && childType.fields.length > 0
           );
           const childPath = `${path}.${f.name}`;
+          const writableMeta = writableInputsByPath.get(childPath);
 
           if (isComposite) {
             // Schema for one instance, array handled at getValue()
@@ -432,8 +594,9 @@ namespace TelemetryFactory {
                 childType?.enum_values,
                 childType?.enum_is_flags,
                 childType?.enum_is_signed,
-                childType?.enum_underlying_size
-              )
+                childType?.enum_underlying_size,
+                writableMeta?.field_handle,
+              ),
             );
           } else {
             fields.push(
@@ -452,8 +615,9 @@ namespace TelemetryFactory {
                 childType?.enum_values,
                 childType?.enum_is_flags,
                 childType?.enum_is_signed,
-                childType?.enum_underlying_size
-              )
+                childType?.enum_underlying_size,
+                writableMeta?.field_handle,
+              ),
             );
           }
         }
@@ -471,21 +635,21 @@ namespace TelemetryFactory {
         d.config = buildStruct(
           wl.config.type,
           base + wl.config.offset_within_container,
-          `${wl.name}.config`
+          `${wl.name}.config`,
         );
       }
       if (wl.inputs) {
         d.inputs = buildStruct(
           wl.inputs.type,
           base + wl.inputs.offset_within_container,
-          `${wl.name}.inputs`
+          `${wl.name}.inputs`,
         );
       }
       if (wl.outputs) {
         d.outputs = buildStruct(
           wl.outputs.type,
           base + wl.outputs.offset_within_container,
-          `${wl.name}.outputs`
+          `${wl.name}.outputs`,
         );
       }
 
@@ -498,7 +662,7 @@ namespace TelemetryFactory {
           d.stats = buildStruct(
             "WorkloadInstanceStats",
             abs,
-            `${wl.name}.stats`
+            `${wl.name}.stats`,
           );
         }
       }
@@ -523,10 +687,10 @@ namespace TelemetryFactory {
         section === "config"
           ? wl.config
           : section === "inputs"
-          ? wl.inputs
-          : section === "outputs"
-          ? wl.outputs
-          : undefined;
+            ? wl.inputs
+            : section === "outputs"
+              ? wl.outputs
+              : undefined;
       if (!root) return;
 
       let fields = root.fields as ReadonlyArray<ITelemetryField>;
@@ -553,6 +717,7 @@ class TelemetryModel implements ITelemetryModel {
   schemaSessionId: string = "";
   workloads_buffer_size_used: number = 0;
   process_memory_used: number = 0;
+  writable_inputs_by_path: ReadonlyMap<string, LayoutWritableInput> = new Map();
   private _raw: ArrayBuffer | null = null;
   private _view: DataView | null = null;
 
@@ -578,7 +743,7 @@ class TelemetryStruct implements ITelemetryStruct {
     public readonly typeName: string,
     public readonly offset: number,
     public readonly fields: ITelemetryField[],
-    public readonly mime_type?: string
+    public readonly mime_type?: string,
   ) {}
 }
 
@@ -595,30 +760,31 @@ class TelemetryField implements ITelemetryField {
         abs: number,
         type: string,
         mime_type?: string,
-        count?: number
+        count?: number,
       ) => unknown;
       buildObject: (
         model: TelemetryModel,
         typeName: string,
-        base: number
+        base: number,
       ) => Record<string, unknown>;
       buildArray: (
         model: TelemetryModel,
         typeName: string,
         base: number,
         count: number,
-        stride: number
+        stride: number,
       ) => Record<string, unknown>[];
     },
     public readonly mime_type?: string,
-    private readonly elementCount: number = 1,
+    public readonly elementCount: number = 1,
     public readonly fields?: ITelemetryField[],
     private readonly childSize: number = 0, // for struct arrays
     private readonly isCompositeNode: boolean = false,
     public readonly enum_values?: LayoutEnumValue[],
     public readonly enum_is_flags?: boolean,
     public readonly enum_is_signed?: boolean,
-    public readonly enum_underlying_size?: number
+    public readonly enum_underlying_size?: number,
+    public readonly writable_input_handle?: number,
   ) {}
 
   getValue(): any {
@@ -629,7 +795,7 @@ class TelemetryField implements ITelemetryField {
           this.type,
           this.offset,
           this.elementCount,
-          this.childSize
+          this.childSize,
         );
       }
       if (this.fields?.length) {
@@ -648,15 +814,32 @@ class TelemetryField implements ITelemetryField {
       this.offset,
       this.type,
       this.mime_type,
-      this.elementCount
+      this.elementCount,
     );
   }
 
-  private readEnumValues():
-    | number
-    | bigint
-    | Array<number | bigint>
-    | null {
+  getArrayElement(index: number): ITelemetryField | null {
+    if (this.elementCount <= 1) return null;
+    if (index < 0 || index >= this.elementCount) return null;
+
+    const stride = this.isCompositeNode
+      ? this.childSize
+      : this.getPrimitiveStrideBytes();
+    if (stride <= 0) return null;
+
+    const elementOffset = this.offset + index * stride;
+    const elementPath = `${this.path}[${index}]`;
+
+    return this.cloneForElement(
+      `[${index}]`,
+      elementPath,
+      elementOffset,
+      1,
+      this.fields,
+    );
+  }
+
+  private readEnumValues(): number | bigint | Array<number | bigint> | null {
     if (!this.enum_values || this.enum_values.length === 0) return null;
     if (!this.enum_underlying_size) return null;
     const view = this.model.view();
@@ -720,6 +903,134 @@ class TelemetryField implements ITelemetryField {
       currentOffset += size;
     }
     return results;
+  }
+
+  private cloneForElement(
+    name: string,
+    path: string,
+    offset: number,
+    elementCount: number,
+    sourceFields?: ITelemetryField[],
+  ): ITelemetryField {
+    const clonedFields = sourceFields?.map((child) =>
+      this.cloneChildField(child, path, offset),
+    );
+
+    return new TelemetryField(
+      name,
+      this.type,
+      path,
+      offset,
+      this.model,
+      this.reader,
+      this.mime_type,
+      elementCount,
+      clonedFields,
+      this.childSize,
+      this.isCompositeNode,
+      this.enum_values,
+      this.enum_is_flags,
+      this.enum_is_signed,
+      this.enum_underlying_size,
+      this.writable_input_handle,
+    );
+  }
+
+  private cloneChildField(
+    child: ITelemetryField,
+    parentPath: string,
+    parentOffset: number,
+  ): ITelemetryField {
+    const childOffsetDelta = child.offset - this.offset;
+    const clonedChildPath = `${parentPath}.${child.name}`;
+    const childFields = child.fields?.map((grandChild) =>
+      this.cloneNestedField(
+        grandChild,
+        child.path,
+        child.offset,
+        clonedChildPath,
+        parentOffset + childOffsetDelta,
+      ),
+    );
+
+    return new TelemetryField(
+      child.name,
+      child.type,
+      clonedChildPath,
+      parentOffset + childOffsetDelta,
+      this.model,
+      this.reader,
+      child.mime_type,
+      child.elementCount,
+      childFields,
+      this.getChildSize(child),
+      this.isCompositeField(child),
+      child.enum_values,
+      child.enum_is_flags,
+      child.enum_is_signed,
+      child.enum_underlying_size,
+      child.writable_input_handle,
+    );
+  }
+
+  private cloneNestedField(
+    field: ITelemetryField,
+    sourceBasePath: string,
+    sourceBaseOffset: number,
+    targetBasePath: string,
+    targetBaseOffset: number,
+  ): ITelemetryField {
+    const relativePath = field.path.startsWith(`${sourceBasePath}.`)
+      ? field.path.slice(sourceBasePath.length + 1)
+      : field.name;
+    const clonedPath = `${targetBasePath}.${relativePath}`;
+    const offsetDelta = field.offset - sourceBaseOffset;
+    const clonedOffset = targetBaseOffset + offsetDelta;
+    const clonedFields = field.fields?.map((child) =>
+      this.cloneNestedField(
+        child,
+        field.path,
+        field.offset,
+        clonedPath,
+        clonedOffset,
+      ),
+    );
+
+    return new TelemetryField(
+      field.name,
+      field.type,
+      clonedPath,
+      clonedOffset,
+      this.model,
+      this.reader,
+      field.mime_type,
+      field.elementCount,
+      clonedFields,
+      this.getChildSize(field),
+      this.isCompositeField(field),
+      field.enum_values,
+      field.enum_is_flags,
+      field.enum_is_signed,
+      field.enum_underlying_size,
+      field.writable_input_handle,
+    );
+  }
+
+  private getChildSize(field: ITelemetryField): number {
+    const childType = this.model.typeMap.get(field.type);
+    return childType?.size ?? 0;
+  }
+
+  private isCompositeField(field: ITelemetryField): boolean {
+    return Boolean(field.fields && field.fields.length > 0);
+  }
+
+  private getPrimitiveStrideBytes(): number {
+    if (this.enum_underlying_size && this.enum_underlying_size > 0) {
+      return this.enum_underlying_size;
+    }
+    const typeInfo = this.model.typeMap.get(this.type);
+    return Math.max(0, typeInfo?.size ?? 0);
   }
 }
 

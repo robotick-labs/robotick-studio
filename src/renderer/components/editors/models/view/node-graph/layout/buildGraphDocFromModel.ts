@@ -117,11 +117,22 @@ export function buildGraphDocFromModel(
     }
     for (const r of m.remote_models ?? []) {
       for (const c of r.connections ?? []) {
-        edges.push({
-          from: nodeIdFor(modelId, c.from.split(".")[0]),
-          to: `${r.name}:${c.to_remote.split(".")[0]}`,
-          isRemote: true,
-        });
+        if (typeof c.from === "string" && typeof c.to_remote === "string") {
+          edges.push({
+            from: nodeIdFor(modelId, c.from.split(".")[0]),
+            to: `${r.name}:${c.to_remote.split(".")[0]}`,
+            isRemote: true,
+          });
+        } else if (
+          typeof c.from_remote === "string" &&
+          typeof c.to === "string"
+        ) {
+          edges.push({
+            from: `${r.name}:${c.from_remote.split(".")[0]}`,
+            to: nodeIdFor(modelId, c.to.split(".")[0]),
+            isRemote: true,
+          });
+        }
       }
     }
 

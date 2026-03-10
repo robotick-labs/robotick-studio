@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { EngineModel } from "./types";
+import React, { useEffect, useMemo, useState } from "react";
+import { EngineModel, FieldConnectionHint } from "./types";
 import { TelemetryWorkload } from "./TelemetryWorkload";
 import {
   useTelemetryStream,
@@ -84,6 +84,13 @@ export function TelemetryModel({
   const workloads = latestModel?.workloads ?? [];
   const workloadsMemoryUsed = latestModel?.workloads_buffer_size_used ?? 0;
   const processMemoryUsed = latestModel?.process_memory_used ?? 0;
+  const fieldConnectionHints = useMemo(
+    () =>
+      new Map<string, FieldConnectionHint>(
+        Object.entries(model.fieldConnectionHints ?? {})
+      ),
+    [model.fieldConnectionHints]
+  );
 
   const handleToggle = () => setIsExpanded((prev) => !prev);
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
@@ -135,6 +142,7 @@ export function TelemetryModel({
                   w={w}
                   telemetryBaseUrl={model.instanceURL}
                   modelName={model.modelName}
+                  fieldConnectionHints={fieldConnectionHints}
                 />
               ))}
             </tbody>

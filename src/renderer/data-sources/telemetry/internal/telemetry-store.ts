@@ -28,6 +28,7 @@ type StoreEntry = {
   baseUrl: string;
   subscribers: Set<SubscriberEntry>;
   layout: LayoutModel | null;
+  model: ITelemetryModel | null;
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
   lastLayoutFetchSid: string;
   pollingTask: PollingTask | null;
@@ -116,6 +117,7 @@ export function createTelemetryStore(
         baseUrl,
         subscribers: new Set(),
         layout: null,
+        model: null,
         lastRaw: null,
         lastLayoutFetchSid: "",
         pollingTask: null,
@@ -148,22 +150,42 @@ export function createTelemetryStore(
     entry.pollingTask = null;
   }
 
+  function setEntryLayout(entry: StoreEntry, layout: LayoutModel | null) {
+    entry.layout = layout;
+    entry.model = null;
+    entry.lastLayoutFetchSid = layout?.engine_session_id ?? "";
+  }
+
+  function getOrCreateModel(entry: StoreEntry): ITelemetryModel | null {
+    if (!entry.layout) {
+      return null;
+    }
+    if (!entry.model) {
+      entry.model = createTelemetryModelImpl(entry.layout);
+    }
+    return entry.model;
+  }
+
   async function pollEntry(entry: StoreEntry) {
     if (telemetrySuspended) return;
     try {
       if (!entry.layout) {
         const layout = await enqueueFetch(() => fetchLayoutImpl(entry.baseUrl));
         if (layout) {
-          entry.layout = layout;
-          entry.lastLayoutFetchSid = layout.engine_session_id ?? "";
+          setEntryLayout(entry, layout);
         }
       }
       if (!entry.layout) return;
 
       const previousRaw = entry.lastRaw;
-      const { raw, sid } = await enqueueFetch(() =>
+      const { raw, sid, frameSeq } = await enqueueFetch(() =>
         fetchRawImpl(entry.baseUrl)
       );
+
+      if (typeof frameSeq === "number" && (frameSeq & 1) === 1) {
+        // Odd frame sequence means engine write in progress; skip this sample.
+        return;
+      }
 
       const hasSid = sid.length > 0;
       const previousSid = previousRaw?.sid ?? "";
@@ -176,7 +198,10 @@ export function createTelemetryStore(
         if (hasSid && entry.lastLayoutFetchSid === sid) {
           // We already fetched a layout that matches this sid.
           entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
-          const model = createTelemetryModelImpl(entry.layout);
+          const model = getOrCreateModel(entry);
+          if (!model) {
+            return;
+          }
           model.raw = raw;
           notifySubscribers(entry, model);
           return;
@@ -186,19 +211,18 @@ export function createTelemetryStore(
           fetchLayoutImpl(entry.baseUrl)
         );
         if (refreshedLayout && hasSid && refreshedLayout.engine_session_id === sid) {
-          entry.layout = refreshedLayout;
-          entry.lastLayoutFetchSid = sid;
+          setEntryLayout(entry, refreshedLayout);
         } else {
           // Avoid decoding a new session with a stale schema.
-          entry.layout = null;
+          setEntryLayout(entry, null);
           entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
           return;
         }
       }
 
       entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
-      if (!entry.layout) return;
-      const model = createTelemetryModelImpl(entry.layout);
+      const model = getOrCreateModel(entry);
+      if (!model) return;
       model.raw = raw;
       notifySubscribers(entry, model);
     } catch (err) {
@@ -351,7 +375,10 @@ export function createTelemetryStore(
           return;
         }
         try {
-          const model = createTelemetryModelImpl(current.layout as LayoutModel);
+          const model = getOrCreateModel(current);
+          if (!model) {
+            return;
+          }
           model.raw = current.lastRaw?.buffer ?? null;
           deliverToSubscriber(subscriberEntry, model, true);
         } catch (error) {

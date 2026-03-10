@@ -1,6 +1,96 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+type RendererErrorReport = {
+  type: "error" | "unhandledrejection";
+  message: string;
+  stack?: string;
+  source?: string;
+  lineno?: number;
+  colno?: number;
+  reason?: string;
+  href?: string;
+};
+
+function describeUnknownError(value: unknown): string {
+  if (value instanceof Error) {
+    return value.stack ?? `${value.name}: ${value.message}`;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "message" in value &&
+    typeof (value as { message?: unknown }).message === "string"
+  ) {
+    const withMaybeStack = value as { message: string; stack?: unknown; name?: unknown };
+    if (typeof withMaybeStack.stack === "string" && withMaybeStack.stack.length > 0) {
+      return withMaybeStack.stack;
+    }
+    const name =
+      typeof withMaybeStack.name === "string" && withMaybeStack.name.length > 0
+        ? withMaybeStack.name
+        : "Error";
+    return `${name}: ${withMaybeStack.message}`;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function reportRendererError(payload: RendererErrorReport) {
+  try {
+    ipcRenderer.send("robotick-renderer-error", payload);
+  } catch (error) {
+    console.error("[Preload] Failed to report renderer error:", error);
+  }
+}
+
+function installRendererErrorForwarding() {
+  window.addEventListener("error", (event) => {
+    const maybeError = event.error;
+    reportRendererError({
+      type: "error",
+      message: event.message || maybeError?.message || "Unknown renderer error",
+      stack:
+        maybeError instanceof Error
+          ? maybeError.stack
+          : typeof maybeError === "string"
+          ? maybeError
+          : undefined,
+      source: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      href: window.location.href,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    reportRendererError({
+      type: "unhandledrejection",
+      message:
+        reason instanceof Error
+          ? reason.message
+          : typeof reason === "string"
+          ? reason
+          : "Unhandled promise rejection",
+      stack: reason instanceof Error ? reason.stack : undefined,
+      reason: describeUnknownError(reason),
+      href: window.location.href,
+    });
+  });
+}
+
 const expose = () => {
+  installRendererErrorForwarding();
+
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
   const windowControls = usesNativeWindowFrame
     ? undefined

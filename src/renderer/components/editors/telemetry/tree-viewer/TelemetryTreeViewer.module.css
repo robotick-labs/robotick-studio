@@ -48,10 +48,31 @@
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.9);
+  min-width: 0;
+}
+
+.nodeRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.nodeEntry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 2px 0;
 }
 
 .nodeValue {
   color: #8fd7ff;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nodeToggle {
@@ -59,8 +80,24 @@
   border: none;
   color: inherit;
   cursor: pointer;
-  margin-right: 4px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   font-size: 0.85rem;
+  line-height: 1;
+}
+
+.nodeToggleSpacer {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.writableNodeEntry {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .message {

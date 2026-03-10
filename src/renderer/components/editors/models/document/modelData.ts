@@ -14,8 +14,10 @@ export interface DirectConnection {
   to: string;
 }
 export interface RemoteDirectConnection {
-  from: string;
-  to_remote: string;
+  from?: string;
+  to_remote?: string;
+  from_remote?: string;
+  to?: string;
 }
 export interface RemoteModelSpec {
   name: string;

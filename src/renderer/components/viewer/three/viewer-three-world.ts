@@ -43,6 +43,86 @@ type StatsRecord = {
 
 type NodeIndex = Map<string, THREE.Object3D>;
 
+type ClosableImage = {
+  close?: () => void;
+};
+
+function hashBytes(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16);
+}
+
+function closeImageResource(image: unknown) {
+  if (!image || typeof image !== "object") {
+    return;
+  }
+  try {
+    (image as ClosableImage).close?.();
+  } catch (error) {
+    console.warn("[viewer] Failed to close image resource", error);
+  }
+}
+
+type FixedVectorBinaryValue = {
+  data_buffer?: unknown;
+  count?: unknown;
+};
+
+function extractBinaryBytes(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) {
+    return value.byteLength > 0 ? value : null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeFixedVector = value as FixedVectorBinaryValue;
+  if (!(maybeFixedVector.data_buffer instanceof Uint8Array)) {
+    return null;
+  }
+
+  const raw = maybeFixedVector.data_buffer;
+  const count =
+    typeof maybeFixedVector.count === "number" &&
+    Number.isFinite(maybeFixedVector.count)
+      ? Math.max(
+          0,
+          Math.min(raw.byteLength, Math.trunc(maybeFixedVector.count)),
+        )
+      : raw.byteLength;
+  return count > 0 ? raw.subarray(0, count) : null;
+}
+
+function extractBinaryFieldBytes(
+  telemetryModel: ITelemetryModel,
+  fieldPath: string,
+  fieldValue: unknown,
+): Uint8Array | null {
+  const countedBytes = extractBinaryBytes(fieldValue);
+  if (countedBytes && !(fieldValue instanceof Uint8Array)) {
+    return countedBytes;
+  }
+
+  if (fieldValue instanceof Uint8Array) {
+    const lastDot = fieldPath.lastIndexOf(".");
+    if (lastDot > 0) {
+      const parentFieldPath = fieldPath.slice(0, lastDot);
+      const parentValue = telemetryModel.getField?.(parentFieldPath)?.getValue();
+      const parentBytes = extractBinaryBytes(parentValue);
+      if (parentBytes) {
+        return parentBytes;
+      }
+    }
+  }
+
+  return countedBytes;
+}
+
 export class ViewerWorld {
   // temp scratch
   private __TMP = {
@@ -82,6 +162,7 @@ export class ViewerWorld {
   // telemetry
   private telemetrySubscriptions = new Map<string, () => void>();
   private telemetryStats = new Map<string, StatsRecord>();
+  private textureFrameSignatures = new Map<string, string>();
   private frameStats: StatsRecord = {
     lastTimestamp: null,
     count: 0,
@@ -103,21 +184,34 @@ export class ViewerWorld {
     .multiply(
       new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0),
-        Math.PI
-      )
+        Math.PI,
+      ),
     ); // +X → –Z
 
   private readonly MJ_TO_THREE_INV = this.MJ_TO_THREE.clone().invert();
-  private readonly REP103_TO_THREE = new THREE.Quaternion().setFromRotationMatrix(
-    new THREE.Matrix4().set(
-      // Columns are source basis vectors expressed in Three.js coordinates.
-      // REP-103: +X fwd -> (0,0,-1), +Y left -> (-1,0,0), +Z up -> (0,1,0)
-      0, -1, 0, 0,
-      0, 0, 1, 0,
-      -1, 0, 0, 0,
-      0, 0, 0, 1
-    )
-  );
+  private readonly REP103_TO_THREE =
+    new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().set(
+        // Columns are source basis vectors expressed in Three.js coordinates.
+        // REP-103: +X fwd -> (0,0,-1), +Y left -> (-1,0,0), +Z up -> (0,1,0)
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ),
+    );
   private readonly REP103_TO_THREE_INV = this.REP103_TO_THREE.clone().invert();
 
   constructor(config: ViewerConfig) {
@@ -127,7 +221,7 @@ export class ViewerWorld {
   // ---------- world/local helpers ----------
   private getParentWorldQuat(
     obj: THREE.Object3D,
-    out = new THREE.Quaternion()
+    out = new THREE.Quaternion(),
   ) {
     if (!obj.parent) return out.identity();
     obj.parent.getWorldQuaternion(out);
@@ -137,7 +231,7 @@ export class ViewerWorld {
   private worldToLocalPosition(
     obj: THREE.Object3D,
     worldPos: THREE.Vector3,
-    out = new THREE.Vector3()
+    out = new THREE.Vector3(),
   ) {
     out.copy(worldPos);
     if (obj.parent) obj.parent.worldToLocal(out);
@@ -147,7 +241,7 @@ export class ViewerWorld {
   private worldToLocalQuat(
     obj: THREE.Object3D,
     worldQuat: THREE.Quaternion,
-    out = new THREE.Quaternion()
+    out = new THREE.Quaternion(),
   ) {
     const qParent = this.getParentWorldQuat(obj, this.__TMP.qParent);
     out.copy(qParent).invert().multiply(worldQuat);
@@ -157,7 +251,7 @@ export class ViewerWorld {
   private convertWorldPosFromSource(
     v: THREE.Vector3,
     sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
-    sourceUp?: "Y" | "Z"
+    sourceUp?: "Y" | "Z",
   ) {
     if (sourceFrame === "REP103") {
       // REP-103 (+X fwd, +Y left, +Z up) -> Three.js (+X right, +Y up, -Z fwd)
@@ -179,7 +273,7 @@ export class ViewerWorld {
   private convertWorldQuatFromSource(
     q: THREE.Quaternion,
     sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
-    sourceUp?: "Y" | "Z"
+    sourceUp?: "Y" | "Z",
   ) {
     if (sourceFrame === "REP103") {
       q.premultiply(this.REP103_TO_THREE);
@@ -237,7 +331,7 @@ export class ViewerWorld {
       cam.fov,
       width / height,
       cam.near,
-      cam.far
+      cam.far,
     );
     if (cam.target && cam.offset) {
       const target = new THREE.Vector3(...cam.target);
@@ -267,7 +361,7 @@ export class ViewerWorld {
 
     // bg + fog
     this.scene.background = new THREE.Color(
-      this.worldConfig.backgroundColor ?? "#ffffff"
+      this.worldConfig.backgroundColor ?? "#ffffff",
     );
     if (this.worldConfig.fog) {
       const f = this.worldConfig.fog;
@@ -280,7 +374,7 @@ export class ViewerWorld {
     // loader stack
     const THREE_PATH = `https://unpkg.com/three@0.${THREE.REVISION}.x`;
     const draco = new DRACOLoader().setDecoderPath(
-      `${THREE_PATH}/examples/jsm/libs/draco/gltf/`
+      `${THREE_PATH}/examples/jsm/libs/draco/gltf/`,
     );
     const ktx2 = new KTX2Loader()
       .setTranscoderPath(`${THREE_PATH}/examples/jsm/libs/basis/`)
@@ -292,7 +386,10 @@ export class ViewerWorld {
 
     // models
     for (const m of this.worldConfig.models) {
-      const modelUrl = resolveViewerAssetUrl(m.url, this.worldConfig.projectPath);
+      const modelUrl = resolveViewerAssetUrl(
+        m.url,
+        this.worldConfig.projectPath,
+      );
       await this.loadModel(m.id, modelUrl, m.transform);
     }
 
@@ -303,7 +400,7 @@ export class ViewerWorld {
     if (this.worldConfig.addGroundPlane ?? true) {
       const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(100, 100),
-        new THREE.ShadowMaterial({ opacity: 0.45 })
+        new THREE.ShadowMaterial({ opacity: 0.45 }),
       );
       ground.rotation.x = -Math.PI / 2;
       ground.position.y = 0;
@@ -329,13 +426,14 @@ export class ViewerWorld {
     this.cleanupCameraOverlay();
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
+    this.textureFrameSignatures.clear();
     if (this.animReq) cancelAnimationFrame(this.animReq);
     this.controls?.dispose();
     this.pmrem?.dispose();
     this.renderer?.dispose();
     if (this.renderer?.domElement?.parentElement) {
       this.renderer.domElement.parentElement.removeChild(
-        this.renderer.domElement
+        this.renderer.domElement,
       );
     }
     this.scene.traverse((n: any) => {
@@ -343,11 +441,14 @@ export class ViewerWorld {
       const mats = Array.isArray(n.material)
         ? n.material
         : n.material
-        ? [n.material]
-        : [];
+          ? [n.material]
+          : [];
       for (const m of mats) {
         Object.values(m).forEach((v: any) => {
-          if (v?.isTexture) v.dispose?.();
+          if (v?.isTexture) {
+            closeImageResource(v.image);
+            v.dispose?.();
+          }
         });
       }
     });
@@ -384,14 +485,14 @@ export class ViewerWorld {
       if (rec?.path) {
         const envPath = resolveViewerAssetUrl(
           rec.path,
-          this.worldConfig.projectPath
+          this.worldConfig.projectPath,
         );
         envTex = await new Promise<THREE.Texture>((resolve, reject) => {
           new EXRLoader().load(
             envPath,
             (tex) => resolve(this.pmrem.fromEquirectangular(tex).texture),
             undefined,
-            reject
+            reject,
           );
         });
       }
@@ -403,7 +504,7 @@ export class ViewerWorld {
     if (asBg && envTex) this.scene.background = envTex;
     else
       this.scene.background = new THREE.Color(
-        this.worldConfig.backgroundColor ?? "#ffffff"
+        this.worldConfig.backgroundColor ?? "#ffffff",
       );
   }
 
@@ -490,7 +591,7 @@ export class ViewerWorld {
       rotationEuler?: [number, number, number];
       scale?: [number, number, number];
     },
-    makeFloor = false
+    makeFloor = false,
   ) {
     return new Promise<void>((resolve, reject) => {
       this.gltfLoader.load(
@@ -546,7 +647,7 @@ export class ViewerWorld {
           if (makeFloor) {
             const floor = new THREE.Mesh(
               new THREE.PlaneGeometry(100, 100),
-              new THREE.MeshStandardMaterial({ color: 0xffffff })
+              new THREE.MeshStandardMaterial({ color: 0xffffff }),
             );
             floor.rotation.x = -Math.PI / 2;
             floor.position.y = 0;
@@ -557,7 +658,7 @@ export class ViewerWorld {
           resolve();
         },
         undefined,
-        reject
+        reject,
       );
     });
   }
@@ -579,7 +680,7 @@ export class ViewerWorld {
       const baseUrl = await this.resolvePollerBaseUrl(config);
       if (!baseUrl) {
         console.warn(
-          `[viewer] telemetry poller ${config.id} missing telemetry base URL`
+          `[viewer] telemetry poller ${config.id} missing telemetry base URL`,
         );
         continue;
       }
@@ -763,7 +864,7 @@ export class ViewerWorld {
   }
 
   private async resolvePollerBaseUrl(
-    poller: RestPoller
+    poller: RestPoller,
   ): Promise<string | null> {
     if (poller.baseUrl?.trim()) {
       return poller.baseUrl.trim();
@@ -773,12 +874,11 @@ export class ViewerWorld {
       return null;
     }
     try {
-      const descriptor = await ProjectData.waitForModelDescriptorByName(
-        modelName
-      );
+      const descriptor =
+        await ProjectData.waitForModelDescriptorByName(modelName);
       if (!descriptor) {
         console.warn(
-          `[viewer] telemetry model "${modelName}" not found in project data`
+          `[viewer] telemetry model "${modelName}" not found in project data`,
         );
         return null;
       }
@@ -786,7 +886,7 @@ export class ViewerWorld {
     } catch (err) {
       console.warn(
         `[viewer] Failed to resolve telemetry model "${modelName}"`,
-        err
+        err,
       );
       return null;
     }
@@ -794,11 +894,11 @@ export class ViewerWorld {
 
   private async executePoller(
     poller: RestPoller,
-    telemetryModel: ITelemetryModel
+    telemetryModel: ITelemetryModel,
   ) {
     this.recordTelemetrySample(poller.id);
     const workload = telemetryModel.workloads.find(
-      (w) => w.name === poller.workloadName
+      (w) => w.name === poller.workloadName,
     );
     if (!workload) {
       return;
@@ -811,72 +911,108 @@ export class ViewerWorld {
         telemetryModel,
         poller.defaultSpace,
         poller.sourceFrame,
-        poller.sourceUp
+        poller.sourceUp,
       );
     }
 
     if (poller.textureFields?.length) {
       for (const t of poller.textureFields) {
-        const fieldPath = `${poller.workloadName}.${t.fieldId}`;
-        const field = telemetryModel.getField?.(fieldPath);
-        if (!field) {
-          console.warn("Texture field not found:", fieldPath);
-          continue;
-        }
-
-        if (field.mime_type !== "image/png") {
-          console.warn(
-            `Texture field mime_type [${field.mime_type}] is not 'image/png': ${fieldPath}`
-          );
-          continue;
-        }
-
-        const fieldValue = field.getValue();
-        if (!(fieldValue instanceof Uint8Array)) {
-          console.warn("Texture field is not binary:", t.fieldId, fieldValue);
-          continue;
-        }
-
-        const buffer = fieldValue.buffer.slice(
-          fieldValue.byteOffset,
-          fieldValue.byteOffset + fieldValue.byteLength
-        ) as ArrayBuffer;
-        const blob = new Blob([buffer], { type: field.mime_type });
-        const bitmap = await createImageBitmap(blob);
-
-        const node = this.findNodeAnyModel(t.node);
-        if (!node) continue;
-        let tex: THREE.Texture | null = null;
-        const mats = this.asMaterials(node);
-        for (const m of mats) {
-          const targetKey = this.materialPropKey(t.prop);
-          // @ts-ignore
-          const current = m[targetKey] as THREE.Texture | undefined;
-          if (!tex) {
-            tex = current ?? new THREE.Texture(bitmap);
-            tex.image = bitmap;
-            tex.needsUpdate = true;
-            tex.flipY = t.flipY ?? false;
-            if (t.sRGB ?? true) tex.colorSpace = THREE.SRGBColorSpace;
-            tex.generateMipmaps = t.generateMipmaps ?? false;
-            tex.minFilter = (t.minFilter ??
-              THREE.LinearFilter) as THREE.MinificationTextureFilter;
-            tex.magFilter = (t.magFilter ??
-              THREE.LinearFilter) as THREE.MagnificationTextureFilter;
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.anisotropy =
-              t.anisotropy ?? this.renderer.capabilities.getMaxAnisotropy();
-          } else {
-            tex.image = bitmap;
-            tex.needsUpdate = true;
+        try {
+          const fieldPath = `${poller.workloadName}.${t.fieldId}`;
+          const field = telemetryModel.getField?.(fieldPath);
+          if (!field) {
+            console.warn("Texture field not found:", fieldPath);
+            continue;
           }
-          // @ts-ignore
-          m[targetKey] = tex;
-          if (t.transparent) (m as any).transparent = true;
-          if (typeof t.alphaTest === "number")
-            (m as any).alphaTest = t.alphaTest;
-          m.needsUpdate = true;
+
+          if (field.mime_type !== "image/png") {
+            console.warn(
+              `Texture field mime_type [${field.mime_type}] is not 'image/png': ${fieldPath}`,
+            );
+            continue;
+          }
+
+          const fieldValue = field.getValue();
+          const fieldBytes = extractBinaryFieldBytes(
+            telemetryModel,
+            fieldPath,
+            fieldValue,
+          );
+          if (!fieldBytes) {
+            console.warn(
+              "Texture field is not binary or is empty:",
+              t.fieldId,
+              fieldValue,
+            );
+            continue;
+          }
+
+          const textureKey = `${poller.id}:${fieldPath}:${t.node}:${t.prop}`;
+          const frameSignature = `${fieldBytes.byteLength}:${hashBytes(fieldBytes)}`;
+          if (this.textureFrameSignatures.get(textureKey) === frameSignature) {
+            continue;
+          }
+
+          const buffer = fieldBytes.buffer.slice(
+            fieldBytes.byteOffset,
+            fieldBytes.byteOffset + fieldBytes.byteLength,
+          ) as ArrayBuffer;
+          const blob = new Blob([buffer], { type: field.mime_type });
+          const bitmap = await createImageBitmap(blob);
+
+          const node = this.findNodeAnyModel(t.node);
+          if (!node) {
+            closeImageResource(bitmap);
+            continue;
+          }
+
+          let tex: THREE.Texture | null = null;
+          const staleTextures = new Set<THREE.Texture>();
+          const mats = this.asMaterials(node);
+          for (const m of mats) {
+            const targetKey = this.materialPropKey(t.prop);
+            // @ts-ignore
+            const current = m[targetKey] as THREE.Texture | undefined;
+            if (!tex) {
+              tex = current ?? new THREE.Texture(bitmap);
+              if (current) {
+                closeImageResource(current.image);
+              }
+              tex.image = bitmap;
+              tex.needsUpdate = true;
+              tex.flipY = t.flipY ?? false;
+              if (t.sRGB ?? true) tex.colorSpace = THREE.SRGBColorSpace;
+              tex.generateMipmaps = t.generateMipmaps ?? false;
+              tex.minFilter = (t.minFilter ??
+                THREE.LinearFilter) as THREE.MinificationTextureFilter;
+              tex.magFilter = (t.magFilter ??
+                THREE.LinearFilter) as THREE.MagnificationTextureFilter;
+              tex.wrapS = THREE.ClampToEdgeWrapping;
+              tex.wrapT = THREE.ClampToEdgeWrapping;
+              tex.anisotropy =
+                t.anisotropy ?? this.renderer.capabilities.getMaxAnisotropy();
+            } else if (current && current !== tex) {
+              staleTextures.add(current);
+            }
+            // @ts-ignore
+            m[targetKey] = tex;
+            if (t.transparent) (m as any).transparent = true;
+            if (typeof t.alphaTest === "number")
+              (m as any).alphaTest = t.alphaTest;
+            m.needsUpdate = true;
+          }
+
+          for (const staleTexture of staleTextures) {
+            closeImageResource(staleTexture.image);
+            staleTexture.dispose();
+          }
+
+          this.textureFrameSignatures.set(textureKey, frameSignature);
+        } catch (error) {
+          console.error(
+            `[viewer] Failed to update texture field ${poller.workloadName}.${t.fieldId}`,
+            error,
+          );
         }
       }
     }
@@ -889,7 +1025,7 @@ export class ViewerWorld {
     telemetryModel: ITelemetryModel,
     defaultSpace?: "local" | "world",
     defaultSourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
-    defaultSourceUp?: "Y" | "Z"
+    defaultSourceUp?: "Y" | "Z",
   ) {
     for (const m of maps) {
       const fieldPath = `${workloadName}.${m.fieldId}`;
@@ -934,12 +1070,12 @@ export class ViewerWorld {
             const worldV = this.__TMP.v3.set(
               m.multiply ? wx * m.multiply : wx,
               m.multiply ? wy * m.multiply : wy,
-              m.multiply ? wz * m.multiply : wz
+              m.multiply ? wz * m.multiply : wz,
             );
             this.convertWorldPosFromSource(
               worldV,
               m.sourceFrame ?? defaultSourceFrame,
-              m.sourceUp ?? defaultSourceUp
+              m.sourceUp ?? defaultSourceUp,
             );
             const localV =
               spaceMode === "world"
@@ -959,7 +1095,7 @@ export class ViewerWorld {
           const zq = num(fieldValue.z ?? fieldValue[3]);
           if (
             [wq, xq, yq, zq].some(
-              (v) => typeof v !== "number" || Number.isNaN(v)
+              (v) => typeof v !== "number" || Number.isNaN(v),
             )
           )
             break;
@@ -968,7 +1104,7 @@ export class ViewerWorld {
           this.convertWorldQuatFromSource(
             this.__TMP.qWorld,
             m.sourceFrame ?? defaultSourceFrame,
-            m.sourceUp ?? defaultSourceUp
+            m.sourceUp ?? defaultSourceUp,
           );
 
           const qLocal =
@@ -976,7 +1112,7 @@ export class ViewerWorld {
               ? this.worldToLocalQuat(
                   node,
                   this.__TMP.qWorld,
-                  this.__TMP.qLocal
+                  this.__TMP.qLocal,
                 )
               : this.__TMP.qWorld;
           node.quaternion.copy(qLocal);
@@ -1006,13 +1142,13 @@ export class ViewerWorld {
               m.multiply ? ex * m.multiply : ex,
               m.multiply ? ey * m.multiply : ey,
               m.multiply ? ez * m.multiply : ez,
-              "XYZ"
+              "XYZ",
             );
             this.__TMP.qWorld.setFromEuler(eWorld);
             this.convertWorldQuatFromSource(
               this.__TMP.qWorld,
               m.sourceFrame ?? defaultSourceFrame,
-              m.sourceUp ?? defaultSourceUp
+              m.sourceUp ?? defaultSourceUp,
             );
 
             const qLocal =
@@ -1020,7 +1156,7 @@ export class ViewerWorld {
                 ? this.worldToLocalQuat(
                     node,
                     this.__TMP.qWorld,
-                    this.__TMP.qLocal
+                    this.__TMP.qLocal,
                   )
                 : this.__TMP.qWorld;
             node.quaternion.copy(qLocal);
@@ -1050,7 +1186,7 @@ export class ViewerWorld {
             node.scale.set(
               m.multiply ? sx * m.multiply : sx,
               m.multiply ? sy * m.multiply : sy,
-              m.multiply ? sz * m.multiply : sz
+              m.multiply ? sz * m.multiply : sz,
             );
           }
           node.updateMatrix();

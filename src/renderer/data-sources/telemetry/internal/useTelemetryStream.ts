@@ -11,6 +11,8 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
   const telemetryService = useTelemetryService();
   const [model, setModel] = useState<ITelemetryModel | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // The store may reuse a stable telemetry model and swap only `model.raw`.
+  const [revision, setRevision] = useState(0);
   const latestBaseUrlRef = useRef(baseUrl);
   useEffect(() => {
     latestBaseUrlRef.current = baseUrl;
@@ -35,6 +37,7 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
             return;
           }
           setModel((prev) => (prev === next ? prev : next));
+          setRevision((prev) => prev + 1);
           setError(null);
         },
         error: (err) => {
@@ -52,5 +55,5 @@ export function useTelemetryStream(baseUrl: string, pollingRateHz = 20) {
     };
   }, [baseUrl, pollingRateHz, telemetryService]);
 
-  return { model, error };
+  return { model, error, revision };
 }

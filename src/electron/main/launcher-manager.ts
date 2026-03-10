@@ -273,7 +273,8 @@ export async function ensureLauncherReady() {
 }
 
 export async function stopManagedLauncher() {
-  if (!managedProcess) {
+  const proc = managedProcess;
+  if (!proc) {
     return;
   }
 
@@ -284,18 +285,41 @@ export async function stopManagedLauncher() {
   }
 
   await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      if (managedProcess && !managedProcess.killed) {
-        managedProcess.kill("SIGTERM");
-      }
+    const exitListener = () => {
+      clearTimeout(forceKillTimeout);
       resolve();
+    };
+    const termTimer = setTimeout(() => {
+      if (proc.exitCode === null && !proc.killed) {
+        proc.kill("SIGTERM");
+      }
+    }, 200);
+    const forceKillTimeout = setTimeout(() => {
+      if (proc.exitCode === null && !proc.killed) {
+        proc.kill("SIGKILL");
+      }
     }, 3000);
 
-    managedProcess?.once("exit", () => {
-      clearTimeout(timeout);
+    proc.once("exit", exitListener);
+
+    const timeout = setTimeout(() => {
+      clearTimeout(termTimer);
+      clearTimeout(forceKillTimeout);
+      proc.off("exit", exitListener);
+      if (proc.exitCode === null && !proc.killed) {
+        proc.kill("SIGKILL");
+      }
       resolve();
+    }, 5000);
+
+    proc.once("exit", () => {
+      clearTimeout(termTimer);
+      clearTimeout(forceKillTimeout);
+      clearTimeout(timeout);
     });
   });
 
-  managedProcess = null;
+  if (managedProcess === proc) {
+    managedProcess = null;
+  }
 }

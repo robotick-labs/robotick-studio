@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import { ProjectData } from "../../../../data-sources/launcher";
@@ -12,6 +13,8 @@ const SUBTITLES_POLL_RATE_HZ = 5; // poll 5x per second (every 200ms)
 const DEFAULT_POSITION_X_NORM = 0.5;
 const DEFAULT_POSITION_Y_NORM = 0.84;
 const SUBTITLES_POSITION_STORAGE_BASE = "robotick-studio.rc.subtitles.position";
+const SUBTITLES_COLLAPSED_STORAGE_BASE =
+  "robotick-studio.rc.subtitles.collapsed";
 
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
@@ -36,6 +39,16 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     () =>
       buildNamespacedKey(
         SUBTITLES_POSITION_STORAGE_BASE,
+        configuredModelName,
+        configuredBaseUrl,
+        fieldPath?.trim()
+      ),
+    [configuredBaseUrl, configuredModelName, fieldPath]
+  );
+  const collapsedStorageKey = useMemo(
+    () =>
+      buildNamespacedKey(
+        SUBTITLES_COLLAPSED_STORAGE_BASE,
         configuredModelName,
         configuredBaseUrl,
         fieldPath?.trim()
@@ -70,7 +83,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     telemetryBaseUrl,
   ]);
 
-  const { model } = useTelemetryStream(
+  const { model, revision } = useTelemetryStream(
     telemetryBaseUrl ?? "",
     SUBTITLES_POLL_RATE_HZ
   );
@@ -87,8 +100,10 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   });
   const [positionStorageReadyKey, setPositionStorageReadyKey] =
     useState<string>("");
+  const [collapsed, setCollapsed] = useState(false);
   const lastTextRef = useRef("");
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const positionDirtyRef = useRef(false);
   const dragStateRef = useRef<{
@@ -109,11 +124,19 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   }, [configuredX, configuredY, storageKey]);
 
   useEffect(() => {
+    setCollapsed(readStorageValue(collapsedStorageKey) === "true");
+  }, [collapsedStorageKey]);
+
+  useEffect(() => {
     if (positionStorageReadyKey !== storageKey) return;
     if (!positionDirtyRef.current) return;
     setStorageValue(storageKey, JSON.stringify(positionNorm));
     positionDirtyRef.current = false;
   }, [positionNorm, positionStorageReadyKey, storageKey]);
+
+  useEffect(() => {
+    setStorageValue(collapsedStorageKey, collapsed ? "true" : "false");
+  }, [collapsed, collapsedStorageKey]);
 
   useEffect(() => {
     if (!fieldPath || !telemetryBaseUrl || !model?.getField) return;
@@ -127,9 +150,43 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       setVisible(Boolean(normalized));
       setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
-  }, [model, fieldPath, telemetryBaseUrl]);
+  }, [fieldPath, model, revision, telemetryBaseUrl]);
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
+
+  useEffect(() => {
+    const clampToViewport = () => {
+      const overlay = overlayRef.current;
+      const anchor = anchorRef.current;
+      if (!overlay || !anchor) return;
+
+      const overlayRect = overlay.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      if (overlayRect.width <= 0 || overlayRect.height <= 0) return;
+
+      const halfXNorm = clamp01((anchorRect.width * 0.5) / overlayRect.width);
+      const halfYNorm = clamp01((anchorRect.height * 0.5) / overlayRect.height);
+
+      setPositionNorm((prev) => {
+        const next = {
+          x: clamp(prev.x, halfXNorm, 1.0 - halfXNorm),
+          y: clamp(prev.y, halfYNorm, 1.0 - halfYNorm),
+        };
+        if (next.x === prev.x && next.y === prev.y) {
+          return prev;
+        }
+        positionDirtyRef.current = true;
+        return next;
+      });
+    };
+
+    const frame = window.requestAnimationFrame(clampToViewport);
+    window.addEventListener("resize", clampToViewport);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", clampToViewport);
+    };
+  }, [collapsed, safeSubtitle, visible]);
 
   if (!fieldPath) {
     console.warn(
@@ -143,20 +200,26 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     return null;
   }
 
+  if (typeof document === "undefined" || !document.body) {
+    return null;
+  }
+
   const pointerDown: React.PointerEventHandler<HTMLDivElement> = (event) => {
     if (event.button !== 0) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button")) return;
     const overlay = overlayRef.current;
-    const bubble = bubbleRef.current;
-    if (!overlay || !bubble) return;
+    const anchor = anchorRef.current;
+    if (!overlay || !anchor) return;
 
     const overlayRect = overlay.getBoundingClientRect();
     if (overlayRect.width <= 0 || overlayRect.height <= 0) return;
-    const bubbleRect = bubble.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
 
     dragStateRef.current = {
       pointerId: event.pointerId,
-      halfXNorm: clamp01((bubbleRect.width * 0.5) / overlayRect.width),
-      halfYNorm: clamp01((bubbleRect.height * 0.5) / overlayRect.height),
+      halfXNorm: clamp01((anchorRect.width * 0.5) / overlayRect.width),
+      halfYNorm: clamp01((anchorRect.height * 0.5) / overlayRect.height),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
@@ -190,7 +253,26 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     setDragging(false);
   };
 
-  return (
+  const toggleCollapsed: React.MouseEventHandler<HTMLButtonElement> = (
+    event
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setCollapsed((value) => !value);
+  };
+
+  const togglePointerDown: React.PointerEventHandler<HTMLButtonElement> = (
+    event
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const bubbleClassName = `${styles.bubble} ${
+    collapsed ? styles.collapsed : visible ? styles.show : styles.hide
+  }`.trim();
+
+  return createPortal(
     <div
       className={styles.overlay}
       aria-live="polite"
@@ -199,6 +281,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     >
       <div
         className={`${styles.anchor} ${dragging ? styles.dragging : ""}`.trim()}
+        ref={anchorRef}
         style={{
           left: `${positionNorm.x * 100}%`,
           top: `${positionNorm.y * 100}%`,
@@ -210,20 +293,37 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       >
         <div
           key={animateKey}
-          className={`${styles.bubble} ${
-            visible ? styles.show : styles.hide
-          }`.trim()}
+          className={bubbleClassName}
           ref={bubbleRef}
         >
-          {safeSubtitle.split("\n").map((line, idx, arr) => (
-            <span className={styles.line} key={idx}>
-              {line}
-              {idx < arr.length - 1 ? <br /> : null}
-            </span>
-          ))}
+          <div className={styles.chrome}>
+            <button
+              type="button"
+              className={styles.toggleButton}
+              onPointerDown={togglePointerDown}
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? "Expand subtitles" : "Collapse subtitles"}
+              aria-expanded={!collapsed}
+            >
+              <span className={styles.toggleGlyph} aria-hidden="true">
+                {collapsed ? "▾" : "▴"}
+              </span>
+            </button>
+          </div>
+          {!collapsed ? (
+            <div className={styles.body}>
+              {safeSubtitle.split("\n").map((line, idx, arr) => (
+                <span className={styles.line} key={idx}>
+                  {line}
+                  {idx < arr.length - 1 ? <br /> : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

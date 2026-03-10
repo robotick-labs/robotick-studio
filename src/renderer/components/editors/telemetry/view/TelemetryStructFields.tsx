@@ -10,6 +10,7 @@ import React, { useState } from "react";
 import { useBlobURL } from "./telemetry-image-blobs";
 import styles from "../Telemetry.module.css";
 import { spawnTelemetryImagePanel } from "../panels";
+import type { FieldConnectionHint } from "./types";
 import type {
   ITelemetryField as TelemetryField,
   ITelemetryStruct as TelemetryStruct,
@@ -18,6 +19,14 @@ import {
   formatEnumArrayPreview,
   formatEnumNumber,
 } from "../utils/telemetry-formatters";
+import { WritableTelemetryInputField } from "./WritableTelemetryInputField";
+import {
+  type ConnectionKind,
+  getConnectionHint,
+  getConnectionKindFromHint,
+  getConnectionTooltip,
+  isInputConnectionDriven,
+} from "./field-connections";
 
 /**
  * Produce a human-readable string representation of a telemetry field's value.
@@ -61,7 +70,15 @@ type StructFieldProps = {
   workloadName?: string;
   modelName?: string;
   panelScope?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 };
+
+function getConnectionCapsuleClass(kind: ConnectionKind | null): string {
+  if (kind === "local") return styles.localConnectedCapsule;
+  if (kind === "remote") return styles.remoteConnectedCapsule;
+  if (kind === "both") return styles.bothConnectedCapsule;
+  return "";
+}
 
 /**
  * Render a readable view of a telemetry struct's fields, including nested structs and image thumbnails.
@@ -81,6 +98,7 @@ export function TelemetryStructFields({
   workloadName,
   modelName,
   panelScope,
+  fieldConnectionHints,
 }: StructFieldProps) {
   const floatingScope = panelScope ?? "global-floating-panels";
 
@@ -91,6 +109,11 @@ export function TelemetryStructFields({
 
   function renderField(f: TelemetryField): React.ReactNode {
     const label = f.name;
+    const connectionHint = getConnectionHint(f.path, fieldConnectionHints);
+    const connectionKind = getConnectionKindFromHint(connectionHint);
+    const capsuleClass = getConnectionCapsuleClass(connectionKind);
+    const tooltipText = getConnectionTooltip(f.path, connectionHint);
+    const inputIsConnectionDriven = isInputConnectionDriven(f.path, connectionHint);
 
     // Nested struct
     if (f.fields && f.fields.length > 0) {
@@ -119,8 +142,28 @@ export function TelemetryStructFields({
     }
 
     // Primitive leaf
+    if (
+      typeof f.writable_input_handle === "number" &&
+      !inputIsConnectionDriven
+    ) {
+      return (
+        <WritableTelemetryInputField
+          key={f.path}
+          field={f}
+          telemetryBaseUrl={telemetryBaseUrl}
+          capsuleClassName={getConnectionCapsuleClass(connectionKind)}
+          tooltipText={tooltipText}
+          formatCurrentValue={(field) => formatValue(field.getValue(), field)}
+        />
+      );
+    }
+
     return (
-      <div key={f.path}>
+      <div
+        key={f.path}
+        className={capsuleClass || undefined}
+        title={tooltipText ?? undefined}
+      >
         {label}: {formatValue(f.getValue(), f)}
       </div>
     );
