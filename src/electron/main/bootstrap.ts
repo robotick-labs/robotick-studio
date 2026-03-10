@@ -31,6 +31,7 @@ type WebContentsLike = {
   openDevTools?: (options?: Record<string, unknown>) => void;
   closeDevTools?: () => void;
   isDevToolsOpened?: () => boolean;
+  getURL?: () => string;
 };
 
 export type ElectronApp = {
@@ -84,6 +85,10 @@ type BootstrapOptions = {
   platform?: NodeJS.Platform;
 };
 
+type PreventableEvent = {
+  preventDefault?: () => void;
+};
+
 type WindowState = {
   width: number;
   height: number;
@@ -95,6 +100,17 @@ type WindowState = {
 type WindowControlsState = {
   hasWindowControls: boolean;
   usesNativeFrame: boolean | null;
+};
+
+type RendererErrorPayload = {
+  type?: unknown;
+  message?: unknown;
+  stack?: unknown;
+  source?: unknown;
+  lineno?: unknown;
+  colno?: unknown;
+  reason?: unknown;
+  href?: unknown;
 };
 
 const DEFAULT_WINDOW_STATE: WindowState = {
@@ -329,6 +345,80 @@ function logWindowControlsState(state: WindowControlsState | null) {
   }
 }
 
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
+}
+
+type RendererGoneDetails = {
+  reason?: unknown;
+  exitCode?: unknown;
+};
+
+function attachRendererDiagnostics(win: BrowserWindowInstance) {
+  const webContents = win.webContents;
+  const currentUrl = () => {
+    try {
+      return webContents.getURL?.() ?? "<unknown>";
+    } catch {
+      return "<unknown>";
+    }
+  };
+
+  webContents.on?.("render-process-gone", (_event: unknown, details: unknown) => {
+    const typed = (details ?? {}) as RendererGoneDetails;
+    const reason = typeof typed.reason === "string" ? typed.reason : "unknown";
+    const exitCode =
+      typeof typed.exitCode === "number" ? typed.exitCode : "unknown";
+    console.error(
+      `[Electron] Renderer process gone. reason=${reason} exitCode=${exitCode} url=${currentUrl()}`
+    );
+  });
+
+  webContents.on?.(
+    "did-fail-load",
+    (
+      _event: unknown,
+      errorCode: unknown,
+      errorDescription: unknown,
+      validatedURL: unknown,
+      isMainFrame: unknown
+    ) => {
+      if (isMainFrame !== true) {
+        return;
+      }
+      console.error(
+        `[Electron] Renderer failed to load main frame. errorCode=${String(
+          errorCode
+        )} errorDescription=${String(errorDescription)} url=${String(
+          validatedURL
+        )}`
+      );
+    }
+  );
+
+  webContents.on?.("unresponsive", () => {
+    console.warn(
+      `[Electron] Renderer became unresponsive. url=${currentUrl()}`
+    );
+  });
+
+  webContents.on?.("responsive", () => {
+    console.log(`[Electron] Renderer became responsive again. url=${currentUrl()}`);
+  });
+}
+
 /**
  * Attach a one-time probe that logs whether the renderer uses native OS window controls or custom header controls after the window's page finishes loading.
  *
@@ -418,6 +508,8 @@ export async function bootstrapElectron({
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
+  const skipSmokeWindowControlsCheck =
+    env.ROBOTICK_SMOKE_SKIP_WINDOW_CONTROLS === "1";
   if (desiredCwd && process.cwd() !== desiredCwd) {
     try {
       process.chdir(desiredCwd);
@@ -624,6 +716,34 @@ export async function bootstrapElectron({
   };
 
   if (ipcMain) {
+    ipcMain.on("robotick-renderer-error", (_event, payload: RendererErrorPayload) => {
+      const type = typeof payload?.type === "string" ? payload.type : "unknown";
+      const message =
+        typeof payload?.message === "string" && payload.message.length > 0
+          ? payload.message
+          : "No message";
+      const source =
+        typeof payload?.source === "string" && payload.source.length > 0
+          ? payload.source
+          : typeof payload?.href === "string" && payload.href.length > 0
+          ? payload.href
+          : "<unknown>";
+      const lineno =
+        typeof payload?.lineno === "number" ? payload.lineno : "unknown";
+      const colno =
+        typeof payload?.colno === "number" ? payload.colno : "unknown";
+      const stack =
+        typeof payload?.stack === "string" && payload.stack.length > 0
+          ? payload.stack
+          : typeof payload?.reason === "string" && payload.reason.length > 0
+          ? payload.reason
+          : formatUnknownError(payload?.reason);
+
+      console.error(
+        `[Electron] Renderer ${type}: ${message} @ ${source}:${lineno}:${colno}\n${stack}`
+      );
+    });
+
     ipcMain.handle(
       "robotick-window-command",
       (
@@ -658,12 +778,22 @@ export async function bootstrapElectron({
     };
   })();
 
-  app.on("before-quit", () => {
-    void cleanupLauncher();
-  });
+  let gracefulQuitInFlight = false;
+  const runGracefulQuit = async () => {
+    if (gracefulQuitInFlight) {
+      return;
+    }
+    gracefulQuitInFlight = true;
+    await cleanupLauncher();
+    app.quit();
+  };
 
-  app.on("will-quit", () => {
-    void cleanupLauncher();
+  app.on("before-quit", (event: unknown) => {
+    if (gracefulQuitInFlight) {
+      return;
+    }
+    (event as PreventableEvent | undefined)?.preventDefault?.();
+    void runGracefulQuit();
   });
 
   const storedState = clampToDisplay(readWindowState());
@@ -683,24 +813,28 @@ export async function bootstrapElectron({
         console.log(`[Smoke] Renderer route: ${route}`);
         const controls = await probeWindowControls(win);
         if (!controls) {
-          throw new Error("[Smoke] Unable to determine window controls state");
-        }
-        console.log(
-          `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
-        );
-        if (controls.usesNativeFrame === false && !controls.hasWindowControls) {
-          throw new Error("[Smoke] Custom window controls not detected");
+          if (!skipSmokeWindowControlsCheck) {
+            throw new Error("[Smoke] Unable to determine window controls state");
+          }
+          console.warn(
+            "[Smoke] Skipping window controls verification; probe unavailable."
+          );
+        } else {
+          console.log(
+            `[Smoke] Window controls -> native:${controls.usesNativeFrame} custom:${controls.hasWindowControls}`
+          );
+          if (
+            !skipSmokeWindowControlsCheck &&
+            controls.usesNativeFrame === false &&
+            !controls.hasWindowControls
+          ) {
+            throw new Error("[Smoke] Custom window controls not detected");
+          }
         }
         setTimeout(() => app.quit(), 200);
       } catch (error) {
         console.error("[Smoke] Renderer failed to load", error);
-        setTimeout(() => {
-          if (app.exit) {
-            app.exit(1);
-          } else {
-            process.exit(1);
-          }
-        }, 200);
+        setTimeout(() => shutdown(1), 200);
       }
     });
   };
@@ -728,6 +862,7 @@ export async function bootstrapElectron({
     });
     registerWindowStateListeners(win);
     registerDevtoolsShortcuts(win, platform);
+    attachRendererDiagnostics(win);
     attachWindowControlsLogger(win);
     win.on("ready-to-show", () => {
       win.show?.();
@@ -759,8 +894,7 @@ export async function bootstrapElectron({
 
   app.on("window-all-closed", () => {
     if (platform !== "darwin") {
-      void cleanupLauncher();
-      app.quit();
+      void runGracefulQuit();
     }
   });
 
@@ -791,6 +925,16 @@ export async function bootstrapElectron({
   process.on("SIGINT", () => shutdown(0));
   process.on("SIGTERM", () => shutdown(0));
   process.on("SIGHUP", () => shutdown(0));
-  process.on("uncaughtException", () => shutdown(1));
-  process.on("unhandledRejection", () => shutdown(1));
+  process.on("uncaughtException", (error) => {
+    console.error(
+      `[Electron] Main process uncaughtException\n${formatUnknownError(error)}`
+    );
+    shutdown(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error(
+      `[Electron] Main process unhandledRejection\n${formatUnknownError(reason)}`
+    );
+    shutdown(1);
+  });
 }

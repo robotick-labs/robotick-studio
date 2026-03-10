@@ -1,7 +1,10 @@
 import json
+from pathlib import Path
 
 from robotick.launcher.utils import render_template, write_text_if_changed
+from robotick.launcher.actions.query.list import list_project_models
 from rich import print
+import yaml
 
 
 # allows both dot-notation and nested dicts for config entries, flattens to list of {"key": "a.b.c", "value": ...}
@@ -105,19 +108,208 @@ def prepare_codegen_model_data(config):
     for conn in config.model.get("connections", []):
         connections.append({**conn, "var_name": f"conn_{conn['to'].replace('.', '_')}"})
 
-    remote_models = []
-    for remote in config.model.get("remote_models", []):
-        remote["name_safe"] = remote["name"].replace("-", "_")
-        remote_conns = [
-            {
-                **conn,
-                "var_name": f"{remote['name_safe']}_conn_{conn['to_remote'].replace('.', '_')}",
-            }
-            for conn in remote.get("connections", [])
-        ]
-        remote_models.append({**remote, "connections": remote_conns})
+    remote_models = _build_remote_models_codegen(config)
 
     # --- Telemetry (single object) ---
     telemetry = dict(config.model.get("telemetry", {}) or {})
 
     return workloads, connections, remote_models, telemetry
+
+
+def _build_remote_models_codegen(config):
+    current_model_name = getattr(config, "model_name", "") or ""
+    if not current_model_name:
+        # Backward-compatible fallback used by some unit tests.
+        return _build_remote_models_from_current_model_only(config.model)
+
+    project_models = _collect_project_models(config)
+    canonical_edges = _collect_canonical_remote_edges(project_models)
+
+    remote_grouped = {}
+    for edge in canonical_edges:
+        if edge["source_model"] != current_model_name:
+            continue
+        target_model = edge["target_model"]
+        remote_grouped.setdefault(target_model, []).append(
+            {
+                "from": edge["source_field"],
+                "to_remote": edge["target_field"],
+            }
+        )
+
+    remote_models = []
+    for target_model_name in sorted(remote_grouped.keys()):
+        name_safe = target_model_name.replace("-", "_")
+        remote_conns = []
+        for conn in sorted(
+            remote_grouped[target_model_name],
+            key=lambda c: (c["to_remote"], c["from"]),
+        ):
+            remote_conns.append(
+                {
+                    **conn,
+                    "var_name": (
+                        f"{name_safe}_conn_"
+                        f"{conn['from'].replace('.', '_')}__to__{conn['to_remote'].replace('.', '_')}"
+                    ),
+                }
+            )
+        remote_models.append(
+            {
+                "name": target_model_name,
+                "name_safe": name_safe,
+                "connections": remote_conns,
+            }
+        )
+
+    return remote_models
+
+
+def _build_remote_models_from_current_model_only(model):
+    remote_models = []
+    for remote in model.get("remote_models", []):
+        remote_name = str(remote.get("name", "")).strip()
+        if not remote_name:
+            continue
+        name_safe = remote_name.replace("-", "_")
+        remote_conns = []
+        for conn in remote.get("connections", []):
+            source_path = str(conn.get("from", "")).strip()
+            dest_path = str(conn.get("to_remote", "")).strip()
+            if not source_path or not dest_path:
+                continue
+            remote_conns.append(
+                {
+                    "from": source_path,
+                    "to_remote": dest_path,
+                    "var_name": (
+                        f"{name_safe}_conn_"
+                        f"{source_path.replace('.', '_')}__to__{dest_path.replace('.', '_')}"
+                    ),
+                }
+            )
+        remote_models.append(
+            {
+                "name": remote_name,
+                "name_safe": name_safe,
+                "connections": remote_conns,
+            }
+        )
+    return remote_models
+
+
+def _collect_project_models(config):
+    project_file = Path(getattr(config, "project_file", ""))
+    if not project_file or not project_file.exists():
+        return [
+            {
+                "name": getattr(config, "model_name", ""),
+                "data": dict(config.model),
+            }
+        ]
+
+    project_dir = project_file.parent
+    model_rel_paths = list_project_models(str(project_file))
+    collected = []
+    for rel_path in model_rel_paths:
+        model_path = project_dir / rel_path
+        model_name = model_path.name.removesuffix(".model.yaml")
+        model_data = yaml.safe_load(model_path.read_text()) or {}
+        if not isinstance(model_data, dict):
+            raise ValueError(f"Model YAML must be a mapping: {model_path}")
+        collected.append({"name": model_name, "data": model_data})
+    return collected
+
+
+def _collect_canonical_remote_edges(project_models):
+    edge_index = {}
+    canonical_edges = []
+    for model in project_models:
+        model_name = str(model.get("name", "")).strip()
+        data = model.get("data", {}) or {}
+        remote_models = data.get("remote_models", [])
+        if not isinstance(remote_models, list):
+            continue
+        for remote in remote_models:
+            if not isinstance(remote, dict):
+                continue
+            remote_name = str(remote.get("name", "")).strip()
+            if not remote_name:
+                continue
+            connections = remote.get("connections", [])
+            if not isinstance(connections, list):
+                continue
+            for conn in connections:
+                edge = _parse_canonical_remote_edge(model_name, remote_name, conn)
+                if edge is None:
+                    continue
+                key = (
+                    edge["source_model"],
+                    edge["source_field"],
+                    edge["target_model"],
+                    edge["target_field"],
+                )
+                existing = edge_index.get(key)
+                if existing is not None:
+                    raise ValueError(
+                        "Duplicate remote connection declaration for "
+                        f"{edge['source_model']}.{edge['source_field']} -> "
+                        f"{edge['target_model']}.{edge['target_field']}. "
+                        f"Declared in both '{existing['declared_in_model']}' and '{edge['declared_in_model']}'."
+                    )
+                edge_index[key] = edge
+                canonical_edges.append(edge)
+    return canonical_edges
+
+
+def _parse_canonical_remote_edge(owner_model_name, remote_model_name, conn):
+    if not isinstance(conn, dict):
+        return None
+
+    has_sender_form = ("from" in conn) or ("to_remote" in conn)
+    has_receiver_form = ("from_remote" in conn) or ("to" in conn)
+
+    if has_sender_form and has_receiver_form:
+        raise ValueError(
+            f"Invalid remote connection in '{owner_model_name}' for remote model "
+            f"'{remote_model_name}': cannot mix sender-form (from/to_remote) with "
+            "receiver-form (from_remote/to)."
+        )
+
+    if has_sender_form:
+        source_field = str(conn.get("from", "")).strip()
+        target_field = str(conn.get("to_remote", "")).strip()
+        if not source_field or not target_field:
+            raise ValueError(
+                f"Invalid remote connection in '{owner_model_name}' for remote model "
+                f"'{remote_model_name}': sender-form requires both 'from' and 'to_remote'."
+            )
+        return {
+            "source_model": owner_model_name,
+            "source_field": source_field,
+            "target_model": remote_model_name,
+            "target_field": target_field,
+            "declared_in_model": owner_model_name,
+        }
+
+    if has_receiver_form:
+        source_field = str(conn.get("from_remote", "")).strip()
+        target_field = str(conn.get("to", "")).strip()
+        if not source_field or not target_field:
+            raise ValueError(
+                f"Invalid remote connection in '{owner_model_name}' for remote model "
+                f"'{remote_model_name}': receiver-form requires both 'from_remote' and 'to'."
+            )
+        return {
+            "source_model": remote_model_name,
+            "source_field": source_field,
+            "target_model": owner_model_name,
+            "target_field": target_field,
+            "declared_in_model": owner_model_name,
+        }
+
+    raise ValueError(
+        f"Invalid remote connection in '{owner_model_name}' for remote model "
+        f"'{remote_model_name}': expected sender-form (from/to_remote) or "
+        "receiver-form (from_remote/to)."
+    )

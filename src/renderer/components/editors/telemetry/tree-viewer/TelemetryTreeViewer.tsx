@@ -72,6 +72,8 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
   { value: "outputs", label: "Outputs" },
   { value: "stats", label: "Stats" },
 ];
+const FILTER_DEBOUNCE_MS = 160;
+const TelemetrySampleRevisionContext = React.createContext(0);
 
 const TREE_STORAGE_KEYS = {
   model: "robotick-studio.telemetry.tree.model",
@@ -272,7 +274,7 @@ export default function TelemetryTreeViewer() {
     return new Map<string, FieldConnectionHint>(Object.entries(serializedHints));
   }, [fieldConnectionHintsByModelPath, selectedModel]);
 
-  const { model } = useTelemetryStream(telemetryBaseUrl, 10);
+  const { model, revision } = useTelemetryStream(telemetryBaseUrl, 10);
   const workloads = model?.workloads ?? [];
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
@@ -282,7 +284,9 @@ export default function TelemetryTreeViewer() {
   const activeSectionKinds: SectionKind[] =
     sectionSelection === "all" ? SECTION_KINDS : [sectionSelection];
   const fieldFilterRaw = settings.fieldPath ?? "";
-  const fieldFilter = fieldFilterRaw.trim().toLowerCase();
+  const [debouncedFieldFilterRaw, setDebouncedFieldFilterRaw] =
+    useState(fieldFilterRaw);
+  const fieldFilter = debouncedFieldFilterRaw.trim().toLowerCase();
 
   const targetWorkload = workloads.find(
     (workload) => workload.name === workloadName
@@ -319,6 +323,13 @@ export default function TelemetryTreeViewer() {
       updateSettings({ workloadName: workloads[0].name });
     }
   }, [settings.workloadName, updateSettings, workloads]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedFieldFilterRaw(fieldFilterRaw);
+    }, FILTER_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [fieldFilterRaw]);
 
   const rootNodes = useMemo<ITelemetryField[]>(() => {
     if (!model) return [];
@@ -363,7 +374,7 @@ export default function TelemetryTreeViewer() {
     sectionSelection,
   ]);
 
-  const toggleNode = (path: string) => {
+  const toggleNode = useCallback((path: string) => {
     setExpandedNodes((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -373,7 +384,7 @@ export default function TelemetryTreeViewer() {
       }
       return next;
     });
-  };
+  }, []);
 
   const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const modelPath = event.target.value;
@@ -482,27 +493,70 @@ export default function TelemetryTreeViewer() {
           />
         </div>
       </div>
-      <div className={styles.tree}>
-        {rootNodes.length === 0 ? (
-          <div className={styles.message}>No telemetry fields available.</div>
-        ) : (
-          rootNodes.map((node) => (
-            <TreeNode
-              key={node.path}
-              field={node}
-              expandedPaths={expandedNodes}
-              toggle={toggleNode}
-              telemetryBaseUrl={telemetryBaseUrl}
-              fieldConnectionHints={fieldConnectionHints}
-            />
-          ))
-        )}
-      </div>
+      <TelemetrySampleRevisionContext.Provider value={revision}>
+        <div className={styles.tree}>
+          {rootNodes.length === 0 ? (
+            <div className={styles.message}>No telemetry fields available.</div>
+          ) : (
+            rootNodes.map((node) => (
+              <TreeNode
+                key={node.path}
+                field={node}
+                expanded={expandedNodes.has(node.path)}
+                expandedPaths={expandedNodes}
+                toggle={toggleNode}
+                telemetryBaseUrl={telemetryBaseUrl}
+                fieldConnectionHints={fieldConnectionHints}
+              />
+            ))
+          )}
+        </div>
+      </TelemetrySampleRevisionContext.Provider>
     </div>
   );
 }
 
-function TreeNode({
+function TreeNodeValue({
+  field,
+  isArrayField,
+}: {
+  field: ITelemetryField;
+  isArrayField: boolean;
+}) {
+  React.useContext(TelemetrySampleRevisionContext);
+  const value = field.getValue?.();
+  return (
+    <span className={styles.nodeValue}>
+      {isArrayField ? formatArraySummary(value) : formatFieldValue(field, value)}
+    </span>
+  );
+}
+
+function WritableTreeNodeField({
+  field,
+  telemetryBaseUrl,
+  capsuleClassName,
+  tooltipText,
+}: {
+  field: ITelemetryField;
+  telemetryBaseUrl?: string;
+  capsuleClassName?: string;
+  tooltipText?: string | null;
+}) {
+  React.useContext(TelemetrySampleRevisionContext);
+  return (
+    <WritableTelemetryInputField
+      field={field}
+      telemetryBaseUrl={telemetryBaseUrl}
+      className={styles.writableNodeEntry}
+      capsuleClassName={capsuleClassName}
+      tooltipText={tooltipText}
+      formatCurrentValue={formatCurrentFieldValue}
+    />
+  );
+}
+
+function TreeArrayChildren({
   field,
   expandedPaths,
   toggle,
@@ -515,15 +569,95 @@ function TreeNode({
   telemetryBaseUrl?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
-  const value = field.getValue?.();
-  const isArray = Array.isArray(value);
-  const hasChildren = isArray || (field.fields && field.fields.length > 0);
-  const expanded = expandedPaths.has(field.path);
+  React.useContext(TelemetrySampleRevisionContext);
+  const arrayChildren = Array.from({ length: field.elementCount }, (_, index) =>
+    field.getArrayElement?.(index)
+  ).filter((entry): entry is ITelemetryField => Boolean(entry));
+  if (arrayChildren.length === 0) {
+    return null;
+  }
+  return arrayChildren.map((entry) => (
+    <TreeNode
+      key={entry.path}
+      field={entry}
+      expanded={expandedPaths.has(entry.path)}
+      expandedPaths={expandedPaths}
+      toggle={toggle}
+      telemetryBaseUrl={telemetryBaseUrl}
+      fieldConnectionHints={fieldConnectionHints}
+    />
+  ));
+}
+
+const TreeNodeChildren = React.memo(function TreeNodeChildren({
+  field,
+  expanded,
+  isArrayField,
+  expandedPaths,
+  toggle,
+  telemetryBaseUrl,
+  fieldConnectionHints,
+}: {
+  field: ITelemetryField;
+  expanded: boolean;
+  isArrayField: boolean;
+  expandedPaths: Set<string>;
+  toggle: (path: string) => void;
+  telemetryBaseUrl?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
+}) {
+  if (!expanded) {
+    return null;
+  }
+  if (isArrayField) {
+    return (
+      <TreeArrayChildren
+        field={field}
+        expandedPaths={expandedPaths}
+        toggle={toggle}
+        telemetryBaseUrl={telemetryBaseUrl}
+        fieldConnectionHints={fieldConnectionHints}
+      />
+    );
+  }
+  return field.fields?.map((child) => (
+    <TreeNode
+      key={child.path}
+      field={child}
+      expanded={expandedPaths.has(child.path)}
+      expandedPaths={expandedPaths}
+      toggle={toggle}
+      telemetryBaseUrl={telemetryBaseUrl}
+      fieldConnectionHints={fieldConnectionHints}
+    />
+  ));
+});
+
+const TreeNode = React.memo(function TreeNode({
+  field,
+  expanded,
+  expandedPaths,
+  toggle,
+  telemetryBaseUrl,
+  fieldConnectionHints,
+}: {
+  field: ITelemetryField;
+  expanded: boolean;
+  expandedPaths: Set<string>;
+  toggle: (path: string) => void;
+  telemetryBaseUrl?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
+}) {
+  const isArrayField = field.elementCount > 1;
+  const hasChildren = isArrayField || Boolean(field.fields?.length);
   const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const inputIsConnectionDriven = isInputConnectionDriven(field.path, connectionHint);
+  const inputIsConnectionDriven = isInputConnectionDriven(
+    field.path,
+    connectionHint
+  );
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
@@ -545,13 +679,11 @@ function TreeNode({
           <span className={styles.nodeToggleSpacer} aria-hidden="true" />
         )}
         {isWritableInput ? (
-          <WritableTelemetryInputField
+          <WritableTreeNodeField
             field={field}
             telemetryBaseUrl={telemetryBaseUrl}
-            className={styles.writableNodeEntry}
             capsuleClassName={capsuleClass}
             tooltipText={tooltipText}
-            formatCurrentValue={formatValue}
           />
         ) : (
           <span
@@ -559,40 +691,24 @@ function TreeNode({
             title={tooltipText ?? undefined}
           >
             <span>{field.name}:</span>
-            <span className={styles.nodeValue}>
-              {isArray ? formatArraySummary(value) : formatValue(field)}
-            </span>
+            <TreeNodeValue field={field} isArrayField={isArrayField} />
           </span>
         )}
       </div>
-      {expanded && hasChildren
-        ? isArray && Array.isArray(value)
-          ? value.map((entry, index) => (
-              <JsonNode
-                key={`${field.path}[${index}]`}
-                label={`[${index}]`}
-                path={`${field.path}[${index}]`}
-                value={entry}
-                expandedPaths={expandedPaths}
-                toggle={toggle}
-              />
-            ))
-          : field.fields?.map((child) => (
-              <TreeNode
-                key={child.path}
-                field={child}
-                expandedPaths={expandedPaths}
-                toggle={toggle}
-                telemetryBaseUrl={telemetryBaseUrl}
-                fieldConnectionHints={fieldConnectionHints}
-              />
-            ))
-        : null}
+      <TreeNodeChildren
+        field={field}
+        expanded={expanded}
+        isArrayField={isArrayField}
+        expandedPaths={expandedPaths}
+        toggle={toggle}
+        telemetryBaseUrl={telemetryBaseUrl}
+        fieldConnectionHints={fieldConnectionHints}
+      />
     </div>
   );
-}
+});
 
-function JsonNode({
+const JsonNode = React.memo(function JsonNode({
   label,
   path,
   value,
@@ -657,7 +773,7 @@ function JsonNode({
         : null}
     </div>
   );
-}
+});
 
 /**
  * Formats a telemetry field's value for display in the UI.
@@ -665,8 +781,7 @@ function JsonNode({
  * @param field - The telemetry field whose value will be formatted.
  * @returns A string representation suitable for display: `""` for null/undefined, quoted strings for string values, formatted numeric values for numbers/bigints, array previews or `"[N items]"`, `"<bytes N>"` for byte arrays, `"{…}"` for objects, or `String(value)` as a fallback.
  */
-function formatValue(field: ITelemetryField) {
-  const value = field.getValue?.();
+function formatFieldValue(field: ITelemetryField, value: unknown) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return `"${value}"`;
   if (typeof value === "number" || typeof value === "bigint") {
@@ -681,6 +796,10 @@ function formatValue(field: ITelemetryField) {
   if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;
   if (typeof value === "object") return "{…}";
   return String(value);
+}
+
+function formatCurrentFieldValue(field: ITelemetryField) {
+  return formatFieldValue(field, field.getValue?.());
 }
 
 function formatArraySummary(value: unknown): string {
@@ -845,6 +964,7 @@ function createStatsGroupField(
     type: "stats",
     path,
     offset: 0,
+    elementCount: 1,
     model,
     getValue: () => undefined,
     fields: rows.map((row) =>
@@ -871,6 +991,7 @@ function createStatsLeafField(
     type: "stat",
     path: buildStatsPath(workloadName, ...segments),
     offset: 0,
+    elementCount: 1,
     model,
     getValue: () => value,
   };
@@ -910,6 +1031,7 @@ function createSectionNode(
     type: kind,
     path: `${workload.name}.${kind}`,
     offset: struct.offset,
+    elementCount: 1,
     model,
     getValue: () => undefined,
     fields: struct.fields,
@@ -931,6 +1053,7 @@ function createWorkloadNode(
     type: "workload",
     path: `workload:${workload.name}`,
     offset: sections[0].offset ?? 0,
+    elementCount: 1,
     model,
     getValue: () => undefined,
     fields: sections,
