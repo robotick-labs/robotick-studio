@@ -3,6 +3,9 @@ import subprocess
 from rich import print
 import typer
 
+from robotick.launcher.actions.launch.target_plan import (
+    resolve_target_plan,
+)
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
@@ -20,6 +23,7 @@ def build(
     launcher_dir, build_dir, binary_path = get_launcher_paths(
         project, model, target, base_dir
     )
+    plan = resolve_target_plan(project, model, target, base_dir)
 
     print(
         "============================================================================================"
@@ -31,7 +35,26 @@ def build(
     print(f"[cyan]📁 Launcher dir:[/] {launcher_dir}")
     print(f"[cyan]🔧 Build dir:   [/] {build_dir}")
     print(f"[cyan]🚀 Binary path: [/] {binary_path}")
+    print(f"[cyan]🧭 Build strategy:[/] {plan.build.strategy}")
+    plan.build.print_summary()
     print()
+
+    if plan.build.build_handler is not None:
+        try:
+            plan.build.build_handler(dry_run)
+        except subprocess.CalledProcessError as e:
+            print(f"[bold red]❌ Build process failed during: {e.cmd}[/]")
+            raise typer.Exit(code=e.returncode)
+        if dry_run:
+            print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+            return
+        expected_binary = plan.build.local_binary_path
+        if expected_binary is not None and not expected_binary.exists():
+            print(f"[bold red]❌ Expected binary not found:[/] {expected_binary}")
+            raise typer.Exit(code=1)
+        built_binary = plan.build.display_binary_path or str(binary_path)
+        print(f"[bold green]✅ Build complete! Binary:[/] {built_binary}")
+        return
 
     print(f"[bold]$ {' '.join(do_build_cmd)}[/]")
 

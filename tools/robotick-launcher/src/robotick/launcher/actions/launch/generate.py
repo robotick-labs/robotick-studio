@@ -38,6 +38,28 @@ def copy_extras_if_exists(templates_dir: Path, target_dir: Path, target: str):
             print(f"  ✅ {rel_path}")
 
 
+def copy_extras_if_exists_for_variant(
+    templates_dir: Path, target_dir: Path, target: str, variant: str | None
+):
+    variant = (variant or "").strip().lower()
+    if not variant:
+        return
+    extras_dir = templates_dir / f"extras_{target}_{variant}"
+    if not extras_dir.exists() or not extras_dir.is_dir():
+        return
+
+    print(
+        f"📦 Copying variant extras for '{target}/{variant}' from {extras_dir} → {target_dir}"
+    )
+    for src in extras_dir.rglob("*"):
+        if src.is_file():
+            rel_path = src.relative_to(extras_dir)
+            dest_path = target_dir / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest_path)
+            print(f"  ✅ {rel_path}")
+
+
 def generate(
     project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
     model: str = typer.Argument(..., help="Model name (e.g. 'my_robot_brain')"),
@@ -80,13 +102,17 @@ def generate(
             )
 
         config = Config(project, model, target, base_dir, dry_run, stub_install)
+        target_variant = str(
+            ((config.model or {}).get("runtime") or {}).get("target_variant") or ""
+        ).strip()
 
         print("============================================================================================")
         print(
             f"[bold green]📦 Generating {project}-{model}-{target}[/] (dry_run={dry_run}, stub_install={config.stub_install})"
         )
 
-        # placeholder code for per-target overrides (needs to move to a yaml ideally)
+        # ESP32 generation still uses a component-style layout that differs from linux builds.
+        # Keep those file-placement overrides centralized here until target layout becomes fully declarative.
         if target == "esp32":
             config.subdir_main_cpp = "main"
             config.subdir_model_cpp = "main"
@@ -104,6 +130,14 @@ def generate(
 
         # File generation
         copy_extras_for_target(config)
+        # Variant extras overlay the base target files, so linux/arm64 and esp32 board-specific
+        # templates can replace the generic target scripts without forking the full template set.
+        copy_extras_if_exists_for_variant(
+            Path(__file__).parent / "templates",
+            config.launcher_dir,
+            target,
+            target_variant,
+        )
         generate_main_cpp.generate_main_cpp(config)
         generate_model_cpp.generate_model_cpp(config)
         generate_workloads_registry.generate_workloads_registry(config)

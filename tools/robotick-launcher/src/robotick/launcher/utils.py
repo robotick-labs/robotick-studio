@@ -6,7 +6,7 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import typer
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
@@ -173,17 +173,21 @@ def run_subprocess(
     stdout: Optional[Union[int, object]] = sys.stdout,
     stderr: Optional[Union[int, object]] = sys.stderr,
     env: Optional[dict[str, str]] = None,
+    on_interrupt: Optional[Callable[[], None]] = None,
 ) -> subprocess.Popen:
     command = _resolve_command(command)
     preexec_setup = None
     if sys.platform.startswith("linux"):
         def preexec_setup():
-            # Start a new process group
+            # Each launcher subprocess gets its own process group so Ctrl-C handling can
+            # terminate the whole spawned tree, not just the immediate child.
             os.setsid()
 
             try:
                 libc = ctypes.CDLL("libc.so.6")
                 PR_SET_PDEATHSIG = 1
+                # If launcher itself disappears unexpectedly, ask the kernel to deliver
+                # SIGTERM to the child leader as a best-effort cleanup signal.
                 libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
             except Exception as e:
                 print(f"[dim red]Warning: Failed to set PDEATHSIG: {e}[/]")
@@ -228,6 +232,13 @@ def run_subprocess(
                 print("[dim red]Warning: subprocess did not exit after signal[/]")
             except Exception as e:
                 print(f"[dim red]Error while waiting for subprocess termination: {e}[/]")
+            if on_interrupt:
+                try:
+                    # Some targets need explicit follow-up cleanup that a dead local process
+                    # group cannot guarantee on its own, for example stopping a remote SSH-run model.
+                    on_interrupt()
+                except Exception as e:
+                    print(f"[dim red]Interrupt cleanup failed: {e}[/]")
             raise typer.Exit(code=1)
 
     return proc

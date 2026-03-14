@@ -1,10 +1,14 @@
 // Auto-generated {{filename}}
 
 #include "robotick/framework/CommonMain.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 // Declare generated model function (no need for full header)
 void populate_model_{{model_name_safe}}(robotick::Model& model);
 
+// Run the engine on its own FreeRTOS task so the generated app_main stays minimal and
+// model startup/teardown remains consistent across ESP32 models.
 // Constants for engine task configuration
 static constexpr const char* ENGINE_TASK_NAME = "robotick_main";
 static constexpr uint32_t ENGINE_STACK_SIZE = 8192; // in bytes
@@ -46,6 +50,6 @@ ROBOTICK_ENTRYPOINT
 
 	if (result != pdPASS)
 	{
-		ROBOTICK_ERROR("Failed to create engine task (error code %d)", static_cast<int>(result));
+		ROBOTICK_FATAL_EXIT("Failed to create engine task (error code %d)", static_cast<int>(result));
 	}
 }

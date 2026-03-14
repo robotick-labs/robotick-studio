@@ -503,7 +503,18 @@ def _install_deps_locked(
 
         deps, apt = sync_model_dependencies(model_config)
         git_dependencies.extend(deps)
-        apt_packages.update(apt)
+        runtime_cfg = dict(model_config.model.get("runtime") or {})
+        target_platform = str(runtime_cfg.get("target_platform") or "").strip().lower()
+        target_variant = str(runtime_cfg.get("target_variant") or "").strip().lower()
+        if target_platform == "linux" and target_variant in {"arm64", "aarch64"}:
+            # linux/arm64 models build inside the launcher Docker image, so validating host apt
+            # packages here would be both noisy and misleading on x86_64 developer machines/CI.
+            print(
+                f"[dim]↪︎ Skipping host apt validation for {model_name} "
+                f"({target_platform}/{target_variant}); build deps are provided by Docker[/dim]"
+            )
+        else:
+            apt_packages.update(apt)
 
     missing_apt: List[str] = []
     apt_packages_sorted: List[str] = sorted(apt_packages)

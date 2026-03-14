@@ -93,17 +93,16 @@ def create_app() -> typer.Typer:
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
 
-        if not dry_run:
-            generate.generate(
-                project,
-                model,
-                target,
-                base_dir,
-                dry_run,
-                bool(stub_install),
-                workspace_dir,
-                skip_install_deps=skip_install_deps,
-            )
+        generate.generate(
+            project,
+            model,
+            target,
+            base_dir,
+            dry_run,
+            bool(stub_install),
+            workspace_dir,
+            skip_install_deps=skip_install_deps,
+        )
 
     @app.command("build")
     def build_cmd(
@@ -139,8 +138,7 @@ def create_app() -> typer.Typer:
                 skip_install_deps=skip_install_deps,
             )
 
-        if not dry_run:
-            build.build(project, model, target, base_dir, dry_run)
+        build.build(project, model, target, base_dir, dry_run)
 
     @app.command("deploy")
     def deploy_cmd(
@@ -175,8 +173,7 @@ def create_app() -> typer.Typer:
                 skip_install_deps=skip_install_deps,
             )
 
-        if not dry_run:
-            deploy.deploy(project, model, target, base_dir)
+        deploy.deploy(project, model, target, base_dir, dry_run)
 
     @app.command("run")
     def run_cmd(
@@ -211,8 +208,7 @@ def create_app() -> typer.Typer:
                 skip_install_deps=skip_install_deps,
             )
 
-        if not dry_run:
-            run.run(project, model, target, base_dir, workspace_dir)
+        run.run(project, model, target, base_dir, workspace_dir, dry_run)
 
     @app.command("run-profile")
     def run_profile_cmd(

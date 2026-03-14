@@ -4,11 +4,15 @@ from pathlib import Path
 from typing import Optional
 import subprocess
 import sys
+import shlex
+import signal
+import time
 from rich import print
 import typer
 import yaml
 from typer.models import OptionInfo
 
+from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 from robotick.launcher.actions.launch.install_deps import load_python_root_lock
 
@@ -43,6 +47,67 @@ def _build_python_env(project: str, workspace_root: Path) -> Optional[dict[str, 
     return env
 
 
+def _find_local_process_ids_for_binary(
+    binary_path: Path, *, proc_root: Path = Path("/proc")
+) -> list[int]:
+    resolved_binary = binary_path.resolve()
+    matching_pids: list[int] = []
+
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            pid = int(entry.name)
+            exe_path = (entry / "exe").resolve()
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        except OSError:
+            continue
+
+        if exe_path == resolved_binary:
+            matching_pids.append(pid)
+
+    return matching_pids
+
+
+def _stop_existing_local_process(binary_path: Path, *, dry_run: bool) -> None:
+    resolved_binary = binary_path.resolve()
+    matching_pids = _find_local_process_ids_for_binary(resolved_binary)
+
+    if not matching_pids:
+        print(f"[dim][Launcher] No existing local instance for {resolved_binary}[/]")
+        return
+
+    print(f"[Launcher] Stopping existing local instance: {resolved_binary}")
+    if dry_run:
+        print(f"[bold]$ stop local pids for {resolved_binary}: {matching_pids}[/]")
+        return
+
+    alive_pids = matching_pids.copy()
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        still_alive: list[int] = []
+        for pid in alive_pids:
+            if Path(f"/proc/{pid}").exists():
+                still_alive.append(pid)
+        if not still_alive:
+            return
+        alive_pids = still_alive
+        time.sleep(0.2)
+
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
 def run(
     project: str = typer.Argument(...),
     model: str = typer.Argument(...),
@@ -53,6 +118,9 @@ def run(
     workspace_dir: Optional[Path] = typer.Option(
         None, help="Workspace root containing the .launcher folder"
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print commands without executing them"
+    ),
 ):
     if isinstance(workspace_dir, OptionInfo):
         workspace_dir = None
@@ -61,6 +129,7 @@ def run(
     launcher_dir, build_dir, binary_path = get_launcher_paths(
         project, model, target, base_dir
     )
+    plan = resolve_target_plan(project, model, target, base_dir)
     run_script = launcher_dir / "do_launcher_run.sh"
 
     working_dir = "."
@@ -88,6 +157,21 @@ def run(
         "============================================================================================"
     )
     print(f"[dim]🔍 Looking for run script at: {run_script}[/]")
+    print(f"[cyan]🧭 Run strategy:[/] {plan.run.strategy}")
+    plan.run.print_summary()
+    if plan.run.run_handler is not None:
+        # Non-local runs use a one-model-at-a-time policy for the same binary path.
+        if plan.run.stop_handler is not None:
+            plan.run.stop_handler(dry_run)
+        plan.run.run_handler(dry_run)
+        if dry_run:
+            print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+        return
+
+    _stop_existing_local_process(binary_path, dry_run=dry_run)
+    if dry_run:
+        print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+        return
 
     if run_script.exists():
         print(f"[bold green]🚀 Running [cyan]{run_script}[/] instead of binary[/]")
