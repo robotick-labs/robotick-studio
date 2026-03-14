@@ -5,9 +5,11 @@ import threading
 import sys
 import time
 from typing import Any, Optional
+import signal
 
 from rich import print
 import typer
+import yaml
 
 from robotick.launcher.utils import run_subprocess
 from robotick.launcher.actions.query.list import list_project_models
@@ -29,6 +31,54 @@ def _emit_status(status_queue: Optional[Any], **payload):
         status_queue.put_nowait(message)
     except Exception:
         pass
+
+
+def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
+    if proc.poll() is not None:
+        return
+
+    if hasattr(os, "killpg"):
+        try:
+            os.killpg(proc.pid, sig)
+            return
+        except Exception:
+            pass
+
+    try:
+        proc.send_signal(sig)
+    except Exception:
+        pass
+
+
+def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]:
+    if model_spec == "ALL":
+        model_paths = list_project_models(project_path)
+        return [Path(p).stem.removesuffix(".model") for p in model_paths]
+
+    project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
+    profiles = project_data.get("profiles") or {}
+    if not isinstance(profiles, dict):
+        raise ValueError("Project 'profiles' section must be a mapping when provided.")
+
+    profile_entry = profiles.get(model_spec)
+    if profile_entry is None:
+        return [model_spec]
+
+    if isinstance(profile_entry, list):
+        models = profile_entry
+    elif isinstance(profile_entry, dict):
+        models = profile_entry.get("models") or []
+    else:
+        raise ValueError(
+            f"Profile '{model_spec}' must be a list of model ids or a mapping with 'models'."
+        )
+
+    if not isinstance(models, list) or any(not isinstance(model_id, str) or not model_id for model_id in models):
+        raise ValueError(
+            f"Profile '{model_spec}' must resolve to a list of non-empty model ids."
+        )
+
+    return models
 
 
 def run_profile(
@@ -65,14 +115,10 @@ def run_profile(
     base_dir = project_path.parent
     project_name = project_path.stem.removesuffix(".project")
 
-    if model_spec == "ALL":
-        try:
-            model_paths = list_project_models(project_path)
-            model_ids = [Path(p).stem.removesuffix(".model") for p in model_paths]
-        except Exception as e:
-            return {"status": "error", "detail": f"Failed to parse project file: {e}"}
-    else:
-        model_ids = [model_spec]
+    try:
+        model_ids = _resolve_profile_model_ids(project_path, model_spec)
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to parse project file: {e}"}
 
     if not model_ids:
         return {"status": "error", "detail": "No models found to build"}
@@ -284,6 +330,96 @@ def run_profile(
         _emit_status(status_queue, event="result", result=result)
         return result
 
+    print(f"[Launcher] All builds succeeded. Deploying models...")
+    _emit_status(
+        status_queue,
+        event="phase",
+        phase="deploy",
+        status="starting",
+        models=succeeded,
+    )
+
+    deployed: list[str] = []
+    deploy_failed: list[str] = []
+    for model_id in succeeded:
+        deploy_cmd = [
+            "robotick-launcher",
+            "deploy",
+            project_name,
+            model_id,
+            "linux",
+            "--base-dir",
+            str(base_dir),
+        ]
+        print(f"[Launcher] Deploying model: {model_id} → {deploy_cmd}")
+        _emit_status(
+            status_queue,
+            event="model",
+            model=model_id,
+            stage="deploy",
+            status="starting",
+        )
+        try:
+            run_subprocess(command=deploy_cmd)
+            deployed.append(model_id)
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="deploy",
+                status="succeeded",
+            )
+        except subprocess.CalledProcessError as e:
+            deploy_failed.append(model_id)
+            print(f"[bold red]❌ Deploy failed for {model_id} (rc={e.returncode})[/]")
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="deploy",
+                status="failed",
+                returncode=e.returncode,
+            )
+        except Exception as e:
+            deploy_failed.append(model_id)
+            print(f"[bold red]⚠️ Error during deploy of {model_id}: {e}[/]")
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="deploy",
+                status="error",
+                detail=str(e),
+            )
+
+    if deploy_failed:
+        print(f"[bold red]❌ Deploy failed for: {', '.join(deploy_failed)}[/]")
+        print("[Launcher] Aborting run phase — at least one deploy failed.")
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase="deploy",
+            status="failed",
+            failed=deploy_failed,
+        )
+        result = {
+            "status": "deploy_failed",
+            "detail": f"Deploy failed for models: {', '.join(deploy_failed)}",
+            "failed": deploy_failed,
+            "built": succeeded,
+        }
+        _emit_status(status_queue, event="result", result=result)
+        return result
+
+    print(f"[Launcher] All deploys succeeded. Launching models...")
+    _emit_status(
+        status_queue,
+        event="phase",
+        phase="deploy",
+        status="completed",
+        models=deployed,
+    )
+
     run_procs: list[tuple[str, subprocess.Popen]] = []
     run_threads: list[threading.Thread] = []
     launched_models: list[str] = []
@@ -293,10 +429,10 @@ def run_profile(
         event="phase",
         phase="run",
         status="starting",
-        models=succeeded,
+        models=deployed,
     )
 
-    for model_id in succeeded:
+    for model_id in deployed:
         cmd = [
             "robotick-launcher",
             "run",
@@ -346,6 +482,7 @@ def run_profile(
             )
 
     # Wait for all run processes and output threads
+    interrupted = False
     for model_id, proc in run_procs:
         try:
             rc = proc.wait()
@@ -359,6 +496,12 @@ def run_profile(
             )
             if rc != 0:
                 print(f"[bold red]❌ Run process failed for {model_id} (rc={rc})[/]")
+        except KeyboardInterrupt:
+            interrupted = True
+            print("[Launcher] Interrupted; signalling launched models to stop...")
+            for _, running_proc in run_procs:
+                _signal_process_group(running_proc, signal.SIGINT)
+            break
         except Exception as e:
             print(f"[bold red]⚠️ Error waiting for run process: {e}[/]")
             _emit_status(
@@ -372,6 +515,37 @@ def run_profile(
 
     for t in run_threads:
         t.join()
+
+    if interrupted:
+        for model_id, proc in run_procs:
+            try:
+                rc = proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                _signal_process_group(proc, signal.SIGTERM)
+                rc = proc.wait(timeout=5)
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="run",
+                status="interrupted",
+                returncode=rc,
+            )
+
+        result = {
+            "status": "interrupted",
+            "launched": launched_models,
+            "count": len(launched_models),
+        }
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase="run",
+            status="interrupted",
+            launched=launched_models,
+        )
+        _emit_status(status_queue, event="result", result=result)
+        return result
 
     result = {
         "status": "ok" if launched_models else "nothing_launched",

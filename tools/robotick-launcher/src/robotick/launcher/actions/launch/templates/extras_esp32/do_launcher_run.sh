@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 . "$SCRIPT_DIR/do_launcher_common_setup.sh"
 
+echo "🔌 Using ESP32 serial port: ${ESP32_SERIAL_PORT}"
 echo "⚙️ Flashing and launching project inside docker..."
 run_esp32_container device "
     set -e

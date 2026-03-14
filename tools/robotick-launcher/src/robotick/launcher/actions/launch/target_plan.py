@@ -35,6 +35,7 @@ class TargetActionPlan:
     run_handler: Optional[Callable[[bool], None]] = None
     local_binary_path: Optional[Path] = None
     display_binary_path: Optional[str] = None
+    supports_script_dry_run: bool = False
 
     def print_summary(self) -> None:
         if self.summary_printer is not None:
@@ -110,6 +111,23 @@ def resolve_target_plan(
         )
         deploy = remote_action
         run = remote_action
+
+    deploy_cfg = dict(runtime.get("deploy") or {})
+    serial_port = str(deploy_cfg.get("serial_port") or "").strip()
+    preferred_host = str(runtime.get("preferred_host") or "").strip()
+    if target_platform == "esp32":
+        def _print_esp32_run_summary() -> None:
+            print(f"[cyan]🧭 Target variant:  [/] {target_variant or '(unspecified)'}")
+            if serial_port:
+                print(f"[cyan]🔌 Serial port:     [/] {serial_port}")
+            if preferred_host:
+                print(f"[cyan]🌐 Preferred host:  [/] {preferred_host}")
+
+        run = TargetActionPlan(
+            strategy=LOCAL_STRATEGY,
+            summary_printer=_print_esp32_run_summary,
+            supports_script_dry_run=True,
+        )
 
     return TargetPlan(
         project=project,

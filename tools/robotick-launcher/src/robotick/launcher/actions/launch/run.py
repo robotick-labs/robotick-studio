@@ -170,6 +170,10 @@ def run(
 
     _stop_existing_local_process(binary_path, dry_run=dry_run)
     if dry_run:
+        if run_script.exists() and plan.run.supports_script_dry_run:
+            dry_run_env = dict(python_env or os.environ.copy())
+            dry_run_env["ROBOTICK_LAUNCHER_DRY_RUN"] = "1"
+            run_subprocess(["bash", str(run_script)], cwd=working_dir, env=dry_run_env)
         print("[yellow]⚠️ Dry run only — commands not executed.[/]")
         return
 

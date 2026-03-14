@@ -8,7 +8,7 @@ import traceback
 from typer.models import OptionInfo
 
 from robotick.launcher.config import Config
-from robotick.launcher.utils import copy_extras_for_target
+from robotick.launcher.utils import copy_extras_for_target, write_text_if_changed
 from robotick.launcher.actions.launch import (
     generate_main_cpp,
     generate_model_cpp,
@@ -58,6 +58,45 @@ def copy_extras_if_exists_for_variant(
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest_path)
             print(f"  ✅ {rel_path}")
+
+
+def write_launcher_env_if_needed(config: Config) -> None:
+    launcher_env = config.launcher_dir / "launcher.env"
+
+    env_lines: list[str] = []
+    runtime = dict((config.model or {}).get("runtime") or {})
+    deploy = dict(runtime.get("deploy") or {})
+    target_variant = str(runtime.get("target_variant") or "").strip().lower()
+
+    if config.target == "esp32":
+        env_lines.append("# Generated from model runtime metadata.")
+
+        serial_port = str(deploy.get("serial_port") or "").strip()
+        if serial_port:
+            env_lines.append(
+                f'export ROBOTICK_ESP32_SERIAL_PORT="{serial_port}"'
+            )
+
+        if target_variant == "esp32s3_m5":
+            env_lines.append("export ROBOTICK_PLATFORM_ESP32S3_M5=1")
+            env_lines.append(
+                'export IDF_EXTRA_CMAKE_ARGS="-DROBOTICK_PLATFORM_ESP32S3=ON -DROBOTICK_PLATFORM_ESP32S3_M5=ON"'
+            )
+
+    if env_lines:
+        contents = "\n".join(env_lines) + "\n"
+        if config.dry_run:
+            print(f"[grey]📝 Dry run — would write launcher env:[/] {launcher_env}")
+        else:
+            write_text_if_changed(launcher_env, contents)
+        return
+
+    if launcher_env.exists():
+        if config.dry_run:
+            print(f"[grey]📝 Would remove stale file:[/] {launcher_env}")
+        else:
+            launcher_env.unlink()
+            print(f"[cyan]📝 Removed stale file:[/] {launcher_env}")
 
 
 def generate(
@@ -138,6 +177,7 @@ def generate(
             target,
             target_variant,
         )
+        write_launcher_env_if_needed(config)
         generate_main_cpp.generate_main_cpp(config)
         generate_model_cpp.generate_model_cpp(config)
         generate_workloads_registry.generate_workloads_registry(config)

@@ -24,11 +24,18 @@ def generate_project_cmakelists(config) -> None:
     # Set platform macros based on target
     platform = getattr(config, "target", "linux")
     platform_macros = []
+    target_variant = str(
+        ((getattr(config, "model", {}) or {}).get("runtime") or {}).get("target_variant")
+        or ""
+    ).strip().lower()
     if platform.lower() == "linux":
         platform_macros.append("ROBOTICK_PLATFORM_DESKTOP")
         platform_macros.append("ROBOTICK_PLATFORM_LINUX")
     elif platform.lower() == "esp32":
         platform_macros.append("ROBOTICK_PLATFORM_ESP32")
+        platform_macros.append("ROBOTICK_PLATFORM_ESP32S3")
+        if target_variant == "esp32s3_m5":
+            platform_macros.append("ROBOTICK_PLATFORM_ESP32S3_M5")
 
     filename = "CMakeLists.txt"
     path = config.launcher_dir / filename
@@ -121,11 +128,18 @@ def generate_component_cmakelists(config) -> None:
     # Set platform macros based on target
     platform = getattr(config, "target", "linux")
     platform_macros = []
+    target_variant = str(
+        ((getattr(config, "model", {}) or {}).get("runtime") or {}).get("target_variant")
+        or ""
+    ).strip().lower()
     if platform.lower() == "linux":
         platform_macros.append("ROBOTICK_PLATFORM_DESKTOP")
         platform_macros.append("ROBOTICK_PLATFORM_LINUX")
     elif platform.lower() == "esp32":
         platform_macros.append("ROBOTICK_PLATFORM_ESP32")
+        platform_macros.append("ROBOTICK_PLATFORM_ESP32S3")
+        if target_variant == "esp32s3_m5":
+            platform_macros.append("ROBOTICK_PLATFORM_ESP32S3_M5")
 
     filename = "CMakeLists.txt"
     path = config.launcher_dir / subdir / filename

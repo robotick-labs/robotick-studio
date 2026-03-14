@@ -109,6 +109,10 @@ def _collect_platform_files(config, allowed_types: Optional[set] = None) -> List
     cpp_files = OrderedDict()
     sources = discover_workload_sources_map(config)
     target = getattr(config, "target", "linux")
+    target_variant = str(
+        ((getattr(config, "model", {}) or {}).get("runtime") or {}).get("target_variant")
+        or ""
+    ).strip().lower()
 
     # Only gather platform files for allowed (used) workload types
     for type_name, srec in sources.items():
@@ -119,6 +123,12 @@ def _collect_platform_files(config, allowed_types: Optional[set] = None) -> List
         if spec and target in spec.platforms:
             for rel in spec.platforms[target].files:
                 cpp_files[rel] = True
+
+    # M5 board support is shared by several ESP32-S3 workloads, but it is not
+    # declared via per-workload YAML platform files. Pull it in once here when
+    # the generated target variant enables the M5-specific code paths.
+    if target == "esp32" and target_variant == "esp32s3_m5":
+        cpp_files["robotick/boards/m5/BoardSupport.cpp"] = True
     return sorted(cpp_files.keys())
 
 

@@ -3,6 +3,9 @@
 #include "robotick/framework/CommonMain.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_err.h"
+#include "esp_event.h"
+#include "esp_netif.h"
 
 // Declare generated model function (no need for full header)
 void populate_model_{{model_name_safe}}(robotick::Model& model);
@@ -14,6 +17,23 @@ static constexpr const char* ENGINE_TASK_NAME = "robotick_main";
 static constexpr uint32_t ENGINE_STACK_SIZE = 8192; // in bytes
 static constexpr UBaseType_t ENGINE_TASK_PRIORITY = 5;
 static constexpr BaseType_t ENGINE_CORE_ID = 1;
+
+static void initialize_network_runtime()
+{
+	// RemoteEngineDiscoverer and TelemetryServer can open sockets during engine load,
+	// so the ESP32 TCP/IP stack needs to exist before the engine task starts.
+	esp_err_t err = esp_netif_init();
+	if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+	{
+		ROBOTICK_FATAL_EXIT("Failed to initialize esp_netif (error code %d)", static_cast<int>(err));
+	}
+
+	err = esp_event_loop_create_default();
+	if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+	{
+		ROBOTICK_FATAL_EXIT("Failed to create default ESP event loop (error code %d)", static_cast<int>(err));
+	}
+}
 
 void run_engine_on_core1(void* param)
 {
@@ -37,6 +57,7 @@ void run_engine_on_core1(void* param)
 ROBOTICK_ENTRYPOINT
 {
 	ROBOTICK_INFO("Starting Robotick engine on 'esp32' for model '{{ model_name }}'...");
+	initialize_network_runtime();
 
 	BaseType_t result = xTaskCreatePinnedToCore(
 		run_engine_on_core1,
