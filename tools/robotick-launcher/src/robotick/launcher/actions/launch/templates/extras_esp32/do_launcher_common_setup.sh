@@ -19,19 +19,28 @@ fi
 
 IMAGE_NAME="robotick-launcher-esp32s3"
 DOCKERFILE="$REPO_ROOT/robotick/robotick-studio/tools/robotick-launcher/docker/esp32s3.Dockerfile"
+DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
 ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
 ESP32_TARGET_VARIANT="${ROBOTICK_ESP32_TARGET_VARIANT:-}"
 IDF_EXTRA_CMAKE_ARGS_VALUE="${IDF_EXTRA_CMAKE_ARGS:-}"
 ROBOTICK_PLATFORM_ESP32S3_M5_VALUE="${ROBOTICK_PLATFORM_ESP32S3_M5:-}"
 
 ensure_esp32_image() {
+    local current_sha
+    current_sha="$(sha256sum "$DOCKERFILE" | awk '{print $1}')"
+
     if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-        return
+        local existing_sha
+        existing_sha="$(docker image inspect -f "{{ index .Config.Labels \"$DOCKERFILE_SHA_LABEL\" }}" "$IMAGE_NAME" 2>/dev/null || true)"
+        if [[ "$existing_sha" == "$current_sha" ]]; then
+            return
+        fi
     fi
 
     echo "🐳 Building ESP32-S3 image: $IMAGE_NAME"
     docker build \
         -t "$IMAGE_NAME" \
+        --label "$DOCKERFILE_SHA_LABEL=$current_sha" \
         -f "$DOCKERFILE" \
         "$REPO_ROOT"
 }

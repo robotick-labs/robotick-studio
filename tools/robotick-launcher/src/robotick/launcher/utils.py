@@ -5,6 +5,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable, Optional, Union
 
@@ -44,6 +45,67 @@ def get_launcher_paths(
         binary_path = binary_path.with_name(binary_path.name + "-esp32.bin")
 
     return launcher_dir.resolve(), build_dir.resolve(), binary_path.resolve()
+
+
+def find_local_process_ids_for_binary(
+    binary_path: Path, *, proc_root: Path = Path("/proc")
+) -> list[int]:
+    resolved_binary = binary_path.resolve()
+    matching_pids: list[int] = []
+
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            pid = int(entry.name)
+            exe_path = (entry / "exe").resolve()
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        except OSError:
+            continue
+
+        if exe_path == resolved_binary:
+            matching_pids.append(pid)
+
+    return matching_pids
+
+
+def stop_local_binary_process(binary_path: Path, *, dry_run: bool) -> None:
+    resolved_binary = binary_path.resolve()
+    matching_pids = find_local_process_ids_for_binary(resolved_binary)
+
+    if not matching_pids:
+        print(f"[dim][Launcher] No existing local instance for {resolved_binary}[/]")
+        return
+
+    print(f"[Launcher] Stopping existing local instance: {resolved_binary}")
+    if dry_run:
+        print(f"[bold]$ stop local pids for {resolved_binary}: {matching_pids}[/]")
+        return
+
+    alive_pids = matching_pids.copy()
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        still_alive: list[int] = []
+        for pid in alive_pids:
+            if Path(f"/proc/{pid}").exists():
+                still_alive.append(pid)
+        if not still_alive:
+            return
+        alive_pids = still_alive
+        time.sleep(0.2)
+
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 # Jinja Template engine: ================================================================================

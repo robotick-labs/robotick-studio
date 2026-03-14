@@ -22,6 +22,7 @@ class RemoteSyncPath:
 @dataclass(frozen=True)
 class RemoteLinuxSpec:
     host: str
+    ssh_target: str
     target_variant: str
     local_project_dir: Path
     remote_repo_root: str
@@ -60,6 +61,8 @@ def load_remote_linux_spec(
         return None
 
     deploy = dict(runtime.get("deploy") or {})
+    ssh_user = str(deploy.get("ssh_user") or "").strip()
+    ssh_target = f"{ssh_user}@{host}" if ssh_user else host
     remote_repo_root = _normalize_remote_root(
         str(
             deploy.get("remote_project_path")
@@ -89,6 +92,7 @@ def load_remote_linux_spec(
 
     return RemoteLinuxSpec(
         host=host,
+        ssh_target=ssh_target,
         target_variant=target_variant,
         local_project_dir=config.project_dir.resolve(),
         remote_repo_root=remote_repo_root,
@@ -106,6 +110,8 @@ def load_remote_linux_spec(
 
 def print_remote_linux_summary(spec: RemoteLinuxSpec) -> None:
     print(f"[cyan]🌐 Remote host:      [/] {spec.host}")
+    if spec.ssh_target != spec.host:
+        print(f"[cyan]🔐 SSH target:      [/] {spec.ssh_target}")
     print(f"[cyan]🧭 Target variant:  [/] {spec.target_variant}")
     print(f"[cyan]📦 Remote repo root:[/] {spec.remote_repo_root}")
     print(f"[cyan]📂 Remote project:   [/] {spec.remote_project_dir}")
@@ -125,7 +131,7 @@ def sync_remote_linux_repo(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
     for remote_dir in mkdir_cmds:
         cmd = [
             "ssh",
-            spec.host,
+            spec.ssh_target,
             f"mkdir -p {_remote_shell_path(remote_dir)}",
         ]
         _print_command(cmd)
@@ -150,7 +156,7 @@ def sync_remote_linux_repo(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
         cmd.extend(
             [
                 f"{sync.local_path}/",
-                f"{spec.host}:{_remote_rsync_path(sync.remote_path)}/",
+                f"{spec.ssh_target}:{_remote_rsync_path(sync.remote_path)}/",
             ]
         )
         _print_command(cmd)
@@ -161,7 +167,7 @@ def sync_remote_linux_repo(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
 def sync_remote_linux_project(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
     mkdir_cmd = [
         "ssh",
-        spec.host,
+        spec.ssh_target,
         f"mkdir -p {_remote_shell_path(_parent_remote_dir(spec.remote_project_dir))}",
     ]
     _print_command(mkdir_cmd)
@@ -187,7 +193,7 @@ def sync_remote_linux_project(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
         "--exclude",
         ".pytest_cache/",
         f"{spec.local_project_dir}/",
-        f"{spec.host}:{_remote_rsync_path(spec.remote_project_dir)}/",
+        f"{spec.ssh_target}:{_remote_rsync_path(spec.remote_project_dir)}/",
     ]
     _print_command(cmd)
     if not dry_run:
@@ -198,7 +204,7 @@ def build_remote_linux(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
     sync_remote_linux_repo(spec, dry_run=dry_run)
     cmd = [
         "ssh",
-        spec.host,
+        spec.ssh_target,
         (
             f"cd {_remote_shell_path(spec.remote_launcher_dir)} && "
             "bash ./do_launcher_build.sh"
@@ -213,7 +219,7 @@ def stop_remote_linux_process(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
     pattern = _remote_shell_path(spec.remote_binary_path)
     cmd = [
         "ssh",
-        spec.host,
+        spec.ssh_target,
         (
             f"if pgrep -f -- {pattern} >/dev/null 2>&1; then "
             f"echo '[Launcher] Stopping existing remote instance: {pattern}'; "
@@ -256,7 +262,7 @@ def run_remote_linux(spec: RemoteLinuxSpec, *, dry_run: bool) -> None:
     )
     cmd = [
         "ssh",
-        spec.host,
+        spec.ssh_target,
         remote_command,
     ]
     _print_command(cmd)

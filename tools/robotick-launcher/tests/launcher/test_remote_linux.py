@@ -120,6 +120,7 @@ def test_run_dry_run_uses_remote_linux_path(monkeypatch, tmp_path):
 def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypatch):
     spec = RemoteLinuxSpec(
         host="raspberrypi.local",
+        ssh_target="raspberrypi.local",
         target_variant="arm64",
         local_project_dir=Path("/tmp/local-project"),
         remote_repo_root="$HOME/dev/robotick/robotick-knitware",
@@ -154,6 +155,7 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
 def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
     spec = RemoteLinuxSpec(
         host="raspberrypi.local",
+        ssh_target="raspberrypi.local",
         target_variant="arm64",
         local_project_dir=Path("/tmp/local-project"),
         remote_repo_root="$HOME/dev/robotick/robotick-knitware",
@@ -178,30 +180,20 @@ def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
 
 
 def test_stop_existing_local_process_uses_binary_path(monkeypatch):
-    killed_signals: list[tuple[int, int]] = []
-    sleep_calls: list[float] = []
     binary_path = Path(
         "/tmp/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"
     )
+    stop_calls: list[tuple[Path, bool]] = []
 
     monkeypatch.setattr(
         run_module,
-        "_find_local_process_ids_for_binary",
-        lambda path: [1234] if path == binary_path.resolve() else [],
-    )
-    monkeypatch.setattr(run_module.os, "kill", lambda pid, sig: killed_signals.append((pid, sig)))
-    monkeypatch.setattr(run_module.time, "sleep", lambda seconds: sleep_calls.append(seconds))
-    monkeypatch.setattr(run_module.time, "time", lambda: 0.0)
-    monkeypatch.setattr(
-        run_module.Path,
-        "exists",
-        lambda self: False if str(self) == "/proc/1234" else Path.exists(self),
+        "stop_local_binary_process",
+        lambda path, dry_run: stop_calls.append((path, dry_run)),
     )
 
     run_module._stop_existing_local_process(binary_path, dry_run=False)
 
-    assert killed_signals == [(1234, run_module.signal.SIGTERM)]
-    assert sleep_calls == []
+    assert stop_calls == [(binary_path, False)]
 
 
 def test_find_local_process_ids_for_binary_matches_exact_exe_path(tmp_path):

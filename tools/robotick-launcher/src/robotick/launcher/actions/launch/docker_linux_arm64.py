@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shlex
 import subprocess
@@ -14,6 +15,7 @@ from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
 IMAGE_NAME = "robotick-dev-linux-arm64"
+DOCKERFILE_SHA_LABEL = "robotick.dockerfile_sha"
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,7 @@ def build_docker_linux_arm64(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> No
 
 def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
     inspect_cmd = ["docker", "image", "inspect", spec.image_name]
+    current_sha = hashlib.sha256(spec.dockerfile.read_bytes()).hexdigest()
     image_exists = subprocess.run(
         inspect_cmd,
         stdout=subprocess.DEVNULL,
@@ -116,13 +119,31 @@ def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
         check=False,
     ).returncode == 0
     if image_exists:
-        return
+        label_cmd = [
+            "docker",
+            "image",
+            "inspect",
+            "-f",
+            f"{{{{ index .Config.Labels \"{DOCKERFILE_SHA_LABEL}\" }}}}",
+            spec.image_name,
+        ]
+        label_result = subprocess.run(
+            label_cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        existing_sha = label_result.stdout.strip()
+        if existing_sha == current_sha:
+            return
 
     build_cmd = [
         "docker",
         "build",
         "-t",
         spec.image_name,
+        "--label",
+        f"{DOCKERFILE_SHA_LABEL}={current_sha}",
         "-f",
         str(spec.dockerfile),
         str(spec.dockerfile.parent),

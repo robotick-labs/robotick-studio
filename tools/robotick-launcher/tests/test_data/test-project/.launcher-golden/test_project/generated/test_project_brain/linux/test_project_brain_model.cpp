@@ -125,10 +125,14 @@ void populate_model_test_project_brain(robotick::Model& model)
         &spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate
     };
 
-    static const RemoteModelSeed remote_spine{
-        "spine",
-        spine_connections
-    };
+    static const RemoteModelSeed remote_spine = []() {
+        RemoteModelSeed seed{
+            "spine",
+            spine_connections
+        };
+        seed.comms_mode = RemoteModelSeed::Mode::IP;
+        return seed;
+    }();
 
     static const RemoteModelSeed* const all_remote_models[] = {
         &remote_spine        

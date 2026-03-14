@@ -27,6 +27,7 @@ process_handle: Optional[mp.Process] = None
 status_queue: Optional[mp.Queue] = None
 status_thread: Optional[threading.Thread] = None
 current_profile: Optional[str] = None
+current_project_path: Optional[Path] = None
 log_loop: Optional[asyncio.AbstractEventLoop] = None
 
 log_subscribers: List[asyncio.Queue] = []
@@ -166,7 +167,7 @@ def _close_log_subscribers():
 
 
 def _status_consumer(loop: asyncio.AbstractEventLoop):
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
 
     while True:
         if status_queue is None:
@@ -202,6 +203,7 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
         status_queue = None
         log_loop = None
         current_profile = None
+        current_project_path = None
         status_thread = None
 
     if proc_to_join:
@@ -268,10 +270,10 @@ async def run_launcher(
         ..., description="Absolute path to the project YAML file"
     ),
     profile: str = Query(
-        ..., description="Launcher profile string, e.g. 'local:model-id'"
+        ..., description="Launcher profile string, e.g. 'local:model-id' or 'native:model-id'"
     ),
 ):
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
 
     print(f"[Launcher] Requested run: {project_path=} | {profile=}")
 
@@ -282,7 +284,7 @@ async def run_launcher(
     if ":" not in profile:
         return {
             "status": "error",
-            "detail": "Invalid profile format (expected 'local:model-id')",
+            "detail": "Invalid profile format (expected 'local:model-id' or 'native:model-id')",
         }
 
     base_dir = project_path.parent
@@ -290,6 +292,7 @@ async def run_launcher(
 
     _set_initial_status(profile)
     current_profile = profile
+    current_project_path = project_path
 
     proc: Optional[mp.Process] = None
     try:
@@ -315,6 +318,7 @@ async def run_launcher(
             except Exception as queue_exc:  # pragma: no cover - best-effort cleanup
                 print(f"[Launcher] Failed to close status queue cleanly: {queue_exc}")
         current_profile = None
+        current_project_path = None
         with status_lock:
             current_status["status"] = "error"
             current_status["detail"] = str(exc)
@@ -342,7 +346,7 @@ async def run_launcher(
 
 @router.post("/stop")
 async def stop_launcher():
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
 
     print("[Launcher] Requested stop")
 
@@ -350,13 +354,26 @@ async def stop_launcher():
         proc = process_handle
         queue = status_queue
         thread = status_thread
+        profile = current_profile
+        project_path = current_project_path
         process_handle = None
         status_queue = None
         status_thread = None
         current_profile = None
+        current_project_path = None
         log_loop = None
 
     _close_log_subscribers()
+
+    if profile and project_path:
+        try:
+            run_profile_module.stop_profile(
+                project=project_path.name.removesuffix(".project.yaml"),
+                profile=profile,
+                base_dir=project_path.parent,
+            )
+        except Exception as exc:
+            print(f"[Launcher] Best-effort profile stop failed: {exc}")
 
     if proc and proc.is_alive():
         proc.terminate()

@@ -1,14 +1,15 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 . "$SCRIPT_DIR/do_launcher_common_setup.sh"
 
+echo "🔌 Using ESP32 serial port: ${ESP32_SERIAL_PORT}"
 echo "⚙️ Flashing and launching project inside docker..."
-docker exec -it robotick-dev-esp32s3 bash -c "
+run_esp32_container device "
     set -e
     . /opt/esp/idf/export.sh
 
     echo -e \"\033[1m🔨 Flashing and launching project...\033[0m\" && \
-    idf.py -p /dev/ttyACM1 flash monitor
+    idf.py -p \"${ROBOTICK_ESP32_SERIAL_PORT}\" flash monitor
 "

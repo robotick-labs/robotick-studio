@@ -12,8 +12,11 @@ import typer
 import yaml
 
 from robotick.launcher.utils import run_subprocess
+from robotick.launcher.utils import get_launcher_paths, stop_local_binary_process
 from robotick.launcher.actions.query.list import list_project_models
 from robotick.launcher.actions.launch import install_deps as install_deps_stage
+from robotick.launcher.actions.launch.target_plan import resolve_target_plan
+from robotick.launcher.config import Config
 
 
 def stream_output(proc: subprocess.Popen, tag: str):
@@ -50,6 +53,13 @@ def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
         pass
 
 
+def _normalize_model_id(model_spec: str) -> str:
+    model_name = Path(model_spec).name
+    if model_name.endswith(".model.yaml"):
+        return Path(model_name).stem.removesuffix(".model")
+    return model_spec
+
+
 def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]:
     if model_spec == "ALL":
         model_paths = list_project_models(project_path)
@@ -62,7 +72,7 @@ def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]
 
     profile_entry = profiles.get(model_spec)
     if profile_entry is None:
-        return [model_spec]
+        return [_normalize_model_id(model_spec)]
 
     if isinstance(profile_entry, list):
         models = profile_entry
@@ -81,6 +91,95 @@ def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]
     return models
 
 
+def _resolve_profile_model_target(
+    project_name: str,
+    base_dir: Path,
+    profile_platform: str,
+    model_id: str,
+) -> str:
+    if profile_platform == "local":
+        return "linux"
+
+    config = Config(
+        project_name,
+        model_id,
+        None,
+        base_dir,
+        dry_run=False,
+        stub_install=False,
+    )
+    runtime = dict(config.model.get("runtime") or {})
+    return str(runtime.get("target_platform") or "linux").strip().lower() or "linux"
+
+
+def stop_profile(
+    project: str,
+    profile: str,
+    base_dir: Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    if ":" not in profile:
+        return {
+            "status": "error",
+            "detail": "Invalid profile format (expected 'local:xyz' or 'native:xyz')",
+        }
+
+    platform, model_spec = profile.split(":", 1)
+    if platform not in {"local", "native"}:
+        return {
+            "status": "unsupported",
+            "detail": f"Platform '{platform}' not yet supported",
+        }
+
+    project_path = base_dir / f"{project}.project.yaml"
+    if not project_path.exists():
+        return {
+            "status": "error",
+            "detail": f"Project file not found: {project_path}",
+        }
+
+    base_dir = project_path.parent
+    project_name = project_path.stem.removesuffix(".project")
+
+    try:
+        model_ids = _resolve_profile_model_ids(project_path, model_spec)
+        model_targets = {
+            model_id: _resolve_profile_model_target(
+                project_name, base_dir, platform, model_id
+            )
+            for model_id in model_ids
+        }
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+    stopped_models: list[str] = []
+    errors: list[str] = []
+    for model_id in reversed(model_ids):
+        model_target = model_targets[model_id]
+        try:
+            _, _, binary_path = get_launcher_paths(
+                project_name, model_id, model_target, base_dir
+            )
+            plan = resolve_target_plan(project_name, model_id, model_target, base_dir)
+            if plan.run.stop_handler is not None:
+                plan.run.stop_handler(dry_run)
+            elif plan.run.strategy == "local":
+                stop_local_binary_process(binary_path, dry_run=dry_run)
+            stopped_models.append(model_id)
+        except Exception as exc:
+            errors.append(f"{model_id}: {exc}")
+
+    if errors:
+        return {
+            "status": "error",
+            "detail": "; ".join(errors),
+            "stopped": stopped_models,
+        }
+
+    return {"status": "stopped", "stopped": stopped_models}
+
+
 def run_profile(
     project: str = typer.Argument(...),
     profile: str = typer.Argument(...),
@@ -94,12 +193,12 @@ def run_profile(
     if ":" not in profile:
         return {
             "status": "error",
-            "detail": "Invalid profile format (expected 'local:xyz')",
+            "detail": "Invalid profile format (expected 'local:xyz' or 'native:xyz')",
         }
 
     platform, model_spec = profile.split(":", 1)
 
-    if platform != "local":
+    if platform not in {"local", "native"}:
         return {
             "status": "unsupported",
             "detail": f"Platform '{platform}' not yet supported",
@@ -119,6 +218,14 @@ def run_profile(
         model_ids = _resolve_profile_model_ids(project_path, model_spec)
     except Exception as e:
         return {"status": "error", "detail": f"Failed to parse project file: {e}"}
+
+    try:
+        model_targets = {
+            model_id: _resolve_profile_model_target(project_name, base_dir, platform, model_id)
+            for model_id in model_ids
+        }
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to resolve model targets: {e}"}
 
     if not model_ids:
         return {"status": "error", "detail": "No models found to build"}
@@ -140,18 +247,19 @@ def run_profile(
         models=model_ids,
     )
 
-    try:
-        install_deps_stage.install_deps(
-            project=project_name,
-            base_dir=base_dir,
-            workspace_root=base_dir,
-            model=None,
-            target="linux",
-        )
-    except Exception as exc:
-        detail = f"install-deps failed: {exc}"
-        print(f"[bold red]❌ {detail}[/]")
-        return {"status": "error", "detail": detail}
+    for target in dict.fromkeys(model_targets.values()):
+        try:
+            install_deps_stage.install_deps(
+                project=project_name,
+                base_dir=base_dir,
+                workspace_root=base_dir,
+                model=None,
+                target=target,
+            )
+        except Exception as exc:
+            detail = f"install-deps failed for target '{target}': {exc}"
+            print(f"[bold red]❌ {detail}[/]")
+            return {"status": "error", "detail": detail}
 
     max_parallel_env = os.getenv("ROBOTICK_LAUNCHER_MAX_PARALLEL_BUILDS", "").strip()
     max_parallel_builds = len(model_ids)
@@ -191,12 +299,13 @@ def run_profile(
         build_threads: list[threading.Thread] = []
 
         for model_id in batch_model_ids:
+            model_target = model_targets[model_id]
             build_cmd = [
                 "robotick-launcher",
                 "build",
                 project_name,
                 model_id,
-                "linux",
+                model_target,
                 "--base-dir",
                 str(base_dir),
                 "--workspace-dir",
@@ -339,17 +448,21 @@ def run_profile(
         models=succeeded,
     )
 
+    print(f"[Launcher] Deploying {len(succeeded)} models sequentially...")
+
     deployed: list[str] = []
     deploy_failed: list[str] = []
     for model_id in succeeded:
+        model_target = model_targets[model_id]
         deploy_cmd = [
             "robotick-launcher",
             "deploy",
             project_name,
             model_id,
-            "linux",
+            model_target,
             "--base-dir",
             str(base_dir),
+            "--no-pre",
         ]
         print(f"[Launcher] Deploying model: {model_id} → {deploy_cmd}")
         _emit_status(
@@ -360,7 +473,23 @@ def run_profile(
             status="starting",
         )
         try:
-            run_subprocess(command=deploy_cmd)
+            proc = run_subprocess(
+                command=deploy_cmd,
+                wait=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            deploy_thread = threading.Thread(
+                target=stream_output,
+                args=(proc, f"deploy:{model_id}"),
+                daemon=True,
+            )
+            deploy_thread.start()
+
+            rc = proc.wait()
+            deploy_thread.join()
+            if rc != 0:
+                raise subprocess.CalledProcessError(rc, deploy_cmd)
             deployed.append(model_id)
             _emit_status(
                 status_queue,
@@ -433,12 +562,13 @@ def run_profile(
     )
 
     for model_id in deployed:
+        model_target = model_targets[model_id]
         cmd = [
             "robotick-launcher",
             "run",
             project_name,
             model_id,
-            "linux",
+            model_target,
             "--base-dir",
             str(base_dir),
             "--workspace-dir",
@@ -462,6 +592,13 @@ def run_profile(
             )
             run_procs.append((model_id, proc))
             launched_models.append(model_id)
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="run",
+                status="running",
+            )
 
             t = threading.Thread(
                 target=stream_output,

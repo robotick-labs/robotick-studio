@@ -12,6 +12,8 @@
 // Raw Layout Types (directly from engine /layout endpoint)
 // -----------------------------------------------------------------------------
 
+import { buildUrl } from "../../launcher/internal/launcher-interface";
+
 export interface LayoutField {
   name: string;
   type: string;
@@ -125,8 +127,9 @@ export interface ITelemetryModel {
 export async function fetchLayout(
   base_url: string,
 ): Promise<LayoutModel | null> {
+  const requestUrl = buildUrl(base_url, "/api/telemetry/workloads_buffer/layout");
   try {
-    const r = await fetch(`${base_url}/api/telemetry/workloads_buffer/layout`, {
+    const r = await fetch(requestUrl, {
       cache: "no-store",
     });
     if (!r.ok) return null;
@@ -139,7 +142,7 @@ export async function fetchLayout(
 export async function fetchRaw(
   base_url: string,
 ): Promise<{ raw: ArrayBuffer; sid: string; frameSeq: number | null }> {
-  const requestUrl = `${base_url}/api/telemetry/workloads_buffer/raw`;
+  const requestUrl = buildUrl(base_url, "/api/telemetry/workloads_buffer/raw");
   try {
     const r = await fetch(requestUrl, {
       cache: "no-store",
@@ -220,7 +223,10 @@ export async function setWorkloadInputFieldData(
   request: SetWorkloadInputFieldDataRequest,
   options: SetWorkloadInputFieldDataOptions = {},
 ): Promise<SetWorkloadInputFieldDataResult> {
-  const endpoint = `${base_url}/api/telemetry/set_workload_input_field_data`;
+  const endpoint = buildUrl(
+    base_url,
+    "/api/telemetry/set_workload_input_field_data"
+  );
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
   const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
   const maxRetryDelayMs = Math.max(

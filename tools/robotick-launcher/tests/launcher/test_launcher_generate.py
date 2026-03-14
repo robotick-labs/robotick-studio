@@ -210,7 +210,9 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
         }
     )
 
-    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+    workloads, connections, remote_models, telemetry, telemetry_peers = (
+        prepare_codegen_model_data(cfg)
+    )
 
     assert len(workloads) == 1
     assert workloads[0]["config_entries"] == [
@@ -225,6 +227,7 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert connections == []
     assert remote_models == []
     assert telemetry == {}
+    assert telemetry_peers == []
 
 
 def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):
@@ -249,13 +252,18 @@ remote_models:
         model={"workloads": []},
     )
 
-    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+    workloads, connections, remote_models, telemetry, telemetry_peers = (
+        prepare_codegen_model_data(cfg)
+    )
 
     assert workloads == []
     assert connections == []
     assert telemetry == {}
+    assert telemetry_peers == []
     assert len(remote_models) == 1
     assert remote_models[0]["name"] == "mind"
+    assert remote_models[0]["mode"] == ""
+    assert remote_models[0]["channel"] == ""
     assert remote_models[0]["connections"] == [
         {
             "from": "prosody.outputs.prosody_state.is_voiced",
@@ -266,6 +274,47 @@ remote_models:
             ),
         }
     ]
+
+
+def test_prepare_codegen_model_data_preserves_remote_mode_and_channel():
+    cfg = SimpleNamespace(
+        model_name="",
+        model={
+            "workloads": [],
+            "remote_models": [
+                {
+                    "name": "alf-e-spine",
+                    "mode": "IP",
+                    "channel": "10.42.0.2",
+                    "connections": [
+                        {
+                            "from": "rc.outputs.x",
+                            "to_remote": "spine.inputs.x",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    _, _, remote_models, _, telemetry_peers = prepare_codegen_model_data(cfg)
+
+    assert remote_models == [
+        {
+            "name": "alf-e-spine",
+            "name_safe": "alf_e_spine",
+            "mode": "IP",
+            "channel": "10.42.0.2",
+            "connections": [
+                {
+                    "from": "rc.outputs.x",
+                    "to_remote": "spine.inputs.x",
+                    "var_name": "alf_e_spine_conn_rc_outputs_x__to__spine_inputs_x",
+                }
+            ],
+        }
+    ]
+    assert telemetry_peers == []
 
 
 def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declarations(

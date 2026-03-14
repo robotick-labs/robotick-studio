@@ -2,6 +2,12 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+add_compile_definitions(
+    ROBOTICK_PLATFORM_ESP32
+    ROBOTICK_PLATFORM_ESP32S3
+)
+
+
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-engine/platforms/esp32/components/robotick-engine"
 )

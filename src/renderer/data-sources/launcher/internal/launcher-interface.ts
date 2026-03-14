@@ -10,12 +10,35 @@ function ensureTrailingSlash(url: string) {
   return url.endsWith("/") ? url : `${url}/`;
 }
 
+function tryBuildRoutedTelemetryUrl(baseUrl: string, path: string): URL | null {
+  const telemetryPrefix = "/api/telemetry";
+  const gatewayPrefix = "/api/telemetry-gateway";
+  if (!path.startsWith(`${telemetryPrefix}/`)) {
+    return null;
+  }
+
+  const base = new URL(ensureTrailingSlash(baseUrl));
+  const basePath = base.pathname.endsWith("/") && base.pathname !== "/"
+    ? base.pathname.slice(0, -1)
+    : base.pathname;
+
+  if (!basePath.startsWith(`${gatewayPrefix}/`)) {
+    return null;
+  }
+
+  return new URL(
+    `${base.origin}${basePath}${path.slice(telemetryPrefix.length)}`
+  );
+}
+
 export function buildUrl(
   baseUrl: string,
   path: string,
   params?: Record<string, string | number | undefined>
 ): string {
-  const url = new URL(path, ensureTrailingSlash(baseUrl));
+  const url =
+    tryBuildRoutedTelemetryUrl(baseUrl, path) ??
+    new URL(path, ensureTrailingSlash(baseUrl));
   if (params) {
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined) continue;
@@ -182,6 +205,52 @@ function buildTelemetryBaseUrl(port: number) {
   return `http://${getModelHostName()}:${port}`;
 }
 
+function getPreferredHost(data: unknown): string {
+  const preferredHost = (data as { runtime?: { preferred_host?: string } })?.runtime
+    ?.preferred_host;
+  return preferredHost?.trim() || DEFAULT_MODEL_HOST;
+}
+
+function isTelemetryGatewayModel(data: unknown): boolean {
+  return Boolean(
+    (data as { telemetry?: { is_gateway?: boolean } })?.telemetry?.is_gateway
+  );
+}
+
+function buildDirectTelemetryBaseUrl(data: unknown, telemetryPort: number) {
+  return `http://${getPreferredHost(data)}:${telemetryPort}`;
+}
+
+type GatewayRegistryEntry = {
+  model_id: string;
+  is_local?: boolean;
+  is_gateway?: boolean;
+  telemetry_path?: string;
+};
+
+type GatewayRegistryResponse = {
+  gateway_model_id?: string;
+  models?: GatewayRegistryEntry[];
+};
+
+async function tryFetchGatewayRegistry(
+  gatewayBaseUrl: string
+): Promise<Map<string, GatewayRegistryEntry> | null> {
+  const url = buildUrl(gatewayBaseUrl, "/api/telemetry-gateway/models");
+  const response = await tryFetchJSON<GatewayRegistryResponse>(url);
+  if (!response?.models?.length) {
+    return null;
+  }
+
+  const registry = new Map<string, GatewayRegistryEntry>();
+  for (const model of response.models) {
+    const modelId = model.model_id?.trim();
+    if (!modelId) continue;
+    registry.set(modelId, model);
+  }
+  return registry;
+}
+
 function buildModelShortName(modelPath: string): string {
   const filename = modelPath.split("/").pop() ?? modelPath;
   if (filename.endsWith(".model.yaml")) {
@@ -254,9 +323,15 @@ export async function requestLauncherStop(): Promise<void> {
 
 export async function fetchLauncherStatus(): Promise<{
   status: string;
+  phase?: string | null;
+  models?: Record<string, { stage?: string; status?: string }>;
 } | null> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
-  return await tryFetchJSON<{ status: string }>(url);
+  return await tryFetchJSON<{
+    status: string;
+    phase?: string | null;
+    models?: Record<string, { stage?: string; status?: string }>;
+  }>(url);
 }
 
 export function getLauncherLogStreamUrl(): string {
@@ -308,7 +383,7 @@ async function buildModelDescriptors(
         modelShortName: buildModelShortName(modelPath),
         modelName,
         telemetryPort,
-        telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
+        telemetryBaseUrl: buildDirectTelemetryBaseUrl(data, telemetryPort),
         data,
       } as ProjectModelDescriptor;
     } catch (err) {
@@ -321,9 +396,40 @@ async function buildModelDescriptors(
   });
 
   const descriptors = await Promise.all(descriptorPromises);
-  return descriptors.filter(
+  const filteredDescriptors = descriptors.filter(
     (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
   );
+
+  const gatewayDescriptor = filteredDescriptors.find((descriptor) =>
+    isTelemetryGatewayModel(descriptor.data)
+  );
+
+  if (!gatewayDescriptor) {
+    return filteredDescriptors;
+  }
+
+  const gatewayBaseUrl = buildDirectTelemetryBaseUrl(
+    gatewayDescriptor.data,
+    gatewayDescriptor.telemetryPort
+  );
+  const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
+  if (!gatewayRegistry) {
+    return filteredDescriptors;
+  }
+
+  return filteredDescriptors.map((descriptor) => {
+    const registryEntry =
+      gatewayRegistry?.get(descriptor.modelShortName) ??
+      gatewayRegistry?.get(descriptor.modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") || "");
+    const telemetryPath =
+      registryEntry?.telemetry_path?.trim() ||
+      `/api/telemetry-gateway/${descriptor.modelShortName}`;
+
+    return {
+      ...descriptor,
+      telemetryBaseUrl: buildUrl(gatewayBaseUrl, telemetryPath),
+    };
+  });
 }
 
 async function resolveProjectModels(

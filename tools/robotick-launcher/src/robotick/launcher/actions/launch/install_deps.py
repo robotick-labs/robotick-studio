@@ -514,6 +514,8 @@ def _install_deps_locked(
                 f"({target_platform}/{target_variant}); build deps are provided by Docker[/dim]"
             )
         else:
+            if target_platform == "linux":
+                apt.add("libcurl4-openssl-dev")
             apt_packages.update(apt)
 
     missing_apt: List[str] = []

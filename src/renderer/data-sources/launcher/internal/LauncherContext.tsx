@@ -19,6 +19,7 @@ export type LauncherStatus = "stopped" | "launching" | "running";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
+const STARTUP_VISUAL_GRACE_MS = 10000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -78,6 +79,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
         try {
           const launcherStatus = await readLauncherStatus(launcherService);
+          const now = Date.now();
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
@@ -100,15 +102,20 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
               setRobotAliveLoading(true);
               setRobotAliveError(null);
               skipNextRobotCheckRef.current = true;
-              lastRunningAtRef.current = Date.now();
+              lastRunningAtRef.current = now;
             }
+            const inStartupGrace =
+              typeof lastRunningAtRef.current === "number" &&
+              now - lastRunningAtRef.current < STARTUP_VISUAL_GRACE_MS;
             if (skipNextRobotCheckRef.current) {
               skipNextRobotCheckRef.current = false;
             }
-            if (
+            if (inStartupGrace) {
+              setRobotAliveLoading(true);
+            } else if (
               !robotCheckPromiseRef.current &&
               typeof lastRunningAtRef.current === "number" &&
-              Date.now() - lastRunningAtRef.current >= 5000
+              now - lastRunningAtRef.current >= 5000
             ) {
               setRobotAliveLoading(true);
               robotCheckPromiseRef.current = checkRobotAlive()
@@ -134,8 +141,15 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             setRobotAliveError(null);
           }
 
+          const visualStatus: LauncherStatus =
+            launcherStatus === "running" &&
+            typeof lastRunningAtRef.current === "number" &&
+            now - lastRunningAtRef.current < STARTUP_VISUAL_GRACE_MS
+              ? "launching"
+              : launcherStatus;
+
           setStatus((prev) =>
-            prev === launcherStatus ? prev : launcherStatus
+            prev === visualStatus ? prev : visualStatus
           );
           setPendingTarget((target) => {
             if (!target) {

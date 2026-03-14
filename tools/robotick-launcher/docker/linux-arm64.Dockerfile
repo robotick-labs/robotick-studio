@@ -20,6 +20,7 @@ RUN dpkg --add-architecture arm64 \
         pkg-config \
         python3 \
         libopencv-dev:arm64 \
+        libcurl4-openssl-dev:arm64 \
         libsdl2-dev:arm64 \
         libsdl2-gfx-dev:arm64 \
         libsdl2-ttf-dev:arm64 \

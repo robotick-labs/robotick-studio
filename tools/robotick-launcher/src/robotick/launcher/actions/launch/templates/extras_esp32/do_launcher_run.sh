@@ -10,6 +10,11 @@ run_esp32_container device "
     set -e
     . /opt/esp/idf/export.sh
 
-    echo -e \"\033[1m🔨 Flashing and launching project...\033[0m\" && \
-    idf.py -p \"${ROBOTICK_ESP32_SERIAL_PORT}\" flash monitor
+    if [[ -t 0 && -t 1 ]]; then
+        echo -e \"\033[1m🔨 Flashing and launching project with monitor...\033[0m\" && \
+        idf.py -p \"${ROBOTICK_ESP32_SERIAL_PORT}\" flash monitor
+    else
+        echo -e \"\033[1m🔨 Flashing project without monitor (no TTY attached)...\033[0m\" && \
+        idf.py -p \"${ROBOTICK_ESP32_SERIAL_PORT}\" flash
+    fi
 "

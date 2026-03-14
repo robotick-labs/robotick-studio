@@ -107,29 +107,32 @@ Studio talks to one telemetry base URL: the gateway model.
 
 The gateway then exposes:
 
-- its own local telemetry
+- its own local telemetry on the direct telemetry API
 - a registry of discovered peer models
-- one uniform per-model telemetry route shape for both local and peer models
+- a separate routed telemetry API for both local and peer models
 
 Route shape:
 
-- `/api/telemetry/models`
-- `/api/telemetry/<model-id>/health`
-- `/api/telemetry/<model-id>/workloads_buffer/layout`
-- `/api/telemetry/<model-id>/workloads_buffer/raw`
-- `/api/telemetry/<model-id>/set_workload_input_field_data`
+- direct model telemetry remains on:
+  - `/api/telemetry/...`
+- gateway-routed telemetry uses:
+  - `/api/telemetry-gateway/models`
+  - `/api/telemetry-gateway/<model-id>/health`
+  - `/api/telemetry-gateway/<model-id>/workloads_buffer/layout`
+  - `/api/telemetry-gateway/<model-id>/workloads_buffer/raw`
+  - `/api/telemetry-gateway/<model-id>/set_workload_input_field_data`
 
 Behavior:
 
 - if `<model-id>` is the local model, serve the request directly
-- if `<model-id>` is a discovered peer model, forward the request to that model's telemetry server
+- if `<model-id>` is a discovered peer model, forward the request to that model's direct `/api/telemetry/...` endpoint
 
-This keeps the client contract uniform:
+This keeps the mechanism explicit:
 
-- Studio does not need separate local and proxied route families
-- a model can move between local and remote placement without changing the route shape
-- the gateway hides the robot's internal network topology behind one stable API
-- the gateway model itself should also be addressed through its own `<model-id>` route for full consistency
+- `/api/telemetry/...` means direct model telemetry
+- `/api/telemetry-gateway/...` means routed gateway telemetry
+- the gateway still hides the robot's internal network topology behind one stable routed API
+- the gateway model itself should also be addressed through its own `<model-id>` route for consistency within the gateway API
 
 The gateway must preserve:
 

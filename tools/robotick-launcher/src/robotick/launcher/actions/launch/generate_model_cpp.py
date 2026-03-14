@@ -58,7 +58,7 @@ def generate_model_cpp(config):
         else config.launcher_dir / filename
     )
 
-    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(
+    workloads, connections, remote_models, telemetry, telemetry_peers = prepare_codegen_model_data(
         config
     )
 
@@ -68,6 +68,7 @@ def generate_model_cpp(config):
         "connections": connections,
         "remote_models": remote_models,
         "telemetry": telemetry,
+        "telemetry_peers": telemetry_peers,
     }
 
     if config.dry_run:
@@ -112,8 +113,40 @@ def prepare_codegen_model_data(config):
 
     # --- Telemetry (single object) ---
     telemetry = dict(config.model.get("telemetry", {}) or {})
+    telemetry_peers = _build_telemetry_peers_codegen(config, telemetry)
 
-    return workloads, connections, remote_models, telemetry
+    return workloads, connections, remote_models, telemetry, telemetry_peers
+
+
+def _build_telemetry_peers_codegen(config, telemetry):
+    if not bool((telemetry or {}).get("is_gateway")):
+        return []
+
+    current_model_name = getattr(config, "model_name", "") or ""
+    telemetry_peers = []
+    for model in _collect_project_models(config):
+        model_name = str(model.get("name", "")).strip()
+        if not model_name or model_name == current_model_name:
+            continue
+        model_data = model.get("data", {}) or {}
+        model_telemetry = dict(model_data.get("telemetry") or {})
+        port = int(model_telemetry.get("port") or 0)
+        if port <= 0:
+            continue
+        model_runtime = dict(model_data.get("runtime") or {})
+        host = str(model_runtime.get("preferred_host") or "").strip()
+        if not host:
+            continue
+        telemetry_peers.append(
+            {
+                "name": model_name,
+                "name_safe": model_name.replace("-", "_"),
+                "host": host,
+                "telemetry_port": port,
+                "is_gateway": bool(model_telemetry.get("is_gateway")),
+            }
+        )
+    return telemetry_peers
 
 
 def _build_remote_models_codegen(config):
@@ -121,6 +154,12 @@ def _build_remote_models_codegen(config):
     if not current_model_name:
         # Backward-compatible fallback used by some unit tests.
         return _build_remote_models_from_current_model_only(config.model)
+
+    current_remote_config = {
+        str(remote.get("name", "")).strip(): remote
+        for remote in (config.model.get("remote_models", []) or [])
+        if isinstance(remote, dict) and str(remote.get("name", "")).strip()
+    }
 
     project_models = _collect_project_models(config)
     canonical_edges = _collect_canonical_remote_edges(project_models)
@@ -139,6 +178,7 @@ def _build_remote_models_codegen(config):
 
     remote_models = []
     for target_model_name in sorted(remote_grouped.keys()):
+        remote_decl = current_remote_config.get(target_model_name, {})
         name_safe = target_model_name.replace("-", "_")
         remote_conns = []
         for conn in sorted(
@@ -158,6 +198,12 @@ def _build_remote_models_codegen(config):
             {
                 "name": target_model_name,
                 "name_safe": name_safe,
+                "mode": str(remote_decl.get("mode", "")).strip(),
+                "channel": str(
+                    remote_decl.get("channel")
+                    or remote_decl.get("comms_channel")
+                    or ""
+                ).strip(),
                 "connections": remote_conns,
             }
         )
@@ -192,6 +238,10 @@ def _build_remote_models_from_current_model_only(model):
             {
                 "name": remote_name,
                 "name_safe": name_safe,
+                "mode": str(remote.get("mode", "")).strip(),
+                "channel": str(
+                    remote.get("channel") or remote.get("comms_channel") or ""
+                ).strip(),
                 "connections": remote_conns,
             }
         )

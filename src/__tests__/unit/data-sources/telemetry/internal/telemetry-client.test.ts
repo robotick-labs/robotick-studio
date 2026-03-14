@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setWorkloadInputFieldData } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
+import {
+  fetchLayout,
+  setWorkloadInputFieldData,
+} from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
 
 type JsonResponse = {
   ok: boolean;
@@ -75,5 +78,43 @@ describe("setWorkloadInputFieldData", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
     expect(result.status).toBe(400);
+  });
+
+  it("keeps direct telemetry bases on the direct api route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        workloads: [],
+        types: [],
+        workloads_buffer_size_used: 0,
+        process_memory_used: 0,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLayout("http://192.168.5.16:7102");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://192.168.5.16:7102/api/telemetry/workloads_buffer/layout",
+      { cache: "no-store" }
+    );
+  });
+
+  it("uses telemetry-gateway bases without duplicating the api prefix", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        workloads: [],
+        types: [],
+        workloads_buffer_size_used: 0,
+        process_memory_used: 0,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLayout("http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
+      { cache: "no-store" }
+    );
   });
 });
