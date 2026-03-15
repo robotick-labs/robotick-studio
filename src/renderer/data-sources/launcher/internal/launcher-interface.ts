@@ -110,6 +110,104 @@ type ModelCacheEntry = {
 
 let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
+let knownProjectPaths: string[] = [];
+
+function getWorkspaceRoot(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const workspaceRoot = window.robotick?.environment?.workspaceRoot;
+  return typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
+}
+
+function looksAbsolutePath(path: string): boolean {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(path)
+  );
+}
+
+function normalizePathForMatch(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function getPathBasename(path: string): string {
+  const normalized = normalizePathForMatch(path);
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] || normalized;
+}
+
+function joinWorkspacePath(root: string, relativePath: string): string {
+  if (!root) {
+    return relativePath;
+  }
+  const normalizedRoot = root.replace(/[\\/]+$/, "");
+  const normalizedRelative = relativePath.replace(/^[\\/]+/, "");
+  if (!normalizedRelative) {
+    return normalizedRoot;
+  }
+  const separator = /\\/.test(normalizedRoot) ? "\\" : "/";
+  const joined = `${normalizedRoot}${separator}${normalizedRelative}`;
+  return separator === "\\" ? joined.replace(/\//g, "\\") : joined;
+}
+
+function cacheProjectPaths(paths: string[]) {
+  knownProjectPaths = paths.slice();
+}
+
+function resolveProjectPathFromCache(projectPath: string): string {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+  if (looksAbsolutePath(trimmedPath)) {
+    return trimmedPath;
+  }
+
+  const normalizedInput = normalizePathForMatch(trimmedPath);
+  const exactMatch = knownProjectPaths.find(
+    (candidate) => normalizePathForMatch(candidate) === normalizedInput
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const basenameMatches = knownProjectPaths.filter(
+    (candidate) => getPathBasename(candidate) === normalizedInput
+  );
+  if (basenameMatches.length === 1) {
+    return basenameMatches[0];
+  }
+
+  return trimmedPath;
+}
+
+async function resolveProjectPath(projectPath: string): Promise<string> {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+
+  let resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  const stillNeedsLookup =
+    !looksAbsolutePath(resolvedPath) &&
+    resolvedPath === trimmedPath &&
+    knownProjectPaths.length === 0;
+  if (stillNeedsLookup) {
+    await fetchProjectPaths();
+    resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  }
+
+  if (looksAbsolutePath(resolvedPath)) {
+    return resolvedPath;
+  }
+
+  const workspaceRoot = getWorkspaceRoot();
+  return workspaceRoot
+    ? joinWorkspacePath(workspaceRoot, resolvedPath)
+    : resolvedPath;
+}
 
 /**
  * Set the current project path and propagate the change.
@@ -265,14 +363,17 @@ function buildModelShortName(modelPath: string): string {
 export async function fetchProjectPaths(): Promise<string[]> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
   const projects = await fetchJSON<string[]>(url);
-  return projects.sort();
+  const sortedProjects = projects.sort();
+  cacheProjectPaths(sortedProjects);
+  return sortedProjects;
 }
 
 export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
   });
   return await fetchJSON<T>(url);
 }
@@ -280,11 +381,12 @@ export async function fetchProjectSettingsData<T = Record<string, unknown>>(
 export async function fetchProjectRemoteControlSettings<
   T = Record<string, unknown>
 >(projectPath: string, signal?: AbortSignal): Promise<T> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
     LAUNCHER_LOCAL_API_BASE,
     "/query/get-project-rc-settings",
     {
-      project_path: projectPath,
+      project_path: normalizedProjectPath,
     }
   );
   return await fetchJSON<T>(url, { signal });
@@ -294,13 +396,16 @@ export function buildProjectAssetUrl(
   projectPath: string,
   assetPath: string
 ): string {
-  const normalizedProjectPath = projectPath.trim();
+  const normalizedProjectPath = resolveProjectPathFromCache(projectPath.trim());
+  const absoluteProjectPath = looksAbsolutePath(normalizedProjectPath)
+    ? normalizedProjectPath
+    : joinWorkspacePath(getWorkspaceRoot(), normalizedProjectPath);
   const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
   return buildUrl(
     LAUNCHER_LOCAL_API_BASE,
     `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
     {
-      project_path: normalizedProjectPath,
+      project_path: absoluteProjectPath,
     }
   );
 }
@@ -309,8 +414,9 @@ export async function requestLauncherRun(
   projectPath: string,
   launcherProfile: string
 ): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
     profile: launcherProfile,
   });
   await fetchJSON(url, { method: "POST" });
@@ -339,8 +445,9 @@ export function getLauncherLogStreamUrl(): string {
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
   });
   const models = await fetchJSON<string[]>(url);
   return models.sort();
@@ -350,8 +457,9 @@ async function fetchProjectModelData(
   projectPath: string,
   modelPath: string
 ): Promise<unknown> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
     model_path: modelPath,
   });
   return await fetchJSON(url);
@@ -413,9 +521,6 @@ async function buildModelDescriptors(
     gatewayDescriptor.telemetryPort
   );
   const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
-  if (!gatewayRegistry) {
-    return filteredDescriptors;
-  }
 
   return filteredDescriptors.map((descriptor) => {
     const registryEntry =

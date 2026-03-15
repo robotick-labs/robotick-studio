@@ -4,12 +4,14 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from robotick.launcher.actions.launch import install_deps, generate as generate_module
 from robotick.launcher.config import Config
+from robotick.launcher.utils import copy_extras_for_target
 
 
 FIXTURE_BASE = Path(__file__).resolve().parent.parent / "test_data" / "test-project"
@@ -166,6 +168,107 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     )
 
     assert called
+
+
+def test_copy_extras_for_target_skips_variant_rewrites(monkeypatch, tmp_path):
+    copied: list[str] = []
+    real_copy2 = shutil.copy2
+
+    def _tracking_copy2(src, dst, *args, **kwargs):
+        copied.append(Path(dst).name)
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("robotick.launcher.utils.shutil.copy2", _tracking_copy2)
+
+    launcher_dir = tmp_path / "generated"
+    config = SimpleNamespace(
+        target="linux",
+        launcher_dir=launcher_dir,
+        dry_run=False,
+    )
+
+    copy_extras_for_target(config, variant="arm64")
+
+    assert sorted(copied) == [
+        "do_launcher_build.sh",
+        "do_launcher_clean_build.sh",
+        "toolchain-linux-arm64.cmake",
+    ]
+    assert "linux arm64" in (launcher_dir / "do_launcher_build.sh").read_text(encoding="utf-8")
+
+    copied.clear()
+    copy_extras_for_target(config, variant="arm64")
+    assert copied == []
+
+
+def test_generate_esp32_build_script_reuses_existing_build_dir(tmp_path):
+    project_dir = _clone_fixture(tmp_path)
+
+    generate_module.generate(
+        "test-project",
+        "test-project-spine",
+        "esp32",
+        base_dir=project_dir,
+        dry_run=False,
+        stub_install=True,
+    )
+
+    script_path = (
+        project_dir
+        / ".launcher"
+        / "test_project"
+        / "generated"
+        / "test_project_spine"
+        / "esp32"
+        / "do_launcher_build.sh"
+    )
+    script = script_path.read_text(encoding="utf-8")
+    common_setup = script_path.with_name("do_launcher_common_setup.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "rm -rf build" not in script
+    assert "Reusing existing build directory" in script
+    assert "idf.py set-target" in script
+    assert "/opt/esp/idf/export.sh" not in script
+    assert "docker exec" in common_setup
+    assert "docker create" in common_setup
+    assert "--rm" not in common_setup
+
+
+def test_generate_esp32_run_script_skips_flash_when_checksum_unchanged(tmp_path):
+    project_dir = _clone_fixture(tmp_path)
+
+    generate_module.generate(
+        "test-project",
+        "test-project-spine",
+        "esp32",
+        base_dir=project_dir,
+        dry_run=False,
+        stub_install=True,
+    )
+
+    script_path = (
+        project_dir
+        / ".launcher"
+        / "test_project"
+        / "generated"
+        / "test_project_spine"
+        / "esp32"
+        / "do_launcher_run.sh"
+    )
+    script = script_path.read_text(encoding="utf-8")
+    common_setup = script_path.with_name("do_launcher_common_setup.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert ".last_flashed_image.sha256" in script
+    assert "compute_flash_bundle_checksum" in script
+    assert "Flash skipped; image checksum unchanged." in script
+    assert "esptool.py" in script
+    assert "run" in script
+    assert "/opt/esp/idf/export.sh" not in script
+    assert ". /opt/esp/idf/export.sh >/dev/null &&" in common_setup
 
 
 def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):

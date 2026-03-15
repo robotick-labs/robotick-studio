@@ -227,6 +227,19 @@ def run_profile(
     except Exception as e:
         return {"status": "error", "detail": f"Failed to resolve model targets: {e}"}
 
+    try:
+        model_plans = {
+            model_id: resolve_target_plan(
+                project_name,
+                model_id,
+                model_targets[model_id],
+                base_dir,
+            )
+            for model_id in model_ids
+        }
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to resolve target plans: {e}"}
+
     if not model_ids:
         return {"status": "error", "detail": "No models found to build"}
 
@@ -452,8 +465,45 @@ def run_profile(
 
     deployed: list[str] = []
     deploy_failed: list[str] = []
+    shared_deploy_results: dict[tuple[str, ...], tuple[bool, Optional[str]]] = {}
     for model_id in succeeded:
         model_target = model_targets[model_id]
+        plan = model_plans[model_id]
+        shared_deploy_key = plan.deploy.shared_deploy_key
+
+        if shared_deploy_key is not None and shared_deploy_key in shared_deploy_results:
+            deploy_ok, deploy_detail = shared_deploy_results[shared_deploy_key]
+            if deploy_ok:
+                print(
+                    "[Launcher] Reusing shared deploy for "
+                    f"{model_id} → {list(shared_deploy_key[1:])}"
+                )
+                deployed.append(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="succeeded",
+                    shared=True,
+                )
+            else:
+                deploy_failed.append(model_id)
+                print(
+                    "[bold red]❌ Deploy skipped for "
+                    f"{model_id}; shared deploy already failed ({deploy_detail})[/]"
+                )
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="failed",
+                    detail=deploy_detail,
+                    shared=True,
+                )
+            continue
+
         deploy_cmd = [
             "robotick-launcher",
             "deploy",
@@ -491,6 +541,8 @@ def run_profile(
             if rc != 0:
                 raise subprocess.CalledProcessError(rc, deploy_cmd)
             deployed.append(model_id)
+            if shared_deploy_key is not None:
+                shared_deploy_results[shared_deploy_key] = (True, None)
             _emit_status(
                 status_queue,
                 event="model",
@@ -500,6 +552,9 @@ def run_profile(
             )
         except subprocess.CalledProcessError as e:
             deploy_failed.append(model_id)
+            detail = f"returncode={e.returncode}"
+            if shared_deploy_key is not None:
+                shared_deploy_results[shared_deploy_key] = (False, detail)
             print(f"[bold red]❌ Deploy failed for {model_id} (rc={e.returncode})[/]")
             _emit_status(
                 status_queue,
@@ -511,6 +566,9 @@ def run_profile(
             )
         except Exception as e:
             deploy_failed.append(model_id)
+            detail = str(e)
+            if shared_deploy_key is not None:
+                shared_deploy_results[shared_deploy_key] = (False, detail)
             print(f"[bold red]⚠️ Error during deploy of {model_id}: {e}[/]")
             _emit_status(
                 status_queue,

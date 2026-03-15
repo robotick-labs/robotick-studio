@@ -16,12 +16,14 @@ from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 IMAGE_NAME = "robotick-dev-linux-arm64"
 DOCKERFILE_SHA_LABEL = "robotick.dockerfile_sha"
+CONTAINER_NAME_PREFIX = "robotick-launcher-linux-arm64-build"
 
 
 @dataclass(frozen=True)
 class DockerLinuxArm64Spec:
     image_name: str
     dockerfile: Path
+    container_name: str
     local_repo_root: Path
     local_launcher_dir: Path
     local_binary_path: Path
@@ -65,6 +67,7 @@ def load_docker_linux_arm64_spec(
     return DockerLinuxArm64Spec(
         image_name=IMAGE_NAME,
         dockerfile=dockerfile,
+        container_name=_build_container_name(IMAGE_NAME, repo_root),
         local_repo_root=repo_root,
         local_launcher_dir=launcher_dir.resolve(),
         local_binary_path=binary_path.resolve(),
@@ -76,6 +79,7 @@ def load_docker_linux_arm64_spec(
 
 def print_docker_linux_arm64_summary(spec: DockerLinuxArm64Spec) -> None:
     print(f"[cyan]🐳 Docker image:     [/] {spec.image_name}")
+    print(f"[cyan]📦 Docker container: [/] {spec.container_name}")
     print(f"[cyan]🧱 Dockerfile:      [/] {spec.dockerfile}")
     print(f"[cyan]🗂️ Workspace root:  [/] {spec.local_repo_root}")
     print(f"[cyan]📁 Launcher dir:    [/] {spec.local_launcher_dir}")
@@ -83,23 +87,20 @@ def print_docker_linux_arm64_summary(spec: DockerLinuxArm64Spec) -> None:
 
 
 def build_docker_linux_arm64(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
-    ensure_docker_image(spec, dry_run=dry_run)
+    ensure_running_docker_linux_arm64_container(spec, dry_run=dry_run)
 
     uid = os.getuid()
     gid = os.getgid()
     run_cmd = [
         "docker",
-        "run",
-        "--rm",
+        "exec",
         "--user",
         f"{uid}:{gid}",
         "-e",
         "HOME=/tmp/robotick-home",
-        "-v",
-        f"{spec.local_repo_root}:{spec.container_workspace_root}",
         "-w",
         spec.container_launcher_dir,
-        spec.image_name,
+        spec.container_name,
         "bash",
         "-lc",
         "bash ./do_launcher_build.sh",
@@ -153,6 +154,68 @@ def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
         run_subprocess(build_cmd)
 
 
+def ensure_running_docker_linux_arm64_container(
+    spec: DockerLinuxArm64Spec, *, dry_run: bool
+) -> None:
+    ensure_docker_image(spec, dry_run=dry_run)
+
+    image_id = _inspect_docker_value(
+        ["docker", "image", "inspect", "-f", "{{.Id}}", spec.image_name]
+    )
+    container_image_id = _inspect_docker_value(
+        ["docker", "container", "inspect", "-f", "{{.Image}}", spec.container_name]
+    )
+    if container_image_id and image_id and container_image_id != image_id:
+        remove_cmd = ["docker", "rm", "-f", spec.container_name]
+        _print_command(remove_cmd)
+        if not dry_run:
+            subprocess.run(
+                remove_cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        container_image_id = ""
+
+    if not container_image_id:
+        create_cmd = [
+            "docker",
+            "create",
+            "--name",
+            spec.container_name,
+            "--init",
+            "-v",
+            f"{spec.local_repo_root}:{spec.container_workspace_root}",
+            "-w",
+            spec.container_workspace_root,
+            spec.image_name,
+            "sleep",
+            "infinity",
+        ]
+        _print_command(create_cmd)
+        if not dry_run:
+            subprocess.run(
+                create_cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+    container_state = _inspect_docker_value(
+        ["docker", "container", "inspect", "-f", "{{.State.Status}}", spec.container_name]
+    )
+    if container_state != "running":
+        start_cmd = ["docker", "start", spec.container_name]
+        _print_command(start_cmd)
+        if not dry_run:
+            subprocess.run(
+                start_cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+
 def _compute_local_repo_root(config: Config) -> Path:
     local_paths = [config.project_dir.resolve()]
 
@@ -184,3 +247,22 @@ def _compute_local_repo_root(config: Config) -> Path:
 
 def _print_command(command: Iterable[str]) -> None:
     print(f"[bold]$ {' '.join(shlex.quote(part) for part in command)}[/]")
+
+
+def _inspect_docker_value(command: list[str]) -> str:
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _build_container_name(image_name: str, repo_root: Path) -> str:
+    scope_hash = hashlib.sha256(
+        f"{image_name}:{repo_root.resolve()}".encode("utf-8")
+    ).hexdigest()[:12]
+    return f"{CONTAINER_NAME_PREFIX}-{scope_hash}"

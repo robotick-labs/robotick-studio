@@ -18,9 +18,14 @@ import {
 export function LauncherDots({
   status,
   robotAlive,
+  tooltipSummary,
 }: {
   status: LauncherStatus;
   robotAlive: boolean;
+  tooltipSummary: {
+    running: Array<{ name: string }>;
+    notRunning: Array<{ name: string }>;
+  };
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [runningSince, setRunningSince] = useState<number | null>(null);
@@ -75,14 +80,22 @@ export function LauncherDots({
 
   if (showFlatline) {
     return (
-      <span className={styles.controlDots} aria-hidden>
+      <span
+        className={styles.controlDots}
+        aria-label={buildDotsAriaLabel(tooltipSummary)}
+        role="img"
+      >
         <span className={styles.flatline} />
       </span>
     );
   }
 
   return (
-    <span className={styles.controlDots} aria-hidden>
+    <span
+      className={styles.controlDots}
+      aria-label={buildDotsAriaLabel(tooltipSummary)}
+      role="img"
+    >
       <span className={styles.dots}>
         {[0, 1, 2].map((index) => {
           const dotClasses = [styles.dot];
@@ -100,4 +113,24 @@ export function LauncherDots({
       </span>
     </span>
   );
+}
+
+function buildDotsAriaLabel(tooltipSummary: {
+  running: Array<{ name: string }>;
+  notRunning: Array<{ name: string }>;
+}) {
+  const running = tooltipSummary.running.map((model) => model.name).join(", ");
+  const notRunning = tooltipSummary.notRunning
+    .map((model) => model.name)
+    .join(", ");
+  if (running && notRunning) {
+    return `Running: ${running}. Not running: ${notRunning}.`;
+  }
+  if (running) {
+    return `Running: ${running}.`;
+  }
+  if (notRunning) {
+    return `Not running: ${notRunning}.`;
+  }
+  return "No launcher model status available.";
 }

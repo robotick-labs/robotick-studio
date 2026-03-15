@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Optional
 
 from rich import print
-import shutil
 import typer
 import traceback
 from typer.models import OptionInfo
@@ -16,49 +15,6 @@ from robotick.launcher.actions.launch import (
     generate_workloads_registry,
     install_deps as install_deps_stage,
 )
-
-
-def copy_extras_if_exists(templates_dir: Path, target_dir: Path, target: str):
-    """
-    Copy all files (recursively) from templates/extras_<target>/ into target_dir.
-    Existing files are overwritten. Skips if extras folder doesn't exist.
-    """
-    extras_dir = templates_dir / f"extras_{target}"
-    if not extras_dir.exists() or not extras_dir.is_dir():
-        print(f"ℹ️ No extras for target '{target}' (looked in {extras_dir})")
-        return
-
-    print(f"📦 Copying extras for '{target}' from {extras_dir} → {target_dir}")
-    for src in extras_dir.rglob("*"):
-        if src.is_file():
-            rel_path = src.relative_to(extras_dir)
-            dest_path = target_dir / rel_path
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest_path)  # preserve metadata
-            print(f"  ✅ {rel_path}")
-
-
-def copy_extras_if_exists_for_variant(
-    templates_dir: Path, target_dir: Path, target: str, variant: str | None
-):
-    variant = (variant or "").strip().lower()
-    if not variant:
-        return
-    extras_dir = templates_dir / f"extras_{target}_{variant}"
-    if not extras_dir.exists() or not extras_dir.is_dir():
-        return
-
-    print(
-        f"📦 Copying variant extras for '{target}/{variant}' from {extras_dir} → {target_dir}"
-    )
-    for src in extras_dir.rglob("*"):
-        if src.is_file():
-            rel_path = src.relative_to(extras_dir)
-            dest_path = target_dir / rel_path
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest_path)
-            print(f"  ✅ {rel_path}")
-
 
 def write_launcher_env_if_needed(config: Config) -> None:
     launcher_env = config.launcher_dir / "launcher.env"
@@ -168,15 +124,7 @@ def generate(
         print(f"[green]📂 Launcher folder:[/] {config.launcher_dir}")
 
         # File generation
-        copy_extras_for_target(config)
-        # Variant extras overlay the base target files, so linux/arm64 and esp32 board-specific
-        # templates can replace the generic target scripts without forking the full template set.
-        copy_extras_if_exists_for_variant(
-            Path(__file__).parent / "templates",
-            config.launcher_dir,
-            target,
-            target_variant,
-        )
+        copy_extras_for_target(config, variant=target_variant)
         write_launcher_env_if_needed(config)
         generate_main_cpp.generate_main_cpp(config)
         generate_model_cpp.generate_model_cpp(config)

@@ -120,7 +120,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     );
   });
 
-  it("falls back to direct per-model telemetry urls when the gateway registry is unavailable", async () => {
+  it("falls back to synthesized gateway telemetry urls when the gateway registry is unavailable", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       const path = url.pathname;
@@ -130,6 +130,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
         return createJsonResponse([
           "models/alf-e-rc.model.yaml",
           "models/alf-e-face.model.yaml",
+          "models/alf-e-spine.model.yaml",
         ]);
       }
 
@@ -141,6 +142,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
       if (path === "/query/get-model" && modelPath === "models/alf-e-face.model.yaml") {
         return createJsonResponse(createModel("Alf.e Face", 7103, "192.168.5.16"));
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-spine.model.yaml") {
+        return createJsonResponse(createModel("Alf.e Spine", 7104, "10.42.0.2"));
       }
 
       if (path === "/api/telemetry-gateway/models") {
@@ -166,10 +171,13 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const byName = new Map(models.map((model) => [model.modelShortName, model]));
 
     expect(byName.get("alf-e-rc")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7102"
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-rc"
     );
     expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7103"
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face"
+    );
+    expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine"
     );
   });
 
@@ -186,5 +194,43 @@ describe("launcher-interface gateway telemetry resolution", () => {
     ).toBe(
       "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout"
     );
+  });
+
+  it("resolves stored project basenames to absolute project paths before run requests", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === "/query/list-projects") {
+        return createJsonResponse(["robots/alf-e/alf-e.project.yaml"]);
+      }
+
+      if (url.pathname === "/launcher/run") {
+        expect(init?.method).toBe("POST");
+        expect(url.searchParams.get("project_path")).toBe(
+          "/workspace/robots/alf-e/alf-e.project.yaml"
+        );
+        expect(url.searchParams.get("profile")).toBe("native:ALL");
+        return createJsonResponse({ status: "launching" });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    window.robotick = {
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+        workspaceRoot: "/workspace",
+      },
+    };
+
+    const launcherInterface = await import(
+      "../../../../renderer/data-sources/launcher/internal/launcher-interface"
+    );
+
+    await launcherInterface.requestLauncherRun("alf-e.project.yaml", "native:ALL");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -7,7 +7,6 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 echo "⚙️  Running clean + set-target + build inside container..."
 run_esp32_container build "
     set -e
-    . /opt/esp/idf/export.sh
 
     echo '🧹 Cleaning build directory...'
     rm -rf build

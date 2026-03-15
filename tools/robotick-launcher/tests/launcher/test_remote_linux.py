@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 
 from robotick.launcher.actions.launch.docker_linux_arm64 import (
+    DockerLinuxArm64Spec,
+    build_docker_linux_arm64,
     load_docker_linux_arm64_spec,
 )
 from robotick.launcher.actions.launch.target_plan import (
@@ -299,9 +301,63 @@ def test_load_docker_linux_arm64_spec_points_at_launcher_dockerfile(tmp_path):
 
     assert spec is not None
     assert spec.dockerfile.name == "linux-arm64.Dockerfile"
+    assert spec.container_name.startswith("robotick-launcher-linux-arm64-build-")
     assert spec.container_launcher_dir.endswith(
         "/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux"
     )
+
+
+def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
+    spec = DockerLinuxArm64Spec(
+        image_name="robotick-dev-linux-arm64",
+        dockerfile=Path("/tmp/linux-arm64.Dockerfile"),
+        container_name="robotick-launcher-linux-arm64-build-test",
+        local_repo_root=Path("/tmp/repo"),
+        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
+        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
+        container_workspace_root="/tmp/repo",
+        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+    )
+    ensure_calls: list[tuple[DockerLinuxArm64Spec, bool]] = []
+    run_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm64.ensure_running_docker_linux_arm64_container",
+        lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm64.os.getuid",
+        lambda: 1234,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm64.os.getgid",
+        lambda: 5678,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm64.run_subprocess",
+        lambda cmd: run_calls.append(cmd),
+    )
+
+    build_docker_linux_arm64(spec, dry_run=False)
+
+    assert ensure_calls == [(spec, False)]
+    assert run_calls == [
+        [
+            "docker",
+            "exec",
+            "--user",
+            "1234:5678",
+            "-e",
+            "HOME=/tmp/robotick-home",
+            "-w",
+            "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+            "robotick-launcher-linux-arm64-build-test",
+            "bash",
+            "-lc",
+            "bash ./do_launcher_build.sh",
+        ]
+    ]
 
 
 def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(tmp_path):

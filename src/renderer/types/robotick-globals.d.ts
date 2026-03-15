@@ -3,6 +3,7 @@ export interface RobotickEnvironment {
   readonly appTitle: string;
   readonly cesiumToken?: string;
   readonly usesNativeWindowFrame?: boolean;
+  readonly workspaceRoot?: string;
   [key: string]: unknown;
 }
 

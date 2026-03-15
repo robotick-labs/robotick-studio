@@ -36,6 +36,7 @@ class TargetActionPlan:
     local_binary_path: Optional[Path] = None
     display_binary_path: Optional[str] = None
     supports_script_dry_run: bool = False
+    shared_deploy_key: Optional[tuple[str, ...]] = None
 
     def print_summary(self) -> None:
         if self.summary_printer is not None:
@@ -95,12 +96,22 @@ def resolve_target_plan(
         )
 
     if remote_spec:
-        remote_action = TargetActionPlan(
+        deploy = TargetActionPlan(
             strategy=REMOTE_STRATEGY,
             summary_printer=lambda spec=remote_spec: print_remote_linux_summary(spec),
             deploy_handler=lambda dry_run, spec=remote_spec: sync_remote_linux_project(
                 spec, dry_run=dry_run
             ),
+            display_binary_path=remote_spec.remote_binary_path,
+            shared_deploy_key=(
+                "remote-linux-project-sync",
+                remote_spec.ssh_target,
+                remote_spec.remote_project_dir,
+            ),
+        )
+        run = TargetActionPlan(
+            strategy=REMOTE_STRATEGY,
+            summary_printer=lambda spec=remote_spec: print_remote_linux_summary(spec),
             stop_handler=lambda dry_run, spec=remote_spec: stop_remote_linux_process(
                 spec, dry_run=dry_run
             ),
@@ -109,8 +120,6 @@ def resolve_target_plan(
             ),
             display_binary_path=remote_spec.remote_binary_path,
         )
-        deploy = remote_action
-        run = remote_action
 
     deploy_cfg = dict(runtime.get("deploy") or {})
     serial_port = str(deploy_cfg.get("serial_port") or "").strip()

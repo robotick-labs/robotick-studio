@@ -160,7 +160,44 @@ def render_template_to_file(template_name: str, output_path: Path, context: dict
     write_text_if_changed(output_path, contents)
 
 
-def copy_extras_for_target(config) -> None:
+def _copy_extra_tree(
+    extras_dir: Path,
+    launcher_dir: Path,
+    *,
+    dry_run: bool,
+    skip_rel_paths: Optional[set[Path]] = None,
+) -> None:
+    skip_rel_paths = skip_rel_paths or set()
+    created = updated = skipped = 0
+
+    for src in extras_dir.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(extras_dir)
+        if rel in skip_rel_paths:
+            continue
+
+        dst = launcher_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        if dst.exists():
+            is_same = filecmp.cmp(src, dst, shallow=False)
+            if is_same:
+                skipped += 1
+                print(f"[grey]📝 Skipped (no change):[/] {dst}")
+                continue
+            if not dry_run:
+                shutil.copy2(src, dst)
+            updated += 1
+            print(f"[cyan]📝 Updated:[/] {dst}")
+        else:
+            if not dry_run:
+                shutil.copy2(src, dst)
+            created += 1
+            print(f"[green]📝 Created:[/] {dst}")
+
+
+def copy_extras_for_target(config, *, variant: Optional[str] = None) -> None:
     """
     Copy templates/extras_<target>/ (recursively) into the model's launcher dir.
 
@@ -189,30 +226,31 @@ def copy_extras_for_target(config) -> None:
     dry_run = bool(getattr(config, "dry_run", False))
     launcher_dir.mkdir(parents=True, exist_ok=True)
 
-    created = updated = skipped = 0
+    variant_name = (variant or "").strip().lower()
+    variant_dir = TEMPLATE_FOLDER / f"extras_{target}_{variant_name}"
+    variant_rel_paths: set[Path] = set()
+    if variant_name and variant_dir.exists() and variant_dir.is_dir():
+        variant_rel_paths = {
+            src.relative_to(variant_dir)
+            for src in variant_dir.rglob("*")
+            if src.is_file()
+        }
 
-    for src in extras_dir.rglob("*"):
-        if not src.is_file():
-            continue
-        rel = src.relative_to(extras_dir)
-        dst = launcher_dir / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
+    # If a variant provides a file, skip the base copy entirely so we do not rewrite
+    # it to the generic version and then immediately overwrite it again.
+    _copy_extra_tree(
+        extras_dir,
+        launcher_dir,
+        dry_run=dry_run,
+        skip_rel_paths=variant_rel_paths,
+    )
 
-        if dst.exists():
-            is_same = filecmp.cmp(src, dst, shallow=False)
-            if is_same:
-                skipped += 1
-                print(f"[grey]📝 Skipped (no change):[/] {dst}")
-                continue
-            if not dry_run:
-                shutil.copy2(src, dst)
-            updated += 1
-            print(f"[cyan]📝 Updated:[/] {dst}")
-        else:
-            if not dry_run:
-                shutil.copy2(src, dst)
-            created += 1
-            print(f"[green]📝 Created:[/] {dst}")
+    if variant_rel_paths:
+        _copy_extra_tree(
+            variant_dir,
+            launcher_dir,
+            dry_run=dry_run,
+        )
 
 
 def _resolve_command(command: list[str]) -> list[str]:

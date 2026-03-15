@@ -15,7 +15,9 @@ void populate_model_test_project_spine(robotick::Model& model);
 // model startup/teardown remains consistent across ESP32 models.
 // Constants for engine task configuration
 static constexpr const char* ENGINE_TASK_NAME = "robotick_main";
-static constexpr uint32_t ENGINE_STACK_SIZE = 8192; // in bytes
+// Telemetry layout generation, Wi-Fi, REC, and display workloads can all be
+// live at once on CoreS3-class targets, so keep generous headroom here.
+static constexpr uint32_t ENGINE_STACK_SIZE = 32768; // in bytes
 static constexpr UBaseType_t ENGINE_TASK_PRIORITY = 5;
 static constexpr BaseType_t ENGINE_CORE_ID = 1;
 

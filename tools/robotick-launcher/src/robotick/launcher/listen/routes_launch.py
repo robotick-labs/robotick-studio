@@ -93,6 +93,19 @@ def _set_initial_status(profile: str):
         )
 
 
+def _set_stopped_status() -> None:
+    with status_lock:
+        current_status.clear()
+        current_status.update(
+            {
+                "status": "stopped",
+                "phase": None,
+                "profile": None,
+                "models": {},
+            }
+        )
+
+
 def _apply_status_event(message: Dict[str, Any]):
     event = message.get("event")
     if event == "phase":
@@ -211,9 +224,8 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
     if queue_to_close:
         queue_to_close.close()
 
-    with status_lock:
-        if current_status.get("status") not in ("error", "completed"):
-            current_status["status"] = "stopped"
+    if current_status.get("status") not in ("error", "completed"):
+        _set_stopped_status()
 
 
 def _run_profile_worker(
@@ -390,8 +402,7 @@ async def stop_launcher():
     if thread and thread.is_alive():
         thread.join(timeout=1)
 
-    with status_lock:
-        current_status["status"] = "stopped"
+    _set_stopped_status()
 
     return {"status": "stopped"}
 

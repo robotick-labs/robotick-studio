@@ -231,3 +231,77 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     assert stop_calls == [("alf-e-rc", False)]
     assert len(local_stop_calls) == 1
     assert local_stop_calls[0][0].name == "alf-e-face"
+
+
+def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
+    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir.mkdir(parents=True)
+
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "alf-e-face.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
+        encoding="utf-8",
+    )
+    (project_dir / "alf-e-rc.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
+        encoding="utf-8",
+    )
+
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        run_profile_module.install_deps_stage,
+        "install_deps",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
+
+    def _fake_run_subprocess(command, **kwargs):
+        commands.append(command)
+        return _FakeProc(0)
+
+    monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
+
+    shared_key = ("remote-linux-project-sync", "paul@pi5", "$HOME/dev/robotick/robots/alf-e")
+
+    def _fake_resolve_target_plan(project, model, target, base_dir):
+        return TargetPlan(
+            project=project,
+            model=model,
+            target=target,
+            target_platform="linux",
+            target_variant="arm64",
+            build=TargetActionPlan(strategy=LOCAL_STRATEGY),
+            deploy=TargetActionPlan(
+                strategy=REMOTE_STRATEGY,
+                shared_deploy_key=shared_key,
+            ),
+            run=TargetActionPlan(strategy=REMOTE_STRATEGY),
+        )
+
+    monkeypatch.setattr(run_profile_module, "resolve_target_plan", _fake_resolve_target_plan)
+
+    result = run_profile_module.run_profile(
+        "alf-e",
+        "native:ALL",
+        base_dir=project_dir,
+    )
+
+    assert result["status"] == "ok"
+
+    deploy_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "deploy"]
+    run_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "run"]
+
+    assert len(deploy_commands) == 1
+    assert len(run_commands) == 2
