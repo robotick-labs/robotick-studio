@@ -182,6 +182,9 @@ describe("telemetry-store polling", () => {
     expect(callback).toHaveBeenCalledTimes(2);
     expect(callback.mock.calls[0]?.[0]).toBe(callback.mock.calls[1]?.[0]);
     expect(callback.mock.calls[0]?.[0]?.raw).toBe(secondRaw);
+    expect(callback.mock.calls[1]?.[0]?.schemaSessionId).toBe("sid");
+    expect(store.getLatestModel("base")?.raw).toBe(secondRaw);
+    expect(store.getLatestModel("base")?.schemaSessionId).toBe("sid");
 
     unsubscribe();
     await flushMicrotasks();

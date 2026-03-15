@@ -231,6 +231,10 @@ export async function setWorkloadInputFieldsData(
     base_url,
     "/api/telemetry/set_workload_input_fields_data"
   );
+  const currentRequest: SetWorkloadInputFieldsDataRequest = {
+    engine_session_id: request.engine_session_id,
+    writes: request.writes.map((write) => ({ ...write })),
+  };
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
   const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
   const maxRetryDelayMs = Math.max(
@@ -247,7 +251,7 @@ export async function setWorkloadInputFieldsData(
         method: "POST",
         headers: { "content-type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify(request),
+        body: JSON.stringify(currentRequest),
       });
     } catch (error) {
       if (attempt >= maxAttempts) {
@@ -281,6 +285,18 @@ export async function setWorkloadInputFieldsData(
 
     if (response.ok) {
       return { ok: true, status: response.status, body };
+    }
+
+    const correctedSessionId = body?.engine_session_id;
+    if (
+      response.status === 412 &&
+      typeof correctedSessionId === "string" &&
+      correctedSessionId.length > 0 &&
+      correctedSessionId !== currentRequest.engine_session_id &&
+      attempt < maxAttempts
+    ) {
+      currentRequest.engine_session_id = correctedSessionId;
+      continue;
     }
 
     if (

@@ -78,6 +78,33 @@ describe("setWorkloadInputFieldsData", () => {
     expect(result.status).toBe(400);
   });
 
+  it("retries once with the corrected engine session id on session mismatch", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse(412, {
+          error: "session_mismatch",
+          engine_session_id: "sid-corrected",
+        })
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(200, { status: "processed", accepted_count: 1 })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputFieldsData("http://example", {
+      engine_session_id: "sid-stale",
+      writes: [{ field_handle: 7, value: 0.5 }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).engine_session_id
+    ).toBe("sid-corrected");
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
   it("keeps direct telemetry bases on the direct api route", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       createJsonResponse(200, {

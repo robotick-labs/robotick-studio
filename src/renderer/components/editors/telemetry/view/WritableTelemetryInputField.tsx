@@ -201,11 +201,16 @@ export function WritableTelemetryInputField({
   } | null>(null);
 
   const submitValue = async (value: unknown) => {
-    if (
-      !telemetryBaseUrl ||
-      !field.model.schemaSessionId ||
-      typeof field.writable_input_handle !== "number"
-    ) {
+    if (!telemetryBaseUrl) {
+      return;
+    }
+
+    const liveModel = telemetryService.getLatestModel(telemetryBaseUrl);
+    const targetModel = liveModel ?? field.model;
+    const writableHandle =
+      liveModel?.writable_inputs_by_path?.get(field.path)?.field_handle ??
+      field.writable_input_handle;
+    if (!targetModel?.schemaSessionId || typeof writableHandle !== "number") {
       return;
     }
 
@@ -217,10 +222,10 @@ export function WritableTelemetryInputField({
     const result = await telemetryService.setWorkloadInputFieldsData(
       telemetryBaseUrl,
       {
-        engine_session_id: field.model.schemaSessionId,
+        engine_session_id: targetModel.schemaSessionId,
         writes: [
           {
-            field_handle: field.writable_input_handle,
+            field_handle: writableHandle,
             field_path: field.path,
             value,
             seq,

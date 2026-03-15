@@ -76,7 +76,12 @@ describe("TelemetryServiceProvider", () => {
     const unsubscribe = vi.fn();
     const subscribeTelemetry = vi.fn(() => unsubscribe);
     const setWorkloadInputFieldsData = vi.fn();
-    const mockService = { subscribeTelemetry, setWorkloadInputFieldsData };
+    const getLatestModel = vi.fn(() => null);
+    const mockService = {
+      subscribeTelemetry,
+      setWorkloadInputFieldsData,
+      getLatestModel,
+    };
 
     const tree = render(
       <TelemetryServiceProvider service={mockService}>
@@ -107,7 +112,12 @@ describe("TelemetryServiceProvider", () => {
       return unsubscribe;
     });
     const setWorkloadInputFieldsData = vi.fn();
-    const mockService = { subscribeTelemetry, setWorkloadInputFieldsData };
+    const getLatestModel = vi.fn(() => null);
+    const mockService = {
+      subscribeTelemetry,
+      setWorkloadInputFieldsData,
+      getLatestModel,
+    };
     const onValue = vi.fn();
     const reusedModel = { raw: null };
 

@@ -77,7 +77,10 @@ export default function RemoteControlsPanel({
     }
 
     const currentBaseUrl = telemetryBaseUrlRef.current;
-    const currentModel = telemetryModelRef.current;
+    const liveModel = currentBaseUrl
+      ? telemetryService.getLatestModel(currentBaseUrl)
+      : null;
+    const currentModel = liveModel ?? telemetryModelRef.current;
     if (!currentBaseUrl || !currentModel?.schemaSessionId) {
       return;
     }
