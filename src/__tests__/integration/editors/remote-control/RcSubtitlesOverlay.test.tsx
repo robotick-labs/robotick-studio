@@ -32,7 +32,7 @@ describe("RcSubtitlesOverlay", () => {
     });
     const telemetryService = {
       subscribeTelemetry,
-      setWorkloadInputFieldData: vi.fn(),
+      setWorkloadInputFieldsData: vi.fn(),
     };
 
     let currentSubtitle = "first subtitle";
@@ -103,7 +103,7 @@ describe("RcSubtitlesOverlay", () => {
     });
     const telemetryService = {
       subscribeTelemetry,
-      setWorkloadInputFieldData: vi.fn(),
+      setWorkloadInputFieldsData: vi.fn(),
     };
 
     const field = {

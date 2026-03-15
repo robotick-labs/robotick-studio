@@ -7,6 +7,7 @@ import queue as queue_module
 from pathlib import Path
 import sys
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -28,6 +29,7 @@ status_queue: Optional[mp.Queue] = None
 status_thread: Optional[threading.Thread] = None
 current_profile: Optional[str] = None
 current_project_path: Optional[Path] = None
+current_run_started_at: Optional[float] = None
 log_loop: Optional[asyncio.AbstractEventLoop] = None
 
 log_subscribers: List[asyncio.Queue] = []
@@ -106,6 +108,18 @@ def _set_stopped_status() -> None:
         )
 
 
+def _format_elapsed_since_run_start() -> str:
+    if current_run_started_at is None:
+        return "00:00:00.000"
+
+    elapsed_seconds = max(0.0, time.monotonic() - current_run_started_at)
+    total_milliseconds = round(elapsed_seconds * 1000)
+    hours, remainder = divmod(total_milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    seconds, milliseconds = divmod(remainder, 1_000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+
 def _apply_status_event(message: Dict[str, Any]):
     event = message.get("event")
     if event == "phase":
@@ -165,7 +179,8 @@ def _broadcast_log(line: str, loop: asyncio.AbstractEventLoop):
         return
     tag = current_profile or "profile"
     now = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} [{tag}] {line}"
+    elapsed = _format_elapsed_since_run_start()
+    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} | {ANSI_DIM_CYAN}{elapsed}{ANSI_RESET} [{tag}] {line}"
 
     with log_lock:
         for queue in log_subscribers:
@@ -180,7 +195,7 @@ def _close_log_subscribers():
 
 
 def _status_consumer(loop: asyncio.AbstractEventLoop):
-    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     while True:
         if status_queue is None:
@@ -217,6 +232,7 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
         log_loop = None
         current_profile = None
         current_project_path = None
+        current_run_started_at = None
         status_thread = None
 
     if proc_to_join:
@@ -285,7 +301,7 @@ async def run_launcher(
         ..., description="Launcher profile string, e.g. 'local:model-id' or 'native:model-id'"
     ),
 ):
-    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     print(f"[Launcher] Requested run: {project_path=} | {profile=}")
 
@@ -305,6 +321,7 @@ async def run_launcher(
     _set_initial_status(profile)
     current_profile = profile
     current_project_path = project_path
+    current_run_started_at = time.monotonic()
 
     proc: Optional[mp.Process] = None
     try:
@@ -331,6 +348,7 @@ async def run_launcher(
                 print(f"[Launcher] Failed to close status queue cleanly: {queue_exc}")
         current_profile = None
         current_project_path = None
+        current_run_started_at = None
         with status_lock:
             current_status["status"] = "error"
             current_status["detail"] = str(exc)
@@ -358,7 +376,7 @@ async def run_launcher(
 
 @router.post("/stop")
 async def stop_launcher():
-    global process_handle, status_queue, status_thread, current_profile, current_project_path, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     print("[Launcher] Requested stop")
 
@@ -373,6 +391,7 @@ async def stop_launcher():
         status_thread = None
         current_profile = None
         current_project_path = None
+        current_run_started_at = None
         log_loop = None
 
     _close_log_subscribers()

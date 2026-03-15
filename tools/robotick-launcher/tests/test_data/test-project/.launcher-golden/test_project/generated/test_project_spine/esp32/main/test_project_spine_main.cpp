@@ -20,6 +20,8 @@ static constexpr const char* ENGINE_TASK_NAME = "robotick_main";
 static constexpr uint32_t ENGINE_STACK_SIZE = 32768; // in bytes
 static constexpr UBaseType_t ENGINE_TASK_PRIORITY = 5;
 static constexpr BaseType_t ENGINE_CORE_ID = 1;
+static constexpr uint32_t NETWORK_CONNECT_RETRY_COUNT = 6;
+static constexpr uint32_t NETWORK_CONNECT_RETRY_DELAY_MS = 2000;
 
 static void initialize_network_runtime()
 {

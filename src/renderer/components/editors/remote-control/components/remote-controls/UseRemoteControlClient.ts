@@ -39,7 +39,12 @@ type JoystickState = {
   dpad_right: boolean;
 };
 
-type WriteTelemetryFieldFn = (fieldPath: string, value: unknown) => void;
+type TelemetryFieldDelta = {
+  fieldPath: string;
+  value: unknown;
+};
+
+type WriteTelemetryFieldsFn = (writes: TelemetryFieldDelta[]) => void;
 
 type UseRemoteControlClientOptions = {
   leftArea: HTMLDivElement | null;
@@ -48,7 +53,7 @@ type UseRemoteControlClientOptions = {
   rightKnob: HTMLDivElement | null;
   useWebInputs: boolean;
   workloadName?: string | null;
-  writeTelemetryField?: WriteTelemetryFieldFn | null;
+  writeTelemetryFields?: WriteTelemetryFieldsFn | null;
   writesReady?: boolean;
 };
 
@@ -61,7 +66,7 @@ class RemoteControlClient {
   private rightStick: StickController;
   private joystickState: JoystickState;
   private readonly workloadName: string;
-  private readonly writeTelemetryField: WriteTelemetryFieldFn | null;
+  private readonly writeTelemetryFields: WriteTelemetryFieldsFn | null;
   private readonly controlsEnabled: boolean;
   private readonly localState = {
     left: { x: 0.0, y: 0.0 },
@@ -82,11 +87,11 @@ class RemoteControlClient {
     rightArea: HTMLDivElement;
     rightKnob: HTMLDivElement;
     workloadName: string;
-    writeTelemetryField: WriteTelemetryFieldFn | null;
+    writeTelemetryFields: WriteTelemetryFieldsFn | null;
   }) {
     this.workloadName = options.workloadName;
-    this.writeTelemetryField = options.writeTelemetryField;
-    this.controlsEnabled = Boolean(this.writeTelemetryField);
+    this.writeTelemetryFields = options.writeTelemetryFields;
+    this.controlsEnabled = Boolean(this.writeTelemetryFields);
     if (!this.controlsEnabled) {
       console.warn(
         "[remote-controls] telemetry writer is not configured; controls disabled."
@@ -580,35 +585,47 @@ class RemoteControlClient {
     tick();
   }
 
-  private sendField(fieldSuffix: string, value: unknown) {
-    if (!this.controlsEnabled || !this.writeTelemetryField) {
+  private sendFields(deltas: Array<{ fieldSuffix: string; value: unknown }>) {
+    if (!this.controlsEnabled || !this.writeTelemetryFields || deltas.length === 0) {
       return;
     }
-    this.writeTelemetryField(`${this.workloadName}.inputs.${fieldSuffix}`, value);
+    this.writeTelemetryFields(
+      deltas.map(({ fieldSuffix, value }) => ({
+        fieldPath: `${this.workloadName}.inputs.${fieldSuffix}`,
+        value,
+      }))
+    );
   }
 
   private sendStateKeys(
     state: JoystickState,
     keys: ReadonlyArray<keyof JoystickState>
   ) {
+    const deltas: Array<{ fieldSuffix: string; value: unknown }> = [];
     for (const key of keys) {
       switch (key) {
         case "use_web_inputs":
-          this.sendField("use_web_inputs", state.use_web_inputs);
+          deltas.push({ fieldSuffix: "use_web_inputs", value: state.use_web_inputs });
           break;
         case "left":
-          this.sendField("gamepad_state_raw.left.x", state.left.x);
-          this.sendField("gamepad_state_raw.left.y", state.left.y);
+          deltas.push({ fieldSuffix: "gamepad_state_raw.left.x", value: state.left.x });
+          deltas.push({ fieldSuffix: "gamepad_state_raw.left.y", value: state.left.y });
           break;
         case "right":
-          this.sendField("gamepad_state_raw.right.x", state.right.x);
-          this.sendField("gamepad_state_raw.right.y", state.right.y);
+          deltas.push({ fieldSuffix: "gamepad_state_raw.right.x", value: state.right.x });
+          deltas.push({ fieldSuffix: "gamepad_state_raw.right.y", value: state.right.y });
           break;
         case "left_trigger":
-          this.sendField("gamepad_state_raw.left_trigger", state.left_trigger);
+          deltas.push({
+            fieldSuffix: "gamepad_state_raw.left_trigger",
+            value: state.left_trigger,
+          });
           break;
         case "right_trigger":
-          this.sendField("gamepad_state_raw.right_trigger", state.right_trigger);
+          deltas.push({
+            fieldSuffix: "gamepad_state_raw.right_trigger",
+            value: state.right_trigger,
+          });
           break;
         case "a":
         case "b":
@@ -625,10 +642,11 @@ class RemoteControlClient {
         case "dpad_down":
         case "dpad_left":
         case "dpad_right":
-          this.sendField(`gamepad_state_raw.${key}`, state[key]);
+          deltas.push({ fieldSuffix: `gamepad_state_raw.${key}`, value: state[key] });
           break;
       }
     }
+    this.sendFields(deltas);
   }
 
   private sendDirtyKeys() {
@@ -679,7 +697,7 @@ export function useRemoteControlClient({
   rightKnob,
   useWebInputs,
   workloadName,
-  writeTelemetryField,
+  writeTelemetryFields,
   writesReady,
 }: UseRemoteControlClientOptions) {
   const clientRef = useRef<RemoteControlClient | null>(null);
@@ -695,7 +713,7 @@ export function useRemoteControlClient({
       rightArea,
       rightKnob,
       workloadName: workloadName ?? "remote_control",
-      writeTelemetryField: writeTelemetryField ?? null,
+      writeTelemetryFields: writeTelemetryFields ?? null,
     });
     client.setUseWebInputs(useWebInputs);
     clientRef.current = client;
@@ -710,7 +728,7 @@ export function useRemoteControlClient({
     rightArea,
     rightKnob,
     workloadName,
-    writeTelemetryField,
+    writeTelemetryFields,
   ]);
 
   useEffect(() => {

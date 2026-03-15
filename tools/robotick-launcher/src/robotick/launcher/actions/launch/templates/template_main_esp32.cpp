@@ -20,6 +20,8 @@ static constexpr const char* ENGINE_TASK_NAME = "robotick_main";
 static constexpr uint32_t ENGINE_STACK_SIZE = 32768; // in bytes
 static constexpr UBaseType_t ENGINE_TASK_PRIORITY = 5;
 static constexpr BaseType_t ENGINE_CORE_ID = 1;
+static constexpr uint32_t NETWORK_CONNECT_RETRY_COUNT = 6;
+static constexpr uint32_t NETWORK_CONNECT_RETRY_DELAY_MS = 2000;
 
 static void initialize_network_runtime()
 {
@@ -44,9 +46,33 @@ static void initialize_network_runtime()
 	network_cfg.static_ipv4 = "{{ network.client_static_ipv4 }}";
 	network_cfg.gateway_ipv4 = "{{ network.client_gateway_ipv4 }}";
 	network_cfg.netmask_ipv4 = "{{ network.client_netmask_ipv4 }}";
-	if (!robotick::NetworkClient::connect(network_cfg))
+	bool connected = false;
+	for (uint32_t attempt = 1; attempt <= NETWORK_CONNECT_RETRY_COUNT; ++attempt)
 	{
-		ROBOTICK_FATAL_EXIT("Failed to join robot hotspot '%s'", network_cfg.ssid.c_str());
+		if (robotick::NetworkClient::connect(network_cfg))
+		{
+			connected = true;
+			break;
+		}
+
+		if (attempt < NETWORK_CONNECT_RETRY_COUNT)
+		{
+			ROBOTICK_WARNING(
+				"Failed to join robot hotspot '%s' on attempt %lu/%lu; retrying in %lu ms",
+				network_cfg.ssid.c_str(),
+				static_cast<unsigned long>(attempt),
+				static_cast<unsigned long>(NETWORK_CONNECT_RETRY_COUNT),
+				static_cast<unsigned long>(NETWORK_CONNECT_RETRY_DELAY_MS));
+			vTaskDelay(pdMS_TO_TICKS(NETWORK_CONNECT_RETRY_DELAY_MS));
+		}
+	}
+
+	if (!connected)
+	{
+		ROBOTICK_FATAL_EXIT(
+			"Failed to join robot hotspot '%s' after %lu attempts",
+			network_cfg.ssid.c_str(),
+			static_cast<unsigned long>(NETWORK_CONNECT_RETRY_COUNT));
 	}
 {% endif %}
 }

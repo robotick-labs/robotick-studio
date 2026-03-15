@@ -135,7 +135,15 @@ type TooltipRow = {
 
 function buildTooltipSummary(
   launcherModels: Record<string, { stage?: string; status?: string }>,
-  modelHealth: Record<string, { alive: boolean; loading: boolean; error?: string | null }>
+  modelHealth: Record<
+    string,
+    {
+      alive: boolean;
+      loading: boolean;
+      error?: string | null;
+      warning?: string | null;
+    }
+  >
 ): {
   running: TooltipRow[];
   notRunning: TooltipRow[];
@@ -170,7 +178,12 @@ function buildTooltipSummary(
 
 function buildTooltipDetail(
   launcherModel?: { stage?: string; status?: string },
-  health?: { alive: boolean; loading: boolean; error?: string | null }
+  health?: {
+    alive: boolean;
+    loading: boolean;
+    error?: string | null;
+    warning?: string | null;
+  }
 ): string | null {
   if (health?.loading) {
     return "health check pending";
@@ -183,9 +196,18 @@ function buildTooltipDetail(
       launcherModel.stage === "run" &&
       launcherModel.status === "succeeded"
     ) {
+      if (health?.warning?.trim()) {
+        return `launched • health unavailable (${health.warning.trim()})`;
+      }
       return "launched";
     }
+    if (health?.warning?.trim()) {
+      return `${launcherModel.stage} • ${launcherModel.status} • health unavailable (${health.warning.trim()})`;
+    }
     return `${launcherModel.stage} • ${launcherModel.status}`;
+  }
+  if (health?.warning?.trim()) {
+    return `health unavailable (${health.warning.trim()})`;
   }
   if (launcherModel?.status) {
     return launcherModel.status;

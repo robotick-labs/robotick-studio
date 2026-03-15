@@ -24,6 +24,7 @@ export type LauncherModelHealth = {
   alive: boolean;
   loading: boolean;
   error?: string | null;
+  warning?: string | null;
 };
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
@@ -142,7 +143,9 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
               now - lastRunningAtRef.current >= 5000
             ) {
               setRobotAliveLoading(true);
-              robotCheckPromiseRef.current = checkRobotAlive()
+              robotCheckPromiseRef.current = checkRobotAlive(
+                launcherSnapshot.models
+              )
                 .then((result) => {
                   setIsRobotAlive(result.alive);
                   setModelHealth(result.models);
@@ -326,7 +329,17 @@ async function readLauncherStatus(
   return { status: "stopped", models };
 }
 
-async function checkRobotAlive(): Promise<{
+function isDetachedLaunchedModel(
+  launcherModel?: LauncherModelStatus
+): boolean {
+  return (
+    launcherModel?.stage === "run" && launcherModel?.status === "succeeded"
+  );
+}
+
+async function checkRobotAlive(
+  launcherModels: Record<string, LauncherModelStatus>
+): Promise<{
   alive: boolean;
   error: string | null;
   models: Record<string, LauncherModelHealth>;
@@ -345,14 +358,26 @@ async function checkRobotAlive(): Promise<{
   const healthByModel: Record<string, LauncherModelHealth> = {};
   const failingModels: string[] = [];
   for (const model of models) {
+    const launcherModel = launcherModels[model.modelShortName];
+    const detachedLaunched = isDetachedLaunchedModel(launcherModel);
     const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
     try {
       const res = await fetch(url);
       if (!res.ok) {
+        if (detachedLaunched) {
+          healthByModel[model.modelShortName] = {
+            alive: true,
+            loading: false,
+            error: null,
+            warning: `${res.status} ${res.statusText}`.trim(),
+          };
+          continue;
+        }
         healthByModel[model.modelShortName] = {
           alive: false,
           loading: false,
           error: `${res.status} ${res.statusText}`,
+          warning: null,
         };
         failingModels.push(model.modelShortName);
         continue;
@@ -361,16 +386,27 @@ async function checkRobotAlive(): Promise<{
         alive: true,
         loading: false,
         error: null,
+        warning: null,
       };
     } catch (err) {
       console.warn(
         `[launcher] telemetry health check failed for ${model.modelShortName}`,
         err
       );
+      if (detachedLaunched) {
+        healthByModel[model.modelShortName] = {
+          alive: true,
+          loading: false,
+          error: null,
+          warning: err instanceof Error ? err.message : String(err),
+        };
+        continue;
+      }
       healthByModel[model.modelShortName] = {
         alive: false,
         loading: false,
         error: err instanceof Error ? err.message : String(err),
+        warning: null,
       };
       failingModels.push(model.modelShortName);
     }

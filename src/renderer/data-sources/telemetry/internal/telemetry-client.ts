@@ -166,25 +166,29 @@ export async function fetchRaw(
   }
 }
 
-export interface SetWorkloadInputFieldDataRequest {
-  engine_session_id: string;
+export interface SetWorkloadInputFieldWrite {
   field_handle?: number;
   field_path?: string;
   value: unknown;
   seq?: number;
 }
 
-export interface SetWorkloadInputFieldDataResponseBody {
+export interface SetWorkloadInputFieldsDataRequest {
+  engine_session_id: string;
+  writes: SetWorkloadInputFieldWrite[];
+}
+
+export interface SetWorkloadInputFieldsDataResponseBody {
   [key: string]: unknown;
 }
 
-export interface SetWorkloadInputFieldDataResult {
+export interface SetWorkloadInputFieldsDataResult {
   ok: boolean;
   status: number;
-  body: SetWorkloadInputFieldDataResponseBody | null;
+  body: SetWorkloadInputFieldsDataResponseBody | null;
 }
 
-export interface SetWorkloadInputFieldDataOptions {
+export interface SetWorkloadInputFieldsDataOptions {
   maxAttempts?: number;
   baseRetryDelayMs?: number;
   maxRetryDelayMs?: number;
@@ -200,7 +204,7 @@ function delay(ms: number): Promise<void> {
 function computeRetryDelayMs(
   attempt: number,
   status: number,
-  body: SetWorkloadInputFieldDataResponseBody | null,
+  body: SetWorkloadInputFieldsDataResponseBody | null,
   baseRetryDelayMs: number,
   maxRetryDelayMs: number,
 ): number {
@@ -218,14 +222,14 @@ function computeRetryDelayMs(
   return Math.min(maxRetryDelayMs, expo + jitter);
 }
 
-export async function setWorkloadInputFieldData(
+export async function setWorkloadInputFieldsData(
   base_url: string,
-  request: SetWorkloadInputFieldDataRequest,
-  options: SetWorkloadInputFieldDataOptions = {},
-): Promise<SetWorkloadInputFieldDataResult> {
+  request: SetWorkloadInputFieldsDataRequest,
+  options: SetWorkloadInputFieldsDataOptions = {},
+): Promise<SetWorkloadInputFieldsDataResult> {
   const endpoint = buildUrl(
     base_url,
-    "/api/telemetry/set_workload_input_field_data"
+    "/api/telemetry/set_workload_input_fields_data"
   );
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
   const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
@@ -268,9 +272,9 @@ export async function setWorkloadInputFieldData(
       continue;
     }
 
-    let body: SetWorkloadInputFieldDataResponseBody | null = null;
+    let body: SetWorkloadInputFieldsDataResponseBody | null = null;
     try {
-      body = (await response.json()) as SetWorkloadInputFieldDataResponseBody;
+      body = (await response.json()) as SetWorkloadInputFieldsDataResponseBody;
     } catch {
       body = null;
     }

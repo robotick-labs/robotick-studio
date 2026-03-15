@@ -19,6 +19,36 @@ run_esp32_container device "
         exit 1
     fi
 
+    release_stale_serial_holders() {
+        local released=0
+        local self_pid=\"$$\"
+        local serial_realpath
+        serial_realpath=\$(readlink -f \"${ROBOTICK_ESP32_SERIAL_PORT}\")
+
+        if [[ -n \"\$serial_realpath\" ]]; then
+            while IFS= read -r fd_path; do
+                [[ -n \"\$fd_path\" ]] || continue
+                local pid
+                pid=\$(echo \"\$fd_path\" | cut -d/ -f3)
+                [[ -n \"\$pid\" && \"\$pid\" != \"\$self_pid\" ]] || continue
+                kill -TERM \"\$pid\" 2>/dev/null || true
+                released=1
+            done < <(
+                for fd_path in /proc/[0-9]*/fd/*; do
+                    target=\$(readlink -f \"\$fd_path\" 2>/dev/null || true)
+                    if [[ \"\$target\" == \"\$serial_realpath\" ]]; then
+                        echo \"\$fd_path\"
+                    fi
+                done
+            )
+        fi
+
+        if [[ \"\$released\" == \"1\" ]]; then
+            echo -e \"\033[1m🧹 Released stale ESP32 serial-port holders for ${ROBOTICK_ESP32_SERIAL_PORT}\033[0m\"
+            sleep 0.5
+        fi
+    }
+
     compute_flash_bundle_checksum() {
         sha256sum \
             \"\$APP_BIN\" \
@@ -48,6 +78,8 @@ run_esp32_container device "
     if [[ -f \"\$FLASH_STATE_FILE\" ]]; then
         LAST_FLASH_CHECKSUM=\$(tr -d '[:space:]' < \"\$FLASH_STATE_FILE\")
     fi
+
+    release_stale_serial_holders
 
     if [[ \"\$CURRENT_FLASH_CHECKSUM\" != \"\$LAST_FLASH_CHECKSUM\" ]]; then
         echo -e \"\033[1m🔨 Flashing updated project image...\033[0m\"

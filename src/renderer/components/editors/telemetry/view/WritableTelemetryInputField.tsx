@@ -214,20 +214,24 @@ export function WritableTelemetryInputField({
     setDraftValue(optimisticValue);
 
     const seq = nextSeqRef.current++;
-    const result = await telemetryService.setWorkloadInputFieldData(
+    const result = await telemetryService.setWorkloadInputFieldsData(
       telemetryBaseUrl,
       {
         engine_session_id: field.model.schemaSessionId,
-        field_handle: field.writable_input_handle,
-        field_path: field.path,
-        value,
-        seq,
+        writes: [
+          {
+            field_handle: field.writable_input_handle,
+            field_path: field.path,
+            value,
+            seq,
+          },
+        ],
       }
     );
     if (!result.ok) {
       setOptimisticDraftValue(null);
       setDraftValue(getCurrentFieldDraftValue(field));
-      console.warn("setWorkloadInputFieldData rejected", {
+      console.warn("setWorkloadInputFieldsData rejected", {
         fieldPath: field.path,
         status: result.status,
         body: result.body,

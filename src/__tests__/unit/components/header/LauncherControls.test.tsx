@@ -132,6 +132,34 @@ describe("LauncherControls", () => {
     unmount();
   });
 
+  it("keeps detached launched models running when health is temporarily unavailable", () => {
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running" as LauncherStatus,
+      reportedStatus: "running",
+      isRobotAlive: true,
+      launcherModels: {
+        "alf-e-spine": { stage: "run", status: "succeeded" },
+      },
+      modelHealth: {
+        "alf-e-spine": {
+          alive: true,
+          loading: false,
+          error: null,
+          warning: "503 Service Unavailable",
+        },
+      },
+    });
+    const { container, unmount } = renderControl();
+
+    expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("launched");
+    expect(container.textContent).toContain("health unavailable");
+    expect(container.textContent).not.toContain("Not Running");
+    unmount();
+  });
+
   afterEach(() => {
     useLauncherContextMock.mockReset();
   });

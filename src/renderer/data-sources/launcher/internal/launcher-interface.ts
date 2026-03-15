@@ -238,6 +238,7 @@ function getProjectPath(): string {
  */
 function setLauncherProfile(value: string) {
   setStorageValue(KEY_LAUNCHER_PROFILE, value);
+  invalidateModelCache();
   notifyLauncherProfileChanged(value);
 }
 
@@ -248,6 +249,10 @@ function setLauncherProfile(value: string) {
  */
 function getLauncherProfile(): string {
   return readStorageValue(KEY_LAUNCHER_PROFILE) ?? "";
+}
+
+function isLocalLauncherProfile(profile: string): boolean {
+  return profile.trim().toLowerCase().startsWith("local:");
 }
 
 /**
@@ -468,6 +473,7 @@ async function fetchProjectModelData(
 async function buildModelDescriptors(
   projectPath: string
 ): Promise<ProjectModelDescriptor[]> {
+  const useLocalModelHosts = isLocalLauncherProfile(getLauncherProfile());
   const modelPaths = await fetchProjectModelPaths(projectPath);
   const descriptorPromises = modelPaths.map(async (modelPath) => {
     try {
@@ -491,7 +497,9 @@ async function buildModelDescriptors(
         modelShortName: buildModelShortName(modelPath),
         modelName,
         telemetryPort,
-        telemetryBaseUrl: buildDirectTelemetryBaseUrl(data, telemetryPort),
+        telemetryBaseUrl: useLocalModelHosts
+          ? buildTelemetryBaseUrl(telemetryPort)
+          : buildDirectTelemetryBaseUrl(data, telemetryPort),
         data,
       } as ProjectModelDescriptor;
     } catch (err) {
@@ -507,6 +515,10 @@ async function buildModelDescriptors(
   const filteredDescriptors = descriptors.filter(
     (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
   );
+
+  if (useLocalModelHosts) {
+    return filteredDescriptors;
+  }
 
   const gatewayDescriptor = filteredDescriptors.find((descriptor) =>
     isTelemetryGatewayModel(descriptor.data)

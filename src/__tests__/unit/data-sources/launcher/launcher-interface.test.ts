@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  readStorageValue,
+  setStorageValue,
+} from "../../../../renderer/services/storage";
 
 vi.mock(
   "../../../../renderer/services/storage",
@@ -178,6 +182,141 @@ describe("launcher-interface gateway telemetry resolution", () => {
     );
     expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
       "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine"
+    );
+  });
+
+  it("keeps all model telemetry local when the active launcher profile is local", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.launcherProfile") {
+        return "local:ALL";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const modelPath = url.searchParams.get("model_path");
+
+      if (path === "/query/list-project-models") {
+        return createJsonResponse([
+          "models/alf-e-rc.model.yaml",
+          "models/alf-e-face.model.yaml",
+          "models/alf-e-spine.model.yaml",
+        ]);
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-rc.model.yaml") {
+        return createJsonResponse(
+          createModel("Alf.e RC", 7102, "192.168.5.16", { isGateway: true })
+        );
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-face.model.yaml") {
+        return createJsonResponse(createModel("Alf.e Face", 7103, "192.168.5.16"));
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-spine.model.yaml") {
+        return createJsonResponse(createModel("Alf.e Spine", 7104, "10.42.0.2"));
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface = await import(
+      "../../../../renderer/data-sources/launcher/internal/launcher-interface"
+    );
+
+    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+    const byName = new Map(models.map((model) => [model.modelShortName, model]));
+
+    expect(byName.get("alf-e-rc")?.telemetryBaseUrl).toBe(
+      "http://localhost:7102"
+    );
+    expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
+      "http://localhost:7103"
+    );
+    expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
+      "http://localhost:7104"
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/telemetry-gateway/models")
+    );
+  });
+
+  it("invalidates cached model descriptors when the launcher profile changes", async () => {
+    let launcherProfile = "native:ALL";
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.launcherProfile") {
+        return launcherProfile;
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const modelPath = url.searchParams.get("model_path");
+
+      if (path === "/query/list-project-models") {
+        return createJsonResponse([
+          "models/alf-e-rc.model.yaml",
+          "models/alf-e-spine.model.yaml",
+        ]);
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-rc.model.yaml") {
+        return createJsonResponse(
+          createModel("Alf.e RC", 7102, "192.168.5.16", { isGateway: true })
+        );
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-spine.model.yaml") {
+        return createJsonResponse(createModel("Alf.e Spine", 7104, "10.42.0.2"));
+      }
+
+      if (path === "/api/telemetry-gateway/models") {
+        return createJsonResponse({
+          gateway_model_id: "alf-e-rc",
+          models: [
+            {
+              model_id: "alf-e-rc",
+              telemetry_path: "/api/telemetry-gateway/alf-e-rc",
+            },
+            {
+              model_id: "alf-e-spine",
+              telemetry_path: "/api/telemetry-gateway/alf-e-spine",
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface = await import(
+      "../../../../renderer/data-sources/launcher/internal/launcher-interface"
+    );
+
+    const nativeModels = await launcherInterface.getProjectModels("/tmp/alf-e");
+    expect(nativeModels.find((model) => model.modelShortName === "alf-e-spine")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine"
+    );
+
+    launcherProfile = "local:ALL";
+    launcherInterface.default.setLauncherProfile("local:ALL");
+
+    const localModels = await launcherInterface.getProjectModels("/tmp/alf-e");
+    expect(localModels.find((model) => model.modelShortName === "alf-e-spine")?.telemetryBaseUrl).toBe(
+      "http://localhost:7104"
+    );
+    expect(setStorageValue).toHaveBeenCalledWith(
+      "robotick-studio.launcherProfile",
+      "local:ALL"
     );
   });
 

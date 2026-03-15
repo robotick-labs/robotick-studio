@@ -14,6 +14,7 @@ def test_stop_clears_stale_launcher_status_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(routes_launch, "status_thread", None)
     monkeypatch.setattr(routes_launch, "current_profile", None)
     monkeypatch.setattr(routes_launch, "current_project_path", None)
+    monkeypatch.setattr(routes_launch, "current_run_started_at", None)
     monkeypatch.setattr(routes_launch, "log_loop", None)
     routes_launch.current_status.clear()
     routes_launch.current_status.update(
@@ -36,3 +37,45 @@ def test_stop_clears_stale_launcher_status_snapshot(monkeypatch) -> None:
         "profile": None,
         "models": {},
     }
+
+
+def test_format_elapsed_since_run_start(monkeypatch) -> None:
+    monkeypatch.setattr(routes_launch, "current_run_started_at", 100.0)
+    monkeypatch.setattr(routes_launch.time, "monotonic", lambda: 181.2)
+
+    assert routes_launch._format_elapsed_since_run_start() == "00:01:21.200"
+
+
+def test_broadcast_log_includes_elapsed_prefix(monkeypatch) -> None:
+    sent_messages: list[str] = []
+
+    class FakeLoop:
+        def call_soon_threadsafe(self, callback, *args):
+            callback(*args)
+
+    monkeypatch.setattr(routes_launch, "current_profile", "native:ALL")
+    monkeypatch.setattr(routes_launch, "current_run_started_at", 100.0)
+    monkeypatch.setattr(routes_launch.time, "monotonic", lambda: 181.2)
+    monkeypatch.setattr(
+        routes_launch,
+        "datetime",
+        type(
+            "FakeDateTime",
+            (),
+            {"now": staticmethod(lambda: type("FakeNow", (), {"strftime": lambda self, _: "13:54:27.140000"})())},
+        ),
+    )
+
+    queue = type("FakeQueue", (), {"put_nowait": sent_messages.append})()
+    with routes_launch.log_lock:
+        routes_launch.log_subscribers.append(queue)
+    try:
+        routes_launch._broadcast_log("hello", FakeLoop())
+    finally:
+        with routes_launch.log_lock:
+            routes_launch.log_subscribers.clear()
+
+    assert sent_messages == [
+        f"{routes_launch.ANSI_BOLD_YELLOW}13:54:27.140{routes_launch.ANSI_RESET} | "
+        f"{routes_launch.ANSI_DIM_CYAN}00:01:21.200{routes_launch.ANSI_RESET} [native:ALL] hello"
+    ]

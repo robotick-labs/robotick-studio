@@ -8,6 +8,11 @@ import {
   useTelemetryStream,
 } from "../../../../../data-sources/telemetry";
 
+type TelemetryFieldDelta = {
+  fieldPath: string;
+  value: unknown;
+};
+
 export type RemoteControlsPanelConfig = {
   defaultUseWebInputs?: boolean;
   modelName?: string;
@@ -29,6 +34,8 @@ export default function RemoteControlsPanel({
   const [rightAreaEl, setRightAreaEl] = useState<HTMLDivElement | null>(null);
   const [rightKnobEl, setRightKnobEl] = useState<HTMLDivElement | null>(null);
   const nextSeqRef = useRef(1);
+  const inFlightRef = useRef(false);
+  const queuedWritesRef = useRef<Map<string, unknown>>(new Map());
 
   const initialUseWebInputs = useMemo(
     () => config?.defaultUseWebInputs ?? true,
@@ -64,44 +71,99 @@ export default function RemoteControlsPanel({
     telemetryModelRef.current = model ?? null;
   }, [model]);
 
-  const writeTelemetryField = useCallback(
-    (fieldPath: string, value: unknown) => {
-      const currentBaseUrl = telemetryBaseUrlRef.current;
-      const currentModel = telemetryModelRef.current;
-      if (!currentBaseUrl || !currentModel?.schemaSessionId) {
-        return;
-      }
+  const flushQueuedTelemetryWrites = useCallback(async () => {
+    if (inFlightRef.current) {
+      return;
+    }
 
-      const writableMeta = currentModel.writable_inputs_by_path?.get(fieldPath);
-      if (!writableMeta || typeof writableMeta.field_handle !== "number") {
-        return;
-      }
+    const currentBaseUrl = telemetryBaseUrlRef.current;
+    const currentModel = telemetryModelRef.current;
+    if (!currentBaseUrl || !currentModel?.schemaSessionId) {
+      return;
+    }
 
-      const seq = nextSeqRef.current++;
-      void telemetryService
-        .setWorkloadInputFieldData(currentBaseUrl, {
-          engine_session_id: currentModel.schemaSessionId,
+    const queuedWrites = queuedWritesRef.current;
+    if (queuedWrites.size === 0) {
+      return;
+    }
+
+    queuedWritesRef.current = new Map();
+    const writes = Array.from(queuedWrites.entries())
+      .map(([fieldPath, value]) => {
+        const writableMeta = currentModel.writable_inputs_by_path?.get(fieldPath);
+        if (!writableMeta || typeof writableMeta.field_handle !== "number") {
+          return null;
+        }
+        return {
           field_handle: writableMeta.field_handle,
           field_path: fieldPath,
           value,
-          seq,
-        })
-        .then((result) => {
-          if (!result.ok) {
-            console.warn("setWorkloadInputFieldData rejected", {
-              fieldPath,
-              status: result.status,
-              body: result.body,
-            });
-          }
+        };
+      })
+      .filter((write): write is {
+        field_handle: number;
+        field_path: string;
+        value: unknown;
+      } => write !== null);
+
+    if (writes.length === 0) {
+      return;
+    }
+
+    const seq = nextSeqRef.current++;
+    inFlightRef.current = true;
+    try {
+      const result = await telemetryService.setWorkloadInputFieldsData(
+        currentBaseUrl,
+        {
+          engine_session_id: currentModel.schemaSessionId,
+          writes: writes.map((write) => ({ ...write, seq })),
+        },
+        {
+          maxAttempts: 1,
+        }
+      );
+      if (!result.ok) {
+        console.warn("setWorkloadInputFieldsData rejected", {
+          writes: writes.map((write) => write.field_path),
+          status: result.status,
+          body: result.body,
         });
+      }
+    } finally {
+      inFlightRef.current = false;
+      if (queuedWritesRef.current.size > 0) {
+        void flushQueuedTelemetryWrites();
+      }
+    }
+  }, [telemetryService]);
+
+  const writeTelemetryFields = useCallback(
+    (writes: TelemetryFieldDelta[]) => {
+      if (writes.length === 0) {
+        return;
+      }
+      const queuedWrites = queuedWritesRef.current;
+      for (const write of writes) {
+        queuedWrites.set(write.fieldPath, write.value);
+      }
+
+      if (!inFlightRef.current) {
+        void flushQueuedTelemetryWrites();
+      }
     },
-    [telemetryService]
+    [flushQueuedTelemetryWrites]
   );
 
   const writesReady = useMemo(() => {
     return Boolean(telemetryBaseUrl && model?.schemaSessionId);
   }, [model?.schemaSessionId, telemetryBaseUrl]);
+
+  useEffect(() => {
+    if (writesReady && queuedWritesRef.current.size > 0 && !inFlightRef.current) {
+      void flushQueuedTelemetryWrites();
+    }
+  }, [flushQueuedTelemetryWrites, writesReady]);
 
   useRemoteControlClient({
     leftArea: leftAreaEl,
@@ -110,7 +172,7 @@ export default function RemoteControlsPanel({
     rightKnob: rightKnobEl,
     useWebInputs,
     workloadName,
-    writeTelemetryField,
+    writeTelemetryFields,
     writesReady,
   });
 

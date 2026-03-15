@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchLayout,
-  setWorkloadInputFieldData,
+  setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
 
 type JsonResponse = {
@@ -21,7 +21,7 @@ function createJsonResponse(
   };
 }
 
-describe("setWorkloadInputFieldData", () => {
+describe("setWorkloadInputFieldsData", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -41,12 +41,11 @@ describe("setWorkloadInputFieldData", () => {
       .mockResolvedValueOnce(createJsonResponse(200, { status: "accepted" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const requestPromise = setWorkloadInputFieldData(
+    const requestPromise = setWorkloadInputFieldsData(
       "http://example",
       {
         engine_session_id: "sid",
-        field_handle: 1,
-        value: true,
+        writes: [{ field_handle: 1, value: true }],
       },
       {
         maxAttempts: 3,
@@ -69,10 +68,9 @@ describe("setWorkloadInputFieldData", () => {
       .mockResolvedValue(createJsonResponse(400, { error: "bad_request" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await setWorkloadInputFieldData("http://example", {
+    const result = await setWorkloadInputFieldsData("http://example", {
       engine_session_id: "sid",
-      field_handle: 7,
-      value: 123,
+      writes: [{ field_handle: 7, value: 123 }],
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
