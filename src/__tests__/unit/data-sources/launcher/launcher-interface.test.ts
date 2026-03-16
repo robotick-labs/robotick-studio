@@ -26,12 +26,15 @@ function createModel(
   name: string,
   port: number,
   preferredHost: string,
-  options: { isGateway?: boolean } = {}
+  options: { isGateway?: boolean; preferredPollRateHz?: number } = {}
 ) {
   return {
     name,
     telemetry: {
       port,
+      ...(options.preferredPollRateHz
+        ? { preferred_poll_rate_hz: options.preferredPollRateHz }
+        : {}),
       ...(options.isGateway ? { is_gateway: true } : {}),
     },
     runtime: {
@@ -371,5 +374,38 @@ describe("launcher-interface gateway telemetry resolution", () => {
     await launcherInterface.requestLauncherRun("alf-e.project.yaml", "native:ALL");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces advisory telemetry poll rates from model yaml", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const modelPath = url.searchParams.get("model_path");
+
+      if (path === "/query/list-project-models") {
+        return createJsonResponse(["models/alf-e-spine.model.yaml"]);
+      }
+
+      if (path === "/query/get-model" && modelPath === "models/alf-e-spine.model.yaml") {
+        return createJsonResponse(
+          createModel("Alf.e Spine", 7104, "10.42.0.2", {
+            preferredPollRateHz: 7.5,
+          })
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface = await import(
+      "../../../../renderer/data-sources/launcher/internal/launcher-interface"
+    );
+
+    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+
+    expect(models).toHaveLength(1);
+    expect(models[0]?.preferredTelemetryPollRateHz).toBe(7.5);
   });
 });

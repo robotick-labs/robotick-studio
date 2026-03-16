@@ -133,10 +133,26 @@ export async function fetchLayout(
       cache: "no-store",
     });
     if (!r.ok) return null;
-    return (await r.json()) as LayoutModel;
+    const layout = (await r.json()) as unknown;
+    if (!isLayoutModel(layout)) {
+      const serverError =
+        typeof (layout as { error?: unknown })?.error === "string"
+          ? (layout as { error: string }).error
+          : "invalid_layout_response";
+      throw new Error(`telemetry layout invalid: ${serverError}`);
+    }
+    return layout;
   } catch {
     return null;
   }
+}
+
+function isLayoutModel(value: unknown): value is LayoutModel {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { types?: unknown; workloads?: unknown };
+  return Array.isArray(candidate.types) && Array.isArray(candidate.workloads);
 }
 
 export async function fetchRaw(

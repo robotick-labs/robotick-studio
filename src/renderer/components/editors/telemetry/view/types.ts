@@ -10,5 +10,6 @@ export interface EngineModel {
   modelName: string;
   modelPath: string;
   instanceURL: string;
+  preferredPollRateHz?: number;
   fieldConnectionHints: Record<string, FieldConnectionHint>;
 }

@@ -97,6 +97,7 @@ export interface ProjectModelDescriptor<T = unknown> {
   modelName: string;
   telemetryPort: number;
   telemetryBaseUrl: string;
+  preferredTelemetryPollRateHz?: number;
   data: T;
 }
 
@@ -304,6 +305,16 @@ function normalizePort(portValue: unknown): number {
   return DEFAULT_TELEMETRY_PORT;
 }
 
+function normalizePreferredTelemetryPollRateHz(
+  pollRateHzValue: unknown
+): number | undefined {
+  const next = Number(pollRateHzValue);
+  if (Number.isFinite(next) && next > 0) {
+    return next;
+  }
+  return undefined;
+}
+
 function buildTelemetryBaseUrl(port: number) {
   return `http://${getModelHostName()}:${port}`;
 }
@@ -491,6 +502,14 @@ async function buildModelDescriptors(
       const telemetryPort = normalizePort(
         (data as { telemetry?: { port?: number } })?.telemetry?.port
       );
+      const preferredTelemetryPollRateHz =
+        normalizePreferredTelemetryPollRateHz(
+          (
+            data as {
+              telemetry?: { preferred_poll_rate_hz?: number };
+            }
+          )?.telemetry?.preferred_poll_rate_hz
+        );
 
       return {
         modelPath,
@@ -500,6 +519,7 @@ async function buildModelDescriptors(
         telemetryBaseUrl: useLocalModelHosts
           ? buildTelemetryBaseUrl(telemetryPort)
           : buildDirectTelemetryBaseUrl(data, telemetryPort),
+        preferredTelemetryPollRateHz,
         data,
       } as ProjectModelDescriptor;
     } catch (err) {

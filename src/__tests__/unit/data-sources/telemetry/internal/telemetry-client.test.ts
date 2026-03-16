@@ -142,4 +142,19 @@ describe("setWorkloadInputFieldsData", () => {
       { cache: "no-store" }
     );
   });
+
+  it("rejects successful non-layout payloads", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        error: "telemetry_layout_generation_failed",
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const layout = await fetchLayout(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine"
+    );
+
+    expect(layout).toBeNull();
+  });
 });

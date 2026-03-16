@@ -265,6 +265,7 @@ export default function TelemetryTreeViewer() {
 
   const telemetryBaseUrl =
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
+  const pollingRateHz = selectedModel?.preferredTelemetryPollRateHz ?? 10;
   const fieldConnectionHints = useMemo(() => {
     if (!selectedModel) {
       return new Map<string, FieldConnectionHint>();
@@ -274,7 +275,10 @@ export default function TelemetryTreeViewer() {
     return new Map<string, FieldConnectionHint>(Object.entries(serializedHints));
   }, [fieldConnectionHintsByModelPath, selectedModel]);
 
-  const { model, revision } = useTelemetryStream(telemetryBaseUrl, 10);
+  const { model, revision } = useTelemetryStream(
+    telemetryBaseUrl,
+    pollingRateHz
+  );
   const workloads = model?.workloads ?? [];
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
