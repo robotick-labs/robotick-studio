@@ -12,7 +12,7 @@ type JsonResponse = {
 
 function createJsonResponse(
   status: number,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ): JsonResponse {
   return {
     ok: status >= 200 && status < 300,
@@ -36,7 +36,7 @@ describe("setWorkloadInputFieldsData", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        createJsonResponse(429, { error: "throttled", retry_after_ms: 1 })
+        createJsonResponse(429, { error: "throttled", retry_after_ms: 1 }),
       )
       .mockResolvedValueOnce(createJsonResponse(200, { status: "accepted" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -51,7 +51,7 @@ describe("setWorkloadInputFieldsData", () => {
         maxAttempts: 3,
         baseRetryDelayMs: 1,
         maxRetryDelayMs: 2,
-      }
+      },
     );
 
     await vi.runAllTimersAsync();
@@ -85,10 +85,10 @@ describe("setWorkloadInputFieldsData", () => {
         createJsonResponse(412, {
           error: "session_mismatch",
           engine_session_id: "sid-corrected",
-        })
+        }),
       )
       .mockResolvedValueOnce(
-        createJsonResponse(200, { status: "processed", accepted_count: 1 })
+        createJsonResponse(200, { status: "processed", accepted_count: 1 }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -99,7 +99,7 @@ describe("setWorkloadInputFieldsData", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
-      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).engine_session_id
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).engine_session_id,
     ).toBe("sid-corrected");
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
@@ -112,7 +112,7 @@ describe("setWorkloadInputFieldsData", () => {
         types: [],
         workloads_buffer_size_used: 0,
         process_memory_used: 0,
-      })
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -120,7 +120,7 @@ describe("setWorkloadInputFieldsData", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://192.168.5.16:7102/api/telemetry/workloads_buffer/layout",
-      { cache: "no-store" }
+      { cache: "no-store" },
     );
   });
 
@@ -131,15 +131,17 @@ describe("setWorkloadInputFieldsData", () => {
         types: [],
         workloads_buffer_size_used: 0,
         process_memory_used: 0,
-      })
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await fetchLayout("http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face");
+    await fetchLayout(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face",
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
-      { cache: "no-store" }
+      { cache: "no-store" },
     );
   });
 
@@ -147,12 +149,12 @@ describe("setWorkloadInputFieldsData", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       createJsonResponse(200, {
         error: "telemetry_layout_generation_failed",
-      })
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     const layout = await fetchLayout(
-      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine"
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine",
     );
 
     expect(layout).toBeNull();

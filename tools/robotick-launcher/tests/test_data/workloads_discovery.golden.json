@@ -113,34 +113,6 @@
     }
   },
   {
-    "name": "CameraWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/CameraWorkload.cpp"
-    },
-    "structs": {
-      "config": {
-        "name": "CameraConfig",
-        "fields": [
-          {
-            "name": "camera_index",
-            "type": "int",
-            "default_value": "0"
-          }
-        ]
-      },
-      "outputs": {
-        "name": "CameraOutputs",
-        "fields": [
-          {
-            "name": "jpeg_data",
-            "type": "ImageJpeg128k"
-          }
-        ]
-      }
-    }
-  },
-  {
     "name": "CanvasWorkload",
     "source": {
       "workload_root": "test_data/robotick/robotick-core-workloads",
@@ -649,6 +621,49 @@
             "name": "dropped_reads",
             "type": "uint32_t",
             "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "MonocularCameraWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/sensors/MonocularCameraWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "MonocularCameraConfig",
+        "fields": [
+          {
+            "name": "camera_index",
+            "type": "int",
+            "default_value": "0"
+          },
+          {
+            "name": "capture_width",
+            "type": "uint32_t",
+            "default_value": "1280"
+          },
+          {
+            "name": "capture_height",
+            "type": "uint32_t",
+            "default_value": "720"
+          },
+          {
+            "name": "stream_id",
+            "type": "uint32_t",
+            "default_value": "1"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "MonocularCameraOutputs",
+        "fields": [
+          {
+            "name": "image",
+            "type": "ImageRef"
           }
         ]
       }

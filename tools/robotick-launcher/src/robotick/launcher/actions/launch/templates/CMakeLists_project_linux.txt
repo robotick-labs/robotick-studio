@@ -31,6 +31,9 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 # Create workload registry
 add_library(workload_registry STATIC
     registry/generated_workload_registry.cpp
+{% for source in platform_extra_cpp %}
+    ${CMAKE_CURRENT_SOURCE_DIR}/{{ source }}
+{% endfor %}
 )
 
 # Enforce strict compilation rules to help ensure code quality
@@ -51,5 +54,10 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/registry/generated_workload_deps.cmake")
 # Link engine into workload registry
 target_link_libraries(workload_registry PUBLIC robotick-engine)
 
-# Link workload registry into main binary
-target_link_libraries({{ model_name }} PRIVATE workload_registry)
+# Link workload registry into main binary. Whole-archive keeps registration-only
+# translation units (for enums/primitive helpers) from being dropped by the linker.
+target_link_libraries({{ model_name }} PRIVATE
+    -Wl,--whole-archive
+    workload_registry
+    -Wl,--no-whole-archive
+)

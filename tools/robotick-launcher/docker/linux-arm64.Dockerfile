@@ -12,13 +12,17 @@ RUN dpkg --add-architecture arm64 \
     && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
+        clang-16 \
         cmake \
         crossbuild-essential-arm64 \
         file \
         git \
+        lld-16 \
         ninja-build \
         pkg-config \
         python3 \
+        python3-dev \
+        pybind11-dev \
         libopencv-dev:arm64 \
         libcurl4-openssl-dev:arm64 \
         libsdl2-dev:arm64 \

@@ -5,6 +5,9 @@ idf_component_register(
         {{ model_name_safe }}_main.cpp
         {{ model_name_safe }}_model.cpp
         registry/generated_workload_registry.cpp
+{% for source in platform_extra_cpp %}
+        {{ source }}
+{% endfor %}
     INCLUDE_DIRS
         .
 {% for root in workload_roots %}
@@ -14,4 +17,5 @@ idf_component_register(
         robotick-engine
         M5Unified
         M5GFX
+    WHOLE_ARCHIVE
 )

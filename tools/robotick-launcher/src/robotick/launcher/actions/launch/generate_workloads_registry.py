@@ -83,8 +83,6 @@ def generate_workloads_registry(config):
     # Write the registry .cpp
     context = {
         "workloads": workloads,
-        # Only include platform extras for used workload types
-        "platform_extra_cpp": [f for f in _collect_platform_files(config, used_types)],
     }
 
     try:

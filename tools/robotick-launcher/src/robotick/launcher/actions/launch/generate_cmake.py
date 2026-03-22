@@ -3,6 +3,9 @@ import logging
 import os
 from rich import print
 from robotick.launcher.utils import render_template, write_text_if_changed
+from robotick.launcher.actions.launch.generate_workloads_registry import (
+    _collect_platform_files,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -14,6 +17,29 @@ def _cmake_relpath(target: Path, start: Path) -> str:
         return Path(rel).as_posix()
     except ValueError:
         return target.resolve().as_posix()
+
+
+def _resolve_platform_extra_cpp_paths(config, workload_roots_abs, start_dir: Path) -> list[str]:
+    used_types = {w["type"] for w in (config.model.get("workloads", []) or [])}
+    platform_extra_cpp = _collect_platform_files(config, used_types)
+    resolved_paths: list[str] = []
+
+    for rel_path in platform_extra_cpp:
+        resolved_abs = None
+        for root in workload_roots_abs:
+            candidate = (root / Path(rel_path)).resolve()
+            if candidate.exists():
+                resolved_abs = candidate
+                break
+
+        if resolved_abs is None:
+            raise RuntimeError(
+                f"Could not resolve platform extra source '{rel_path}' from configured workload roots."
+            )
+
+        resolved_paths.append(_cmake_relpath(resolved_abs, start_dir))
+
+    return resolved_paths
 
 def generate_project_cmakelists(config) -> None:
     """Render and write .launcher/CMakeLists.txt for the given (project, model, target).
@@ -79,6 +105,9 @@ def generate_project_cmakelists(config) -> None:
     workload_roots_rel = [
         _cmake_relpath(root, cmakelists_dir) for root in workload_roots_abs
     ]
+    platform_extra_cpp = _resolve_platform_extra_cpp_paths(
+        config, workload_roots_abs, cmakelists_dir
+    )
 
     # ✏️ Template parameters — override with CLI args or config later
     context = {
@@ -87,7 +116,8 @@ def generate_project_cmakelists(config) -> None:
         "platform": platform,
         "robotick_engine_root": robotick_engine_root_rel,
         "workload_roots": workload_roots_rel,
-        "platform_macros": platform_macros
+        "platform_macros": platform_macros,
+        "platform_extra_cpp": platform_extra_cpp,
     }
 
     try:
@@ -183,6 +213,9 @@ def generate_component_cmakelists(config) -> None:
     workload_roots_rel = [
         _cmake_relpath(root, cmakelists_dir) for root in workload_roots_abs
     ]
+    platform_extra_cpp = _resolve_platform_extra_cpp_paths(
+        config, workload_roots_abs, cmakelists_dir
+    )
 
     # ✏️ Template parameters — override with CLI args or config later
     context = {
@@ -191,7 +224,8 @@ def generate_component_cmakelists(config) -> None:
         "platform": platform,
         "robotick_engine_root": robotick_engine_root_rel,
         "workload_roots": workload_roots_rel,
-        "platform_macros": platform_macros
+        "platform_macros": platform_macros,
+        "platform_extra_cpp": platform_extra_cpp,
     }
 
     try:
