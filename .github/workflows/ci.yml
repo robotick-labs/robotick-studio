@@ -59,6 +59,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: robotick-labs/robotick-engine
+          ref: dev
           path: tools/robotick-launcher/tests/test_data/robotick/robotick-engine
           submodules: recursive
 
@@ -66,6 +67,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: robotick-labs/robotick-core-workloads
+          ref: dev
           path: tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads
           submodules: recursive
 
