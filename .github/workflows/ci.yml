@@ -48,9 +48,30 @@ jobs:
         run: npm run test:launcher
 
   launcher-integration-builds:
+    name: launcher-integration-builds (${{ matrix.label }})
     runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux
+            model: test-project-spine-linux
+            target: linux
+            install_linux_deps: true
+          - label: linux-arm64
+            model: test-project-spine-arm64
+            target: linux
+            install_linux_deps: false
+          - label: linux-arm32
+            model: test-project-spine-arm32
+            target: linux
+            install_linux_deps: false
+          - label: esp32
+            model: test-project-spine
+            target: esp32
+            install_linux_deps: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -77,6 +98,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install native Linux build deps
+        if: matrix.install_linux_deps
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -91,7 +113,7 @@ jobs:
             ninja-build \
             pkg-config
 
-      - name: Run launcher fixture builds
+      - name: Run launcher fixture build
         working-directory: ${{ github.workspace }}
         run: |
           python -m venv .studio/.venv
@@ -101,17 +123,8 @@ jobs:
 
           BASE_DIR="$PWD/tools/robotick-launcher/tests/test_data/test-project"
 
-          python -m robotick.launcher.cli generate test-project test-project-spine-linux linux --base-dir "$BASE_DIR" --stub-install
-          python -m robotick.launcher.cli build test-project test-project-spine-linux linux --base-dir "$BASE_DIR" --no-pre
-
-          python -m robotick.launcher.cli generate test-project test-project-spine-arm64 linux --base-dir "$BASE_DIR" --stub-install
-          python -m robotick.launcher.cli build test-project test-project-spine-arm64 linux --base-dir "$BASE_DIR" --no-pre
-
-          python -m robotick.launcher.cli generate test-project test-project-spine-arm32 linux --base-dir "$BASE_DIR" --stub-install
-          python -m robotick.launcher.cli build test-project test-project-spine-arm32 linux --base-dir "$BASE_DIR" --no-pre
-
-          python -m robotick.launcher.cli generate test-project test-project-spine esp32 --base-dir "$BASE_DIR" --stub-install
-          python -m robotick.launcher.cli build test-project test-project-spine esp32 --base-dir "$BASE_DIR" --no-pre
+          python -m robotick.launcher.cli generate test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --no-pre
 
   renderer-tests:
     runs-on: ubuntu-latest
