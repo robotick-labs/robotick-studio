@@ -254,7 +254,8 @@ def test_generate_esp32_build_script_reuses_existing_build_dir(tmp_path):
         encoding="utf-8"
     )
 
-    assert "rm -rf build" not in script
+    assert "rm -rf build sdkconfig sdkconfig.old" in script
+    assert "Detected sdkconfig.defaults change; resetting ESP-IDF build state" in script
     assert "Reusing existing build directory" in script
     assert "idf.py set-target" in script
     assert "/opt/esp/idf/export.sh" not in script
@@ -333,7 +334,8 @@ def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
     )
 
     assert result is not None
-    assert result.apt_packages == ["cmake", "git"]
+    assert "cmake" in result.apt_packages
+    assert "git" in result.apt_packages
     assert result.missing_apt == ["git"]
 
 

@@ -74,6 +74,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install native Linux build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev \
+            libkissfft-dev \
+            libopencv-dev \
+            libsdl2-dev \
+            libsdl2-gfx-dev \
+            libsdl2-ttf-dev \
+            libssl-dev \
+            libyaml-cpp-dev \
+            ninja-build \
+            pkg-config
+
       - name: Run launcher fixture builds
         working-directory: ${{ github.workspace }}
         run: |

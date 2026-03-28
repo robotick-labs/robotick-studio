@@ -32,6 +32,12 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 # Create workload registry
 add_library(workload_registry STATIC
     registry/generated_workload_registry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/Camera_desktop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/Image.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/ImageStore.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/audio/AudioFrame.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/audio/AudioSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/auditory/SpeechToText.cpp
 )
 
 # Enforce strict compilation rules to help ensure code quality
@@ -53,5 +59,10 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/registry/generated_workload_deps.cmake")
 # Link engine into workload registry
 target_link_libraries(workload_registry PUBLIC robotick-engine)
 
-# Link workload registry into main binary
-target_link_libraries(test-project-brain PRIVATE workload_registry)
+# Link workload registry into main binary. Whole-archive keeps registration-only
+# translation units (for enums/primitive helpers) from being dropped by the linker.
+target_link_libraries(test-project-brain PRIVATE
+    -Wl,--whole-archive
+    workload_registry
+    -Wl,--no-whole-archive
+)

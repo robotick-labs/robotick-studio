@@ -16,6 +16,14 @@ from robotick.launcher.actions.launch import (
     install_deps as install_deps_stage,
 )
 
+def _resolve_project_local_path(config: Config, raw_path: str) -> Path:
+    value = str(raw_path).replace("${PROJECT_DIR}", str(config.project_dir))
+    path = Path(value)
+    if not path.is_absolute():
+        path = config.base_dir / path
+    return path.resolve()
+
+
 def write_launcher_env_if_needed(config: Config) -> None:
     launcher_env = config.launcher_dir / "launcher.env"
 
@@ -26,6 +34,13 @@ def write_launcher_env_if_needed(config: Config) -> None:
 
     if config.target == "esp32":
         env_lines.append("# Generated from model runtime metadata.")
+
+        engine_local_path = str(
+            dict((config.runtime or {}).get("engine") or {}).get("local_path") or ""
+        ).strip()
+        if engine_local_path:
+            engine_root = _resolve_project_local_path(config, engine_local_path)
+            env_lines.append(f'export ROBOTICK_ENGINE_PATH="{engine_root}"')
 
         serial_port = str(deploy.get("serial_port") or "").strip()
         if serial_port:

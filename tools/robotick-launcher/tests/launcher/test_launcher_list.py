@@ -16,10 +16,15 @@ def test_list_project_models_returns_correct_list():
     models = list_project_models(str(PROJECT_FILE))
     
     assert isinstance(models, list)
-    assert len(models) == 2, f"Expected 2 models, got {len(models)}: {models}"
-
-    assert any("test-project-brain.model.yaml" in m for m in models), "Brain model not found"
-    assert any("test-project-spine.model.yaml" in m for m in models), "Spine model not found"
+    expected = {
+        "test-project-brain.model.yaml",
+        "test-project-spine.model.yaml",
+        "test-project-spine-linux.model.yaml",
+        "test-project-spine-arm64.model.yaml",
+        "test-project-spine-arm32.model.yaml",
+    }
+    model_names = {Path(model).name for model in models}
+    assert model_names == expected, f"Unexpected model set: {models}"
 
 
 def test_list_projects_returns_correct_list():

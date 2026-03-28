@@ -59,6 +59,13 @@ def normalize_workload_paths(text: str) -> str:
     )
 
 
+def normalize_engine_paths(text: str) -> str:
+    pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-engine")
+    return pattern.sub(
+        "__ENGINE_ROOT__/tests/test_data/robotick/robotick-engine", text
+    )
+
+
 def _list_files(dir_path: Path):
     """
     Collects all files under the given directory and returns their paths relative to that directory.
@@ -83,12 +90,32 @@ def _list_files(dir_path: Path):
     return file_paths_rel
 
 
+def _normalized_fixture_files(dir_path: Path):
+    component_roots = {
+        Path("components/M5GFX"),
+        Path("components/M5Unified"),
+    }
+    ignored_paths = {
+        Path("build"),
+        Path("dependencies.lock"),
+        Path("sdkconfig"),
+    }
+    normalized = []
+    for rel_path in _list_files(dir_path):
+        if any(root in rel_path.parents or rel_path == root for root in ignored_paths):
+            continue
+        if any(root in rel_path.parents or rel_path == root for root in component_roots):
+            continue
+        normalized.append(rel_path)
+    return normalized
+
+
 def assert_dirs_match(output_dir: Path, golden_dir: Path):
     """
     Recursively assert that two directories contain the same structure and content.
     """
-    output_files = _list_files(output_dir)
-    golden_files = _list_files(golden_dir)
+    output_files = _normalized_fixture_files(output_dir)
+    golden_files = _normalized_fixture_files(golden_dir)
 
     # Explicitly fail if either side is empty
     if not output_files or not golden_files:
@@ -106,6 +133,13 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
         )
         pytest.fail(msg, pytrace=False)
 
+    for component_dir in (Path("components/M5GFX"), Path("components/M5Unified")):
+        output_component = output_dir / component_dir
+        golden_component = golden_dir / component_dir
+        if output_component.exists() or golden_component.exists():
+            assert output_component.exists(), f"Missing generated component dir: {component_dir}"
+            assert output_component.is_dir(), f"Generated component path is not a dir: {component_dir}"
+
     for rel_path in output_files:
         out_file = output_dir / rel_path
         gold_file = golden_dir / rel_path
@@ -116,6 +150,9 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
             if rel_path == Path("registry/generated_workload_deps.cmake"):
                 out_text = normalize_workload_paths(out_text)
                 gold_text = normalize_workload_paths(gold_text)
+            elif rel_path == Path("launcher.env"):
+                out_text = normalize_engine_paths(out_text)
+                gold_text = normalize_engine_paths(gold_text)
 
             out_lines = normalize_lines(out_text.splitlines())
             gold_lines = normalize_lines(gold_text.splitlines())

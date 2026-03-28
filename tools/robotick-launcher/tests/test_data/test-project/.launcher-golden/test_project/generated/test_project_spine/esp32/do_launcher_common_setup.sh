@@ -18,7 +18,8 @@ if [[ -f "$LAUNCHER_ENV_FILE" ]]; then
 fi
 
 IMAGE_NAME="robotick-launcher-esp32s3"
-DOCKERFILE="$REPO_ROOT/robotick/robotick-studio/tools/robotick-launcher/docker/esp32s3.Dockerfile"
+ENGINE_ROOT="${ROBOTICK_ENGINE_PATH:-$REPO_ROOT/robotick/robotick-engine}"
+DOCKERFILE="$ENGINE_ROOT/tools/docker/esp32s3.Dockerfile"
 DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
 ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
 ESP32_TARGET_VARIANT="${ROBOTICK_ESP32_TARGET_VARIANT:-}"

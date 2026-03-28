@@ -10,7 +10,7 @@ namespace robotick
         ROBOTICK_KEEP_WORKLOAD(RemoteControlWorkload)
         ROBOTICK_KEEP_WORKLOAD(FaceDisplayWorkload)
         ROBOTICK_KEEP_WORKLOAD(SpeechToTextWorkload)
-        ROBOTICK_KEEP_WORKLOAD(CameraWorkload)
+        ROBOTICK_KEEP_WORKLOAD(MonocularCameraWorkload)
         ROBOTICK_KEEP_WORKLOAD(MicWorkload)
         ROBOTICK_KEEP_WORKLOAD(SyncedGroupWorkload)
     }
@@ -64,7 +64,7 @@ void populate_model_test_project_brain(robotick::Model& model)
 
 
     static const WorkloadSeed camera = {
-        TypeId("CameraWorkload"),
+        TypeId("MonocularCameraWorkload"),
         StringView("camera"),
         30.0f,
         {},    // children
