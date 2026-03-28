@@ -21,6 +21,8 @@ IMAGE_NAME="robotick-launcher-esp32s3"
 ENGINE_ROOT="${ROBOTICK_ENGINE_PATH:-$REPO_ROOT/robotick/robotick-engine}"
 DOCKERFILE="$ENGINE_ROOT/tools/docker/esp32s3.Dockerfile"
 DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
+CONTAINER_HOME="/tmp/robotick-home"
+CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"
 ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
 ESP32_TARGET_VARIANT="${ROBOTICK_ESP32_TARGET_VARIANT:-}"
 IDF_EXTRA_CMAKE_ARGS_VALUE="${IDF_EXTRA_CMAKE_ARGS:-}"
@@ -116,7 +118,7 @@ run_esp32_container() {
     local container_name
     container_name="$(container_name_for_mode "$mode")"
     ensure_esp32_container "$mode" "$container_name"
-    local wrapped_command=". /opt/esp/idf/export.sh >/dev/null && $*"
+    local wrapped_command="mkdir -p \"$CONTAINER_CACHE_HOME\" && . /opt/esp/idf/export.sh >/dev/null && $*"
 
     local -a cmd=(
         docker exec
@@ -128,6 +130,8 @@ run_esp32_container() {
         fi
         cmd+=(
             -w "$SCRIPT_DIR"
+            -e "HOME=$CONTAINER_HOME"
+            -e "XDG_CACHE_HOME=$CONTAINER_CACHE_HOME"
             -e "ROBOTICK_ESP32_SERIAL_PORT=$ESP32_SERIAL_PORT"
             -e "ROBOTICK_PLATFORM_ESP32S3_M5=$ROBOTICK_PLATFORM_ESP32S3_M5_VALUE"
             -e "IDF_EXTRA_CMAKE_ARGS=$IDF_EXTRA_CMAKE_ARGS_VALUE"
@@ -138,6 +142,8 @@ run_esp32_container() {
         cmd+=(
             --user "$(id -u):$(id -g)"
             -w "$SCRIPT_DIR"
+            -e "HOME=$CONTAINER_HOME"
+            -e "XDG_CACHE_HOME=$CONTAINER_CACHE_HOME"
             -e "ROBOTICK_PLATFORM_ESP32S3_M5=$ROBOTICK_PLATFORM_ESP32S3_M5_VALUE"
             -e "IDF_EXTRA_CMAKE_ARGS=$IDF_EXTRA_CMAKE_ARGS_VALUE"
         )
