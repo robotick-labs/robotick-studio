@@ -65,8 +65,8 @@ def generate_workloads_registry(config):
         w["filename"] = f'{w["type"]}.gen.cpp'
         workloads.append(w)
 
-    # Limit all subsequent outputs to only the workload TYPES used by the model
-    used_types = set(seen)
+    emitted_workloads = []
+    used_types = set()
 
     # Generate .gen.cpp files
     for w in workloads:
@@ -79,10 +79,12 @@ def generate_workloads_registry(config):
         include_rel = src_info["path_from_root"]
         discovered = discovered_map.get(type_name)
         _generate_workload_auto_cpp(config, w, include_rel, discovered)
+        emitted_workloads.append(w)
+        used_types.add(type_name)
 
     # Write the registry .cpp
     context = {
-        "workloads": workloads,
+        "workloads": emitted_workloads,
     }
 
     try:

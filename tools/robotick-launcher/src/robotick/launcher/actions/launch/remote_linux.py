@@ -13,6 +13,12 @@ from robotick.launcher.config import Config
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
+ARM64_TARGET_VARIANTS = {"arm64", "aarch64"}
+ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
+LOCAL_ARM64_MACHINES = {"arm64", "aarch64"}
+LOCAL_ARM32_MACHINES = {"armv7l", "armv7", "armhf", "armv6l"}
+
+
 @dataclass(frozen=True)
 class RemoteSyncPath:
     local_path: Path
@@ -48,16 +54,21 @@ def load_remote_linux_spec(
         return None
 
     target_variant = (runtime.get("target_variant") or "").strip().lower()
-    if target_variant not in {"arm64", "aarch64"}:
+    if target_variant not in ARM64_TARGET_VARIANTS | ARM32_TARGET_VARIANTS:
         return None
 
     host = (runtime.get("preferred_host") or "").strip()
     if not host or host in {"localhost", "127.0.0.1"}:
         return None
 
-    # An arm64 host can still launch "native linux" locally; only treat it as remote when
+    # A matching ARM host can still launch "native linux" locally; only treat it as remote when
     # the configured host points somewhere else.
-    if _looks_local_host(host) and platform.machine().lower() in {"arm64", "aarch64"}:
+    local_machine = platform.machine().lower()
+    local_matching_variant = (
+        (target_variant in ARM64_TARGET_VARIANTS and local_machine in LOCAL_ARM64_MACHINES)
+        or (target_variant in ARM32_TARGET_VARIANTS and local_machine in LOCAL_ARM32_MACHINES)
+    )
+    if _looks_local_host(host) and local_matching_variant:
         return None
 
     deploy = dict(runtime.get("deploy") or {})

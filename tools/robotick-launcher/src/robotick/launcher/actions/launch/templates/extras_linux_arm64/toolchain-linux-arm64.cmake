@@ -1,17 +1,15 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
-set(CMAKE_C_COMPILER clang-16)
-set(CMAKE_CXX_COMPILER clang++-16)
-set(CMAKE_C_COMPILER_TARGET aarch64-linux-gnu)
-set(CMAKE_CXX_COMPILER_TARGET aarch64-linux-gnu)
-set(CMAKE_C_FLAGS_INIT "--sysroot=/ --gcc-toolchain=/usr")
-set(CMAKE_CXX_FLAGS_INIT "--sysroot=/ --gcc-toolchain=/usr")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld-16")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld-16")
-set(CMAKE_MODULE_LINKER_FLAGS_INIT "-fuse-ld=lld-16")
+set(CMAKE_C_COMPILER /usr/bin/aarch64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER /usr/bin/aarch64-linux-gnu-g++)
 
 set(CMAKE_LIBRARY_ARCHITECTURE aarch64-linux-gnu)
-set(CMAKE_FIND_ROOT_PATH /usr/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu /usr)
+set(CMAKE_FIND_ROOT_PATH
+    /usr/aarch64-linux-gnu
+    /usr/lib/aarch64-linux-gnu
+    /usr/include/aarch64-linux-gnu
+    /usr
+)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

@@ -9,6 +9,11 @@ from robotick.launcher.actions.launch.docker_linux_arm64 import (
     print_docker_linux_arm64_summary,
     build_docker_linux_arm64,
 )
+from robotick.launcher.actions.launch.docker_linux_arm32 import (
+    load_docker_linux_arm32_spec,
+    print_docker_linux_arm32_summary,
+    build_docker_linux_arm32,
+)
 from robotick.launcher.actions.launch.remote_linux import (
     load_remote_linux_spec,
     print_remote_linux_summary,
@@ -66,22 +71,33 @@ def resolve_target_plan(
     target_platform = str(runtime.get("target_platform") or target).strip().lower()
     target_variant = str(runtime.get("target_variant") or "").strip().lower()
 
-    container_spec = load_docker_linux_arm64_spec(project, model, target, base_dir)
+    container_spec_arm64 = load_docker_linux_arm64_spec(project, model, target, base_dir)
+    container_spec_arm32 = load_docker_linux_arm32_spec(project, model, target, base_dir)
     remote_spec = load_remote_linux_spec(project, model, target, base_dir)
 
     build = TargetActionPlan(strategy=LOCAL_STRATEGY)
     deploy = TargetActionPlan(strategy=LOCAL_STRATEGY)
     run = TargetActionPlan(strategy=LOCAL_STRATEGY)
 
-    if container_spec:
+    if container_spec_arm64:
         build = TargetActionPlan(
             strategy=CONTAINER_STRATEGY,
-            summary_printer=lambda spec=container_spec: print_docker_linux_arm64_summary(spec),
-            build_handler=lambda dry_run, spec=container_spec: build_docker_linux_arm64(
+            summary_printer=lambda spec=container_spec_arm64: print_docker_linux_arm64_summary(spec),
+            build_handler=lambda dry_run, spec=container_spec_arm64: build_docker_linux_arm64(
                 spec, dry_run=dry_run
             ),
-            local_binary_path=container_spec.local_binary_path,
-            display_binary_path=str(container_spec.local_binary_path),
+            local_binary_path=container_spec_arm64.local_binary_path,
+            display_binary_path=str(container_spec_arm64.local_binary_path),
+        )
+    elif container_spec_arm32:
+        build = TargetActionPlan(
+            strategy=CONTAINER_STRATEGY,
+            summary_printer=lambda spec=container_spec_arm32: print_docker_linux_arm32_summary(spec),
+            build_handler=lambda dry_run, spec=container_spec_arm32: build_docker_linux_arm32(
+                spec, dry_run=dry_run
+            ),
+            local_binary_path=container_spec_arm32.local_binary_path,
+            display_binary_path=str(container_spec_arm32.local_binary_path),
         )
     elif remote_spec:
         # Legacy fallback: if a target is remote but has no local container/cross-build

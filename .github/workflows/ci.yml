@@ -47,6 +47,55 @@ jobs:
       - name: Run launcher tests
         run: npm run test:launcher
 
+  launcher-integration-builds:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout robotick-engine
+        uses: actions/checkout@v4
+        with:
+          repository: robotick-labs/robotick-engine
+          path: tools/robotick-launcher/tests/test_data/robotick/robotick-engine
+          submodules: recursive
+
+      - name: Checkout robotick-core-workloads
+        uses: actions/checkout@v4
+        with:
+          repository: robotick-labs/robotick-core-workloads
+          path: tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run launcher fixture builds
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m venv .studio/.venv
+          . .studio/.venv/bin/activate
+          pip install --upgrade pip >/dev/null
+          pip install -e "robotick-launcher[dev] @ file://$PWD/tools/robotick-launcher" >/dev/null
+
+          BASE_DIR="$PWD/tools/robotick-launcher/tests/test_data/test-project"
+
+          python -m robotick.launcher.cli generate test-project test-project-spine-linux linux --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project test-project-spine-linux linux --base-dir "$BASE_DIR" --no-pre
+
+          python -m robotick.launcher.cli generate test-project test-project-spine-arm64 linux --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project test-project-spine-arm64 linux --base-dir "$BASE_DIR" --no-pre
+
+          python -m robotick.launcher.cli generate test-project test-project-spine-arm32 linux --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project test-project-spine-arm32 linux --base-dir "$BASE_DIR" --no-pre
+
+          python -m robotick.launcher.cli generate test-project test-project-spine esp32 --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project test-project-spine esp32 --base-dir "$BASE_DIR" --no-pre
+
   renderer-tests:
     runs-on: ubuntu-latest
     needs: build

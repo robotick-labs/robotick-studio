@@ -13,10 +13,22 @@ logger = logging.getLogger(__name__)
 def _cmake_relpath(target: Path, start: Path) -> str:
     """Return POSIX-style relative path for CMake, or absolute if not relative-able."""
     try:
-        rel = os.path.relpath(target.resolve(), start.resolve())
+        rel = os.path.relpath(_workspace_abspath(target), _workspace_abspath(start))
         return Path(rel).as_posix()
     except ValueError:
-        return target.resolve().as_posix()
+        return _workspace_abspath(target).as_posix()
+
+
+def _workspace_abspath(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _resolve_project_mount_path(config, raw: str) -> Path:
+    value = str(raw).replace("${PROJECT_DIR}", str(config.project_dir))
+    path = Path(value)
+    if not path.is_absolute():
+        path = config.base_dir / path
+    return _workspace_abspath(path)
 
 
 def _resolve_platform_extra_cpp_paths(config, workload_roots_abs, start_dir: Path) -> list[str]:
@@ -27,7 +39,7 @@ def _resolve_platform_extra_cpp_paths(config, workload_roots_abs, start_dir: Pat
     for rel_path in platform_extra_cpp:
         resolved_abs = None
         for root in workload_roots_abs:
-            candidate = (root / Path(rel_path)).resolve()
+            candidate = root / Path(rel_path)
             if candidate.exists():
                 resolved_abs = candidate
                 break
@@ -76,7 +88,7 @@ def generate_project_cmakelists(config) -> None:
         or engine_entry.get("path")
     )
     if engine_path:
-        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+        robotick_engine_root_abs = _resolve_project_mount_path(config, engine_path)
     else:
         raise RuntimeError("Engine repo/path not specified in runtime section.")
 
@@ -91,11 +103,11 @@ def generate_project_cmakelists(config) -> None:
                 entry,
             )
             continue
-        base_abs = config.resolve_project_path(base)
+        base_abs = _resolve_project_mount_path(config, base)
         root_paths = entry.get("root_paths") or []
         if root_paths:
             for rel in root_paths:
-                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+                workload_roots_abs.append(base_abs / Path(rel))
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
@@ -184,7 +196,7 @@ def generate_component_cmakelists(config) -> None:
         or engine_entry.get("path")
     )
     if engine_path:
-        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+        robotick_engine_root_abs = _resolve_project_mount_path(config, engine_path)
     else:
         raise RuntimeError("Engine repo/path not specified in runtime section.")
 
@@ -199,11 +211,11 @@ def generate_component_cmakelists(config) -> None:
                 entry,
             )
             continue
-        base_abs = config.resolve_project_path(base)
+        base_abs = _resolve_project_mount_path(config, base)
         root_paths = entry.get("root_paths") or []
         if root_paths:
             for rel in root_paths:
-                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+                workload_roots_abs.append(base_abs / Path(rel))
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:

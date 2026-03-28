@@ -9,6 +9,11 @@ from robotick.launcher.actions.launch.docker_linux_arm64 import (
     build_docker_linux_arm64,
     load_docker_linux_arm64_spec,
 )
+from robotick.launcher.actions.launch.docker_linux_arm32 import (
+    DockerLinuxArm32Spec,
+    build_docker_linux_arm32,
+    load_docker_linux_arm32_spec,
+)
 from robotick.launcher.actions.launch.target_plan import (
     CONTAINER_STRATEGY,
     LOCAL_STRATEGY,
@@ -271,7 +276,7 @@ def test_run_dry_run_local_path_does_not_launch_binary(monkeypatch, tmp_path):
     assert run_subprocess_calls == []
 
 
-def test_load_docker_linux_arm64_spec_points_at_launcher_dockerfile(tmp_path):
+def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_path):
     repo_root = tmp_path / "repo"
     project_dir = repo_root / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
@@ -301,6 +306,14 @@ def test_load_docker_linux_arm64_spec_points_at_launcher_dockerfile(tmp_path):
 
     assert spec is not None
     assert spec.dockerfile.name == "linux-arm64.Dockerfile"
+    assert spec.dockerfile == (
+        repo_root
+        / "robotick"
+        / "robotick-engine"
+        / "tools"
+        / "docker"
+        / "linux-arm64.Dockerfile"
+    )
     assert spec.container_name.startswith("robotick-launcher-linux-arm64-build-")
     assert spec.container_launcher_dir.endswith(
         "/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux"
@@ -360,6 +373,99 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
     ]
 
 
+def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "alf-e"
+    project_dir.mkdir(parents=True)
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    project_yaml = {
+        "runtime": {
+            "engine": {
+                "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine",
+            },
+        }
+    }
+    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "alf-e-face.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "target_platform": "linux",
+                    "target_variant": "arm32",
+                    "preferred_host": "pi2.local",
+                }
+            }
+        )
+    )
+
+    spec = load_docker_linux_arm32_spec("alf-e", "alf-e-face", "linux", project_dir)
+
+    assert spec is not None
+    assert spec.dockerfile == (
+        repo_root
+        / "robotick"
+        / "robotick-engine"
+        / "tools"
+        / "docker"
+        / "linux-arm32.Dockerfile"
+    )
+    assert spec.container_name.startswith("robotick-launcher-linux-arm32-build-")
+
+
+def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
+    spec = DockerLinuxArm32Spec(
+        image_name="robotick-dev-linux-arm32",
+        dockerfile=Path("/tmp/linux-arm32.Dockerfile"),
+        container_name="robotick-launcher-linux-arm32-build-test",
+        local_repo_root=Path("/tmp/repo"),
+        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
+        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
+        container_workspace_root="/tmp/repo",
+        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+    )
+    ensure_calls: list[tuple[DockerLinuxArm32Spec, bool]] = []
+    run_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm32.ensure_running_docker_linux_arm32_container",
+        lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm32.os.getuid",
+        lambda: 1234,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm32.os.getgid",
+        lambda: 5678,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_arm32.run_subprocess",
+        lambda cmd: run_calls.append(cmd),
+    )
+
+    build_docker_linux_arm32(spec, dry_run=False)
+
+    assert ensure_calls == [(spec, False)]
+    assert run_calls == [
+        [
+            "docker",
+            "exec",
+            "--user",
+            "1234:5678",
+            "-e",
+            "HOME=/tmp/robotick-home",
+            "-w",
+            "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+            "robotick-launcher-linux-arm32-build-test",
+            "bash",
+            "-lc",
+            "bash ./do_launcher_build.sh",
+        ]
+    ]
+
+
 def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(tmp_path):
     repo_root = tmp_path / "repo"
     project_dir = repo_root / "robots" / "alf-e"
@@ -378,6 +484,36 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
                     "target_platform": "linux",
                     "target_variant": "arm64",
                     "preferred_host": "raspberrypi.local",
+                }
+            }
+        )
+    )
+
+    plan = resolve_target_plan("alf-e", "alf-e-face", "linux", project_dir)
+
+    assert plan.build.strategy == CONTAINER_STRATEGY
+    assert plan.deploy.strategy == REMOTE_STRATEGY
+    assert plan.run.strategy == REMOTE_STRATEGY
+
+
+def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "alf-e"
+    project_dir.mkdir(parents=True)
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump(
+            {"runtime": {"engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"}}}
+        )
+    )
+    (project_dir / "alf-e-face.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "target_platform": "linux",
+                    "target_variant": "arm32",
+                    "preferred_host": "pi2.local",
                 }
             }
         )

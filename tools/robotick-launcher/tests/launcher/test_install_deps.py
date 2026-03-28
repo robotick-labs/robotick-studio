@@ -201,6 +201,33 @@ def test_copy_extras_for_target_skips_variant_rewrites(monkeypatch, tmp_path):
     assert copied == []
 
 
+def test_copy_extras_for_target_supports_arm32_variant(monkeypatch, tmp_path):
+    copied: list[str] = []
+    real_copy2 = shutil.copy2
+
+    def _tracking_copy2(src, dst, *args, **kwargs):
+        copied.append(Path(dst).name)
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("robotick.launcher.utils.shutil.copy2", _tracking_copy2)
+
+    launcher_dir = tmp_path / "generated"
+    config = SimpleNamespace(
+        target="linux",
+        launcher_dir=launcher_dir,
+        dry_run=False,
+    )
+
+    copy_extras_for_target(config, variant="arm32")
+
+    assert sorted(copied) == [
+        "do_launcher_build.sh",
+        "do_launcher_clean_build.sh",
+        "toolchain-linux-arm32.cmake",
+    ]
+    assert "linux arm32" in (launcher_dir / "do_launcher_build.sh").read_text(encoding="utf-8")
+
+
 def test_generate_esp32_build_script_reuses_existing_build_dir(tmp_path):
     project_dir = _clone_fixture(tmp_path)
 

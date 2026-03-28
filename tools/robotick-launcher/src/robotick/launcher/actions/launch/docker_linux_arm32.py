@@ -14,13 +14,14 @@ from robotick.launcher.config import Config
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
-IMAGE_NAME = "robotick-dev-linux-arm64"
+IMAGE_NAME = "robotick-dev-linux-arm32"
 DOCKERFILE_SHA_LABEL = "robotick.dockerfile_sha"
-CONTAINER_NAME_PREFIX = "robotick-launcher-linux-arm64-build"
+CONTAINER_NAME_PREFIX = "robotick-launcher-linux-arm32-build"
+ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
 
 
 @dataclass(frozen=True)
-class DockerLinuxArm64Spec:
+class DockerLinuxArm32Spec:
     image_name: str
     dockerfile: Path
     container_name: str
@@ -32,12 +33,12 @@ class DockerLinuxArm64Spec:
     container_binary_path: str
 
 
-def load_docker_linux_arm64_spec(
+def load_docker_linux_arm32_spec(
     project: str,
     model: str,
     target: str,
     base_dir: Path,
-) -> Optional[DockerLinuxArm64Spec]:
+) -> Optional[DockerLinuxArm32Spec]:
     if target != "linux":
         return None
 
@@ -47,7 +48,7 @@ def load_docker_linux_arm64_spec(
         return None
 
     target_variant = (runtime.get("target_variant") or "").strip().lower()
-    if target_variant not in {"arm64", "aarch64"}:
+    if target_variant not in ARM32_TARGET_VARIANTS:
         return None
 
     repo_root = _compute_local_repo_root(config)
@@ -56,12 +57,10 @@ def load_docker_linux_arm64_spec(
     binary_rel = binary_path.resolve().relative_to(repo_root)
 
     engine_root = _resolve_engine_root(config, repo_root)
-    dockerfile = engine_root / "tools" / "docker" / "linux-arm64.Dockerfile"
+    dockerfile = engine_root / "tools" / "docker" / "linux-arm32.Dockerfile"
 
-    # Mount the repo at the same absolute path inside the container so generated CMake
-    # caches can be reused across host/docker rebuilds without path-mismatch errors.
     container_root = repo_root.as_posix()
-    return DockerLinuxArm64Spec(
+    return DockerLinuxArm32Spec(
         image_name=IMAGE_NAME,
         dockerfile=dockerfile,
         container_name=_build_container_name(IMAGE_NAME, repo_root),
@@ -74,7 +73,7 @@ def load_docker_linux_arm64_spec(
     )
 
 
-def print_docker_linux_arm64_summary(spec: DockerLinuxArm64Spec) -> None:
+def print_docker_linux_arm32_summary(spec: DockerLinuxArm32Spec) -> None:
     print(f"[cyan]🐳 Docker image:     [/] {spec.image_name}")
     print(f"[cyan]📦 Docker container: [/] {spec.container_name}")
     print(f"[cyan]🧱 Dockerfile:      [/] {spec.dockerfile}")
@@ -83,8 +82,8 @@ def print_docker_linux_arm64_summary(spec: DockerLinuxArm64Spec) -> None:
     print(f"[cyan]🚀 Binary path:     [/] {spec.local_binary_path}")
 
 
-def build_docker_linux_arm64(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
-    ensure_running_docker_linux_arm64_container(spec, dry_run=dry_run)
+def build_docker_linux_arm32(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
+    ensure_running_docker_linux_arm32_container(spec, dry_run=dry_run)
 
     uid = os.getuid()
     gid = os.getgid()
@@ -107,7 +106,7 @@ def build_docker_linux_arm64(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> No
         run_subprocess(run_cmd)
 
 
-def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
+def ensure_docker_image(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
     inspect_cmd = ["docker", "image", "inspect", spec.image_name]
     current_sha = hashlib.sha256(spec.dockerfile.read_bytes()).hexdigest()
     image_exists = subprocess.run(
@@ -151,8 +150,8 @@ def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
         run_subprocess(build_cmd)
 
 
-def ensure_running_docker_linux_arm64_container(
-    spec: DockerLinuxArm64Spec, *, dry_run: bool
+def ensure_running_docker_linux_arm32_container(
+    spec: DockerLinuxArm32Spec, *, dry_run: bool
 ) -> None:
     ensure_docker_image(spec, dry_run=dry_run)
 
@@ -237,8 +236,6 @@ def _compute_local_repo_root(config: Config) -> Path:
             else:
                 local_paths.append(source_root)
 
-    # The docker workspace only needs the minimal common root that covers the project,
-    # engine, and the declared workload source roots used by generation/build.
     return Path(os.path.commonpath([str(path) for path in local_paths])).resolve()
 
 
@@ -275,7 +272,5 @@ def _inspect_docker_value(command: list[str]) -> str:
 
 
 def _build_container_name(image_name: str, repo_root: Path) -> str:
-    scope_hash = hashlib.sha256(
-        f"{image_name}:{repo_root.resolve()}".encode("utf-8")
-    ).hexdigest()[:12]
+    scope_hash = hashlib.sha256(f"{image_name}|{repo_root}".encode("utf-8")).hexdigest()[:12]
     return f"{CONTAINER_NAME_PREFIX}-{scope_hash}"
