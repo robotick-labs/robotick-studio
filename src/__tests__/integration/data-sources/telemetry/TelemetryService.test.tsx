@@ -75,8 +75,13 @@ describe("TelemetryServiceProvider", () => {
   it("routes useTelemetryStream subscriptions through the injected service", () => {
     const unsubscribe = vi.fn();
     const subscribeTelemetry = vi.fn(() => unsubscribe);
-    const setWorkloadInputFieldData = vi.fn();
-    const mockService = { subscribeTelemetry, setWorkloadInputFieldData };
+    const setWorkloadInputFieldsData = vi.fn();
+    const getLatestModel = vi.fn(() => null);
+    const mockService = {
+      subscribeTelemetry,
+      setWorkloadInputFieldsData,
+      getLatestModel,
+    };
 
     const tree = render(
       <TelemetryServiceProvider service={mockService}>
@@ -106,8 +111,13 @@ describe("TelemetryServiceProvider", () => {
       subscriber = nextSubscriber;
       return unsubscribe;
     });
-    const setWorkloadInputFieldData = vi.fn();
-    const mockService = { subscribeTelemetry, setWorkloadInputFieldData };
+    const setWorkloadInputFieldsData = vi.fn();
+    const getLatestModel = vi.fn(() => null);
+    const mockService = {
+      subscribeTelemetry,
+      setWorkloadInputFieldsData,
+      getLatestModel,
+    };
     const onValue = vi.fn();
     const reusedModel = { raw: null };
 

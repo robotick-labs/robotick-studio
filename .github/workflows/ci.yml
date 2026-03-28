@@ -47,6 +47,85 @@ jobs:
       - name: Run launcher tests
         run: npm run test:launcher
 
+  launcher-integration-builds:
+    name: launcher-integration-builds (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux
+            model: test-project-spine-linux
+            target: linux
+            install_linux_deps: true
+          - label: linux-arm64
+            model: test-project-spine-arm64
+            target: linux
+            install_linux_deps: false
+          - label: linux-arm32
+            model: test-project-spine-arm32
+            target: linux
+            install_linux_deps: false
+          - label: esp32
+            model: test-project-spine
+            target: esp32
+            install_linux_deps: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout robotick-engine
+        uses: actions/checkout@v4
+        with:
+          repository: robotick-labs/robotick-engine
+          ref: dev
+          path: tools/robotick-launcher/tests/test_data/robotick/robotick-engine
+          submodules: recursive
+
+      - name: Checkout robotick-core-workloads
+        uses: actions/checkout@v4
+        with:
+          repository: robotick-labs/robotick-core-workloads
+          ref: dev
+          path: tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install native Linux build deps
+        if: matrix.install_linux_deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev \
+            libkissfft-dev \
+            libopencv-dev \
+            libsdl2-dev \
+            libsdl2-gfx-dev \
+            libsdl2-ttf-dev \
+            libssl-dev \
+            libyaml-cpp-dev \
+            ninja-build \
+            pkg-config
+
+      - name: Run launcher fixture build
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m venv .studio/.venv
+          . .studio/.venv/bin/activate
+          pip install --upgrade pip >/dev/null
+          pip install -e "robotick-launcher[dev] @ file://$PWD/tools/robotick-launcher" >/dev/null
+
+          BASE_DIR="$PWD/tools/robotick-launcher/tests/test_data/test-project"
+
+          python -m robotick.launcher.cli generate test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --stub-install
+          python -m robotick.launcher.cli build test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --no-pre
+
   renderer-tests:
     runs-on: ubuntu-latest
     needs: build

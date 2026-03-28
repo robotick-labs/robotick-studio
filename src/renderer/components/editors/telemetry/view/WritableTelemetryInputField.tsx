@@ -201,11 +201,16 @@ export function WritableTelemetryInputField({
   } | null>(null);
 
   const submitValue = async (value: unknown) => {
-    if (
-      !telemetryBaseUrl ||
-      !field.model.schemaSessionId ||
-      typeof field.writable_input_handle !== "number"
-    ) {
+    if (!telemetryBaseUrl) {
+      return;
+    }
+
+    const liveModel = telemetryService.getLatestModel(telemetryBaseUrl);
+    const targetModel = liveModel ?? field.model;
+    const writableHandle =
+      liveModel?.writable_inputs_by_path?.get(field.path)?.field_handle ??
+      field.writable_input_handle;
+    if (!targetModel?.schemaSessionId || typeof writableHandle !== "number") {
       return;
     }
 
@@ -214,20 +219,24 @@ export function WritableTelemetryInputField({
     setDraftValue(optimisticValue);
 
     const seq = nextSeqRef.current++;
-    const result = await telemetryService.setWorkloadInputFieldData(
+    const result = await telemetryService.setWorkloadInputFieldsData(
       telemetryBaseUrl,
       {
-        engine_session_id: field.model.schemaSessionId,
-        field_handle: field.writable_input_handle,
-        field_path: field.path,
-        value,
-        seq,
+        engine_session_id: targetModel.schemaSessionId,
+        writes: [
+          {
+            field_handle: writableHandle,
+            field_path: field.path,
+            value,
+            seq,
+          },
+        ],
       }
     );
     if (!result.ok) {
       setOptimisticDraftValue(null);
       setDraftValue(getCurrentFieldDraftValue(field));
-      console.warn("setWorkloadInputFieldData rejected", {
+      console.warn("setWorkloadInputFieldsData rejected", {
         fieldPath: field.path,
         status: result.status,
         body: result.body,

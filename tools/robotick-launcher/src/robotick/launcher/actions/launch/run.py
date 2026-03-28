@@ -4,12 +4,21 @@ from pathlib import Path
 from typing import Optional
 import subprocess
 import sys
+import shlex
+import signal
+import time
 from rich import print
 import typer
 import yaml
 from typer.models import OptionInfo
 
-from robotick.launcher.utils import get_launcher_paths, run_subprocess
+from robotick.launcher.actions.launch.target_plan import resolve_target_plan
+from robotick.launcher.utils import (
+    find_local_process_ids_for_binary,
+    get_launcher_paths,
+    run_subprocess,
+    stop_local_binary_process,
+)
 from robotick.launcher.actions.launch.install_deps import load_python_root_lock
 
 
@@ -43,6 +52,16 @@ def _build_python_env(project: str, workspace_root: Path) -> Optional[dict[str, 
     return env
 
 
+def _find_local_process_ids_for_binary(
+    binary_path: Path, *, proc_root: Path = Path("/proc")
+) -> list[int]:
+    return find_local_process_ids_for_binary(binary_path, proc_root=proc_root)
+
+
+def _stop_existing_local_process(binary_path: Path, *, dry_run: bool) -> None:
+    stop_local_binary_process(binary_path, dry_run=dry_run)
+
+
 def run(
     project: str = typer.Argument(...),
     model: str = typer.Argument(...),
@@ -53,6 +72,9 @@ def run(
     workspace_dir: Optional[Path] = typer.Option(
         None, help="Workspace root containing the .launcher folder"
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print commands without executing them"
+    ),
 ):
     if isinstance(workspace_dir, OptionInfo):
         workspace_dir = None
@@ -61,6 +83,7 @@ def run(
     launcher_dir, build_dir, binary_path = get_launcher_paths(
         project, model, target, base_dir
     )
+    plan = resolve_target_plan(project, model, target, base_dir)
     run_script = launcher_dir / "do_launcher_run.sh"
 
     working_dir = "."
@@ -88,6 +111,25 @@ def run(
         "============================================================================================"
     )
     print(f"[dim]🔍 Looking for run script at: {run_script}[/]")
+    print(f"[cyan]🧭 Run strategy:[/] {plan.run.strategy}")
+    plan.run.print_summary()
+    if plan.run.run_handler is not None:
+        # Non-local runs use a one-model-at-a-time policy for the same binary path.
+        if plan.run.stop_handler is not None:
+            plan.run.stop_handler(dry_run)
+        plan.run.run_handler(dry_run)
+        if dry_run:
+            print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+        return
+
+    _stop_existing_local_process(binary_path, dry_run=dry_run)
+    if dry_run:
+        if run_script.exists() and plan.run.supports_script_dry_run:
+            dry_run_env = dict(python_env or os.environ.copy())
+            dry_run_env["ROBOTICK_LAUNCHER_DRY_RUN"] = "1"
+            run_subprocess(["bash", str(run_script)], cwd=working_dir, env=dry_run_env)
+        print("[yellow]⚠️ Dry run only — commands not executed.[/]")
+        return
 
     if run_script.exists():
         print(f"[bold green]🚀 Running [cyan]{run_script}[/] instead of binary[/]")

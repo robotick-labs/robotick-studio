@@ -218,6 +218,9 @@ const expose = () => {
       appTitle: "Robotick Studio",
       cesiumToken,
       usesNativeWindowFrame,
+      workspaceRoot:
+        process.env.ROBOTICK_PROJECT_DIR ??
+        process.env.ROBOTICK_WORKSPACE_ROOT,
     },
     windowControls,
     storage: storageBridge,

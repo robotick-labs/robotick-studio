@@ -6,6 +6,10 @@ namespace robotick
 {
     ROBOTICK_REGISTER_STRUCT_BEGIN(BaseXConfig)
     ROBOTICK_STRUCT_FIELD(BaseXConfig, float, max_motor_speed)
+    ROBOTICK_STRUCT_FIELD(BaseXConfig, float, motor1_speed_scale)
+    ROBOTICK_STRUCT_FIELD(BaseXConfig, float, motor2_speed_scale)
+    ROBOTICK_STRUCT_FIELD(BaseXConfig, float, motor3_speed_scale)
+    ROBOTICK_STRUCT_FIELD(BaseXConfig, float, motor4_speed_scale)
     ROBOTICK_REGISTER_STRUCT_END(BaseXConfig)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(BaseXInputs)

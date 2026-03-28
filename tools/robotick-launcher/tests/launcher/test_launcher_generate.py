@@ -59,6 +59,13 @@ def normalize_workload_paths(text: str) -> str:
     )
 
 
+def normalize_engine_paths(text: str) -> str:
+    pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-engine")
+    return pattern.sub(
+        "__ENGINE_ROOT__/tests/test_data/robotick/robotick-engine", text
+    )
+
+
 def _list_files(dir_path: Path):
     """
     Collects all files under the given directory and returns their paths relative to that directory.
@@ -83,12 +90,32 @@ def _list_files(dir_path: Path):
     return file_paths_rel
 
 
+def _normalized_fixture_files(dir_path: Path):
+    component_roots = {
+        Path("components/M5GFX"),
+        Path("components/M5Unified"),
+    }
+    ignored_paths = {
+        Path("build"),
+        Path("dependencies.lock"),
+        Path("sdkconfig"),
+    }
+    normalized = []
+    for rel_path in _list_files(dir_path):
+        if any(root in rel_path.parents or rel_path == root for root in ignored_paths):
+            continue
+        if any(root in rel_path.parents or rel_path == root for root in component_roots):
+            continue
+        normalized.append(rel_path)
+    return normalized
+
+
 def assert_dirs_match(output_dir: Path, golden_dir: Path):
     """
     Recursively assert that two directories contain the same structure and content.
     """
-    output_files = _list_files(output_dir)
-    golden_files = _list_files(golden_dir)
+    output_files = _normalized_fixture_files(output_dir)
+    golden_files = _normalized_fixture_files(golden_dir)
 
     # Explicitly fail if either side is empty
     if not output_files or not golden_files:
@@ -106,6 +133,13 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
         )
         pytest.fail(msg, pytrace=False)
 
+    for component_dir in (Path("components/M5GFX"), Path("components/M5Unified")):
+        output_component = output_dir / component_dir
+        golden_component = golden_dir / component_dir
+        if output_component.exists() or golden_component.exists():
+            assert output_component.exists(), f"Missing generated component dir: {component_dir}"
+            assert output_component.is_dir(), f"Generated component path is not a dir: {component_dir}"
+
     for rel_path in output_files:
         out_file = output_dir / rel_path
         gold_file = golden_dir / rel_path
@@ -116,6 +150,9 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
             if rel_path == Path("registry/generated_workload_deps.cmake"):
                 out_text = normalize_workload_paths(out_text)
                 gold_text = normalize_workload_paths(gold_text)
+            elif rel_path == Path("launcher.env"):
+                out_text = normalize_engine_paths(out_text)
+                gold_text = normalize_engine_paths(gold_text)
 
             out_lines = normalize_lines(out_text.splitlines())
             gold_lines = normalize_lines(gold_text.splitlines())
@@ -210,7 +247,9 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
         }
     )
 
-    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+    workloads, connections, remote_models, telemetry, telemetry_peers = (
+        prepare_codegen_model_data(cfg)
+    )
 
     assert len(workloads) == 1
     assert workloads[0]["config_entries"] == [
@@ -225,6 +264,7 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert connections == []
     assert remote_models == []
     assert telemetry == {}
+    assert telemetry_peers == []
 
 
 def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):
@@ -249,13 +289,18 @@ remote_models:
         model={"workloads": []},
     )
 
-    workloads, connections, remote_models, telemetry = prepare_codegen_model_data(cfg)
+    workloads, connections, remote_models, telemetry, telemetry_peers = (
+        prepare_codegen_model_data(cfg)
+    )
 
     assert workloads == []
     assert connections == []
     assert telemetry == {}
+    assert telemetry_peers == []
     assert len(remote_models) == 1
     assert remote_models[0]["name"] == "mind"
+    assert remote_models[0]["mode"] == ""
+    assert remote_models[0]["channel"] == ""
     assert remote_models[0]["connections"] == [
         {
             "from": "prosody.outputs.prosody_state.is_voiced",
@@ -266,6 +311,47 @@ remote_models:
             ),
         }
     ]
+
+
+def test_prepare_codegen_model_data_preserves_remote_mode_and_channel():
+    cfg = SimpleNamespace(
+        model_name="",
+        model={
+            "workloads": [],
+            "remote_models": [
+                {
+                    "name": "alf-e-spine",
+                    "mode": "IP",
+                    "channel": "10.42.0.2",
+                    "connections": [
+                        {
+                            "from": "rc.outputs.x",
+                            "to_remote": "spine.inputs.x",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    _, _, remote_models, _, telemetry_peers = prepare_codegen_model_data(cfg)
+
+    assert remote_models == [
+        {
+            "name": "alf-e-spine",
+            "name_safe": "alf_e_spine",
+            "mode": "IP",
+            "channel": "10.42.0.2",
+            "connections": [
+                {
+                    "from": "rc.outputs.x",
+                    "to_remote": "spine.inputs.x",
+                    "var_name": "alf_e_spine_conn_rc_outputs_x__to__spine_inputs_x",
+                }
+            ],
+        }
+    ]
+    assert telemetry_peers == []
 
 
 def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declarations(

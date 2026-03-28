@@ -29,6 +29,8 @@ const baseContextValue: LauncherContextValue = {
   isRobotAlive: true,
   robotAliveLoading: false,
   robotAliveError: null,
+  launcherModels: {},
+  modelHealth: {},
   run: vi.fn(),
   stop: vi.fn(),
   restart: vi.fn(),
@@ -77,6 +79,84 @@ describe("LauncherControls", () => {
     const buttons = container.querySelectorAll("button");
     expect(buttons[0]).not.toBeUndefined();
     expect(buttons[0].disabled).toBe(true);
+    unmount();
+  });
+
+  it("shows running and non-running models in the launcher tooltip", () => {
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running" as LauncherStatus,
+      reportedStatus: "running",
+      launcherModels: {
+        "alf-e-face": { stage: "run", status: "running" },
+        "alf-e-spine": { stage: "run", status: "running" },
+      },
+      modelHealth: {
+        "alf-e-face": { alive: true, loading: false, error: null },
+        "alf-e-spine": {
+          alive: false,
+          loading: false,
+          error: "flatlined",
+        },
+      },
+    });
+    const { container, unmount } = renderControl();
+
+    expect(container.textContent).toContain("Launcher Status");
+    expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("alf-e-face");
+    expect(container.textContent).toContain("Not Running");
+    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("flatlined");
+    unmount();
+  });
+
+  it("treats successfully launched esp32-style models as running in the tooltip", () => {
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running" as LauncherStatus,
+      reportedStatus: "running",
+      launcherModels: {
+        "alf-e-spine": { stage: "run", status: "succeeded" },
+      },
+      modelHealth: {
+        "alf-e-spine": { alive: true, loading: false, error: null },
+      },
+    });
+    const { container, unmount } = renderControl();
+
+    expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("launched");
+    expect(container.textContent).not.toContain("Not Running");
+    unmount();
+  });
+
+  it("keeps detached launched models running when health is temporarily unavailable", () => {
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running" as LauncherStatus,
+      reportedStatus: "running",
+      isRobotAlive: true,
+      launcherModels: {
+        "alf-e-spine": { stage: "run", status: "succeeded" },
+      },
+      modelHealth: {
+        "alf-e-spine": {
+          alive: true,
+          loading: false,
+          error: null,
+          warning: "503 Service Unavailable",
+        },
+      },
+    });
+    const { container, unmount } = renderControl();
+
+    expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("launched");
+    expect(container.textContent).toContain("health unavailable");
+    expect(container.textContent).not.toContain("Not Running");
     unmount();
   });
 

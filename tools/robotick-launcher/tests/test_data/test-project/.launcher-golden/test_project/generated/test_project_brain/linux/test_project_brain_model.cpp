@@ -10,7 +10,7 @@ namespace robotick
         ROBOTICK_KEEP_WORKLOAD(RemoteControlWorkload)
         ROBOTICK_KEEP_WORKLOAD(FaceDisplayWorkload)
         ROBOTICK_KEEP_WORKLOAD(SpeechToTextWorkload)
-        ROBOTICK_KEEP_WORKLOAD(CameraWorkload)
+        ROBOTICK_KEEP_WORKLOAD(MonocularCameraWorkload)
         ROBOTICK_KEEP_WORKLOAD(MicWorkload)
         ROBOTICK_KEEP_WORKLOAD(SyncedGroupWorkload)
     }
@@ -64,7 +64,7 @@ void populate_model_test_project_brain(robotick::Model& model)
 
 
     static const WorkloadSeed camera = {
-        TypeId("CameraWorkload"),
+        TypeId("MonocularCameraWorkload"),
         StringView("camera"),
         30.0f,
         {},    // children
@@ -125,10 +125,14 @@ void populate_model_test_project_brain(robotick::Model& model)
         &spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate
     };
 
-    static const RemoteModelSeed remote_spine{
-        "spine",
-        spine_connections
-    };
+    static const RemoteModelSeed remote_spine = []() {
+        RemoteModelSeed seed{
+            "spine",
+            spine_connections
+        };
+        seed.comms_mode = RemoteModelSeed::Mode::IP;
+        return seed;
+    }();
 
     static const RemoteModelSeed* const all_remote_models[] = {
         &remote_spine        

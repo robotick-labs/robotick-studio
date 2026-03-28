@@ -415,6 +415,36 @@ def _git_clone_or_fetch(
             _run(["git", "pull", "--ff-only"], cwd=dest, dry_run=dry_run)
 
 
+def _find_local_esp32_component(config, component_name: str) -> Optional[Path]:
+    runtime = getattr(config, "runtime", {}) or {}
+    for entry in runtime.get("workload_sources") or []:
+        local_path = entry.get("local_path") or entry.get("path_override")
+        if not local_path:
+            continue
+        source_root = config.resolve_project_path(local_path)
+        candidate = (
+            source_root
+            / "tools"
+            / "esp32-compile-check"
+            / "components"
+            / component_name
+        )
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _copy_local_component(
+    source: Path, dest: Path, *, dry_run: bool, stub_install: bool
+) -> None:
+    if dry_run:
+        print(f"[yellow]↪︎ DRY-RUN[/] would copy local component {source} -> {dest}")
+        return
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(source, dest, ignore=shutil.ignore_patterns(".git"))
+
+
 def sync_model_dependencies(
     config,
 ) -> Tuple[List[Tuple[str, str, Optional[str], Path]], List[str]]:
@@ -491,10 +521,25 @@ def sync_model_dependencies(
         seen.add(sig)
 
         try:
+            local_component = None
+            if platform == "esp32":
+                local_component = _find_local_esp32_component(config, name)
+
             if src_type == "git":
-                _git_clone_or_fetch(
-                    dest, url, pin, dry_run=dry_run, stub_install=stub_install
-                )
+                if local_component is not None:
+                    print(
+                        f"[green]• Copying[/]  {name}  ([dim]{local_component}[/dim])"
+                    )
+                    _copy_local_component(
+                        local_component,
+                        dest,
+                        dry_run=dry_run,
+                        stub_install=stub_install,
+                    )
+                else:
+                    _git_clone_or_fetch(
+                        dest, url, pin, dry_run=dry_run, stub_install=stub_install
+                    )
                 installed.append((name, url, pin, dest))
             else:
                 _install_git_source_archive(

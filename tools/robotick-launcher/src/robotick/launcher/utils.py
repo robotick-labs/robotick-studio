@@ -5,8 +5,9 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import typer
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
@@ -44,6 +45,67 @@ def get_launcher_paths(
         binary_path = binary_path.with_name(binary_path.name + "-esp32.bin")
 
     return launcher_dir.resolve(), build_dir.resolve(), binary_path.resolve()
+
+
+def find_local_process_ids_for_binary(
+    binary_path: Path, *, proc_root: Path = Path("/proc")
+) -> list[int]:
+    resolved_binary = binary_path.resolve()
+    matching_pids: list[int] = []
+
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            pid = int(entry.name)
+            exe_path = (entry / "exe").resolve()
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        except OSError:
+            continue
+
+        if exe_path == resolved_binary:
+            matching_pids.append(pid)
+
+    return matching_pids
+
+
+def stop_local_binary_process(binary_path: Path, *, dry_run: bool) -> None:
+    resolved_binary = binary_path.resolve()
+    matching_pids = find_local_process_ids_for_binary(resolved_binary)
+
+    if not matching_pids:
+        print(f"[dim][Launcher] No existing local instance for {resolved_binary}[/]")
+        return
+
+    print(f"[Launcher] Stopping existing local instance: {resolved_binary}")
+    if dry_run:
+        print(f"[bold]$ stop local pids for {resolved_binary}: {matching_pids}[/]")
+        return
+
+    alive_pids = matching_pids.copy()
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        still_alive: list[int] = []
+        for pid in alive_pids:
+            if Path(f"/proc/{pid}").exists():
+                still_alive.append(pid)
+        if not still_alive:
+            return
+        alive_pids = still_alive
+        time.sleep(0.2)
+
+    for pid in alive_pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 # Jinja Template engine: ================================================================================
@@ -98,7 +160,44 @@ def render_template_to_file(template_name: str, output_path: Path, context: dict
     write_text_if_changed(output_path, contents)
 
 
-def copy_extras_for_target(config) -> None:
+def _copy_extra_tree(
+    extras_dir: Path,
+    launcher_dir: Path,
+    *,
+    dry_run: bool,
+    skip_rel_paths: Optional[set[Path]] = None,
+) -> None:
+    skip_rel_paths = skip_rel_paths or set()
+    created = updated = skipped = 0
+
+    for src in extras_dir.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(extras_dir)
+        if rel in skip_rel_paths:
+            continue
+
+        dst = launcher_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+
+        if dst.exists():
+            is_same = filecmp.cmp(src, dst, shallow=False)
+            if is_same:
+                skipped += 1
+                print(f"[grey]📝 Skipped (no change):[/] {dst}")
+                continue
+            if not dry_run:
+                shutil.copy2(src, dst)
+            updated += 1
+            print(f"[cyan]📝 Updated:[/] {dst}")
+        else:
+            if not dry_run:
+                shutil.copy2(src, dst)
+            created += 1
+            print(f"[green]📝 Created:[/] {dst}")
+
+
+def copy_extras_for_target(config, *, variant: Optional[str] = None) -> None:
     """
     Copy templates/extras_<target>/ (recursively) into the model's launcher dir.
 
@@ -127,30 +226,31 @@ def copy_extras_for_target(config) -> None:
     dry_run = bool(getattr(config, "dry_run", False))
     launcher_dir.mkdir(parents=True, exist_ok=True)
 
-    created = updated = skipped = 0
+    variant_name = (variant or "").strip().lower()
+    variant_dir = TEMPLATE_FOLDER / f"extras_{target}_{variant_name}"
+    variant_rel_paths: set[Path] = set()
+    if variant_name and variant_dir.exists() and variant_dir.is_dir():
+        variant_rel_paths = {
+            src.relative_to(variant_dir)
+            for src in variant_dir.rglob("*")
+            if src.is_file()
+        }
 
-    for src in extras_dir.rglob("*"):
-        if not src.is_file():
-            continue
-        rel = src.relative_to(extras_dir)
-        dst = launcher_dir / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
+    # If a variant provides a file, skip the base copy entirely so we do not rewrite
+    # it to the generic version and then immediately overwrite it again.
+    _copy_extra_tree(
+        extras_dir,
+        launcher_dir,
+        dry_run=dry_run,
+        skip_rel_paths=variant_rel_paths,
+    )
 
-        if dst.exists():
-            is_same = filecmp.cmp(src, dst, shallow=False)
-            if is_same:
-                skipped += 1
-                print(f"[grey]📝 Skipped (no change):[/] {dst}")
-                continue
-            if not dry_run:
-                shutil.copy2(src, dst)
-            updated += 1
-            print(f"[cyan]📝 Updated:[/] {dst}")
-        else:
-            if not dry_run:
-                shutil.copy2(src, dst)
-            created += 1
-            print(f"[green]📝 Created:[/] {dst}")
+    if variant_rel_paths:
+        _copy_extra_tree(
+            variant_dir,
+            launcher_dir,
+            dry_run=dry_run,
+        )
 
 
 def _resolve_command(command: list[str]) -> list[str]:
@@ -173,17 +273,21 @@ def run_subprocess(
     stdout: Optional[Union[int, object]] = sys.stdout,
     stderr: Optional[Union[int, object]] = sys.stderr,
     env: Optional[dict[str, str]] = None,
+    on_interrupt: Optional[Callable[[], None]] = None,
 ) -> subprocess.Popen:
     command = _resolve_command(command)
     preexec_setup = None
     if sys.platform.startswith("linux"):
         def preexec_setup():
-            # Start a new process group
+            # Each launcher subprocess gets its own process group so Ctrl-C handling can
+            # terminate the whole spawned tree, not just the immediate child.
             os.setsid()
 
             try:
                 libc = ctypes.CDLL("libc.so.6")
                 PR_SET_PDEATHSIG = 1
+                # If launcher itself disappears unexpectedly, ask the kernel to deliver
+                # SIGTERM to the child leader as a best-effort cleanup signal.
                 libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
             except Exception as e:
                 print(f"[dim red]Warning: Failed to set PDEATHSIG: {e}[/]")
@@ -228,6 +332,13 @@ def run_subprocess(
                 print("[dim red]Warning: subprocess did not exit after signal[/]")
             except Exception as e:
                 print(f"[dim red]Error while waiting for subprocess termination: {e}[/]")
+            if on_interrupt:
+                try:
+                    # Some targets need explicit follow-up cleanup that a dead local process
+                    # group cannot guarantee on its own, for example stopping a remote SSH-run model.
+                    on_interrupt()
+                except Exception as e:
+                    print(f"[dim red]Interrupt cleanup failed: {e}[/]")
             raise typer.Exit(code=1)
 
     return proc

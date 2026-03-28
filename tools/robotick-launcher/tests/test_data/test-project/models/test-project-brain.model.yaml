@@ -36,7 +36,7 @@ workloads:
     tick_rate_hz: 30.0
 
   - name: camera
-    type: CameraWorkload
+    type: MonocularCameraWorkload
     tick_rate_hz: 30.0
 
   - name: mic

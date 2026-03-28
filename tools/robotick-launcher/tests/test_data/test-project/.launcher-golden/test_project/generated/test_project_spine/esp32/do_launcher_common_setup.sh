@@ -1,48 +1,160 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-echo "🧪 Host sanity check..."
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+LAUNCHER_ENV_FILE="$SCRIPT_DIR/launcher.env"
 
-# 🧠 SSH agent setup
-if [ -z "$SSH_AUTH_SOCK" ]; then
-    echo "🛑 SSH_AUTH_SOCK not set. Starting agent..."
-    eval "$(ssh-agent -s)"
-    ssh-add ~/.ssh/id_ed25519
-fi
-
-if [ ! -S "$SSH_AUTH_SOCK" ]; then
-    echo "🛑 SSH agent socket not found at: $SSH_AUTH_SOCK"
+if [[ -z "$REPO_ROOT" ]]; then
+    echo "🛑 Unable to determine git repo root from $SCRIPT_DIR"
     exit 1
 fi
 
-# 🐳 Container setup
-if docker ps --format '{{.Names}}' | grep -q "^robotick-dev-esp32s3$"; then
-    echo "✅ Container 'robotick-dev-esp32s3' already running."
-else
-    if docker ps -a --format '{{.Names}}' | grep -q "^robotick-dev-esp32s3$"; then
-        echo "▶️  Starting existing container..."
-        docker start robotick-dev-esp32s3
-    else
-        echo "🐳 Creating new container..."
-        docker run -dit \
-            --user root \
-            --privileged \
-            -v /dev:/dev \
-            -v "$HOME/dev/robotick:/workspace" \
-            -v "$HOME/.robotick-vscode-server":/root/.vscode-server \
-            -v "$SSH_AUTH_SOCK:/ssh-agent" \
-            -e SSH_AUTH_SOCK=/ssh-agent \
-            -w /workspace/robotick-knitware/robots/barr-e/.launcher/barr_e/barr_e_spine/esp32 \
-            --name robotick-dev-esp32s3 \
-            espressif/idf:release-v5.4 \
-            bash
-    fi
+if [[ -f "$LAUNCHER_ENV_FILE" ]]; then
+    # Generated launcher env values come from model metadata, for example the configured
+    # USB serial port for a specific ESP32 board.
+    # shellcheck disable=SC1090
+    . "$LAUNCHER_ENV_FILE"
 fi
 
-# 📦 Install ninja if needed
-if ! docker exec robotick-dev-esp32s3 which ninja > /dev/null 2>&1; then
-    echo "📦 Installing ninja inside container..."
-    docker exec robotick-dev-esp32s3 bash -c "apt-get update && apt-get install -y ninja-build"
-else
-    echo "✅ Ninja already installed."
-fi
+IMAGE_NAME="robotick-launcher-esp32s3"
+ENGINE_ROOT="${ROBOTICK_ENGINE_PATH:-$REPO_ROOT/robotick/robotick-engine}"
+DOCKERFILE="$ENGINE_ROOT/tools/docker/esp32s3.Dockerfile"
+DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
+CONTAINER_HOME="/tmp/robotick-home"
+CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"
+ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
+ESP32_TARGET_VARIANT="${ROBOTICK_ESP32_TARGET_VARIANT:-}"
+IDF_EXTRA_CMAKE_ARGS_VALUE="${IDF_EXTRA_CMAKE_ARGS:-}"
+ROBOTICK_PLATFORM_ESP32S3_M5_VALUE="${ROBOTICK_PLATFORM_ESP32S3_M5:-}"
+
+ensure_esp32_image() {
+    local current_sha
+    current_sha="$(sha256sum "$DOCKERFILE" | awk '{print $1}')"
+
+    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        local existing_sha
+        existing_sha="$(docker image inspect -f "{{ index .Config.Labels \"$DOCKERFILE_SHA_LABEL\" }}" "$IMAGE_NAME" 2>/dev/null || true)"
+        if [[ "$existing_sha" == "$current_sha" ]]; then
+            return
+        fi
+    fi
+
+    echo "🐳 Building ESP32-S3 image: $IMAGE_NAME"
+    if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then
+        return
+    fi
+    docker build \
+        -t "$IMAGE_NAME" \
+        --label "$DOCKERFILE_SHA_LABEL=$current_sha" \
+        -f "$DOCKERFILE" \
+        "$REPO_ROOT"
+}
+
+container_name_for_mode() {
+    local mode="$1"
+    local scope_hash
+    scope_hash="$(printf '%s' "$IMAGE_NAME|$REPO_ROOT|$mode" | sha256sum | awk '{print substr($1, 1, 12)}')"
+    echo "robotick-launcher-esp32-${mode}-${scope_hash}"
+}
+
+ensure_esp32_container() {
+    local mode="$1"
+    local container_name="$2"
+    local image_id
+    local container_image_id
+    local container_state
+
+    ensure_esp32_image
+
+    image_id="$(docker image inspect -f '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
+    container_image_id="$(docker container inspect -f '{{.Image}}' "$container_name" 2>/dev/null || true)"
+
+    if [[ -n "$container_image_id" && -n "$image_id" && "$container_image_id" != "$image_id" ]]; then
+        echo "\$ docker rm -f $container_name"
+        if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" != "1" ]]; then
+            docker rm -f "$container_name" >/dev/null
+        fi
+        container_image_id=""
+    fi
+
+    if [[ -z "$container_image_id" ]]; then
+        local -a create_cmd=(
+            docker create
+            --name "$container_name"
+            --init
+            -v "$REPO_ROOT:$REPO_ROOT"
+            -w "$REPO_ROOT"
+        )
+
+        if [[ "$mode" == "device" ]]; then
+            create_cmd+=(
+                --privileged
+                -v /dev:/dev
+            )
+        fi
+
+        create_cmd+=("$IMAGE_NAME" sleep infinity)
+
+        echo "\$ ${create_cmd[*]}"
+        if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" != "1" ]]; then
+            "${create_cmd[@]}" >/dev/null
+        fi
+    fi
+
+    container_state="$(docker container inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null || true)"
+    if [[ "$container_state" != "running" ]]; then
+        echo "\$ docker start $container_name"
+        if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" != "1" ]]; then
+            docker start "$container_name" >/dev/null
+        fi
+    fi
+}
+
+run_esp32_container() {
+    local mode="$1"
+    shift
+
+    local container_name
+    container_name="$(container_name_for_mode "$mode")"
+    ensure_esp32_container "$mode" "$container_name"
+    local wrapped_command="mkdir -p \"$CONTAINER_CACHE_HOME\" && . /opt/esp/idf/export.sh >/dev/null && $*"
+
+    local -a cmd=(
+        docker exec
+    )
+
+    if [[ "$mode" == "device" ]]; then
+        if [[ -t 0 && -t 1 ]]; then
+            cmd+=(-it)
+        fi
+        cmd+=(
+            -w "$SCRIPT_DIR"
+            -e "HOME=$CONTAINER_HOME"
+            -e "XDG_CACHE_HOME=$CONTAINER_CACHE_HOME"
+            -e "ROBOTICK_ESP32_SERIAL_PORT=$ESP32_SERIAL_PORT"
+            -e "ROBOTICK_PLATFORM_ESP32S3_M5=$ROBOTICK_PLATFORM_ESP32S3_M5_VALUE"
+            -e "IDF_EXTRA_CMAKE_ARGS=$IDF_EXTRA_CMAKE_ARGS_VALUE"
+        )
+    else
+        # Build-only mode does not need device access and can run as the calling user, which
+        # keeps generated files writable on the host and works cleanly in CI.
+        cmd+=(
+            --user "$(id -u):$(id -g)"
+            -w "$SCRIPT_DIR"
+            -e "HOME=$CONTAINER_HOME"
+            -e "XDG_CACHE_HOME=$CONTAINER_CACHE_HOME"
+            -e "ROBOTICK_PLATFORM_ESP32S3_M5=$ROBOTICK_PLATFORM_ESP32S3_M5_VALUE"
+            -e "IDF_EXTRA_CMAKE_ARGS=$IDF_EXTRA_CMAKE_ARGS_VALUE"
+        )
+    fi
+
+    cmd+=("$container_name" bash -lc "$wrapped_command")
+
+    echo "\$ ${cmd[*]}"
+    if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then
+        return
+    fi
+
+    "${cmd[@]}"
+}

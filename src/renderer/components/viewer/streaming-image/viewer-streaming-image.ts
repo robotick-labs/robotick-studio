@@ -14,6 +14,7 @@ interface StreamingImageViewerConfig extends ViewerConfig {
   sourceField?: string;
   telemetryBaseUrl?: string;
   telemetryPollingRateHz?: number;
+  pollingRateHz?: number; // legacy alias used by existing streaming-image configs
 }
 
 const BLACK_PIXEL =
@@ -61,7 +62,10 @@ export async function init(viewerConfig: ViewerConfig, instanceId?: number): Pro
     return;
   }
 
-  const pollingRateHz = streamingConfig.telemetryPollingRateHz ?? 20;
+  const pollingRateHz =
+    streamingConfig.telemetryPollingRateHz ??
+    streamingConfig.pollingRateHz ??
+    20;
   console.info(
     `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${pollingRateHz}Hz`
   );

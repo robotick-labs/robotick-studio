@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setWorkloadInputFieldData } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
+import {
+  fetchLayout,
+  setWorkloadInputFieldsData,
+} from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
 
 type JsonResponse = {
   ok: boolean;
@@ -9,7 +12,7 @@ type JsonResponse = {
 
 function createJsonResponse(
   status: number,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ): JsonResponse {
   return {
     ok: status >= 200 && status < 300,
@@ -18,7 +21,7 @@ function createJsonResponse(
   };
 }
 
-describe("setWorkloadInputFieldData", () => {
+describe("setWorkloadInputFieldsData", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -33,23 +36,22 @@ describe("setWorkloadInputFieldData", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        createJsonResponse(429, { error: "throttled", retry_after_ms: 1 })
+        createJsonResponse(429, { error: "throttled", retry_after_ms: 1 }),
       )
       .mockResolvedValueOnce(createJsonResponse(200, { status: "accepted" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const requestPromise = setWorkloadInputFieldData(
+    const requestPromise = setWorkloadInputFieldsData(
       "http://example",
       {
         engine_session_id: "sid",
-        field_handle: 1,
-        value: true,
+        writes: [{ field_handle: 1, value: true }],
       },
       {
         maxAttempts: 3,
         baseRetryDelayMs: 1,
         maxRetryDelayMs: 2,
-      }
+      },
     );
 
     await vi.runAllTimersAsync();
@@ -66,14 +68,95 @@ describe("setWorkloadInputFieldData", () => {
       .mockResolvedValue(createJsonResponse(400, { error: "bad_request" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await setWorkloadInputFieldData("http://example", {
+    const result = await setWorkloadInputFieldsData("http://example", {
       engine_session_id: "sid",
-      field_handle: 7,
-      value: 123,
+      writes: [{ field_handle: 7, value: 123 }],
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
     expect(result.status).toBe(400);
+  });
+
+  it("retries once with the corrected engine session id on session mismatch", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse(412, {
+          error: "session_mismatch",
+          engine_session_id: "sid-corrected",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(200, { status: "processed", accepted_count: 1 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputFieldsData("http://example", {
+      engine_session_id: "sid-stale",
+      writes: [{ field_handle: 7, value: 0.5 }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).engine_session_id,
+    ).toBe("sid-corrected");
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
+  it("keeps direct telemetry bases on the direct api route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        workloads: [],
+        types: [],
+        workloads_buffer_size_used: 0,
+        process_memory_used: 0,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLayout("http://192.168.5.16:7102");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://192.168.5.16:7102/api/telemetry/workloads_buffer/layout",
+      { cache: "no-store" },
+    );
+  });
+
+  it("uses telemetry-gateway bases without duplicating the api prefix", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        workloads: [],
+        types: [],
+        workloads_buffer_size_used: 0,
+        process_memory_used: 0,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLayout(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
+      { cache: "no-store" },
+    );
+  });
+
+  it("rejects successful non-layout payloads", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createJsonResponse(200, {
+        error: "telemetry_layout_generation_failed",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const layout = await fetchLayout(
+      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine",
+    );
+
+    expect(layout).toBeNull();
   });
 });

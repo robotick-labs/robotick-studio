@@ -3,10 +3,82 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
-const getWorkspaceRoot = () =>
-  process.env.ROBOTICK_PROJECT_DIR ??
-  process.env.ROBOTICK_WORKSPACE_ROOT ??
-  process.cwd();
+function getWorkspaceMatchScore(dir: string) {
+  try {
+    let score = 0;
+    if (fs.existsSync(path.join(dir, "robots"))) {
+      score = 3;
+    }
+    if (
+      fs
+        .readdirSync(dir, { withFileTypes: true })
+        .some(
+          (entry) =>
+            entry.isFile() && entry.name.endsWith(".project.yaml")
+        )
+    ) {
+      score = Math.max(score, 2);
+    }
+    if (fs.existsSync(path.join(dir, ".studio"))) {
+      score = Math.max(score, 1);
+    }
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
+function* walkAncestors(start: string) {
+  let current = path.resolve(start);
+  while (true) {
+    yield current;
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return;
+    }
+    current = parent;
+  }
+}
+
+export function resolveWorkspaceRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+  moduleDir = __dirname
+) {
+  const configuredRoot =
+    env.ROBOTICK_PROJECT_DIR ?? env.ROBOTICK_WORKSPACE_ROOT;
+  if (configuredRoot) {
+    return path.resolve(configuredRoot);
+  }
+
+  const seen = new Set<string>();
+  let bestMatch: string | null = null;
+  let bestScore = 0;
+  for (const start of [cwd, moduleDir]) {
+    for (const candidate of walkAncestors(start)) {
+      if (seen.has(candidate)) {
+        continue;
+      }
+      seen.add(candidate);
+      const score = getWorkspaceMatchScore(candidate);
+      if (score > bestScore) {
+        bestMatch = candidate;
+        bestScore = score;
+      }
+      if (score >= 3) {
+        return candidate;
+      }
+    }
+  }
+
+  if (bestMatch) {
+    return bestMatch;
+  }
+
+  return path.resolve(cwd);
+}
+
+const getWorkspaceRoot = () => resolveWorkspaceRoot();
 const DEFAULT_LAUNCHER_SUBDIR = "tools/robotick-launcher";
 const resolveLauncherDir = () => {
   const launcherPathEnv = process.env.ROBOTICK_LAUNCHER_DIR;
@@ -253,6 +325,7 @@ export async function ensureLauncherReady() {
   console.log(`[Launcher] Workspace root: ${root}`);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ROBOTICK_WORKSPACE_ROOT: root,
     PATH: `${VENV_BIN()}${path.delimiter}${process.env.PATH ?? ""}`,
   };
   console.log(

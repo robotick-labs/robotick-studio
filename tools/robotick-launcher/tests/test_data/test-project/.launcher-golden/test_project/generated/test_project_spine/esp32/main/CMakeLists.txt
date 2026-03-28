@@ -5,6 +5,9 @@ idf_component_register(
         test_project_spine_main.cpp
         test_project_spine_model.cpp
         registry/generated_workload_registry.cpp
+        ../../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/Image.cpp
+        ../../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/RenderMode.cpp
+        ../../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/systems/Renderer_esp32.cpp
     INCLUDE_DIRS
         .
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../robotick/robotick-core-workloads/cpp/include
@@ -13,4 +16,5 @@ idf_component_register(
         robotick-engine
         M5Unified
         M5GFX
+    WHOLE_ARCHIVE
 )

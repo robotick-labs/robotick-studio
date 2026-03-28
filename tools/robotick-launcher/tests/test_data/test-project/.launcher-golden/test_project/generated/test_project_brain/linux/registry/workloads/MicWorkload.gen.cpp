@@ -4,9 +4,9 @@
 
 namespace robotick
 {
-    ROBOTICK_REGISTER_STRUCT_BEGIN(MicConfig)
-    ROBOTICK_STRUCT_FIELD(MicConfig, float, amplitude_gain_db)
-    ROBOTICK_REGISTER_STRUCT_END(MicConfig)
+    ROBOTICK_REGISTER_STRUCT_BEGIN(MicInputs)
+    ROBOTICK_STRUCT_FIELD(MicInputs, float, amplitude_gain_db)
+    ROBOTICK_REGISTER_STRUCT_END(MicInputs)
 
     ROBOTICK_REGISTER_STRUCT_BEGIN(MicOutputs)
     ROBOTICK_STRUCT_FIELD(MicOutputs, AudioFrame, mono)
@@ -17,8 +17,8 @@ namespace robotick
 
     ROBOTICK_REGISTER_WORKLOAD_BASE(
         MicWorkload,
-        &s_type_desc_MicConfig,
         nullptr,
+        &s_type_desc_MicInputs,
         &s_type_desc_MicOutputs
     );
 

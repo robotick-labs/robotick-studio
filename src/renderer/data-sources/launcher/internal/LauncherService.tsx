@@ -45,7 +45,11 @@ export interface LauncherService {
     launcherProfile: string
   ): Promise<void>;
   requestLauncherStop(): Promise<void>;
-  fetchLauncherStatus(): Promise<{ status: string } | null>;
+  fetchLauncherStatus(): Promise<{
+    status: string;
+    phase?: string | null;
+    models?: Record<string, { stage?: string; status?: string }>;
+  } | null>;
   getLauncherLogStreamUrl(): string;
 }
 

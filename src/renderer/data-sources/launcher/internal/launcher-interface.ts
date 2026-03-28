@@ -10,12 +10,35 @@ function ensureTrailingSlash(url: string) {
   return url.endsWith("/") ? url : `${url}/`;
 }
 
+function tryBuildRoutedTelemetryUrl(baseUrl: string, path: string): URL | null {
+  const telemetryPrefix = "/api/telemetry";
+  const gatewayPrefix = "/api/telemetry-gateway";
+  if (!path.startsWith(`${telemetryPrefix}/`)) {
+    return null;
+  }
+
+  const base = new URL(ensureTrailingSlash(baseUrl));
+  const basePath = base.pathname.endsWith("/") && base.pathname !== "/"
+    ? base.pathname.slice(0, -1)
+    : base.pathname;
+
+  if (!basePath.startsWith(`${gatewayPrefix}/`)) {
+    return null;
+  }
+
+  return new URL(
+    `${base.origin}${basePath}${path.slice(telemetryPrefix.length)}`
+  );
+}
+
 export function buildUrl(
   baseUrl: string,
   path: string,
   params?: Record<string, string | number | undefined>
 ): string {
-  const url = new URL(path, ensureTrailingSlash(baseUrl));
+  const url =
+    tryBuildRoutedTelemetryUrl(baseUrl, path) ??
+    new URL(path, ensureTrailingSlash(baseUrl));
   if (params) {
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined) continue;
@@ -74,6 +97,7 @@ export interface ProjectModelDescriptor<T = unknown> {
   modelName: string;
   telemetryPort: number;
   telemetryBaseUrl: string;
+  preferredTelemetryPollRateHz?: number;
   data: T;
 }
 
@@ -87,6 +111,104 @@ type ModelCacheEntry = {
 
 let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
+let knownProjectPaths: string[] = [];
+
+function getWorkspaceRoot(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const workspaceRoot = window.robotick?.environment?.workspaceRoot;
+  return typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
+}
+
+function looksAbsolutePath(path: string): boolean {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(path)
+  );
+}
+
+function normalizePathForMatch(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function getPathBasename(path: string): string {
+  const normalized = normalizePathForMatch(path);
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] || normalized;
+}
+
+function joinWorkspacePath(root: string, relativePath: string): string {
+  if (!root) {
+    return relativePath;
+  }
+  const normalizedRoot = root.replace(/[\\/]+$/, "");
+  const normalizedRelative = relativePath.replace(/^[\\/]+/, "");
+  if (!normalizedRelative) {
+    return normalizedRoot;
+  }
+  const separator = /\\/.test(normalizedRoot) ? "\\" : "/";
+  const joined = `${normalizedRoot}${separator}${normalizedRelative}`;
+  return separator === "\\" ? joined.replace(/\//g, "\\") : joined;
+}
+
+function cacheProjectPaths(paths: string[]) {
+  knownProjectPaths = paths.slice();
+}
+
+function resolveProjectPathFromCache(projectPath: string): string {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+  if (looksAbsolutePath(trimmedPath)) {
+    return trimmedPath;
+  }
+
+  const normalizedInput = normalizePathForMatch(trimmedPath);
+  const exactMatch = knownProjectPaths.find(
+    (candidate) => normalizePathForMatch(candidate) === normalizedInput
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const basenameMatches = knownProjectPaths.filter(
+    (candidate) => getPathBasename(candidate) === normalizedInput
+  );
+  if (basenameMatches.length === 1) {
+    return basenameMatches[0];
+  }
+
+  return trimmedPath;
+}
+
+async function resolveProjectPath(projectPath: string): Promise<string> {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+
+  let resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  const stillNeedsLookup =
+    !looksAbsolutePath(resolvedPath) &&
+    resolvedPath === trimmedPath &&
+    knownProjectPaths.length === 0;
+  if (stillNeedsLookup) {
+    await fetchProjectPaths();
+    resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  }
+
+  if (looksAbsolutePath(resolvedPath)) {
+    return resolvedPath;
+  }
+
+  const workspaceRoot = getWorkspaceRoot();
+  return workspaceRoot
+    ? joinWorkspacePath(workspaceRoot, resolvedPath)
+    : resolvedPath;
+}
 
 /**
  * Set the current project path and propagate the change.
@@ -117,6 +239,7 @@ function getProjectPath(): string {
  */
 function setLauncherProfile(value: string) {
   setStorageValue(KEY_LAUNCHER_PROFILE, value);
+  invalidateModelCache();
   notifyLauncherProfileChanged(value);
 }
 
@@ -127,6 +250,10 @@ function setLauncherProfile(value: string) {
  */
 function getLauncherProfile(): string {
   return readStorageValue(KEY_LAUNCHER_PROFILE) ?? "";
+}
+
+function isLocalLauncherProfile(profile: string): boolean {
+  return profile.trim().toLowerCase().startsWith("local:");
 }
 
 /**
@@ -178,8 +305,64 @@ function normalizePort(portValue: unknown): number {
   return DEFAULT_TELEMETRY_PORT;
 }
 
+function normalizePreferredTelemetryPollRateHz(
+  pollRateHzValue: unknown
+): number | undefined {
+  const next = Number(pollRateHzValue);
+  if (Number.isFinite(next) && next > 0) {
+    return next;
+  }
+  return undefined;
+}
+
 function buildTelemetryBaseUrl(port: number) {
   return `http://${getModelHostName()}:${port}`;
+}
+
+function getPreferredHost(data: unknown): string {
+  const preferredHost = (data as { runtime?: { preferred_host?: string } })?.runtime
+    ?.preferred_host;
+  return preferredHost?.trim() || DEFAULT_MODEL_HOST;
+}
+
+function isTelemetryGatewayModel(data: unknown): boolean {
+  return Boolean(
+    (data as { telemetry?: { is_gateway?: boolean } })?.telemetry?.is_gateway
+  );
+}
+
+function buildDirectTelemetryBaseUrl(data: unknown, telemetryPort: number) {
+  return `http://${getPreferredHost(data)}:${telemetryPort}`;
+}
+
+type GatewayRegistryEntry = {
+  model_id: string;
+  is_local?: boolean;
+  is_gateway?: boolean;
+  telemetry_path?: string;
+};
+
+type GatewayRegistryResponse = {
+  gateway_model_id?: string;
+  models?: GatewayRegistryEntry[];
+};
+
+async function tryFetchGatewayRegistry(
+  gatewayBaseUrl: string
+): Promise<Map<string, GatewayRegistryEntry> | null> {
+  const url = buildUrl(gatewayBaseUrl, "/api/telemetry-gateway/models");
+  const response = await tryFetchJSON<GatewayRegistryResponse>(url);
+  if (!response?.models?.length) {
+    return null;
+  }
+
+  const registry = new Map<string, GatewayRegistryEntry>();
+  for (const model of response.models) {
+    const modelId = model.model_id?.trim();
+    if (!modelId) continue;
+    registry.set(modelId, model);
+  }
+  return registry;
 }
 
 function buildModelShortName(modelPath: string): string {
@@ -196,14 +379,17 @@ function buildModelShortName(modelPath: string): string {
 export async function fetchProjectPaths(): Promise<string[]> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
   const projects = await fetchJSON<string[]>(url);
-  return projects.sort();
+  const sortedProjects = projects.sort();
+  cacheProjectPaths(sortedProjects);
+  return sortedProjects;
 }
 
 export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
   });
   return await fetchJSON<T>(url);
 }
@@ -211,11 +397,12 @@ export async function fetchProjectSettingsData<T = Record<string, unknown>>(
 export async function fetchProjectRemoteControlSettings<
   T = Record<string, unknown>
 >(projectPath: string, signal?: AbortSignal): Promise<T> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
     LAUNCHER_LOCAL_API_BASE,
     "/query/get-project-rc-settings",
     {
-      project_path: projectPath,
+      project_path: normalizedProjectPath,
     }
   );
   return await fetchJSON<T>(url, { signal });
@@ -225,13 +412,16 @@ export function buildProjectAssetUrl(
   projectPath: string,
   assetPath: string
 ): string {
-  const normalizedProjectPath = projectPath.trim();
+  const normalizedProjectPath = resolveProjectPathFromCache(projectPath.trim());
+  const absoluteProjectPath = looksAbsolutePath(normalizedProjectPath)
+    ? normalizedProjectPath
+    : joinWorkspacePath(getWorkspaceRoot(), normalizedProjectPath);
   const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
   return buildUrl(
     LAUNCHER_LOCAL_API_BASE,
     `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
     {
-      project_path: normalizedProjectPath,
+      project_path: absoluteProjectPath,
     }
   );
 }
@@ -240,8 +430,9 @@ export async function requestLauncherRun(
   projectPath: string,
   launcherProfile: string
 ): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
     profile: launcherProfile,
   });
   await fetchJSON(url, { method: "POST" });
@@ -254,9 +445,15 @@ export async function requestLauncherStop(): Promise<void> {
 
 export async function fetchLauncherStatus(): Promise<{
   status: string;
+  phase?: string | null;
+  models?: Record<string, { stage?: string; status?: string }>;
 } | null> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
-  return await tryFetchJSON<{ status: string }>(url);
+  return await tryFetchJSON<{
+    status: string;
+    phase?: string | null;
+    models?: Record<string, { stage?: string; status?: string }>;
+  }>(url);
 }
 
 export function getLauncherLogStreamUrl(): string {
@@ -264,8 +461,9 @@ export function getLauncherLogStreamUrl(): string {
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
   });
   const models = await fetchJSON<string[]>(url);
   return models.sort();
@@ -275,8 +473,9 @@ async function fetchProjectModelData(
   projectPath: string,
   modelPath: string
 ): Promise<unknown> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
-    project_path: projectPath,
+    project_path: normalizedProjectPath,
     model_path: modelPath,
   });
   return await fetchJSON(url);
@@ -285,6 +484,7 @@ async function fetchProjectModelData(
 async function buildModelDescriptors(
   projectPath: string
 ): Promise<ProjectModelDescriptor[]> {
+  const useLocalModelHosts = isLocalLauncherProfile(getLauncherProfile());
   const modelPaths = await fetchProjectModelPaths(projectPath);
   const descriptorPromises = modelPaths.map(async (modelPath) => {
     try {
@@ -302,13 +502,24 @@ async function buildModelDescriptors(
       const telemetryPort = normalizePort(
         (data as { telemetry?: { port?: number } })?.telemetry?.port
       );
+      const preferredTelemetryPollRateHz =
+        normalizePreferredTelemetryPollRateHz(
+          (
+            data as {
+              telemetry?: { preferred_poll_rate_hz?: number };
+            }
+          )?.telemetry?.preferred_poll_rate_hz
+        );
 
       return {
         modelPath,
         modelShortName: buildModelShortName(modelPath),
         modelName,
         telemetryPort,
-        telemetryBaseUrl: buildTelemetryBaseUrl(telemetryPort),
+        telemetryBaseUrl: useLocalModelHosts
+          ? buildTelemetryBaseUrl(telemetryPort)
+          : buildDirectTelemetryBaseUrl(data, telemetryPort),
+        preferredTelemetryPollRateHz,
         data,
       } as ProjectModelDescriptor;
     } catch (err) {
@@ -321,9 +532,41 @@ async function buildModelDescriptors(
   });
 
   const descriptors = await Promise.all(descriptorPromises);
-  return descriptors.filter(
+  const filteredDescriptors = descriptors.filter(
     (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
   );
+
+  if (useLocalModelHosts) {
+    return filteredDescriptors;
+  }
+
+  const gatewayDescriptor = filteredDescriptors.find((descriptor) =>
+    isTelemetryGatewayModel(descriptor.data)
+  );
+
+  if (!gatewayDescriptor) {
+    return filteredDescriptors;
+  }
+
+  const gatewayBaseUrl = buildDirectTelemetryBaseUrl(
+    gatewayDescriptor.data,
+    gatewayDescriptor.telemetryPort
+  );
+  const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
+
+  return filteredDescriptors.map((descriptor) => {
+    const registryEntry =
+      gatewayRegistry?.get(descriptor.modelShortName) ??
+      gatewayRegistry?.get(descriptor.modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") || "");
+    const telemetryPath =
+      registryEntry?.telemetry_path?.trim() ||
+      `/api/telemetry-gateway/${descriptor.modelShortName}`;
+
+    return {
+      ...descriptor,
+      telemetryBaseUrl: buildUrl(gatewayBaseUrl, telemetryPath),
+    };
+  });
 }
 
 async function resolveProjectModels(

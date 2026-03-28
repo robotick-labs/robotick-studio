@@ -2,13 +2,12 @@ from pathlib import Path
 from typing import Optional
 
 from rich import print
-import shutil
 import typer
 import traceback
 from typer.models import OptionInfo
 
 from robotick.launcher.config import Config
-from robotick.launcher.utils import copy_extras_for_target
+from robotick.launcher.utils import copy_extras_for_target, write_text_if_changed
 from robotick.launcher.actions.launch import (
     generate_main_cpp,
     generate_model_cpp,
@@ -17,25 +16,58 @@ from robotick.launcher.actions.launch import (
     install_deps as install_deps_stage,
 )
 
+def _resolve_project_local_path(config: Config, raw_path: str) -> Path:
+    value = str(raw_path).replace("${PROJECT_DIR}", str(config.project_dir))
+    path = Path(value)
+    if not path.is_absolute():
+        path = config.base_dir / path
+    return path.resolve()
 
-def copy_extras_if_exists(templates_dir: Path, target_dir: Path, target: str):
-    """
-    Copy all files (recursively) from templates/extras_<target>/ into target_dir.
-    Existing files are overwritten. Skips if extras folder doesn't exist.
-    """
-    extras_dir = templates_dir / f"extras_{target}"
-    if not extras_dir.exists() or not extras_dir.is_dir():
-        print(f"ℹ️ No extras for target '{target}' (looked in {extras_dir})")
+
+def write_launcher_env_if_needed(config: Config) -> None:
+    launcher_env = config.launcher_dir / "launcher.env"
+
+    env_lines: list[str] = []
+    runtime = dict((config.model or {}).get("runtime") or {})
+    deploy = dict(runtime.get("deploy") or {})
+    target_variant = str(runtime.get("target_variant") or "").strip().lower()
+
+    if config.target == "esp32":
+        env_lines.append("# Generated from model runtime metadata.")
+
+        engine_local_path = str(
+            dict((config.runtime or {}).get("engine") or {}).get("local_path") or ""
+        ).strip()
+        if engine_local_path:
+            engine_root = _resolve_project_local_path(config, engine_local_path)
+            env_lines.append(f'export ROBOTICK_ENGINE_PATH="{engine_root}"')
+
+        serial_port = str(deploy.get("serial_port") or "").strip()
+        if serial_port:
+            env_lines.append(
+                f'export ROBOTICK_ESP32_SERIAL_PORT="{serial_port}"'
+            )
+
+        if target_variant == "esp32s3_m5":
+            env_lines.append("export ROBOTICK_PLATFORM_ESP32S3_M5=1")
+            env_lines.append(
+                'export IDF_EXTRA_CMAKE_ARGS="-DROBOTICK_PLATFORM_ESP32S3=ON -DROBOTICK_PLATFORM_ESP32S3_M5=ON"'
+            )
+
+    if env_lines:
+        contents = "\n".join(env_lines) + "\n"
+        if config.dry_run:
+            print(f"[grey]📝 Dry run — would write launcher env:[/] {launcher_env}")
+        else:
+            write_text_if_changed(launcher_env, contents)
         return
 
-    print(f"📦 Copying extras for '{target}' from {extras_dir} → {target_dir}")
-    for src in extras_dir.rglob("*"):
-        if src.is_file():
-            rel_path = src.relative_to(extras_dir)
-            dest_path = target_dir / rel_path
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest_path)  # preserve metadata
-            print(f"  ✅ {rel_path}")
+    if launcher_env.exists():
+        if config.dry_run:
+            print(f"[grey]📝 Would remove stale file:[/] {launcher_env}")
+        else:
+            launcher_env.unlink()
+            print(f"[cyan]📝 Removed stale file:[/] {launcher_env}")
 
 
 def generate(
@@ -80,13 +112,17 @@ def generate(
             )
 
         config = Config(project, model, target, base_dir, dry_run, stub_install)
+        target_variant = str(
+            ((config.model or {}).get("runtime") or {}).get("target_variant") or ""
+        ).strip()
 
         print("============================================================================================")
         print(
             f"[bold green]📦 Generating {project}-{model}-{target}[/] (dry_run={dry_run}, stub_install={config.stub_install})"
         )
 
-        # placeholder code for per-target overrides (needs to move to a yaml ideally)
+        # ESP32 generation still uses a component-style layout that differs from linux builds.
+        # Keep those file-placement overrides centralized here until target layout becomes fully declarative.
         if target == "esp32":
             config.subdir_main_cpp = "main"
             config.subdir_model_cpp = "main"
@@ -103,7 +139,8 @@ def generate(
         print(f"[green]📂 Launcher folder:[/] {config.launcher_dir}")
 
         # File generation
-        copy_extras_for_target(config)
+        copy_extras_for_target(config, variant=target_variant)
+        write_launcher_env_if_needed(config)
         generate_main_cpp.generate_main_cpp(config)
         generate_model_cpp.generate_model_cpp(config)
         generate_workloads_registry.generate_workloads_registry(config)

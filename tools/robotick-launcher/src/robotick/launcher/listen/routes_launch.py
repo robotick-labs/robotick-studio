@@ -7,6 +7,7 @@ import queue as queue_module
 from pathlib import Path
 import sys
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -27,6 +28,8 @@ process_handle: Optional[mp.Process] = None
 status_queue: Optional[mp.Queue] = None
 status_thread: Optional[threading.Thread] = None
 current_profile: Optional[str] = None
+current_project_path: Optional[Path] = None
+current_run_started_at: Optional[float] = None
 log_loop: Optional[asyncio.AbstractEventLoop] = None
 
 log_subscribers: List[asyncio.Queue] = []
@@ -92,6 +95,31 @@ def _set_initial_status(profile: str):
         )
 
 
+def _set_stopped_status() -> None:
+    with status_lock:
+        current_status.clear()
+        current_status.update(
+            {
+                "status": "stopped",
+                "phase": None,
+                "profile": None,
+                "models": {},
+            }
+        )
+
+
+def _format_elapsed_since_run_start() -> str:
+    if current_run_started_at is None:
+        return "00:00:00.000"
+
+    elapsed_seconds = max(0.0, time.monotonic() - current_run_started_at)
+    total_milliseconds = round(elapsed_seconds * 1000)
+    hours, remainder = divmod(total_milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    seconds, milliseconds = divmod(remainder, 1_000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+
 def _apply_status_event(message: Dict[str, Any]):
     event = message.get("event")
     if event == "phase":
@@ -151,7 +179,8 @@ def _broadcast_log(line: str, loop: asyncio.AbstractEventLoop):
         return
     tag = current_profile or "profile"
     now = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} [{tag}] {line}"
+    elapsed = _format_elapsed_since_run_start()
+    msg = f"{ANSI_BOLD_YELLOW}{now}{ANSI_RESET} | {ANSI_DIM_CYAN}{elapsed}{ANSI_RESET} [{tag}] {line}"
 
     with log_lock:
         for queue in log_subscribers:
@@ -166,7 +195,7 @@ def _close_log_subscribers():
 
 
 def _status_consumer(loop: asyncio.AbstractEventLoop):
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     while True:
         if status_queue is None:
@@ -202,6 +231,8 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
         status_queue = None
         log_loop = None
         current_profile = None
+        current_project_path = None
+        current_run_started_at = None
         status_thread = None
 
     if proc_to_join:
@@ -209,9 +240,8 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
     if queue_to_close:
         queue_to_close.close()
 
-    with status_lock:
-        if current_status.get("status") not in ("error", "completed"):
-            current_status["status"] = "stopped"
+    if current_status.get("status") not in ("error", "completed"):
+        _set_stopped_status()
 
 
 def _run_profile_worker(
@@ -268,10 +298,10 @@ async def run_launcher(
         ..., description="Absolute path to the project YAML file"
     ),
     profile: str = Query(
-        ..., description="Launcher profile string, e.g. 'local:model-id'"
+        ..., description="Launcher profile string, e.g. 'local:model-id' or 'native:model-id'"
     ),
 ):
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     print(f"[Launcher] Requested run: {project_path=} | {profile=}")
 
@@ -282,7 +312,7 @@ async def run_launcher(
     if ":" not in profile:
         return {
             "status": "error",
-            "detail": "Invalid profile format (expected 'local:model-id')",
+            "detail": "Invalid profile format (expected 'local:model-id' or 'native:model-id')",
         }
 
     base_dir = project_path.parent
@@ -290,6 +320,8 @@ async def run_launcher(
 
     _set_initial_status(profile)
     current_profile = profile
+    current_project_path = project_path
+    current_run_started_at = time.monotonic()
 
     proc: Optional[mp.Process] = None
     try:
@@ -315,6 +347,8 @@ async def run_launcher(
             except Exception as queue_exc:  # pragma: no cover - best-effort cleanup
                 print(f"[Launcher] Failed to close status queue cleanly: {queue_exc}")
         current_profile = None
+        current_project_path = None
+        current_run_started_at = None
         with status_lock:
             current_status["status"] = "error"
             current_status["detail"] = str(exc)
@@ -342,7 +376,7 @@ async def run_launcher(
 
 @router.post("/stop")
 async def stop_launcher():
-    global process_handle, status_queue, status_thread, current_profile, log_loop
+    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     print("[Launcher] Requested stop")
 
@@ -350,13 +384,27 @@ async def stop_launcher():
         proc = process_handle
         queue = status_queue
         thread = status_thread
+        profile = current_profile
+        project_path = current_project_path
         process_handle = None
         status_queue = None
         status_thread = None
         current_profile = None
+        current_project_path = None
+        current_run_started_at = None
         log_loop = None
 
     _close_log_subscribers()
+
+    if profile and project_path:
+        try:
+            run_profile_module.stop_profile(
+                project=project_path.name.removesuffix(".project.yaml"),
+                profile=profile,
+                base_dir=project_path.parent,
+            )
+        except Exception as exc:
+            print(f"[Launcher] Best-effort profile stop failed: {exc}")
 
     if proc and proc.is_alive():
         proc.terminate()
@@ -373,8 +421,7 @@ async def stop_launcher():
     if thread and thread.is_alive():
         thread.join(timeout=1)
 
-    with status_lock:
-        current_status["status"] = "stopped"
+    _set_stopped_status()
 
     return {"status": "stopped"}
 

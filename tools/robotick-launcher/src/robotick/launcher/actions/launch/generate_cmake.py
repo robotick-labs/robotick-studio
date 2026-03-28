@@ -3,6 +3,9 @@ import logging
 import os
 from rich import print
 from robotick.launcher.utils import render_template, write_text_if_changed
+from robotick.launcher.actions.launch.generate_workloads_registry import (
+    _collect_platform_files,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -10,10 +13,45 @@ logger = logging.getLogger(__name__)
 def _cmake_relpath(target: Path, start: Path) -> str:
     """Return POSIX-style relative path for CMake, or absolute if not relative-able."""
     try:
-        rel = os.path.relpath(target.resolve(), start.resolve())
+        rel = os.path.relpath(_workspace_abspath(target), _workspace_abspath(start))
         return Path(rel).as_posix()
     except ValueError:
-        return target.resolve().as_posix()
+        return _workspace_abspath(target).as_posix()
+
+
+def _workspace_abspath(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _resolve_project_mount_path(config, raw: str) -> Path:
+    value = str(raw).replace("${PROJECT_DIR}", str(config.project_dir))
+    path = Path(value)
+    if not path.is_absolute():
+        path = config.base_dir / path
+    return _workspace_abspath(path)
+
+
+def _resolve_platform_extra_cpp_paths(config, workload_roots_abs, start_dir: Path) -> list[str]:
+    used_types = {w["type"] for w in (config.model.get("workloads", []) or [])}
+    platform_extra_cpp = _collect_platform_files(config, used_types)
+    resolved_paths: list[str] = []
+
+    for rel_path in platform_extra_cpp:
+        resolved_abs = None
+        for root in workload_roots_abs:
+            candidate = root / Path(rel_path)
+            if candidate.exists():
+                resolved_abs = candidate
+                break
+
+        if resolved_abs is None:
+            raise RuntimeError(
+                f"Could not resolve platform extra source '{rel_path}' from configured workload roots."
+            )
+
+        resolved_paths.append(_cmake_relpath(resolved_abs, start_dir))
+
+    return resolved_paths
 
 def generate_project_cmakelists(config) -> None:
     """Render and write .launcher/CMakeLists.txt for the given (project, model, target).
@@ -24,11 +62,18 @@ def generate_project_cmakelists(config) -> None:
     # Set platform macros based on target
     platform = getattr(config, "target", "linux")
     platform_macros = []
+    target_variant = str(
+        ((getattr(config, "model", {}) or {}).get("runtime") or {}).get("target_variant")
+        or ""
+    ).strip().lower()
     if platform.lower() == "linux":
         platform_macros.append("ROBOTICK_PLATFORM_DESKTOP")
         platform_macros.append("ROBOTICK_PLATFORM_LINUX")
     elif platform.lower() == "esp32":
         platform_macros.append("ROBOTICK_PLATFORM_ESP32")
+        platform_macros.append("ROBOTICK_PLATFORM_ESP32S3")
+        if target_variant == "esp32s3_m5":
+            platform_macros.append("ROBOTICK_PLATFORM_ESP32S3_M5")
 
     filename = "CMakeLists.txt"
     path = config.launcher_dir / filename
@@ -43,7 +88,7 @@ def generate_project_cmakelists(config) -> None:
         or engine_entry.get("path")
     )
     if engine_path:
-        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+        robotick_engine_root_abs = _resolve_project_mount_path(config, engine_path)
     else:
         raise RuntimeError("Engine repo/path not specified in runtime section.")
 
@@ -58,11 +103,11 @@ def generate_project_cmakelists(config) -> None:
                 entry,
             )
             continue
-        base_abs = config.resolve_project_path(base)
+        base_abs = _resolve_project_mount_path(config, base)
         root_paths = entry.get("root_paths") or []
         if root_paths:
             for rel in root_paths:
-                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+                workload_roots_abs.append(base_abs / Path(rel))
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
@@ -72,6 +117,9 @@ def generate_project_cmakelists(config) -> None:
     workload_roots_rel = [
         _cmake_relpath(root, cmakelists_dir) for root in workload_roots_abs
     ]
+    platform_extra_cpp = _resolve_platform_extra_cpp_paths(
+        config, workload_roots_abs, cmakelists_dir
+    )
 
     # ✏️ Template parameters — override with CLI args or config later
     context = {
@@ -80,7 +128,8 @@ def generate_project_cmakelists(config) -> None:
         "platform": platform,
         "robotick_engine_root": robotick_engine_root_rel,
         "workload_roots": workload_roots_rel,
-        "platform_macros": platform_macros
+        "platform_macros": platform_macros,
+        "platform_extra_cpp": platform_extra_cpp,
     }
 
     try:
@@ -121,11 +170,18 @@ def generate_component_cmakelists(config) -> None:
     # Set platform macros based on target
     platform = getattr(config, "target", "linux")
     platform_macros = []
+    target_variant = str(
+        ((getattr(config, "model", {}) or {}).get("runtime") or {}).get("target_variant")
+        or ""
+    ).strip().lower()
     if platform.lower() == "linux":
         platform_macros.append("ROBOTICK_PLATFORM_DESKTOP")
         platform_macros.append("ROBOTICK_PLATFORM_LINUX")
     elif platform.lower() == "esp32":
         platform_macros.append("ROBOTICK_PLATFORM_ESP32")
+        platform_macros.append("ROBOTICK_PLATFORM_ESP32S3")
+        if target_variant == "esp32s3_m5":
+            platform_macros.append("ROBOTICK_PLATFORM_ESP32S3_M5")
 
     filename = "CMakeLists.txt"
     path = config.launcher_dir / subdir / filename
@@ -140,7 +196,7 @@ def generate_component_cmakelists(config) -> None:
         or engine_entry.get("path")
     )
     if engine_path:
-        robotick_engine_root_abs = config.resolve_project_path(engine_path)
+        robotick_engine_root_abs = _resolve_project_mount_path(config, engine_path)
     else:
         raise RuntimeError("Engine repo/path not specified in runtime section.")
 
@@ -155,11 +211,11 @@ def generate_component_cmakelists(config) -> None:
                 entry,
             )
             continue
-        base_abs = config.resolve_project_path(base)
+        base_abs = _resolve_project_mount_path(config, base)
         root_paths = entry.get("root_paths") or []
         if root_paths:
             for rel in root_paths:
-                workload_roots_abs.append((base_abs / Path(rel)).resolve())
+                workload_roots_abs.append(base_abs / Path(rel))
         else:
             workload_roots_abs.append(base_abs)
     if not workload_roots_abs:
@@ -169,6 +225,9 @@ def generate_component_cmakelists(config) -> None:
     workload_roots_rel = [
         _cmake_relpath(root, cmakelists_dir) for root in workload_roots_abs
     ]
+    platform_extra_cpp = _resolve_platform_extra_cpp_paths(
+        config, workload_roots_abs, cmakelists_dir
+    )
 
     # ✏️ Template parameters — override with CLI args or config later
     context = {
@@ -177,7 +236,8 @@ def generate_component_cmakelists(config) -> None:
         "platform": platform,
         "robotick_engine_root": robotick_engine_root_rel,
         "workload_roots": workload_roots_rel,
-        "platform_macros": platform_macros
+        "platform_macros": platform_macros,
+        "platform_extra_cpp": platform_extra_cpp,
     }
 
     try:

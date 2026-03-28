@@ -115,16 +115,49 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
         {% endfor %}
     };
 
-    static const RemoteModelSeed remote_{{ remote.name_safe }}{
-        "{{ remote.name }}",
-        {{ remote.name_safe }}_connections
-    };
+    static const RemoteModelSeed remote_{{ remote.name_safe }} = []() {
+        RemoteModelSeed seed{
+            "{{ remote.name }}",
+            {{ remote.name_safe }}_connections
+        };
+        {% if remote.mode == "IP" %}
+        seed.comms_mode = RemoteModelSeed::Mode::IP;
+        {% elif remote.mode == "UART" %}
+        seed.comms_mode = RemoteModelSeed::Mode::UART;
+        {% elif remote.mode == "Local" %}
+        seed.comms_mode = RemoteModelSeed::Mode::Local;
+        {% endif %}
+        {% if remote.channel %}
+        seed.comms_channel = StringView("{{ remote.channel }}");
+        {% endif %}
+        return seed;
+    }();
     {% endfor %}
 
     static const RemoteModelSeed* const all_remote_models[] = {
         {% for remote in remote_models %}
         &remote_{{ remote.name_safe }}{% if not loop.last %}, {% endif %}
         
+        {% endfor %}
+    };
+    {% endif %}
+    {% if telemetry_peers %}
+
+    // === Telemetry peers (gateway mode) ===
+
+    {% for peer in telemetry_peers %}
+    static const TelemetryPeerSeed telemetry_peer_{{ peer.name_safe }}{
+        StringView("{{ peer.name }}"),
+        StringView("{{ peer.host }}"),
+        {{ peer.telemetry_port }},
+        {% if peer.is_gateway %}true{% else %}false{% endif %}
+    };
+    {% endfor %}
+
+    static const TelemetryPeerSeed* const all_telemetry_peers[] = {
+        {% for peer in telemetry_peers %}
+        &telemetry_peer_{{ peer.name_safe }}{% if not loop.last %}, {% endif %}
+
         {% endfor %}
     };
     {% endif %}
@@ -142,5 +175,11 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     model.set_root_workload({{config.model.root}});
     {% if telemetry and telemetry.port %}
     model.set_telemetry_port({{telemetry.port}});
+    {% endif %}
+    {% if telemetry and telemetry.is_gateway %}
+    model.set_telemetry_is_gateway(true);
+    {% endif %}
+    {% if telemetry_peers %}
+    model.use_telemetry_peer_seeds(all_telemetry_peers);
     {% endif %}
 }

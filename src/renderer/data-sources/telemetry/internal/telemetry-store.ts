@@ -50,6 +50,7 @@ export type TelemetryStore = {
     pollingRateHz: number,
     subscriber: SubscriberCallbacks
   ) => () => void;
+  getLatestModel: (baseUrl: string) => ITelemetryModel | null;
   reset: () => void;
 };
 
@@ -223,6 +224,9 @@ export function createTelemetryStore(
       entry.lastRaw = { buffer: raw, timestamp: Date.now(), sid };
       const model = getOrCreateModel(entry);
       if (!model) return;
+      if (hasSid) {
+        model.schemaSessionId = sid;
+      }
       model.raw = raw;
       notifySubscribers(entry, model);
     } catch (err) {
@@ -398,6 +402,24 @@ export function createTelemetryStore(
     };
   }
 
+  function getLatestModel(baseUrl: string): ITelemetryModel | null {
+    const entry = stores.get(baseUrl);
+    if (!entry) {
+      return null;
+    }
+    const model = getOrCreateModel(entry);
+    if (!model) {
+      return null;
+    }
+    if (entry.lastRaw) {
+      model.raw = entry.lastRaw.buffer;
+      if (entry.lastRaw.sid) {
+        model.schemaSessionId = entry.lastRaw.sid;
+      }
+    }
+    return model;
+  }
+
   function reset() {
     for (const entry of stores.values()) {
       stopPolling(entry);
@@ -410,6 +432,7 @@ export function createTelemetryStore(
 
   return {
     subscribeTelemetry,
+    getLatestModel,
     reset,
   };
 }
@@ -417,4 +440,5 @@ export function createTelemetryStore(
 const defaultTelemetryStore = createTelemetryStore();
 
 export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
+export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

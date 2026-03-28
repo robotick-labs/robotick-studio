@@ -87,7 +87,7 @@ export function createMockLauncherService(
     async requestLauncherRun() {},
     async requestLauncherStop() {},
     async fetchLauncherStatus() {
-      return { status: "stopped" };
+      return { status: "stopped", phase: null, models: {} };
     },
     getLauncherLogStreamUrl() {
       return "ws://mock/logs";

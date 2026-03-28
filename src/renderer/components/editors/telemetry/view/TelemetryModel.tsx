@@ -51,6 +51,7 @@ export function TelemetryModel({
   index: number;
 }) {
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
+  const pollRateOverrideKey = `telemetry-poll-rate-${urlToId(model.instanceURL)}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
@@ -60,6 +61,19 @@ export function TelemetryModel({
     }
     return index < 4; // default-open first 4 models
   });
+  const [pollRateOverrideText, setPollRateOverrideText] = useState<string>(() => {
+    try {
+      return localStorage.getItem(pollRateOverrideKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const preferredPollRateHz = model.preferredPollRateHz;
+  const parsedOverridePollRateHz = Number(pollRateOverrideText.trim());
+  const effectivePollRateHz =
+    Number.isFinite(parsedOverridePollRateHz) && parsedOverridePollRateHz > 0
+      ? parsedOverridePollRateHz
+      : preferredPollRateHz ?? 20;
 
   useEffect(() => {
     try {
@@ -69,9 +83,22 @@ export function TelemetryModel({
     }
   }, [isExpanded, storageKey]);
 
+  useEffect(() => {
+    try {
+      const trimmed = pollRateOverrideText.trim();
+      if (trimmed.length === 0) {
+        localStorage.removeItem(pollRateOverrideKey);
+      } else {
+        localStorage.setItem(pollRateOverrideKey, trimmed);
+      }
+    } catch {
+      // ignore storage failures so UI keeps working
+    }
+  }, [pollRateOverrideKey, pollRateOverrideText]);
+
   const { model: telemetryModel, error } = useTelemetryStream(
     isExpanded ? model.instanceURL : "",
-    20
+    effectivePollRateHz
   );
   const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
 
@@ -94,21 +121,48 @@ export function TelemetryModel({
 
   const handleToggle = () => setIsExpanded((prev) => !prev);
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
+  const stopInputPropagation = (e: React.SyntheticEvent) => e.stopPropagation();
 
   return (
-    <div className={styles.model} onClick={handleToggle}>
-      <h3 style={{ margin: 0 }}>{model.modelName}</h3>
+    <div className={styles.model}>
+      <div
+        onClick={handleToggle}
+        style={{ cursor: "pointer", marginBottom: isExpanded ? "0.5rem" : 0 }}
+      >
+        <h3 style={{ margin: 0 }}>{model.modelName}</h3>
 
-      <div className={styles.modelLabel} style={{ marginBottom: "4px" }}>
-        {model.modelPath} | {model.instanceURL}
-        {isExpanded && (
-          <>
-            {" | process memory: "}
-            {formatBytesWithCommas(processMemoryUsed)} bytes
-            {" | workloads memory: "}
-            {formatBytesWithCommas(workloadsMemoryUsed)} bytes
-          </>
-        )}
+        <div className={styles.modelLabel} style={{ marginBottom: "4px" }}>
+          {model.modelPath} | {model.instanceURL}
+          {isExpanded && (
+            <>
+              {" | process memory: "}
+              {formatBytesWithCommas(processMemoryUsed)} bytes
+              {" | workloads memory: "}
+              {formatBytesWithCommas(workloadsMemoryUsed)} bytes
+              {" | poll rate (Hz): "}
+              <input
+                id={`poll-rate-${urlToId(model.instanceURL)}`}
+                type="text"
+                inputMode="decimal"
+                className={styles.pollRateInput}
+                value={pollRateOverrideText}
+                placeholder={
+                  preferredPollRateHz ? String(preferredPollRateHz) : String(20)
+                }
+                onChange={(e) => setPollRateOverrideText(e.target.value)}
+                onClick={stopInputPropagation}
+                onFocus={stopInputPropagation}
+              />
+              {" "}
+              <span className={styles.pollRateInfo}>
+                using {effectivePollRateHz} Hz
+                {preferredPollRateHz
+                  ? ` (model hint ${preferredPollRateHz} Hz)`
+                  : " (default 20 Hz)"}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
       {isExpanded && (

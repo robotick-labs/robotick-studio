@@ -47,6 +47,7 @@ export function TelemetryApp() {
         modelName: model.modelName,
         modelPath: model.modelPath,
         instanceURL: model.telemetryBaseUrl,
+        preferredPollRateHz: model.preferredTelemetryPollRateHz,
         fieldConnectionHints: hintsByModelPath.get(model.modelPath) ?? {},
       }))
       .sort((a, b) => {
