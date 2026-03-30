@@ -68,6 +68,7 @@ describe("telemetry-store polling", () => {
       callback: fastCb,
     });
     await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(0);
     expect(fetchRaw).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(100);
@@ -188,6 +189,19 @@ describe("telemetry-store polling", () => {
 
     unsubscribe();
     await flushMicrotasks();
+  });
+
+  it("can preload layout without starting raw telemetry polling", async () => {
+    const ensuredModel = await store.ensureLayout("base");
+
+    expect(fetchLayout).toHaveBeenCalledTimes(1);
+    expect(fetchRaw).not.toHaveBeenCalled();
+    expect(createTelemetryModel).toHaveBeenCalledTimes(1);
+    expect(ensuredModel).toBe(store.getLatestModel("base"));
+
+    const ensuredAgain = await store.ensureLayout("base");
+    expect(fetchLayout).toHaveBeenCalledTimes(1);
+    expect(ensuredAgain).toBe(ensuredModel);
   });
 
   it("skips odd frame sequence telemetry samples", async () => {

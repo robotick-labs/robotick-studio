@@ -32,6 +32,7 @@ describe("RcSubtitlesOverlay", () => {
     });
     const telemetryService = {
       subscribeTelemetry,
+      ensureLayout: vi.fn(async () => null),
       setWorkloadInputFieldsData: vi.fn(),
       getLatestModel: vi.fn(() => null),
     };
@@ -104,6 +105,7 @@ describe("RcSubtitlesOverlay", () => {
     });
     const telemetryService = {
       subscribeTelemetry,
+      ensureLayout: vi.fn(async () => null),
       setWorkloadInputFieldsData: vi.fn(),
       getLatestModel: vi.fn(() => null),
     };

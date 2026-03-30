@@ -1,10 +1,15 @@
 import React, { createContext, useContext, useMemo } from "react";
-import { getLatestTelemetryModel, subscribeTelemetry } from "./telemetry-store";
+import {
+  ensureTelemetryLayout,
+  getLatestTelemetryModel,
+  subscribeTelemetry,
+} from "./telemetry-store";
 import { setWorkloadInputFieldsData } from "./telemetry-client";
 import type { ITelemetryModel } from "./telemetry-client";
 
 export interface TelemetryService {
   subscribeTelemetry: typeof subscribeTelemetry;
+  ensureLayout: typeof ensureTelemetryLayout;
   setWorkloadInputFieldsData: typeof setWorkloadInputFieldsData;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
 }
@@ -17,12 +22,14 @@ export function createTelemetryService(
   if (!overrides || Object.keys(overrides).length === 0) {
     return {
       subscribeTelemetry,
+      ensureLayout: ensureTelemetryLayout,
       setWorkloadInputFieldsData,
       getLatestModel: getLatestTelemetryModel,
     };
   }
   return {
     subscribeTelemetry,
+    ensureLayout: ensureTelemetryLayout,
     setWorkloadInputFieldsData,
     getLatestModel: getLatestTelemetryModel,
     ...overrides,

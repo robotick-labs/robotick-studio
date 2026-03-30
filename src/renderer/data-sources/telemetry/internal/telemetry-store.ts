@@ -28,6 +28,7 @@ type StoreEntry = {
   baseUrl: string;
   subscribers: Set<SubscriberEntry>;
   layout: LayoutModel | null;
+  layoutFetchPromise: Promise<LayoutModel | null> | null;
   model: ITelemetryModel | null;
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
   lastLayoutFetchSid: string;
@@ -50,6 +51,7 @@ export type TelemetryStore = {
     pollingRateHz: number,
     subscriber: SubscriberCallbacks
   ) => () => void;
+  ensureLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
   reset: () => void;
 };
@@ -118,6 +120,7 @@ export function createTelemetryStore(
         baseUrl,
         subscribers: new Set(),
         layout: null,
+        layoutFetchPromise: null,
         model: null,
         lastRaw: null,
         lastLayoutFetchSid: "",
@@ -167,11 +170,37 @@ export function createTelemetryStore(
     return entry.model;
   }
 
+  function fetchAndStoreLayout(entry: StoreEntry): Promise<LayoutModel | null> {
+    if (entry.layout) {
+      return Promise.resolve(entry.layout);
+    }
+
+    if (entry.layoutFetchPromise) {
+      return entry.layoutFetchPromise;
+    }
+
+    const layoutFetchPromise = enqueueFetch(() => fetchLayoutImpl(entry.baseUrl))
+      .then((layout) => {
+        if (layout) {
+          setEntryLayout(entry, layout);
+        }
+        return layout;
+      })
+      .finally(() => {
+        if (entry.layoutFetchPromise === layoutFetchPromise) {
+          entry.layoutFetchPromise = null;
+        }
+      });
+
+    entry.layoutFetchPromise = layoutFetchPromise;
+    return layoutFetchPromise;
+  }
+
   async function pollEntry(entry: StoreEntry) {
     if (telemetrySuspended) return;
     try {
       if (!entry.layout) {
-        const layout = await enqueueFetch(() => fetchLayoutImpl(entry.baseUrl));
+        const layout = await fetchAndStoreLayout(entry);
         if (layout) {
           setEntryLayout(entry, layout);
         }
@@ -396,10 +425,29 @@ export function createTelemetryStore(
       if (!current) return;
       current.subscribers.delete(subscriberEntry);
       updatePollingTimer(current);
-      if (current.subscribers.size === 0) {
+      if (
+        current.subscribers.size === 0 &&
+        !current.layout &&
+        !current.layoutFetchPromise &&
+        !current.lastRaw
+      ) {
         stores.delete(baseUrl);
       }
     };
+  }
+
+  async function ensureLayout(baseUrl: string): Promise<ITelemetryModel | null> {
+    if (!baseUrl) {
+      return null;
+    }
+
+    const entry = getOrCreateEntry(baseUrl);
+    const layout = await fetchAndStoreLayout(entry);
+    if (!layout) {
+      return null;
+    }
+
+    return getLatestModel(baseUrl);
   }
 
   function getLatestModel(baseUrl: string): ITelemetryModel | null {
@@ -432,6 +480,7 @@ export function createTelemetryStore(
 
   return {
     subscribeTelemetry,
+    ensureLayout,
     getLatestModel,
     reset,
   };
@@ -440,5 +489,6 @@ export function createTelemetryStore(
 const defaultTelemetryStore = createTelemetryStore();
 
 export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
+export const ensureTelemetryLayout = defaultTelemetryStore.ensureLayout;
 export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

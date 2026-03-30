@@ -97,8 +97,9 @@ export function TelemetryModel({
   }, [pollRateOverrideKey, pollRateOverrideText]);
 
   const { model: telemetryModel, error } = useTelemetryStream(
-    isExpanded ? model.instanceURL : "",
-    effectivePollRateHz
+    model.instanceURL,
+    effectivePollRateHz,
+    { active: isExpanded, ensureLayout: true }
   );
   const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
 
@@ -133,12 +134,16 @@ export function TelemetryModel({
 
         <div className={styles.modelLabel} style={{ marginBottom: "4px" }}>
           {model.modelPath} | {model.instanceURL}
-          {isExpanded && (
+          {latestModel && (
             <>
               {" | process memory: "}
               {formatBytesWithCommas(processMemoryUsed)} bytes
               {" | workloads memory: "}
               {formatBytesWithCommas(workloadsMemoryUsed)} bytes
+            </>
+          )}
+          {isExpanded && (
+            <>
               {" | poll rate (Hz): "}
               <input
                 id={`poll-rate-${urlToId(model.instanceURL)}`}
