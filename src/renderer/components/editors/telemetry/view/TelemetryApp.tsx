@@ -1,5 +1,5 @@
 // src/js/components/editors/telemetry/view/TelemetryApp.tsx
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { EngineModel } from "./types";
 import { TelemetryModel } from "./TelemetryModel";
 import {
@@ -9,6 +9,63 @@ import {
 } from "../../../../data-sources/launcher";
 import styles from "../Telemetry.module.css";
 import { buildFieldConnectionHintsByModelPath } from "./field-connections";
+import { useTelemetryService } from "../../../../data-sources/telemetry/internal/TelemetryService";
+
+export type ModelSortKey =
+  | "telemetry_port"
+  | "model_name"
+  | "model_path"
+  | "memory_process"
+  | "memory_workloads";
+
+function extractPort(url?: string): number {
+  if (!url) return 0;
+  try {
+    const parsed = new URL(url);
+    return parseInt(parsed.port || "0", 10);
+  } catch {
+    return 0;
+  }
+}
+
+function compareEngineModels(
+  left: EngineModel,
+  right: EngineModel,
+  sortKey: ModelSortKey,
+  getLatestMetrics: (
+    baseUrl: string,
+  ) => { processMemoryUsed: number; workloadsMemoryUsed: number },
+): number {
+  switch (sortKey) {
+    case "model_name":
+      return left.modelName.localeCompare(right.modelName);
+    case "model_path":
+      return left.modelPath.localeCompare(right.modelPath);
+    case "memory_process": {
+      const leftMetrics = getLatestMetrics(left.instanceURL);
+      const rightMetrics = getLatestMetrics(right.instanceURL);
+      const byProcess =
+        rightMetrics.processMemoryUsed - leftMetrics.processMemoryUsed;
+      if (byProcess !== 0) return byProcess;
+      return left.modelName.localeCompare(right.modelName);
+    }
+    case "memory_workloads": {
+      const leftMetrics = getLatestMetrics(left.instanceURL);
+      const rightMetrics = getLatestMetrics(right.instanceURL);
+      const byWorkloads =
+        rightMetrics.workloadsMemoryUsed - leftMetrics.workloadsMemoryUsed;
+      if (byWorkloads !== 0) return byWorkloads;
+      return left.modelName.localeCompare(right.modelName);
+    }
+    case "telemetry_port":
+    default: {
+      const portA = extractPort(left.instanceURL);
+      const portB = extractPort(right.instanceURL);
+      if (portA !== portB) return portA - portB;
+      return (left.instanceURL || "").localeCompare(right.instanceURL || "");
+    }
+  }
+}
 
 /**
  * Render the telemetry UI for the current project, showing status messages or a list of telemetry models.
@@ -17,22 +74,37 @@ import { buildFieldConnectionHintsByModelPath } from "./field-connections";
  *
  * @returns A React element that displays either a prompt/status message or a list of TelemetryModel components for the current project
  */
-export function TelemetryApp() {
+export function TelemetryApp({ modelSortKey }: { modelSortKey: ModelSortKey }) {
   const { projectPath } = Project.Context.use();
   const { status } = Launcher.Context.use();
   const { projectModels } = ProjectData.use();
+  const telemetryService = useTelemetryService();
+  const [layoutRevision, setLayoutRevision] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const telemetryBaseUrls = projectModels.data
+      .map((model) => model.telemetryBaseUrl)
+      .filter((url): url is string => Boolean(url));
+    if (telemetryBaseUrls.length === 0) {
+      return;
+    }
+
+    for (const baseUrl of telemetryBaseUrls) {
+      void telemetryService.ensureLayout(baseUrl).then(() => {
+        if (cancelled) {
+          return;
+        }
+        setLayoutRevision((prev) => prev + 1);
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectModels.data, telemetryService]);
 
   const engineModels = useMemo<EngineModel[]>(() => {
-    const extractPort = (url?: string): number => {
-      if (!url) return 0;
-      try {
-        const parsed = new URL(url);
-        return parseInt(parsed.port || "0", 10);
-      } catch {
-        return 0;
-      }
-    };
-
     const hintsByModelPath = buildFieldConnectionHintsByModelPath(
       projectModels.data.map((model) => ({
         modelPath: model.modelPath,
@@ -50,13 +122,16 @@ export function TelemetryApp() {
         preferredPollRateHz: model.preferredTelemetryPollRateHz,
         fieldConnectionHints: hintsByModelPath.get(model.modelPath) ?? {},
       }))
-      .sort((a, b) => {
-        const portA = extractPort(a.instanceURL);
-        const portB = extractPort(b.instanceURL);
-        if (portA !== portB) return portA - portB;
-        return (a.instanceURL || "").localeCompare(b.instanceURL || "");
-      });
-  }, [projectModels.data]);
+      .sort((a, b) =>
+        compareEngineModels(a, b, modelSortKey, (baseUrl) => {
+          const latest = telemetryService.getLatestModel(baseUrl);
+          return {
+            processMemoryUsed: latest?.process_memory_used ?? -1,
+            workloadsMemoryUsed: latest?.workloads_buffer_size_used ?? -1,
+          };
+        }),
+      );
+  }, [layoutRevision, modelSortKey, projectModels.data, telemetryService]);
 
   if (!projectPath) {
     return <p>Select a project to view telemetry.</p>;

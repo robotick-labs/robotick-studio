@@ -17,7 +17,12 @@ vi.mock(
 vi.mock(
   "../../../../renderer/components/editors/telemetry/view/TelemetryWorkload",
   () => ({
-    TelemetryWorkload: () => <tr data-testid="telemetry-workload-row" />,
+    TelemetryWorkload: ({ w }: { w: { name: string; type: string } }) => (
+      <tr data-testid="telemetry-workload-row" data-workload-name={w.name}>
+        <td>{w.name}</td>
+        <td>{w.type}</td>
+      </tr>
+    ),
   })
 );
 
@@ -85,6 +90,101 @@ describe("TelemetryModel", () => {
       "workloads memory: 123,456 bytes"
     );
     expect(tree.container.querySelector("table")).toBeNull();
+
+    tree.unmount();
+  });
+
+  it("defaults to model order and can opt into layout-driven sorting", () => {
+    localStorage.setItem("telemetry-expanded-http___example_test_7100", "true");
+
+    useTelemetryStream.mockReturnValue({
+      model: {
+        workloads: [
+          {
+            name: "zeta",
+            type: "BravoType",
+            workloadsBufferTotalBytes: 400,
+            workloadsBufferStaticBytes: 350,
+            workloadsBufferDynamicBytes: 50,
+          },
+          {
+            name: "alpha",
+            type: "ZuluType",
+            workloadsBufferTotalBytes: 300,
+            workloadsBufferStaticBytes: 300,
+            workloadsBufferDynamicBytes: 0,
+          },
+          {
+            name: "mike",
+            type: "AlphaType",
+            workloadsBufferTotalBytes: 200,
+            workloadsBufferStaticBytes: 150,
+            workloadsBufferDynamicBytes: 50,
+          },
+        ],
+        raw: null,
+        schemaSessionId: "sid",
+        workloads_buffer_size_used: 600,
+        process_memory_used: 900,
+      },
+      error: null,
+      revision: 0,
+    });
+
+    const tree = render(
+      <TelemetryModel
+        model={{
+          modelName: "Face",
+          modelPath: "robots/example/face.model.yaml",
+          instanceURL: "http://example.test:7100",
+          preferredPollRateHz: 10,
+          fieldConnectionHints: {},
+        }}
+        index={10}
+      />,
+    );
+
+    const rows = Array.from(
+      tree.container.querySelectorAll("[data-testid='telemetry-workload-row']"),
+    );
+    expect(rows.map((row) => row.getAttribute("data-workload-name"))).toEqual([
+      "zeta",
+      "alpha",
+      "mike",
+    ]);
+
+    const sortSelect = tree.container.querySelector(
+      "#workload-sort-http___example_test_7100",
+    ) as HTMLSelectElement | null;
+    expect(sortSelect).not.toBeNull();
+    expect(sortSelect?.value).toBe("none");
+    expect(sortSelect?.className).toContain("telemetryTableControlSelectOff");
+    expect(Array.from(sortSelect?.options ?? []).map((option) => option.text)).toEqual([
+      "-",
+      "Unique Name",
+      "Workload Type",
+      "Memory - Total",
+      "Memory - Static",
+      "Memory - Dynamic",
+    ]);
+
+    act(() => {
+      if (sortSelect) {
+        sortSelect.value = "unique_name";
+        sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    const reorderedRows = Array.from(
+      tree.container.querySelectorAll("[data-testid='telemetry-workload-row']"),
+    );
+    expect(
+      reorderedRows.map((row) => row.getAttribute("data-workload-name")),
+    ).toEqual(["alpha", "mike", "zeta"]);
+
+    expect(sortSelect?.className).not.toContain(
+      "telemetryTableControlSelectOff",
+    );
 
     tree.unmount();
   });

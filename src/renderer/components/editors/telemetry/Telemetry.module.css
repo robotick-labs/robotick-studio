@@ -24,6 +24,33 @@
   padding-bottom: 0.5rem;
 }
 
+.panelHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panelHeaderControlLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.panelHeaderControlSelect {
+  min-width: 180px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-surface-base);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
 .container h3 {
   margin-bottom: 0;
 }
@@ -53,11 +80,53 @@
   border-color: var(--app-model-hover-border);
 }
 
+.modelHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelHeaderControl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
   margin: 20px;
+}
+
+.telemetryTableControlLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.telemetryTableControlSelect {
+  min-width: 180px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-surface-base);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.telemetryTableControlSelectOff {
+  border-style: dashed;
+  background: var(--app-panel-soft);
+  color: var(--app-text-muted);
+  opacity: 0.85;
+  font-style: italic;
 }
 
 .table th,
@@ -83,6 +152,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.memoryMeta {
+  color: var(--app-text-muted);
+  font-size: 0.8rem;
 }
 
 .usageBlue {
