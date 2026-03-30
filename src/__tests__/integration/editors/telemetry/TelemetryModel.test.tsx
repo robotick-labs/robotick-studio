@@ -158,7 +158,6 @@ describe("TelemetryModel", () => {
     ) as HTMLSelectElement | null;
     expect(sortSelect).not.toBeNull();
     expect(sortSelect?.value).toBe("none");
-    expect(sortSelect?.className).toContain("telemetryTableControlSelectOff");
     expect(Array.from(sortSelect?.options ?? []).map((option) => option.text)).toEqual([
       "-",
       "Unique Name",
@@ -181,10 +180,6 @@ describe("TelemetryModel", () => {
     expect(
       reorderedRows.map((row) => row.getAttribute("data-workload-name")),
     ).toEqual(["alpha", "mike", "zeta"]);
-
-    expect(sortSelect?.className).not.toContain(
-      "telemetryTableControlSelectOff",
-    );
 
     tree.unmount();
   });

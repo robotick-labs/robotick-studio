@@ -121,14 +121,6 @@
   font-weight: bold;
 }
 
-.telemetryTableControlSelectOff {
-  border-style: dashed;
-  background: var(--app-panel-soft);
-  color: var(--app-text-muted);
-  opacity: 0.85;
-  font-style: italic;
-}
-
 .table th,
 .table td {
   padding: 0.6rem 0.8rem;

@@ -205,11 +205,7 @@ export function TelemetryModel({
                 Sort workloads by:
                 <select
                   id={`workload-sort-${urlToId(model.instanceURL)}`}
-                  className={`${styles.telemetryTableControlSelect} ${
-                    workloadSortKey === "none"
-                      ? styles.telemetryTableControlSelectOff
-                      : ""
-                  }`}
+                  className={styles.telemetryTableControlSelect}
                   value={workloadSortKey}
                   onChange={(e) =>
                     setWorkloadSortKey(e.target.value as WorkloadSortKey)
