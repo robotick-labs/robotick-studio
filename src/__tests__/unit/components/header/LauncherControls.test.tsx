@@ -67,7 +67,7 @@ describe("LauncherControls", () => {
     unmount();
   });
 
-  it("disables the play button while a run request is in-flight", () => {
+  it("keeps the stop button available while a run request is in-flight", () => {
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "launching" as LauncherStatus,
@@ -78,7 +78,26 @@ describe("LauncherControls", () => {
     const { container, unmount } = renderControl();
     const buttons = container.querySelectorAll("button");
     expect(buttons[0]).not.toBeUndefined();
-    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].disabled).toBe(false);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Stop launcher");
+    expect(buttons[0].textContent).toContain("⏹");
+    unmount();
+  });
+
+  it("keeps the stop button visible while restart is pending", () => {
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "launching" as LauncherStatus,
+      reportedStatus: "stopped",
+      isBusy: false,
+      isAwaitingStatus: true,
+    });
+    const { container, unmount } = renderControl();
+    const buttons = container.querySelectorAll("button");
+    expect(buttons[0]).not.toBeUndefined();
+    expect(buttons[0].disabled).toBe(false);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Stop launcher");
+    expect(buttons[0].textContent).toContain("⏹");
     unmount();
   });
 

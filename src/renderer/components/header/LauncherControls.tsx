@@ -8,7 +8,6 @@ const useLauncherContext = Launcher.Context.use;
 export function LauncherControls() {
   const {
     status,
-    reportedStatus,
     isBusy,
     isAwaitingStatus,
     isRobotAlive,
@@ -20,16 +19,14 @@ export function LauncherControls() {
     restart,
   } = useLauncherContext();
   const isRunning = status === "running";
-  const serverRunning = reportedStatus === "running";
-  const serverLaunching = reportedStatus === "launching";
-  const serverActive = serverRunning || serverLaunching;
+  const controlActive = status !== "stopped";
   const canRestart = isRunning && !isBusy;
   const controlsDisabled = isBusy || isAwaitingStatus;
-  const toggleDisabled = serverActive ? isBusy : controlsDisabled;
+  const toggleDisabled = status === "stopping" ? true : !controlActive && controlsDisabled;
   const tooltipSummary = buildTooltipSummary(launcherModels, modelHealth);
 
   async function handleToggle() {
-    if (serverActive) {
+    if (controlActive) {
       await stop();
     } else {
       await run();
@@ -46,16 +43,16 @@ export function LauncherControls() {
       <button
         type="button"
         className={styles.control}
-        aria-label={serverActive ? "Stop launcher" : "Start launcher"}
+        aria-label={controlActive ? "Stop launcher" : "Start launcher"}
         onClick={handleToggle}
         disabled={toggleDisabled}
       >
         <span
           className={`${styles.icon} ${
-            serverActive ? styles.iconStop : styles.iconPlay
+            controlActive ? styles.iconStop : styles.iconPlay
           }`}
         >
-          {serverActive ? "⏹" : "▶"}
+          {controlActive ? "⏹" : "▶"}
         </span>
       </button>
 
