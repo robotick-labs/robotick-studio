@@ -24,6 +24,10 @@ PY
 )"
 LAUNCHER_SPEC="robotick-launcher[dev] @ ${LAUNCHER_URI}"
 
+if [ "${ROBOTICK_SKIP_LAUNCHER_FIXTURE_SYNC:-0}" != "1" ]; then
+  "$ROOT/tools/robotick-launcher/tests/sync-fixtures.sh"
+fi
+
 pip install --upgrade pip >/dev/null
 pip install -e "$LAUNCHER_SPEC" >/dev/null
 

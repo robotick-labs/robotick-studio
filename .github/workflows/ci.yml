@@ -38,8 +38,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Test setup
         uses: ./.github/actions/test-setup
@@ -76,21 +74,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Checkout robotick-engine
-        uses: actions/checkout@v4
-        with:
-          repository: robotick-labs/robotick-engine
-          ref: dev
-          path: tools/robotick-launcher/tests/test_data/robotick/robotick-engine
-          submodules: recursive
-
-      - name: Checkout robotick-core-workloads
-        uses: actions/checkout@v4
-        with:
-          repository: robotick-labs/robotick-core-workloads
-          ref: dev
-          path: tools/robotick-launcher/tests/test_data/robotick/robotick-core-workloads
-          submodules: recursive
+      - name: Sync launcher test fixtures
+        run: tools/robotick-launcher/tests/sync-fixtures.sh
 
       - name: Set up Python
         uses: actions/setup-python@v5
