@@ -14,6 +14,7 @@ import typer
 import yaml
 
 from robotick.launcher.utils import (
+    _pid_is_active,
     find_local_process_ids_for_binary,
     get_launcher_paths,
     run_subprocess,
@@ -103,19 +104,6 @@ def _collect_descendant_pids(pid: int) -> list[int]:
             descendants.append(child)
             stack.append(child)
     return descendants
-
-
-def _pid_is_active(pid: int) -> bool:
-    try:
-        stat_fields = Path(f"/proc/{pid}/stat").read_text().split()
-    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
-        return False
-
-    if len(stat_fields) < 3:
-        return False
-
-    return stat_fields[2] != "Z"
-
 
 def _stop_local_launcher_helper(pid: int) -> None:
     if pid <= 0:

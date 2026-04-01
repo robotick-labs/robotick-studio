@@ -173,6 +173,11 @@ describe("TelemetryModel", () => {
         sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
+    expect(
+      localStorage.getItem(
+        "telemetry-workload-sort-http___example_test_7100-robots_example_face_model_yaml",
+      ),
+    ).toBe("unique_name");
 
     const reorderedRows = Array.from(
       tree.container.querySelectorAll("[data-testid='telemetry-workload-row']"),

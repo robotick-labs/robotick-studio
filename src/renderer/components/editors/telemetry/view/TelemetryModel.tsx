@@ -82,9 +82,10 @@ export function TelemetryModel({
   model: EngineModel;
   index: number;
 }) {
+  const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const pollRateOverrideKey = `telemetry-poll-rate-${urlToId(model.instanceURL)}`;
-  const workloadSortKeyStorageKey = `telemetry-workload-sort-${urlToId(model.instanceURL)}`;
+  const workloadSortKeyStorageKey = `telemetry-workload-sort-${modelStorageId}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(storageKey);

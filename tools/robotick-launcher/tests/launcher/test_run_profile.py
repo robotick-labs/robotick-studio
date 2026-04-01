@@ -151,11 +151,6 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
         "_wait_for_run_readiness",
         lambda launched_models, run_proc_map, model_health_urls, status_queue: launched_models,
     )
-    monkeypatch.setattr(
-        run_profile_module,
-        "_wait_for_run_readiness",
-        lambda launched_models, run_proc_map, model_health_urls, status_queue: launched_models,
-    )
 
     commands: list[list[str]] = []
 

@@ -29,6 +29,7 @@ export type LauncherModelHealth = {
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
+const RESTART_STOP_WAIT_TIMEOUT_MS = 10000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -287,8 +288,23 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
     await requestStop(false);
 
+    const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
     while (restartGenerationRef.current === generation) {
-      const snapshot = await readLauncherStatus(launcherService);
+      if (Date.now() >= restartStopWaitDeadline) {
+        const message = "Timed out waiting for the launcher to stop during restart.";
+        setLastError(message);
+        setPendingTarget(null);
+        setRestartPending(false);
+        throw new Error(message);
+      }
+
+      let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
+      try {
+        snapshot = await readLauncherStatus(launcherService);
+      } catch {
+        await sleep(100);
+        continue;
+      }
       if (snapshot.status === "stopped") {
         break;
       }

@@ -95,12 +95,20 @@ export function TelemetryApp({
     }
 
     for (const baseUrl of telemetryBaseUrls) {
-      void telemetryService.ensureLayout(baseUrl).then(() => {
-        if (cancelled) {
-          return;
-        }
-        setLayoutRevision((prev) => prev + 1);
-      });
+      void telemetryService
+        .ensureLayout(baseUrl)
+        .then(() => {
+          if (cancelled) {
+            return;
+          }
+          setLayoutRevision((prev) => prev + 1);
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          console.warn(`[telemetry] Failed to warm layout for ${baseUrl}`, error);
+        });
     }
 
     return () => {

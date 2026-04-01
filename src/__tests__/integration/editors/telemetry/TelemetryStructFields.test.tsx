@@ -21,6 +21,9 @@ function render(node: React.ReactElement) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  act(() => {
+    root.render(node);
+  });
   return {
     container,
     render(nextNode: React.ReactElement) {
