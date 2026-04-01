@@ -74,7 +74,11 @@ function compareEngineModels(
  *
  * @returns A React element that displays either a prompt/status message or a list of TelemetryModel components for the current project
  */
-export function TelemetryApp({ modelSortKey }: { modelSortKey: ModelSortKey }) {
+export function TelemetryApp({
+  modelSortKey = "telemetry_port",
+}: {
+  modelSortKey?: ModelSortKey;
+}) {
   const { projectPath } = Project.Context.use();
   const { status } = Launcher.Context.use();
   const { projectModels } = ProjectData.use();

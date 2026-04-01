@@ -473,6 +473,7 @@ async def stop_launcher():
         with status_lock:
             already_stopped = current_status.get("status") == "stopped"
         if already_stopped and not process_handle:
+            _set_stopped_status()
             return {"status": "stopped"}
 
         _set_stopping_status()
