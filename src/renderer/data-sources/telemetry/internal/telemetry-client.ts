@@ -104,6 +104,9 @@ export interface ITelemetryStruct {
 export interface ITelemetryWorkload {
   name: string;
   type: string;
+  workloadsBufferTotalBytes: number;
+  workloadsBufferStaticBytes: number;
+  workloadsBufferDynamicBytes: number;
   stats?: ITelemetryStruct;
   config?: ITelemetryStruct;
   inputs?: ITelemetryStruct;
@@ -486,6 +489,11 @@ export function readValue(
 // -----------------------------------------------------------------------------
 
 namespace TelemetryFactory {
+  interface ByteRange {
+    start: number;
+    end: number;
+  }
+
   // Reader service kept in the factory; FieldImpl calls back into it.
   interface Reader {
     getLeaf(
@@ -507,6 +515,188 @@ namespace TelemetryFactory {
       count: number,
       strideBytes: number,
     ): Record<string, unknown>[];
+  }
+
+  function pushRange(
+    ranges: ByteRange[],
+    start: number,
+    size: number,
+    clipStart = Number.NEGATIVE_INFINITY,
+    clipEnd = Number.POSITIVE_INFINITY,
+  ) {
+    if (!Number.isFinite(start) || !Number.isFinite(size) || size <= 0) {
+      return;
+    }
+
+    const clippedStart = Math.max(start, clipStart);
+    const clippedEnd = Math.min(start + size, clipEnd);
+    if (!Number.isFinite(clippedStart) || !Number.isFinite(clippedEnd)) {
+      return;
+    }
+    if (clippedEnd <= clippedStart) {
+      return;
+    }
+
+    ranges.push({ start: clippedStart, end: clippedEnd });
+  }
+
+  function measureUnion(ranges: ByteRange[]): number {
+    if (ranges.length === 0) {
+      return 0;
+    }
+
+    const ordered = [...ranges].sort((a, b) => a.start - b.start);
+    let total = 0;
+    let currentStart = ordered[0]!.start;
+    let currentEnd = ordered[0]!.end;
+
+    for (let i = 1; i < ordered.length; i++) {
+      const range = ordered[i]!;
+      if (range.start <= currentEnd) {
+        currentEnd = Math.max(currentEnd, range.end);
+        continue;
+      }
+
+      total += currentEnd - currentStart;
+      currentStart = range.start;
+      currentEnd = range.end;
+    }
+
+    total += currentEnd - currentStart;
+    return total;
+  }
+
+  function collectDynamicRanges(
+    typeMap: ReadonlyMap<string, LayoutType>,
+    typeName: string,
+    baseOffset: number,
+    inlineContainerStart: number,
+    inlineContainerEnd: number,
+    outRanges: ByteRange[],
+    visited: Set<string>,
+  ) {
+    const visitKey = `${typeName}@${baseOffset}`;
+    if (visited.has(visitKey)) {
+      return;
+    }
+    visited.add(visitKey);
+
+    const type = typeMap.get(typeName);
+    if (!type?.fields?.length) {
+      return;
+    }
+
+    for (const field of type.fields) {
+      const fieldType = typeMap.get(field.type);
+      if (!fieldType) {
+        continue;
+      }
+
+      const elementCount = Math.max(1, field.element_count ?? 1);
+      const elementStride = Math.max(0, fieldType.size ?? 0);
+      const fieldBase = baseOffset + field.offset_within_container;
+      const totalFieldSize = elementStride * elementCount;
+
+      if (totalFieldSize > 0) {
+        pushRange(
+          outRanges,
+          fieldBase,
+          totalFieldSize,
+          Number.NEGATIVE_INFINITY,
+          inlineContainerStart,
+        );
+        pushRange(
+          outRanges,
+          fieldBase,
+          totalFieldSize,
+          inlineContainerEnd,
+          Number.POSITIVE_INFINITY,
+        );
+      }
+
+      if (!fieldType.fields?.length || elementStride <= 0) {
+        continue;
+      }
+
+      for (let index = 0; index < elementCount; index++) {
+        const childBase = fieldBase + index * elementStride;
+        collectDynamicRanges(
+          typeMap,
+          field.type,
+          childBase,
+          childBase,
+          childBase + elementStride,
+          outRanges,
+          visited,
+        );
+      }
+    }
+  }
+
+  function computeWorkloadMemoryBytes(
+    workload: LayoutWorkload,
+    typeMap: ReadonlyMap<string, LayoutType>,
+  ): {
+    totalBytes: number;
+    staticBytes: number;
+    dynamicBytes: number;
+  } {
+    const statsTypeSize = Math.max(
+      0,
+      typeMap.get("WorkloadInstanceStats")?.size ?? 0,
+    );
+
+    const staticRanges: ByteRange[] = [];
+    const dynamicRanges: ByteRange[] = [];
+    const roots = [
+      {
+        struct: workload.config,
+        base: workload.offset_within_container,
+      },
+      {
+        struct: workload.inputs,
+        base: workload.offset_within_container,
+      },
+      {
+        struct: workload.outputs,
+        base: workload.offset_within_container,
+      },
+    ];
+    for (const root of roots) {
+      if (!root.struct) {
+        continue;
+      }
+
+      const rootTypeSize = Math.max(0, typeMap.get(root.struct.type)?.size ?? 0);
+      if (rootTypeSize <= 0) {
+        continue;
+      }
+
+      const rootBase = root.base + root.struct.offset_within_container;
+      pushRange(staticRanges, rootBase, rootTypeSize);
+
+      collectDynamicRanges(
+        typeMap,
+        root.struct.type,
+        rootBase,
+        rootBase,
+        rootBase + rootTypeSize,
+        dynamicRanges,
+        new Set<string>(),
+      );
+    }
+
+    if (statsTypeSize > 0) {
+      pushRange(staticRanges, workload.stats_offset_within_container, statsTypeSize);
+    }
+
+    const staticBytes = measureUnion(staticRanges);
+    const dynamicBytes = measureUnion(dynamicRanges);
+    return {
+      totalBytes: staticBytes + dynamicBytes,
+      staticBytes,
+      dynamicBytes,
+    };
   }
 
   /**
@@ -671,7 +861,14 @@ namespace TelemetryFactory {
     const workloads: ITelemetryWorkload[] = [];
     for (const wl of layout.workloads) {
       const base = wl.offset_within_container;
-      const d: ITelemetryWorkload = { name: wl.name, type: wl.type };
+      const memoryBytes = computeWorkloadMemoryBytes(wl, typeMap);
+      const d: ITelemetryWorkload = {
+        name: wl.name,
+        type: wl.type,
+        workloadsBufferTotalBytes: memoryBytes.totalBytes,
+        workloadsBufferStaticBytes: memoryBytes.staticBytes,
+        workloadsBufferDynamicBytes: memoryBytes.dynamicBytes,
+      };
 
       if (wl.config) {
         d.config = buildStruct(

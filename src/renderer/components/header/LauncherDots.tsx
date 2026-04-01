@@ -11,7 +11,7 @@ import {
 /**
  * Render a launcher status indicator that displays animated dots or a flatline.
  *
- * @param status - Controls the indicator's visual state: shows cycling active dots when `"launching"`, heartbeat styles when `"running"`, and (when `"running"` and `robotAlive` is `false`) a flatline after a 5000ms delay.
+ * @param status - Controls the indicator's visual state: shows cycling active dots when `"launching"` or `"stopping"`, heartbeat styles when `"running"`, and (when `"running"` and `robotAlive` is `false`) a flatline after a 5000ms delay.
  * @param robotAlive - Whether the robot is currently alive; when `false` and `status` is `"running"`, enables the delayed transition to the flatline view.
  * @returns The JSX element representing the launcher indicator (dots or flatline).
  */
@@ -36,7 +36,7 @@ export function LauncherDots({
   }, [status]);
 
   useEffect(() => {
-    if (status !== "launching") return;
+    if (status !== "launching" && status !== "stopping") return;
     const id = setIntervalSafe(() => {
       setActiveIndex((prev) => (prev + 1) % 3);
     }, 500);
@@ -100,7 +100,10 @@ export function LauncherDots({
         {[0, 1, 2].map((index) => {
           const dotClasses = [styles.dot];
 
-          if (status === "launching" && index === activeIndex) {
+          if (
+            (status === "launching" || status === "stopping") &&
+            index === activeIndex
+          ) {
             dotClasses.push(styles.dotActive);
           } else if (status === "running") {
             dotClasses.push(

@@ -27,6 +27,7 @@ _mp_ctx = mp.get_context("spawn")
 process_handle: Optional[mp.Process] = None
 status_queue: Optional[mp.Queue] = None
 status_thread: Optional[threading.Thread] = None
+stop_thread: Optional[threading.Thread] = None
 current_profile: Optional[str] = None
 current_project_path: Optional[Path] = None
 current_run_started_at: Optional[float] = None
@@ -108,6 +109,12 @@ def _set_stopped_status() -> None:
         )
 
 
+def _set_stopping_status() -> None:
+    with status_lock:
+        current_status["status"] = "stopping"
+        current_status["phase"] = "stop"
+
+
 def _format_elapsed_since_run_start() -> str:
     if current_run_started_at is None:
         return "00:00:00.000"
@@ -126,8 +133,11 @@ def _apply_status_event(message: Dict[str, Any]):
         phase = message.get("phase")
         phase_status = message.get("status")
         with status_lock:
+            is_stopping = current_status.get("status") == "stopping"
+            if is_stopping and phase_status not in ("failed", "error"):
+                return
             current_status["phase"] = phase
-            if phase == "run" and phase_status in ("starting", "in_progress"):
+            if phase == "run" and phase_status in ("in_progress", "ready"):
                 current_status["status"] = "running"
             elif phase_status in ("completed", "ok"):
                 if phase == "run":
@@ -159,10 +169,16 @@ def _apply_status_event(message: Dict[str, Any]):
             )
             if "returncode" in message:
                 model_entry["returncode"] = message["returncode"]
+            if "pid" in message:
+                model_entry["pid"] = message["pid"]
+            if "shared" in message:
+                model_entry["shared"] = message["shared"]
             if message.get("detail"):
                 model_entry["detail"] = message["detail"]
     elif event == "result":
         with status_lock:
+            if current_status.get("status") == "stopping":
+                return
             current_status["result"] = message.get("result")
             if current_status.get("status") not in ("error",):
                 current_status["status"] = message.get("result", {}).get(
@@ -170,6 +186,8 @@ def _apply_status_event(message: Dict[str, Any]):
                 )
     elif event == "error":
         with status_lock:
+            if current_status.get("status") == "stopping":
+                return
             current_status["status"] = "error"
             current_status["detail"] = message.get("detail")
 
@@ -240,8 +258,74 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
     if queue_to_close:
         queue_to_close.close()
 
-    if current_status.get("status") not in ("error", "completed"):
+    if current_status.get("status") not in ("error", "completed", "stopping"):
         _set_stopped_status()
+    _close_log_subscribers()
+
+
+def _tracked_helper_pids() -> dict[str, int]:
+    with status_lock:
+        models = copy.deepcopy(current_status.get("models") or {})
+    helper_pids: dict[str, int] = {}
+    for model_id, entry in models.items():
+        pid = entry.get("pid")
+        if isinstance(pid, int) and pid > 0:
+            helper_pids[model_id] = pid
+    return helper_pids
+
+
+def _stop_launcher_worker() -> None:
+    global process_handle, status_queue, status_thread, stop_thread, current_profile, current_project_path, current_run_started_at, log_loop
+
+    with lifecycle_lock:
+        proc = process_handle
+        queue = status_queue
+        thread = status_thread
+        profile = current_profile
+        project_path = current_project_path
+        helper_pids = _tracked_helper_pids()
+        process_handle = None
+        status_queue = None
+        status_thread = None
+        current_profile = None
+        current_project_path = None
+        current_run_started_at = None
+        log_loop = None
+
+    if profile and project_path:
+        try:
+            run_profile_module.stop_profile(
+                project=project_path.name.removesuffix(".project.yaml"),
+                profile=profile,
+                base_dir=project_path.parent,
+                helper_pids=helper_pids,
+            )
+        except Exception as exc:
+            print(f"[Launcher] Best-effort profile stop failed: {exc}")
+
+    if proc and proc.is_alive():
+        proc.terminate()
+        proc.join(timeout=3)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(timeout=1)
+
+    if queue:
+        try:
+            queue.put_nowait(None)
+        except Exception:
+            pass
+        finally:
+            queue.close()
+
+    if thread and thread.is_alive():
+        thread.join(timeout=1)
+
+    _set_stopped_status()
+    _close_log_subscribers()
+
+    with lifecycle_lock:
+        stop_thread = None
 
 
 def _run_profile_worker(
@@ -301,11 +385,13 @@ async def run_launcher(
         ..., description="Launcher profile string, e.g. 'local:model-id' or 'native:model-id'"
     ),
 ):
-    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
+    global process_handle, status_queue, status_thread, stop_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
     print(f"[Launcher] Requested run: {project_path=} | {profile=}")
 
     with lifecycle_lock:
+        if stop_thread and stop_thread.is_alive():
+            return {"status": "stopping"}
         if process_handle and process_handle.is_alive():
             return {"status": "already running"}
 
@@ -376,54 +462,28 @@ async def run_launcher(
 
 @router.post("/stop")
 async def stop_launcher():
-    global process_handle, status_queue, status_thread, current_profile, current_project_path, current_run_started_at, log_loop
+    global stop_thread
 
     print("[Launcher] Requested stop")
 
     with lifecycle_lock:
-        proc = process_handle
-        queue = status_queue
-        thread = status_thread
-        profile = current_profile
-        project_path = current_project_path
-        process_handle = None
-        status_queue = None
-        status_thread = None
-        current_profile = None
-        current_project_path = None
-        current_run_started_at = None
-        log_loop = None
+        if stop_thread and stop_thread.is_alive():
+            return {"status": "stopping"}
 
-    _close_log_subscribers()
+        with status_lock:
+            already_stopped = current_status.get("status") == "stopped"
+        if already_stopped and not process_handle:
+            _set_stopped_status()
+            return {"status": "stopped"}
 
-    if profile and project_path:
-        try:
-            run_profile_module.stop_profile(
-                project=project_path.name.removesuffix(".project.yaml"),
-                profile=profile,
-                base_dir=project_path.parent,
-            )
-        except Exception as exc:
-            print(f"[Launcher] Best-effort profile stop failed: {exc}")
+        _set_stopping_status()
+        stop_thread = threading.Thread(
+            target=_stop_launcher_worker,
+            daemon=True,
+        )
+        stop_thread.start()
 
-    if proc and proc.is_alive():
-        proc.terminate()
-        proc.join(timeout=3)
-
-    if queue:
-        try:
-            queue.put_nowait(None)
-        except Exception:
-            pass
-        finally:
-            queue.close()
-
-    if thread and thread.is_alive():
-        thread.join(timeout=1)
-
-    _set_stopped_status()
-
-    return {"status": "stopped"}
+    return {"status": "stopping"}
 
 
 @router.get("/status")

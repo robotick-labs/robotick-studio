@@ -6,30 +6,62 @@ import {
   ITelemetryModel,
 } from "../../../../data-sources/telemetry";
 import styles from "../Telemetry.module.css";
+import { formatBytesWithCommas } from "../utils/format-bytes";
 
 export function urlToId(url: string) {
   return url.replace(/[:/.]/g, "_");
 }
 
-/**
- * Format a byte count with comma thousands separators.
- * Example: 12345678 -> "12,345,678"
- */
-export function formatBytesWithCommas(
-  value: number | null | undefined
-): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "-";
+type WorkloadSortKey =
+  | "none"
+  | "unique_name"
+  | "workload_type"
+  | "memory_total"
+  | "memory_static"
+  | "memory_dynamic";
+
+const WORKLOAD_SORT_OPTIONS: ReadonlyArray<{
+  value: WorkloadSortKey;
+  label: string;
+}> = [
+  { value: "none", label: "-" },
+  { value: "unique_name", label: "Unique Name" },
+  { value: "workload_type", label: "Workload Type" },
+  { value: "memory_total", label: "Memory - Total" },
+  { value: "memory_static", label: "Memory - Static" },
+  { value: "memory_dynamic", label: "Memory - Dynamic" },
+];
+
+function compareWorkloads(
+  left: NonNullable<ITelemetryModel["workloads"]>[number],
+  right: NonNullable<ITelemetryModel["workloads"]>[number],
+  sortKey: WorkloadSortKey,
+): number {
+  switch (sortKey) {
+    case "workload_type": {
+      const byType = left.type.localeCompare(right.type);
+      return byType !== 0 ? byType : left.name.localeCompare(right.name);
+    }
+    case "memory_total": {
+      const byTotal =
+        right.workloadsBufferTotalBytes - left.workloadsBufferTotalBytes;
+      return byTotal !== 0 ? byTotal : left.name.localeCompare(right.name);
+    }
+    case "memory_static": {
+      const byStatic =
+        right.workloadsBufferStaticBytes - left.workloadsBufferStaticBytes;
+      return byStatic !== 0 ? byStatic : left.name.localeCompare(right.name);
+    }
+    case "memory_dynamic": {
+      const byDynamic =
+        right.workloadsBufferDynamicBytes - left.workloadsBufferDynamicBytes;
+      return byDynamic !== 0 ? byDynamic : left.name.localeCompare(right.name);
+    }
+    case "none":
+    case "unique_name":
+    default:
+      return left.name.localeCompare(right.name);
   }
-
-  const integerValue = Math.trunc(value);
-
-  const isNegative = integerValue < 0;
-  const absValue = Math.abs(integerValue);
-
-  const formatted = absValue.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-
-  return isNegative ? "-" + formatted : formatted;
 }
 
 /**
@@ -50,8 +82,10 @@ export function TelemetryModel({
   model: EngineModel;
   index: number;
 }) {
+  const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const pollRateOverrideKey = `telemetry-poll-rate-${urlToId(model.instanceURL)}`;
+  const workloadSortKeyStorageKey = `telemetry-workload-sort-${modelStorageId}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
@@ -67,6 +101,24 @@ export function TelemetryModel({
     } catch {
       return "";
     }
+  });
+  const [workloadSortKey, setWorkloadSortKey] = useState<WorkloadSortKey>(() => {
+    try {
+      const saved = localStorage.getItem(workloadSortKeyStorageKey);
+      if (
+        saved === "none" ||
+        saved === "unique_name" ||
+        saved === "workload_type" ||
+        saved === "memory_total" ||
+        saved === "memory_static" ||
+        saved === "memory_dynamic"
+      ) {
+        return saved;
+      }
+    } catch {
+      // Storage may be unavailable (e.g., hardened Electron contexts)
+    }
+    return "none";
   });
   const preferredPollRateHz = model.preferredPollRateHz;
   const parsedOverridePollRateHz = Number(pollRateOverrideText.trim());
@@ -96,9 +148,18 @@ export function TelemetryModel({
     }
   }, [pollRateOverrideKey, pollRateOverrideText]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(workloadSortKeyStorageKey, workloadSortKey);
+    } catch {
+      // ignore storage failures so UI keeps working
+    }
+  }, [workloadSortKey, workloadSortKeyStorageKey]);
+
   const { model: telemetryModel, error } = useTelemetryStream(
-    isExpanded ? model.instanceURL : "",
-    effectivePollRateHz
+    model.instanceURL,
+    effectivePollRateHz,
+    { active: isExpanded, ensureLayout: true }
   );
   const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
 
@@ -108,7 +169,15 @@ export function TelemetryModel({
     }
   }, [telemetryModel]);
 
-  const workloads = latestModel?.workloads ?? [];
+  const workloads = useMemo(() => {
+    const unsorted = latestModel?.workloads ?? [];
+    if (workloadSortKey === "none") {
+      return unsorted;
+    }
+    return [...unsorted].sort((left, right) =>
+      compareWorkloads(left, right, workloadSortKey),
+    );
+  }, [latestModel?.workloads, workloadSortKey]);
   const workloadsMemoryUsed = latestModel?.workloads_buffer_size_used ?? 0;
   const processMemoryUsed = latestModel?.process_memory_used ?? 0;
   const fieldConnectionHints = useMemo(
@@ -129,16 +198,45 @@ export function TelemetryModel({
         onClick={handleToggle}
         style={{ cursor: "pointer", marginBottom: isExpanded ? "0.5rem" : 0 }}
       >
-        <h3 style={{ margin: 0 }}>{model.modelName}</h3>
+        <div className={styles.modelHeaderRow}>
+          <h3 style={{ margin: 0 }}>{model.modelName}</h3>
+          {isExpanded && (
+            <div className={styles.modelHeaderControl}>
+              <label className={styles.telemetryTableControlLabel}>
+                Sort workloads by:
+                <select
+                  id={`workload-sort-${urlToId(model.instanceURL)}`}
+                  className={styles.telemetryTableControlSelect}
+                  value={workloadSortKey}
+                  onChange={(e) =>
+                    setWorkloadSortKey(e.target.value as WorkloadSortKey)
+                  }
+                  onClick={stopInputPropagation}
+                  onFocus={stopInputPropagation}
+                >
+                  {WORKLOAD_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
 
         <div className={styles.modelLabel} style={{ marginBottom: "4px" }}>
           {model.modelPath} | {model.instanceURL}
-          {isExpanded && (
+          {latestModel && (
             <>
               {" | process memory: "}
               {formatBytesWithCommas(processMemoryUsed)} bytes
               {" | workloads memory: "}
               {formatBytesWithCommas(workloadsMemoryUsed)} bytes
+            </>
+          )}
+          {isExpanded && (
+            <>
               {" | poll rate (Hz): "}
               <input
                 id={`poll-rate-${urlToId(model.instanceURL)}`}

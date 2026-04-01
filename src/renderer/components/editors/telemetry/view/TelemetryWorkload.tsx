@@ -12,6 +12,7 @@ import {
   formatJitterPercent,
   TICK_DURATION_WINDOW_SIZE,
 } from "../utils/workload-stats";
+import { formatBytesWithCommas } from "../utils/format-bytes";
 
 interface TelemetryWorkloadProps {
   w: ITelemetryWorkload;
@@ -60,11 +61,26 @@ export function TelemetryWorkload({
       ? styles.usageYellow
       : styles.usageRed;
   const panelScope = useFloatingPanelsScope();
+  const hasDynamicMemory = w.workloadsBufferDynamicBytes > 0;
 
   return (
     <tr>
       <td>{w.name}</td>
-      <td>{w.type}</td>
+      <td>
+        <div className={styles.multiline}>
+          <span>{w.type}</span>
+          <span className={styles.memoryMeta}>
+            Memory: {formatBytesWithCommas(w.workloadsBufferTotalBytes)} bytes
+            {hasDynamicMemory ? " total" : " (all static)"}
+          </span>
+          {hasDynamicMemory && (
+            <span className={styles.memoryMeta}>
+              {formatBytesWithCommas(w.workloadsBufferStaticBytes)} bytes static,{" "}
+              {formatBytesWithCommas(w.workloadsBufferDynamicBytes)} bytes dynamic
+            </span>
+          )}
+        </div>
+      </td>
       <td>
         <TelemetryStructFields
           struct={w.config}

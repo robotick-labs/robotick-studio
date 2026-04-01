@@ -194,13 +194,13 @@ function ImageField({
   const mime = field.mime_type;
 
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const hasValidImageData = rawValue instanceof Uint8Array;
+  const url = useBlobURL(hasValidImageData ? rawValue : null, mime);
 
-  if (!(rawValue instanceof Uint8Array)) {
+  if (!hasValidImageData) {
     return <div>{label}: &lt;invalid image data&gt;</div>;
   }
 
-  // URL managed by global cache + LRU
-  const url = useBlobURL(rawValue, mime);
   const handleThumbClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     spawnTelemetryImagePanel({

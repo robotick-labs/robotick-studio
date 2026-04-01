@@ -15,7 +15,7 @@ import {
   type LauncherService,
 } from "./LauncherService";
 
-export type LauncherStatus = "stopped" | "launching" | "running";
+export type LauncherStatus = "stopped" | "launching" | "running" | "stopping";
 export type LauncherModelStatus = {
   stage?: string;
   status?: string;
@@ -29,7 +29,7 @@ export type LauncherModelHealth = {
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
-const STARTUP_VISUAL_GRACE_MS = 10000;
+const RESTART_STOP_WAIT_TIMEOUT_MS = 10000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -77,9 +77,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     Record<string, LauncherModelHealth>
   >({});
   const lastStatusRef = useRef<LauncherStatus | null>(null);
-  const skipNextRobotCheckRef = useRef(false);
   const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
-  const lastRunningAtRef = useRef<number | null>(null);
+  const restartGenerationRef = useRef(0);
+  const [restartPending, setRestartPending] = useState(false);
+  const restartPendingRef = useRef(false);
+
+  useEffect(() => {
+    restartPendingRef.current = restartPending;
+  }, [restartPending]);
 
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
@@ -98,7 +103,6 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         try {
           const launcherSnapshot = await readLauncherStatus(launcherService);
           const launcherStatus = launcherSnapshot.status;
-          const now = Date.now();
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
           );
@@ -126,22 +130,8 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
               setRobotAliveLoading(true);
               setRobotAliveError(null);
               setModelHealth({});
-              skipNextRobotCheckRef.current = true;
-              lastRunningAtRef.current = now;
             }
-            const inStartupGrace =
-              typeof lastRunningAtRef.current === "number" &&
-              now - lastRunningAtRef.current < STARTUP_VISUAL_GRACE_MS;
-            if (skipNextRobotCheckRef.current) {
-              skipNextRobotCheckRef.current = false;
-            }
-            if (inStartupGrace) {
-              setRobotAliveLoading(true);
-            } else if (
-              !robotCheckPromiseRef.current &&
-              typeof lastRunningAtRef.current === "number" &&
-              now - lastRunningAtRef.current >= 5000
-            ) {
+            if (!robotCheckPromiseRef.current) {
               setRobotAliveLoading(true);
               robotCheckPromiseRef.current = checkRobotAlive(
                 launcherSnapshot.models
@@ -162,7 +152,6 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
                 });
             }
           } else {
-            skipNextRobotCheckRef.current = false;
             robotCheckPromiseRef.current = null;
             setIsRobotAlive(true);
             setRobotAliveLoading(false);
@@ -171,11 +160,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
           }
 
           const visualStatus: LauncherStatus =
-            launcherStatus === "running" &&
-            typeof lastRunningAtRef.current === "number" &&
-            now - lastRunningAtRef.current < STARTUP_VISUAL_GRACE_MS
+            restartPendingRef.current && launcherStatus === "stopped"
               ? "launching"
               : launcherStatus;
+
+          if (
+            restartPendingRef.current &&
+            (launcherStatus === "launching" || launcherStatus === "running")
+          ) {
+            setRestartPending(false);
+          }
 
           setStatus((prev) =>
             prev === visualStatus ? prev : visualStatus
@@ -194,9 +188,15 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             }
             return target;
           });
-          setOptimisticStatus((current) =>
-            current && launcherStatus !== "launching" ? null : current
-          );
+          setOptimisticStatus((current) => {
+            if (!current) {
+              return null;
+            }
+            if (restartPendingRef.current) {
+              return current;
+            }
+            return launcherStatus !== "launching" ? null : current;
+          });
         } catch (err) {
           console.warn("[launcher] poll failed", err);
         }
@@ -211,12 +211,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     };
   }, [launcherService]);
 
-  const run = useCallback(async () => {
+  const requestRun = useCallback(async (cancelRestart: boolean) => {
     if (!projectPath) {
       setLastError("Select a project before running the launcher.");
       return;
     }
 
+    if (cancelRestart) {
+      restartGenerationRef.current += 1;
+      setRestartPending(false);
+    }
     setIsBusy(true);
     setLastError(null);
     setPendingTarget("running");
@@ -239,7 +243,15 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     }
   }, [launcherProfile, launcherService, projectPath, wakeFastPolling]);
 
-  const stop = useCallback(async () => {
+  const run = useCallback(async () => {
+    await requestRun(true);
+  }, [requestRun]);
+
+  const requestStop = useCallback(async (cancelRestart: boolean) => {
+    if (cancelRestart) {
+      restartGenerationRef.current += 1;
+      setRestartPending(false);
+    }
     setIsBusy(true);
     setLastError(null);
     setPendingTarget("stopped");
@@ -256,11 +268,62 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     }
   }, [launcherService, wakeFastPolling]);
 
+  const stop = useCallback(async () => {
+    await requestStop(true);
+  }, [requestStop]);
+
   const restart = useCallback(async () => {
-    await stop();
-    await sleep(500);
-    await run();
-  }, [run, stop]);
+    if (!projectPath) {
+      setLastError("Select a project before running the launcher.");
+      return;
+    }
+
+    const generation = restartGenerationRef.current + 1;
+    restartGenerationRef.current = generation;
+    setRestartPending(true);
+    setLastError(null);
+    setPendingTarget("running");
+    setOptimisticStatus("launching");
+    wakeFastPolling();
+
+    await requestStop(false);
+
+    const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
+    while (restartGenerationRef.current === generation) {
+      if (Date.now() >= restartStopWaitDeadline) {
+        const message = "Timed out waiting for the launcher to stop during restart.";
+        setLastError(message);
+        setPendingTarget(null);
+        setRestartPending(false);
+        throw new Error(message);
+      }
+
+      let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
+      try {
+        snapshot = await readLauncherStatus(launcherService);
+      } catch {
+        await sleep(100);
+        continue;
+      }
+      if (snapshot.status === "stopped") {
+        break;
+      }
+      await sleep(100);
+    }
+
+    if (restartGenerationRef.current !== generation) {
+      setPendingTarget(null);
+      setRestartPending(false);
+      return;
+    }
+
+    try {
+      await requestRun(false);
+    } catch (err) {
+      setRestartPending(false);
+      throw err;
+    }
+  }, [launcherService, projectPath, requestRun, requestStop, wakeFastPolling]);
 
   const effectiveStatus = optimisticStatus ?? status;
   const isAwaitingStatus = pendingTarget !== null;
@@ -323,6 +386,7 @@ async function readLauncherStatus(
   const models = data?.models ?? {};
   if (!data?.status) return { status: "stopped", models };
   if (data.status === "running") return { status: "running", models };
+  if (data.status === "stopping") return { status: "stopping", models };
   if (data.status === "launching" || data.status === "starting") {
     return { status: "launching", models };
   }
@@ -355,60 +419,79 @@ async function checkRobotAlive(
     return { alive: true, error: null, models: {} };
   }
 
-  const healthByModel: Record<string, LauncherModelHealth> = {};
-  const failingModels: string[] = [];
-  for (const model of models) {
-    const launcherModel = launcherModels[model.modelShortName];
-    const detachedLaunched = isDetachedLaunchedModel(launcherModel);
-    const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
-    try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        if (detachedLaunched) {
-          healthByModel[model.modelShortName] = {
+  const results = await Promise.all(
+    models.map(async (model) => {
+      const launcherModel = launcherModels[model.modelShortName];
+      const detachedLaunched = isDetachedLaunchedModel(launcherModel);
+      const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          if (detachedLaunched) {
+            return {
+              modelId: model.modelShortName,
+              health: {
+                alive: true,
+                loading: false,
+                error: null,
+                warning: `${res.status} ${res.statusText}`.trim(),
+              },
+            };
+          }
+          return {
+            modelId: model.modelShortName,
+            health: {
+              alive: false,
+              loading: false,
+              error: `${res.status} ${res.statusText}`,
+              warning: null,
+            },
+          };
+        }
+        return {
+          modelId: model.modelShortName,
+          health: {
             alive: true,
             loading: false,
             error: null,
-            warning: `${res.status} ${res.statusText}`.trim(),
+            warning: null,
+          },
+        };
+      } catch (err) {
+        console.warn(
+          `[launcher] telemetry health check failed for ${model.modelShortName}`,
+          err
+        );
+        if (detachedLaunched) {
+          return {
+            modelId: model.modelShortName,
+            health: {
+              alive: true,
+              loading: false,
+              error: null,
+              warning: err instanceof Error ? err.message : String(err),
+            },
           };
-          continue;
         }
-        healthByModel[model.modelShortName] = {
-          alive: false,
-          loading: false,
-          error: `${res.status} ${res.statusText}`,
-          warning: null,
+        return {
+          modelId: model.modelShortName,
+          health: {
+            alive: false,
+            loading: false,
+            error: err instanceof Error ? err.message : String(err),
+            warning: null,
+          },
         };
-        failingModels.push(model.modelShortName);
-        continue;
       }
-      healthByModel[model.modelShortName] = {
-        alive: true,
-        loading: false,
-        error: null,
-        warning: null,
-      };
-    } catch (err) {
-      console.warn(
-        `[launcher] telemetry health check failed for ${model.modelShortName}`,
-        err
-      );
-      if (detachedLaunched) {
-        healthByModel[model.modelShortName] = {
-          alive: true,
-          loading: false,
-          error: null,
-          warning: err instanceof Error ? err.message : String(err),
-        };
-        continue;
-      }
-      healthByModel[model.modelShortName] = {
-        alive: false,
-        loading: false,
-        error: err instanceof Error ? err.message : String(err),
-        warning: null,
-      };
-      failingModels.push(model.modelShortName);
+    })
+  );
+
+  const healthByModel: Record<string, LauncherModelHealth> = {};
+  const failingModels: string[] = [];
+  for (const { modelId, health } of results) {
+    healthByModel[modelId] = health;
+    if (!health.alive) {
+      failingModels.push(modelId);
     }
   }
 

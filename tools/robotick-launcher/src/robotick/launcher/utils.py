@@ -70,6 +70,19 @@ def find_local_process_ids_for_binary(
     return matching_pids
 
 
+def _pid_is_active(pid: int) -> bool:
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        stat_fields = stat_path.read_text().split()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return False
+
+    if len(stat_fields) < 3:
+        return False
+
+    return stat_fields[2] != "Z"
+
+
 def stop_local_binary_process(binary_path: Path, *, dry_run: bool) -> None:
     resolved_binary = binary_path.resolve()
     matching_pids = find_local_process_ids_for_binary(resolved_binary)
@@ -90,16 +103,16 @@ def stop_local_binary_process(binary_path: Path, *, dry_run: bool) -> None:
         except ProcessLookupError:
             pass
 
-    deadline = time.time() + 5.0
+    deadline = time.time() + 0.5
     while time.time() < deadline:
         still_alive: list[int] = []
         for pid in alive_pids:
-            if Path(f"/proc/{pid}").exists():
+            if _pid_is_active(pid):
                 still_alive.append(pid)
         if not still_alive:
             return
         alive_pids = still_alive
-        time.sleep(0.2)
+        time.sleep(0.1)
 
     for pid in alive_pids:
         try:

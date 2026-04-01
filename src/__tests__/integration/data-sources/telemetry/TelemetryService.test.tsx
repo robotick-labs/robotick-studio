@@ -35,11 +35,13 @@ function ServiceConsumer({ onValue }: { onValue: (service: any) => void }) {
 function StreamConsumer({
   baseUrl,
   pollingRateHz,
+  active = true,
 }: {
   baseUrl: string;
   pollingRateHz: number;
+  active?: boolean;
 }) {
-  useTelemetryStream(baseUrl, pollingRateHz);
+  useTelemetryStream(baseUrl, pollingRateHz, { active });
   return null;
 }
 
@@ -75,10 +77,12 @@ describe("TelemetryServiceProvider", () => {
   it("routes useTelemetryStream subscriptions through the injected service", () => {
     const unsubscribe = vi.fn();
     const subscribeTelemetry = vi.fn(() => unsubscribe);
+    const ensureLayout = vi.fn(async () => null);
     const setWorkloadInputFieldsData = vi.fn();
     const getLatestModel = vi.fn(() => null);
     const mockService = {
       subscribeTelemetry,
+      ensureLayout,
       setWorkloadInputFieldsData,
       getLatestModel,
     };
@@ -94,9 +98,40 @@ describe("TelemetryServiceProvider", () => {
       15,
       expect.objectContaining({ callback: expect.any(Function) })
     );
+    expect(ensureLayout).toHaveBeenCalledWith("http://example");
 
     tree.unmount();
     expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("can preload layout without subscribing to raw telemetry", () => {
+    const unsubscribe = vi.fn();
+    const subscribeTelemetry = vi.fn(() => unsubscribe);
+    const ensureLayout = vi.fn(async () => null);
+    const setWorkloadInputFieldsData = vi.fn();
+    const getLatestModel = vi.fn(() => null);
+    const mockService = {
+      subscribeTelemetry,
+      ensureLayout,
+      setWorkloadInputFieldsData,
+      getLatestModel,
+    };
+
+    const tree = render(
+      <TelemetryServiceProvider service={mockService}>
+        <StreamConsumer
+          baseUrl="http://example"
+          pollingRateHz={15}
+          active={false}
+        />
+      </TelemetryServiceProvider>
+    );
+
+    expect(ensureLayout).toHaveBeenCalledWith("http://example");
+    expect(subscribeTelemetry).not.toHaveBeenCalled();
+
+    tree.unmount();
+    expect(unsubscribe).not.toHaveBeenCalled();
   });
 
   it("rerenders when a reused telemetry model receives a new raw sample", () => {
@@ -111,10 +146,12 @@ describe("TelemetryServiceProvider", () => {
       subscriber = nextSubscriber;
       return unsubscribe;
     });
+    const ensureLayout = vi.fn(async () => null);
     const setWorkloadInputFieldsData = vi.fn();
     const getLatestModel = vi.fn(() => null);
     const mockService = {
       subscribeTelemetry,
+      ensureLayout,
       setWorkloadInputFieldsData,
       getLatestModel,
     };

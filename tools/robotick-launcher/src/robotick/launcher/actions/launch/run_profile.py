@@ -6,13 +6,20 @@ import sys
 import time
 from typing import Any, Optional
 import signal
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from rich import print
 import typer
 import yaml
 
-from robotick.launcher.utils import run_subprocess
-from robotick.launcher.utils import get_launcher_paths, stop_local_binary_process
+from robotick.launcher.utils import (
+    _pid_is_active,
+    find_local_process_ids_for_binary,
+    get_launcher_paths,
+    run_subprocess,
+    stop_local_binary_process,
+)
 from robotick.launcher.actions.query.list import list_project_models
 from robotick.launcher.actions.launch import install_deps as install_deps_stage
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
@@ -51,6 +58,175 @@ def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
         proc.send_signal(sig)
     except Exception:
         pass
+
+
+def _signal_pid_group(pid: int, sig: int) -> None:
+    if pid <= 0:
+        return
+    if hasattr(os, "killpg"):
+        try:
+            os.killpg(pid, sig)
+            return
+        except Exception:
+            pass
+    try:
+        os.kill(pid, sig)
+    except Exception:
+        pass
+
+
+def _read_proc_children(pid: int) -> list[int]:
+    try:
+        children = Path(f"/proc/{pid}/task/{pid}/children").read_text().strip()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return []
+    if not children:
+        return []
+    result: list[int] = []
+    for child in children.split():
+        try:
+            result.append(int(child))
+        except ValueError:
+            continue
+    return result
+
+
+def _collect_descendant_pids(pid: int) -> list[int]:
+    descendants: list[int] = []
+    seen: set[int] = set()
+    stack = [pid]
+    while stack:
+        current = stack.pop()
+        for child in _read_proc_children(current):
+            if child in seen:
+                continue
+            seen.add(child)
+            descendants.append(child)
+            stack.append(child)
+    return descendants
+
+def _stop_local_launcher_helper(pid: int) -> None:
+    if pid <= 0:
+        return
+
+    targets = [*reversed(_collect_descendant_pids(pid)), pid]
+    for target_pid in targets:
+        _signal_pid_group(target_pid, signal.SIGTERM)
+    deadline = time.time() + 0.5
+    while time.time() < deadline:
+        all_gone = True
+        for target_pid in targets:
+            if _pid_is_active(target_pid):
+                all_gone = False
+                break
+        if all_gone:
+            return
+        time.sleep(0.1)
+
+    for target_pid in targets:
+        _signal_pid_group(target_pid, signal.SIGKILL)
+
+
+def _resolve_model_health_url(
+    project_name: str,
+    model_id: str,
+    model_target: str,
+    base_dir: Path,
+    profile_platform: str,
+) -> Optional[str]:
+    if profile_platform != "local":
+        return None
+
+    config = Config(
+        project_name,
+        model_id,
+        model_target,
+        base_dir,
+        dry_run=False,
+        stub_install=False,
+    )
+    telemetry = dict(config.model.get("telemetry") or {})
+    port = telemetry.get("port")
+    if not isinstance(port, int) or port <= 0:
+        return None
+
+    runtime = dict(config.model.get("runtime") or {})
+    host = str(runtime.get("preferred_host") or "localhost").strip() or "localhost"
+    if host not in {"localhost", "127.0.0.1"}:
+        return None
+
+    return f"http://{host}:{port}/api/telemetry/health"
+
+
+def _health_ready(url: str, *, timeout: float = 0.2) -> bool:
+    try:
+        with urlopen(url, timeout=timeout) as response:
+            return response.status == 200
+    except (OSError, URLError):
+        return False
+
+
+def _emit_models_running(
+    launched_models: list[str],
+    run_proc_map: dict[str, subprocess.Popen],
+    ready_models: set[str],
+    status_queue: Optional[Any],
+) -> None:
+    for model_id in launched_models:
+        if model_id in ready_models:
+            continue
+        proc = run_proc_map.get(model_id)
+        if proc is None or proc.poll() is not None:
+            continue
+        ready_models.add(model_id)
+        _emit_status(
+            status_queue,
+            event="model",
+            model=model_id,
+            stage="run",
+            status="running",
+            pid=proc.pid,
+        )
+
+
+def _wait_for_run_readiness(
+    launched_models: list[str],
+    run_proc_map: dict[str, subprocess.Popen],
+    model_health_urls: dict[str, Optional[str]],
+    status_queue: Optional[Any],
+    *,
+    timeout_seconds: float = 15.0,
+) -> list[str]:
+    ready_models: set[str] = set()
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline and len(ready_models) < len(launched_models):
+        for model_id in launched_models:
+            if model_id in ready_models:
+                continue
+            proc = run_proc_map.get(model_id)
+            if proc is None or proc.poll() is not None:
+                continue
+            health_url = model_health_urls.get(model_id)
+            if health_url is None or _health_ready(health_url):
+                ready_models.add(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="run",
+                    status="running",
+                    pid=proc.pid,
+                )
+        if len(ready_models) < len(launched_models):
+            time.sleep(0.1)
+
+    _emit_models_running(launched_models, run_proc_map, ready_models, status_queue)
+    return [model_id for model_id in launched_models if model_id in ready_models]
+
+
+def _local_deploy_can_complete_immediately(plan: Any) -> bool:
+    return plan.deploy.strategy == "local" and plan.deploy.deploy_handler is None
 
 
 def _normalize_model_id(model_spec: str) -> str:
@@ -118,6 +294,7 @@ def stop_profile(
     base_dir: Path,
     *,
     dry_run: bool = False,
+    helper_pids: Optional[dict[str, int]] = None,
 ) -> dict[str, object]:
     if ":" not in profile:
         return {
@@ -155,6 +332,38 @@ def stop_profile(
 
     stopped_models: list[str] = []
     errors: list[str] = []
+    results_lock = threading.Lock()
+
+    def _record_success(model_id: str) -> None:
+        with results_lock:
+            stopped_models.append(model_id)
+
+    def _record_error(model_id: str, exc: Exception) -> None:
+        with results_lock:
+            errors.append(f"{model_id}: {exc}")
+
+    def _stop_one_local_model(
+        model_id: str,
+        binary_path: Path,
+        helper_pid: Optional[int],
+    ) -> None:
+        try:
+            if helper_pid:
+                if dry_run:
+                    print(
+                        f"[bold]$ stop launcher helper pid for {model_id}: {helper_pid}[/]"
+                    )
+                else:
+                    _stop_local_launcher_helper(helper_pid)
+                stop_local_binary_process(binary_path, dry_run=dry_run)
+            else:
+                stop_local_binary_process(binary_path, dry_run=dry_run)
+            _record_success(model_id)
+        except Exception as exc:
+            _record_error(model_id, exc)
+
+    local_stop_threads: list[threading.Thread] = []
+
     for model_id in reversed(model_ids):
         model_target = model_targets[model_id]
         try:
@@ -164,11 +373,26 @@ def stop_profile(
             plan = resolve_target_plan(project_name, model_id, model_target, base_dir)
             if plan.run.stop_handler is not None:
                 plan.run.stop_handler(dry_run)
-            elif plan.run.strategy == "local":
-                stop_local_binary_process(binary_path, dry_run=dry_run)
-            stopped_models.append(model_id)
+                _record_success(model_id)
+                continue
+
+            if plan.run.strategy == "local":
+                helper_pid = helper_pids.get(model_id) if helper_pids else None
+                thread = threading.Thread(
+                    target=_stop_one_local_model,
+                    args=(model_id, binary_path, helper_pid),
+                    daemon=True,
+                )
+                thread.start()
+                local_stop_threads.append(thread)
+                continue
+
+            _record_success(model_id)
         except Exception as exc:
-            errors.append(f"{model_id}: {exc}")
+            _record_error(model_id, exc)
+
+    for thread in local_stop_threads:
+        thread.join()
 
     if errors:
         return {
@@ -461,67 +685,83 @@ def run_profile(
         models=succeeded,
     )
 
-    print(f"[Launcher] Deploying {len(succeeded)} models sequentially...")
+    print(f"[Launcher] Deploying {len(succeeded)} models with shared deploy dedupe...")
 
     deployed: list[str] = []
     deploy_failed: list[str] = []
-    shared_deploy_results: dict[tuple[str, ...], tuple[bool, Optional[str]]] = {}
+    deploy_jobs: list[tuple[str, list[str], Optional[tuple[str, ...]]]] = []
+    shared_job_members: dict[tuple[str, ...], list[str]] = {}
     for model_id in succeeded:
-        model_target = model_targets[model_id]
         plan = model_plans[model_id]
         shared_deploy_key = plan.deploy.shared_deploy_key
+        if shared_deploy_key is None:
+            deploy_jobs.append((model_id, [model_id], None))
+            continue
+        members = shared_job_members.setdefault(shared_deploy_key, [])
+        members.append(model_id)
+        if len(members) == 1:
+            deploy_jobs.append((model_id, members, shared_deploy_key))
 
-        if shared_deploy_key is not None and shared_deploy_key in shared_deploy_results:
-            deploy_ok, deploy_detail = shared_deploy_results[shared_deploy_key]
-            if deploy_ok:
-                print(
-                    "[Launcher] Reusing shared deploy for "
-                    f"{model_id} → {list(shared_deploy_key[1:])}"
-                )
-                deployed.append(model_id)
-                _emit_status(
-                    status_queue,
-                    event="model",
-                    model=model_id,
-                    stage="deploy",
-                    status="succeeded",
-                    shared=True,
-                )
-            else:
+    deploy_procs: list[
+        tuple[str, list[str], Optional[tuple[str, ...]], list[str], subprocess.Popen, threading.Thread]
+    ] = []
+
+    for leader_model_id, job_models, shared_deploy_key in deploy_jobs:
+        model_target = model_targets[leader_model_id]
+        plan = model_plans[leader_model_id]
+        for model_id in job_models:
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="deploy",
+                status="starting",
+                shared=shared_deploy_key is not None and model_id != leader_model_id,
+            )
+
+        if _local_deploy_can_complete_immediately(plan):
+            _, _, binary_path = get_launcher_paths(
+                project_name, leader_model_id, model_target, base_dir
+            )
+            if binary_path.exists():
+                for model_id in job_models:
+                    deployed.append(model_id)
+                    _emit_status(
+                        status_queue,
+                        event="model",
+                        model=model_id,
+                        stage="deploy",
+                        status="succeeded",
+                        shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    )
+                continue
+
+            detail = f"Binary not found: {binary_path}"
+            for model_id in job_models:
                 deploy_failed.append(model_id)
-                print(
-                    "[bold red]❌ Deploy skipped for "
-                    f"{model_id}; shared deploy already failed ({deploy_detail})[/]"
-                )
                 _emit_status(
                     status_queue,
                     event="model",
                     model=model_id,
                     stage="deploy",
                     status="failed",
-                    detail=deploy_detail,
-                    shared=True,
+                    detail=detail,
+                    shared=shared_deploy_key is not None and model_id != leader_model_id,
                 )
+            print(f"[bold red]❌ Deploy failed for {leader_model_id}: {detail}[/]")
             continue
 
         deploy_cmd = [
             "robotick-launcher",
             "deploy",
             project_name,
-            model_id,
+            leader_model_id,
             model_target,
             "--base-dir",
             str(base_dir),
             "--no-pre",
         ]
-        print(f"[Launcher] Deploying model: {model_id} → {deploy_cmd}")
-        _emit_status(
-            status_queue,
-            event="model",
-            model=model_id,
-            stage="deploy",
-            status="starting",
-        )
+        print(f"[Launcher] Deploying model: {leader_model_id} → {deploy_cmd}")
         try:
             proc = run_subprocess(
                 command=deploy_cmd,
@@ -531,53 +771,80 @@ def run_profile(
             )
             deploy_thread = threading.Thread(
                 target=stream_output,
-                args=(proc, f"deploy:{model_id}"),
+                args=(proc, f"deploy:{leader_model_id}"),
                 daemon=True,
             )
             deploy_thread.start()
+            deploy_procs.append(
+                (
+                    leader_model_id,
+                    list(job_models),
+                    shared_deploy_key,
+                    deploy_cmd,
+                    proc,
+                    deploy_thread,
+                )
+            )
+        except Exception as e:
+            detail = str(e)
+            print(f"[bold red]❌ Failed to start deploy for {leader_model_id}: {detail}[/]")
+            for model_id in job_models:
+                deploy_failed.append(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="error",
+                    detail=detail,
+                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                )
 
+    for leader_model_id, job_models, shared_deploy_key, deploy_cmd, proc, deploy_thread in deploy_procs:
+        try:
             rc = proc.wait()
             deploy_thread.join()
             if rc != 0:
                 raise subprocess.CalledProcessError(rc, deploy_cmd)
-            deployed.append(model_id)
-            if shared_deploy_key is not None:
-                shared_deploy_results[shared_deploy_key] = (True, None)
-            _emit_status(
-                status_queue,
-                event="model",
-                model=model_id,
-                stage="deploy",
-                status="succeeded",
-            )
+            for model_id in job_models:
+                deployed.append(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="succeeded",
+                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                )
         except subprocess.CalledProcessError as e:
-            deploy_failed.append(model_id)
             detail = f"returncode={e.returncode}"
-            if shared_deploy_key is not None:
-                shared_deploy_results[shared_deploy_key] = (False, detail)
-            print(f"[bold red]❌ Deploy failed for {model_id} (rc={e.returncode})[/]")
-            _emit_status(
-                status_queue,
-                event="model",
-                model=model_id,
-                stage="deploy",
-                status="failed",
-                returncode=e.returncode,
-            )
+            print(f"[bold red]❌ Deploy failed for {leader_model_id} (rc={e.returncode})[/]")
+            for model_id in job_models:
+                deploy_failed.append(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="failed",
+                    returncode=e.returncode,
+                    detail=detail,
+                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                )
         except Exception as e:
-            deploy_failed.append(model_id)
             detail = str(e)
-            if shared_deploy_key is not None:
-                shared_deploy_results[shared_deploy_key] = (False, detail)
-            print(f"[bold red]⚠️ Error during deploy of {model_id}: {e}[/]")
-            _emit_status(
-                status_queue,
-                event="model",
-                model=model_id,
-                stage="deploy",
-                status="error",
-                detail=str(e),
-            )
+            print(f"[bold red]⚠️ Error during deploy of {leader_model_id}: {detail}[/]")
+            for model_id in job_models:
+                deploy_failed.append(model_id)
+                _emit_status(
+                    status_queue,
+                    event="model",
+                    model=model_id,
+                    stage="deploy",
+                    status="error",
+                    detail=detail,
+                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                )
 
     if deploy_failed:
         print(f"[bold red]❌ Deploy failed for: {', '.join(deploy_failed)}[/]")
@@ -610,6 +877,7 @@ def run_profile(
     run_procs: list[tuple[str, subprocess.Popen]] = []
     run_threads: list[threading.Thread] = []
     launched_models: list[str] = []
+    model_health_urls: dict[str, Optional[str]] = {}
 
     _emit_status(
         status_queue,
@@ -650,12 +918,20 @@ def run_profile(
             )
             run_procs.append((model_id, proc))
             launched_models.append(model_id)
+            model_health_urls[model_id] = _resolve_model_health_url(
+                project_name,
+                model_id,
+                model_target,
+                base_dir,
+                platform,
+            )
             _emit_status(
                 status_queue,
                 event="model",
                 model=model_id,
                 stage="run",
-                status="running",
+                status="starting",
+                pid=proc.pid,
             )
 
             t = threading.Thread(
@@ -675,6 +951,22 @@ def run_profile(
                 status="error",
                 detail=str(e),
             )
+
+    run_proc_map = {model_id: proc for model_id, proc in run_procs}
+    ready_models = _wait_for_run_readiness(
+        launched_models,
+        run_proc_map,
+        model_health_urls,
+        status_queue,
+    )
+    if ready_models:
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase="run",
+            status="in_progress",
+            launched=ready_models,
+        )
 
     # Wait for all run processes and output threads
     interrupted = False
