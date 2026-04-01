@@ -267,6 +267,18 @@ def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]
     return models
 
 
+def _profile_selection_is_automatic(project_path: Path, model_spec: str) -> bool:
+    if model_spec == "ALL":
+        return True
+
+    project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
+    profiles = project_data.get("profiles") or {}
+    if not isinstance(profiles, dict):
+        raise ValueError("Project 'profiles' section must be a mapping when provided.")
+
+    return model_spec in profiles
+
+
 def _resolve_profile_model_target(
     project_name: str,
     base_dir: Path,
@@ -286,6 +298,33 @@ def _resolve_profile_model_target(
     )
     runtime = dict(config.model.get("runtime") or {})
     return str(runtime.get("target_platform") or "linux").strip().lower() or "linux"
+
+
+def _resolve_model_auto_launch(project_name: str, base_dir: Path, model_id: str) -> bool:
+    config = Config(
+        project_name,
+        model_id,
+        None,
+        base_dir,
+        dry_run=False,
+        stub_install=False,
+    )
+    launcher = config.model.get("launcher")
+    if launcher is None:
+        return True
+    if not isinstance(launcher, dict):
+        raise ValueError(
+            f"Model '{model_id}' has invalid 'launcher' section; expected a mapping."
+        )
+
+    auto_launch = launcher.get("auto_launch")
+    if auto_launch is None:
+        return True
+    if not isinstance(auto_launch, bool):
+        raise ValueError(
+            f"Model '{model_id}' has invalid 'launcher.auto_launch'; expected a boolean."
+        )
+    return auto_launch
 
 
 def stop_profile(
@@ -444,12 +483,30 @@ def run_profile(
         return {"status": "error", "detail": f"Failed to parse project file: {e}"}
 
     try:
+        auto_launch_policy_applies = _profile_selection_is_automatic(
+            project_path, model_spec
+        )
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to parse project file: {e}"}
+
+    try:
         model_targets = {
             model_id: _resolve_profile_model_target(project_name, base_dir, platform, model_id)
             for model_id in model_ids
         }
     except Exception as e:
         return {"status": "error", "detail": f"Failed to resolve model targets: {e}"}
+
+    try:
+        model_auto_launch = {
+            model_id: _resolve_model_auto_launch(project_name, base_dir, model_id)
+            for model_id in model_ids
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "detail": f"Failed to resolve model launcher settings: {e}",
+        }
 
     try:
         model_plans = {
@@ -878,16 +935,37 @@ def run_profile(
     run_threads: list[threading.Thread] = []
     launched_models: list[str] = []
     model_health_urls: dict[str, Optional[str]] = {}
+    skipped_auto_launch: list[str] = []
 
     _emit_status(
         status_queue,
         event="phase",
         phase="run",
         status="starting",
-        models=deployed,
+        models=[
+            model_id
+            for model_id in deployed
+            if (not auto_launch_policy_applies) or model_auto_launch[model_id]
+        ],
     )
 
     for model_id in deployed:
+        if auto_launch_policy_applies and not model_auto_launch[model_id]:
+            skipped_auto_launch.append(model_id)
+            print(
+                f"[Launcher] Skipping auto-launch for model: {model_id} "
+                "(launcher.auto_launch=false)"
+            )
+            _emit_status(
+                status_queue,
+                event="model",
+                model=model_id,
+                stage="run",
+                status="skipped",
+                detail="launcher.auto_launch=false",
+            )
+            continue
+
         model_target = model_targets[model_id]
         cmd = [
             "robotick-launcher",
@@ -1022,6 +1100,7 @@ def run_profile(
         result = {
             "status": "interrupted",
             "launched": launched_models,
+            "skipped_auto_launch": skipped_auto_launch,
             "count": len(launched_models),
         }
         _emit_status(
@@ -1030,13 +1109,15 @@ def run_profile(
             phase="run",
             status="interrupted",
             launched=launched_models,
+            skipped=skipped_auto_launch,
         )
         _emit_status(status_queue, event="result", result=result)
         return result
 
     result = {
-        "status": "ok" if launched_models else "nothing_launched",
+        "status": "ok" if (launched_models or skipped_auto_launch) else "nothing_launched",
         "launched": launched_models,
+        "skipped_auto_launch": skipped_auto_launch,
         "skipped_failed_builds": failed,
         "count": len(launched_models),
     }
@@ -1046,6 +1127,7 @@ def run_profile(
         phase="run",
         status="completed",
         launched=launched_models,
+        skipped=skipped_auto_launch,
     )
     _emit_status(status_queue, event="result", result=result)
     return result

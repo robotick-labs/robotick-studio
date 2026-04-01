@@ -172,6 +172,147 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
     assert build_commands[0][3] == "alf-e-face"
 
 
+def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_path):
+    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir.mkdir(parents=True)
+
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "alf-e-face.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
+        encoding="utf-8",
+    )
+    (project_dir / "alf-e-simulator.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {"target_platform": "linux"},
+                "launcher": {"auto_launch": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    for model_id in ("alf-e-face", "alf-e-simulator"):
+        binary_path = run_profile_module.get_launcher_paths(
+            "alf-e",
+            model_id,
+            "linux",
+            project_dir,
+        )[2]
+        binary_path.parent.mkdir(parents=True, exist_ok=True)
+        binary_path.write_text("fake-binary", encoding="utf-8")
+
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        run_profile_module.install_deps_stage,
+        "install_deps",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
+    monkeypatch.setattr(
+        run_profile_module,
+        "_wait_for_run_readiness",
+        lambda launched_models, run_proc_map, model_health_urls, status_queue: launched_models,
+    )
+
+    def _fake_run_subprocess(command, **kwargs):
+        commands.append(command)
+        return _FakeProc(0)
+
+    monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
+
+    result = run_profile_module.run_profile(
+        "alf-e",
+        "native:ALL",
+        base_dir=project_dir,
+    )
+
+    assert result["status"] == "ok"
+    assert result["launched"] == ["alf-e-face"]
+    assert result["skipped_auto_launch"] == ["alf-e-simulator"]
+
+    run_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "run"]
+    assert len(run_commands) == 1
+    assert run_commands[0][3] == "alf-e-face"
+
+
+def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_path):
+    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir.mkdir(parents=True)
+
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "alf-e-simulator.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {"target_platform": "linux"},
+                "launcher": {"auto_launch": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    binary_path = run_profile_module.get_launcher_paths(
+        "alf-e",
+        "alf-e-simulator",
+        "linux",
+        project_dir,
+    )[2]
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
+    binary_path.write_text("fake-binary", encoding="utf-8")
+
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        run_profile_module.install_deps_stage,
+        "install_deps",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
+    monkeypatch.setattr(
+        run_profile_module,
+        "_wait_for_run_readiness",
+        lambda launched_models, run_proc_map, model_health_urls, status_queue: launched_models,
+    )
+
+    def _fake_run_subprocess(command, **kwargs):
+        commands.append(command)
+        return _FakeProc(0)
+
+    monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
+
+    result = run_profile_module.run_profile(
+        "alf-e",
+        "native:alf-e-simulator",
+        base_dir=project_dir,
+    )
+
+    assert result["status"] == "ok"
+    assert result["launched"] == ["alf-e-simulator"]
+    assert result["skipped_auto_launch"] == []
+
+    run_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "run"]
+    assert len(run_commands) == 1
+    assert run_commands[0][3] == "alf-e-simulator"
+
+
 def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     project_dir = tmp_path / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
