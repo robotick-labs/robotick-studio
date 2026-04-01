@@ -169,7 +169,19 @@ def _build_remote_models_codegen(config):
         if edge["source_model"] != current_model_name:
             continue
         target_model = edge["target_model"]
-        remote_grouped.setdefault(target_model, []).append(
+        group = remote_grouped.setdefault(
+            target_model,
+            {
+                "mode": "",
+                "channel": "",
+                "connections": [],
+            },
+        )
+        if not group["mode"] and edge.get("mode"):
+            group["mode"] = edge["mode"]
+        if not group["channel"] and edge.get("channel"):
+            group["channel"] = edge["channel"]
+        group["connections"].append(
             {
                 "from": edge["source_field"],
                 "to_remote": edge["target_field"],
@@ -182,7 +194,7 @@ def _build_remote_models_codegen(config):
         name_safe = target_model_name.replace("-", "_")
         remote_conns = []
         for conn in sorted(
-            remote_grouped[target_model_name],
+            remote_grouped[target_model_name]["connections"],
             key=lambda c: (c["to_remote"], c["from"]),
         ):
             remote_conns.append(
@@ -198,10 +210,15 @@ def _build_remote_models_codegen(config):
             {
                 "name": target_model_name,
                 "name_safe": name_safe,
-                "mode": str(remote_decl.get("mode", "")).strip(),
+                "mode": str(
+                    remote_decl.get("mode")
+                    or remote_grouped[target_model_name]["mode"]
+                    or ""
+                ).strip(),
                 "channel": str(
                     remote_decl.get("channel")
                     or remote_decl.get("comms_channel")
+                    or remote_grouped[target_model_name]["channel"]
                     or ""
                 ).strip(),
                 "connections": remote_conns,
@@ -290,7 +307,15 @@ def _collect_canonical_remote_edges(project_models):
             if not isinstance(connections, list):
                 continue
             for conn in connections:
-                edge = _parse_canonical_remote_edge(model_name, remote_name, conn)
+                edge = _parse_canonical_remote_edge(
+                    model_name,
+                    remote_name,
+                    conn,
+                    mode=str(remote.get("mode", "")).strip(),
+                    channel=str(
+                        remote.get("channel") or remote.get("comms_channel") or ""
+                    ).strip(),
+                )
                 if edge is None:
                     continue
                 key = (
@@ -312,7 +337,9 @@ def _collect_canonical_remote_edges(project_models):
     return canonical_edges
 
 
-def _parse_canonical_remote_edge(owner_model_name, remote_model_name, conn):
+def _parse_canonical_remote_edge(
+    owner_model_name, remote_model_name, conn, *, mode="", channel=""
+):
     if not isinstance(conn, dict):
         return None
 
@@ -340,6 +367,8 @@ def _parse_canonical_remote_edge(owner_model_name, remote_model_name, conn):
             "target_model": remote_model_name,
             "target_field": target_field,
             "declared_in_model": owner_model_name,
+            "mode": mode,
+            "channel": channel,
         }
 
     if has_receiver_form:
@@ -356,6 +385,8 @@ def _parse_canonical_remote_edge(owner_model_name, remote_model_name, conn):
             "target_model": owner_model_name,
             "target_field": target_field,
             "declared_in_model": owner_model_name,
+            "mode": mode,
+            "channel": channel,
         }
 
     raise ValueError(
