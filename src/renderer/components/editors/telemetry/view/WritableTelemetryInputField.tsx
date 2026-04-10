@@ -188,7 +188,6 @@ export function WritableTelemetryInputField({
   );
   const [optimisticDraftValue, setOptimisticDraftValue] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const nextSeqRef = useRef(1);
   const scrubRef = useRef<{
     onMove: (event: MouseEvent) => void;
     onUp: () => void;
@@ -218,7 +217,6 @@ export function WritableTelemetryInputField({
     setOptimisticDraftValue(optimisticValue);
     setDraftValue(optimisticValue);
 
-    const seq = nextSeqRef.current++;
     const result = await telemetryService.setWorkloadInputFieldsData(
       telemetryBaseUrl,
       {
@@ -228,7 +226,6 @@ export function WritableTelemetryInputField({
             field_handle: writableHandle,
             field_path: field.path,
             value,
-            seq,
           },
         ],
       }
