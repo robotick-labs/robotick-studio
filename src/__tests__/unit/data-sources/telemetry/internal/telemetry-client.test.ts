@@ -1,27 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTelemetryModel,
-  fetchLayout,
   type LayoutModel,
   setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
+import { sendTelemetryWriteWs } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
 
-type JsonResponse = {
-  ok: boolean;
-  status: number;
-  json: () => Promise<Record<string, unknown>>;
-};
-
-function createJsonResponse(
-  status: number,
-  body: Record<string, unknown>,
-): JsonResponse {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  };
-}
+vi.mock(
+  "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client",
+  () => ({
+    sendTelemetryWriteWs: vi.fn(),
+  }),
+);
 
 describe("setWorkloadInputFieldsData", () => {
   beforeEach(() => {
@@ -35,13 +25,20 @@ describe("setWorkloadInputFieldsData", () => {
   });
 
   it("retries on retryable status and eventually succeeds", async () => {
-    const fetchMock = vi
-      .fn()
+    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
+    sendWriteMock
       .mockResolvedValueOnce(
-        createJsonResponse(429, { error: "throttled", retry_after_ms: 1 }),
+        {
+          ok: false,
+          status: 429,
+          body: { error: "throttled", retry_after_ms: 1 },
+        },
       )
-      .mockResolvedValueOnce(createJsonResponse(200, { status: "accepted" }));
-    vi.stubGlobal("fetch", fetchMock);
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: { status: "accepted" },
+      });
 
     const requestPromise = setWorkloadInputFieldsData(
       "http://example",
@@ -59,108 +56,59 @@ describe("setWorkloadInputFieldsData", () => {
     await vi.runAllTimersAsync();
     const result = await requestPromise;
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sendWriteMock).toHaveBeenCalledTimes(2);
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
   it("does not retry non-retryable status codes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(createJsonResponse(400, { error: "bad_request" }));
-    vi.stubGlobal("fetch", fetchMock);
+    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
+    sendWriteMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      body: { error: "bad_request" },
+    });
 
     const result = await setWorkloadInputFieldsData("http://example", {
       engine_session_id: "sid",
       writes: [{ field_handle: 7, value: 123 }],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sendWriteMock).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
     expect(result.status).toBe(400);
   });
 
   it("retries once with the corrected engine session id on session mismatch", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        createJsonResponse(412, {
+    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
+    sendWriteMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 412,
+        body: {
           error: "session_mismatch",
           engine_session_id: "sid-corrected",
-        }),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse(200, { status: "processed", accepted_count: 1 }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: { status: "processed", accepted_count: 1 },
+      });
 
     const result = await setWorkloadInputFieldsData("http://example", {
       engine_session_id: "sid-stale",
       writes: [{ field_handle: 7, value: 0.5 }],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(
-      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).engine_session_id,
-    ).toBe("sid-corrected");
+    expect(sendWriteMock).toHaveBeenCalledTimes(2);
+    expect(sendWriteMock.mock.calls[1]?.[1]?.engine_session_id).toBe(
+      "sid-corrected",
+    );
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
-  it("keeps direct telemetry bases on the direct api route", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      createJsonResponse(200, {
-        workloads: [],
-        types: [],
-        workloads_buffer_size_used: 0,
-        process_memory_used: 0,
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await fetchLayout("http://192.168.5.16:7102");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://192.168.5.16:7102/api/telemetry/workloads_buffer/layout",
-      { cache: "no-store" },
-    );
-  });
-
-  it("uses telemetry-gateway bases without duplicating the api prefix", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      createJsonResponse(200, {
-        workloads: [],
-        types: [],
-        workloads_buffer_size_used: 0,
-        process_memory_used: 0,
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await fetchLayout(
-      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face",
-    );
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
-      { cache: "no-store" },
-    );
-  });
-
-  it("rejects successful non-layout payloads", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      createJsonResponse(200, {
-        error: "telemetry_layout_generation_failed",
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const layout = await fetchLayout(
-      "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-spine",
-    );
-
-    expect(layout).toBeNull();
-  });
 });
 
 describe("createTelemetryModel", () => {

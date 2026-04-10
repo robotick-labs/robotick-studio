@@ -84,7 +84,7 @@ export function TelemetryModel({
 }) {
   const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
-  const pollRateOverrideKey = `telemetry-poll-rate-${urlToId(model.instanceURL)}`;
+  const sampleRateOverrideKey = `telemetry-sample-rate-${urlToId(model.instanceURL)}`;
   const workloadSortKeyStorageKey = `telemetry-workload-sort-${modelStorageId}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     try {
@@ -95,9 +95,9 @@ export function TelemetryModel({
     }
     return index < 4; // default-open first 4 models
   });
-  const [pollRateOverrideText, setPollRateOverrideText] = useState<string>(() => {
+  const [sampleRateOverrideText, setPollRateOverrideText] = useState<string>(() => {
     try {
-      return localStorage.getItem(pollRateOverrideKey) ?? "";
+      return localStorage.getItem(sampleRateOverrideKey) ?? "";
     } catch {
       return "";
     }
@@ -120,12 +120,12 @@ export function TelemetryModel({
     }
     return "none";
   });
-  const preferredPollRateHz = model.preferredPollRateHz;
-  const parsedOverridePollRateHz = Number(pollRateOverrideText.trim());
-  const effectivePollRateHz =
-    Number.isFinite(parsedOverridePollRateHz) && parsedOverridePollRateHz > 0
-      ? parsedOverridePollRateHz
-      : preferredPollRateHz ?? 20;
+  const preferredSampleRateHz = model.preferredSampleRateHz;
+  const parsedOverrideSampleRateHz = Number(sampleRateOverrideText.trim());
+  const effectiveSampleRateHz =
+    Number.isFinite(parsedOverrideSampleRateHz) && parsedOverrideSampleRateHz > 0
+      ? parsedOverrideSampleRateHz
+      : preferredSampleRateHz ?? 20;
 
   useEffect(() => {
     try {
@@ -137,16 +137,16 @@ export function TelemetryModel({
 
   useEffect(() => {
     try {
-      const trimmed = pollRateOverrideText.trim();
+      const trimmed = sampleRateOverrideText.trim();
       if (trimmed.length === 0) {
-        localStorage.removeItem(pollRateOverrideKey);
+        localStorage.removeItem(sampleRateOverrideKey);
       } else {
-        localStorage.setItem(pollRateOverrideKey, trimmed);
+        localStorage.setItem(sampleRateOverrideKey, trimmed);
       }
     } catch {
       // ignore storage failures so UI keeps working
     }
-  }, [pollRateOverrideKey, pollRateOverrideText]);
+  }, [sampleRateOverrideKey, sampleRateOverrideText]);
 
   useEffect(() => {
     try {
@@ -158,7 +158,7 @@ export function TelemetryModel({
 
   const { model: telemetryModel, error } = useTelemetryStream(
     model.instanceURL,
-    effectivePollRateHz,
+    effectiveSampleRateHz,
     { active: isExpanded, ensureLayout: true }
   );
   const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
@@ -237,25 +237,25 @@ export function TelemetryModel({
           )}
           {isExpanded && (
             <>
-              {" | poll rate (Hz): "}
+              {" | sample rate (Hz): "}
               <input
-                id={`poll-rate-${urlToId(model.instanceURL)}`}
+                id={`sample-rate-${urlToId(model.instanceURL)}`}
                 type="text"
                 inputMode="decimal"
-                className={styles.pollRateInput}
-                value={pollRateOverrideText}
+                className={styles.sampleRateInput}
+                value={sampleRateOverrideText}
                 placeholder={
-                  preferredPollRateHz ? String(preferredPollRateHz) : String(20)
+                  preferredSampleRateHz ? String(preferredSampleRateHz) : String(20)
                 }
                 onChange={(e) => setPollRateOverrideText(e.target.value)}
                 onClick={stopInputPropagation}
                 onFocus={stopInputPropagation}
               />
               {" "}
-              <span className={styles.pollRateInfo}>
-                using {effectivePollRateHz} Hz
-                {preferredPollRateHz
-                  ? ` (model hint ${preferredPollRateHz} Hz)`
+              <span className={styles.sampleRateInfo}>
+                using {effectiveSampleRateHz} Hz
+                {preferredSampleRateHz
+                  ? ` (model hint ${preferredSampleRateHz} Hz)`
                   : " (default 20 Hz)"}
               </span>
             </>

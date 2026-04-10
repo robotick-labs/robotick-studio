@@ -14,7 +14,7 @@ type UseTelemetryStreamOptions = {
  */
 export function useTelemetryStream(
   baseUrl: string,
-  pollingRateHz = 20,
+  samplingRateHz = 20,
   options: UseTelemetryStreamOptions = {}
 ) {
   const telemetryService = useTelemetryService();
@@ -65,7 +65,7 @@ export function useTelemetryStream(
 
     const unsubscribe = telemetryService.subscribeTelemetry(
       activeBaseUrl,
-      pollingRateHz,
+      samplingRateHz,
       {
         callback: (next) => {
           if (cancelled || latestBaseUrlRef.current !== activeBaseUrl) {
@@ -88,7 +88,7 @@ export function useTelemetryStream(
       cancelled = true;
       unsubscribe();
     };
-  }, [active, baseUrl, ensureLayout, pollingRateHz, telemetryService]);
+  }, [active, baseUrl, ensureLayout, samplingRateHz, telemetryService]);
 
   return { model, error, revision };
 }

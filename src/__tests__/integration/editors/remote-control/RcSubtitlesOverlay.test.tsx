@@ -26,7 +26,7 @@ describe("RcSubtitlesOverlay", () => {
           error?: (error: unknown) => void;
         }
       | undefined;
-    const subscribeTelemetry = vi.fn((_baseUrl, _pollingRateHz, nextSubscriber) => {
+    const subscribeTelemetry = vi.fn((_baseUrl, _samplingRateHz, nextSubscriber) => {
       subscriber = nextSubscriber;
       return unsubscribe;
     });
@@ -99,7 +99,7 @@ describe("RcSubtitlesOverlay", () => {
           error?: (error: unknown) => void;
         }
       | undefined;
-    const subscribeTelemetry = vi.fn((_baseUrl, _pollingRateHz, nextSubscriber) => {
+    const subscribeTelemetry = vi.fn((_baseUrl, _samplingRateHz, nextSubscriber) => {
       subscriber = nextSubscriber;
       return unsubscribe;
     });

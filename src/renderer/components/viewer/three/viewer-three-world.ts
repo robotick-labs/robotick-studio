@@ -12,8 +12,7 @@ import {
   ViewerConfig,
   EnvironmentConfig,
   ToneMap,
-  RestPoller,
-  ResponseType,
+  TelemetryAnimator,
 } from "../viewer-schema.js";
 
 import {
@@ -393,8 +392,8 @@ export class ViewerWorld {
       await this.loadModel(m.id, modelUrl, m.transform);
     }
 
-    // pollers
-    await this.installPollers();
+    // animators
+    await this.installTelemetryAnimators();
 
     // ground
     if (this.worldConfig.addGroundPlane ?? true) {
@@ -663,8 +662,8 @@ export class ViewerWorld {
     });
   }
 
-  // ---------- polling ----------
-  private async installPollers() {
+  // ---------- sampling ----------
+  private async installTelemetryAnimators() {
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     this.telemetryStats.clear();
@@ -677,29 +676,29 @@ export class ViewerWorld {
         sum: 0,
         sumSq: 0,
       });
-      const baseUrl = await this.resolvePollerBaseUrl(config);
+      const baseUrl = await this.resolveAnimatorBaseUrl(config);
       if (!baseUrl) {
         console.warn(
-          `[viewer] telemetry poller ${config.id} missing telemetry base URL`,
+          `[viewer] telemetry animator ${config.id} missing telemetry base URL`,
         );
         continue;
       }
 
-      const pollingRate = config.pollingRateHz ?? 20;
-      const unsubscribe = subscribeTelemetry(baseUrl, pollingRate, {
+      const samplingRate = config.samplingRateHz ?? 20;
+      const unsubscribe = subscribeTelemetry(baseUrl, samplingRate, {
         callback: (model) => {
           // this.logTelemetryStats(config.id);
-          void this.executePoller(config, model);
+          void this.executeAnimator(config, model);
         },
         error: (err) =>
-          console.warn(`[viewer] telemetry poller ${config.id} failed`, err),
+          console.warn(`[viewer] telemetry animator ${config.id} failed`, err),
       });
       this.telemetrySubscriptions.set(config.id, unsubscribe);
     }
   }
 
-  private recordTelemetrySample(pollerId: string) {
-    const stats = this.telemetryStats.get(pollerId);
+  private recordTelemetrySample(animatorId: string) {
+    const stats = this.telemetryStats.get(animatorId);
     if (!stats) return;
     const now = Date.now();
     if (stats.lastTimestamp !== null) {
@@ -863,13 +862,13 @@ export class ViewerWorld {
     this.cameraOverlay = null;
   }
 
-  private async resolvePollerBaseUrl(
-    poller: RestPoller,
+  private async resolveAnimatorBaseUrl(
+    animator: TelemetryAnimator,
   ): Promise<string | null> {
-    if (poller.baseUrl?.trim()) {
-      return poller.baseUrl.trim();
+    if (animator.baseUrl?.trim()) {
+      return animator.baseUrl.trim();
     }
-    const modelName = poller.modelName?.trim();
+    const modelName = animator.modelName?.trim();
     if (!modelName) {
       return null;
     }
@@ -892,33 +891,33 @@ export class ViewerWorld {
     }
   }
 
-  private async executePoller(
-    poller: RestPoller,
+  private async executeAnimator(
+    animator: TelemetryAnimator,
     telemetryModel: ITelemetryModel,
   ) {
-    this.recordTelemetrySample(poller.id);
+    this.recordTelemetrySample(animator.id);
     const workload = telemetryModel.workloads.find(
-      (w) => w.name === poller.workloadName,
+      (w) => w.name === animator.workloadName,
     );
     if (!workload) {
       return;
     }
 
-    if (poller.fields?.length) {
+    if (animator.fields?.length) {
       this.applyFieldsData(
-        poller.workloadName,
-        poller.fields,
+        animator.workloadName,
+        animator.fields,
         telemetryModel,
-        poller.defaultSpace,
-        poller.sourceFrame,
-        poller.sourceUp,
+        animator.defaultSpace,
+        animator.sourceFrame,
+        animator.sourceUp,
       );
     }
 
-    if (poller.textureFields?.length) {
-      for (const t of poller.textureFields) {
+    if (animator.textureFields?.length) {
+      for (const t of animator.textureFields) {
         try {
-          const fieldPath = `${poller.workloadName}.${t.fieldId}`;
+          const fieldPath = `${animator.workloadName}.${t.fieldId}`;
           const field = telemetryModel.getField?.(fieldPath);
           if (!field) {
             console.warn("Texture field not found:", fieldPath);
@@ -947,7 +946,7 @@ export class ViewerWorld {
             continue;
           }
 
-          const textureKey = `${poller.id}:${fieldPath}:${t.node}:${t.prop}`;
+          const textureKey = `${animator.id}:${fieldPath}:${t.node}:${t.prop}`;
           const frameSignature = `${fieldBytes.byteLength}:${hashBytes(fieldBytes)}`;
           if (this.textureFrameSignatures.get(textureKey) === frameSignature) {
             continue;
@@ -1010,7 +1009,7 @@ export class ViewerWorld {
           this.textureFrameSignatures.set(textureKey, frameSignature);
         } catch (error) {
           console.error(
-            `[viewer] Failed to update texture field ${poller.workloadName}.${t.fieldId}`,
+            `[viewer] Failed to update texture field ${animator.workloadName}.${t.fieldId}`,
             error,
           );
         }
@@ -1021,7 +1020,7 @@ export class ViewerWorld {
   // ---------- mapping ----------
   private applyFieldsData(
     workloadName: string,
-    maps: Required<RestPoller>["fields"],
+    maps: Required<TelemetryAnimator>["fields"],
     telemetryModel: ITelemetryModel,
     defaultSpace?: "local" | "world",
     defaultSourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT",
@@ -1208,7 +1207,7 @@ export class ViewerWorld {
 
         case "material.map":
         case "material.emissiveMap": {
-          // handled by texture poller
+          // handled by texture animator
           break;
         }
 

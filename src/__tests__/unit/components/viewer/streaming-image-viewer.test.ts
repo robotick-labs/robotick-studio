@@ -26,7 +26,7 @@ import {
   uninit,
 } from "../../../../renderer/components/viewer/streaming-image/viewer-streaming-image";
 
-describe("viewer-streaming-image polling rate config", () => {
+describe("viewer-streaming-image sample rate config", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="viewer-container"></div>';
     subscribeTelemetry.mockClear();
@@ -37,13 +37,13 @@ describe("viewer-streaming-image polling rate config", () => {
     document.body.innerHTML = "";
   });
 
-  it("accepts legacy pollingRateHz for streaming-image viewers", async () => {
+  it("uses samplingRateHz when configured", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
       sourceField: "camera.outputs.jpeg_data.data_buffer",
-      pollingRateHz: 33,
+      samplingRateHz: 33,
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
@@ -56,19 +56,17 @@ describe("viewer-streaming-image polling rate config", () => {
     );
   });
 
-  it("prefers telemetryPollingRateHz when both keys are present", async () => {
+  it("defaults to 20 Hz when samplingRateHz is omitted", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
       sourceField: "camera.outputs.jpeg_data.data_buffer",
-      pollingRateHz: 33,
-      telemetryPollingRateHz: 12,
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
       "http://example.test:7101",
-      12,
+      20,
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),

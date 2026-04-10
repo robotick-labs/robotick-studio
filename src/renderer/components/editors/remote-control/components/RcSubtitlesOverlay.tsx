@@ -9,7 +9,7 @@ import {
   setStorageValue,
 } from "../../../../services/storage";
 
-const SUBTITLES_POLL_RATE_HZ = 5; // poll 5x per second (every 200ms)
+const SUBTITLES_SAMPLE_RATE_HZ = 5; // sample 5x per second (every 200ms)
 const DEFAULT_POSITION_X_NORM = 0.5;
 const DEFAULT_POSITION_Y_NORM = 0.84;
 const SUBTITLES_POSITION_STORAGE_BASE = "robotick-studio.rc.subtitles.position";
@@ -85,7 +85,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 
   const { model, revision } = useTelemetryStream(
     telemetryBaseUrl ?? "",
-    SUBTITLES_POLL_RATE_HZ
+    SUBTITLES_SAMPLE_RATE_HZ
   );
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);
