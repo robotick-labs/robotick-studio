@@ -14,6 +14,8 @@
 
 import { sendTelemetryWriteWs } from "./telemetry-ws-client";
 
+const plainTextDecoder = new TextDecoder();
+
 export interface LayoutField {
   name: string;
   type: string;
@@ -312,7 +314,7 @@ function readSingle(
       const bytes = new Uint8Array(raw, offset, available);
       const zero = bytes.indexOf(0);
       const slice = bytes.slice(0, zero >= 0 ? zero : available);
-      return new TextDecoder().decode(slice);
+      return plainTextDecoder.decode(slice);
     } catch {
       return "";
     }

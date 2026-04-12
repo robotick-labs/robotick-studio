@@ -73,6 +73,8 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
   { value: "stats", label: "Stats" },
 ];
 const FILTER_DEBOUNCE_MS = 160;
+const TREE_REFRESH_INTERVAL_MS = 500;
+const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 2;
 const TelemetrySampleRevisionContext = React.createContext(0);
 
 const TREE_STORAGE_KEYS = {
@@ -265,7 +267,12 @@ export default function TelemetryTreeViewer() {
 
   const telemetryBaseUrl =
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
-  const samplingRateHz = selectedModel?.preferredTelemetrySampleRateHz ?? 10;
+  const requestedSamplingRateHz =
+    selectedModel?.preferredTelemetrySampleRateHz ?? 10;
+  const samplingRateHz = Math.min(
+    requestedSamplingRateHz,
+    TREE_VIEWER_MAX_SAMPLE_RATE_HZ
+  );
   const fieldConnectionHints = useMemo(() => {
     if (!selectedModel) {
       return new Map<string, FieldConnectionHint>();
@@ -278,6 +285,10 @@ export default function TelemetryTreeViewer() {
   const { model, revision } = useTelemetryStream(
     telemetryBaseUrl,
     samplingRateHz
+  );
+  const displayRevision = useThrottledRevision(
+    revision,
+    TREE_REFRESH_INTERVAL_MS
   );
   const workloads = model?.workloads ?? [];
   const workloadName =
@@ -497,7 +508,7 @@ export default function TelemetryTreeViewer() {
           />
         </div>
       </div>
-      <TelemetrySampleRevisionContext.Provider value={revision}>
+      <TelemetrySampleRevisionContext.Provider value={displayRevision}>
         <div className={styles.tree}>
           {rootNodes.length === 0 ? (
             <div className={styles.message}>No telemetry fields available.</div>
@@ -518,6 +529,34 @@ export default function TelemetryTreeViewer() {
       </TelemetrySampleRevisionContext.Provider>
     </div>
   );
+}
+
+function useThrottledRevision(revision: number, intervalMs: number): number {
+  const [displayRevision, setDisplayRevision] = useState(revision);
+  const latestRevisionRef = useRef(revision);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    latestRevisionRef.current = revision;
+    if (revision === displayRevision || timeoutRef.current !== null) {
+      return;
+    }
+
+    timeoutRef.current = window.setTimeout(() => {
+      timeoutRef.current = null;
+      setDisplayRevision(latestRevisionRef.current);
+    }, intervalMs);
+  }, [displayRevision, intervalMs, revision]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return displayRevision;
 }
 
 function TreeNodeValue({

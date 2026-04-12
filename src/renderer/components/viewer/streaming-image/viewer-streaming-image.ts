@@ -15,35 +15,43 @@ interface StreamingImageViewerConfig extends ViewerConfig {
   sourceField?: string;
   telemetryBaseUrl?: string;
   samplingRateHz?: number;
+  maxPresentRateHz?: number;
+  surfaceRecycleIntervalMs?: number;
   telemetryMetricsEnabled?: boolean;
   telemetryMetricsWindowMs?: number;
   frameStallTimeoutMs?: number;
 }
 
-const BLACK_PIXEL =
-  "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
 const DEFAULT_METRICS_WINDOW_MS = 60_000;
 const DEFAULT_FRAME_STALL_TIMEOUT_MS = 2_500;
 const MAX_METRICS_HISTORY = 20;
+const DEFAULT_MAX_PRESENT_RATE_HZ = 6;
+const DEFAULT_SURFACE_RECYCLE_INTERVAL_MS = 30_000;
 
 let telemetryDispose: (() => void) | null = null;
-let lastFrameBlobUrl: string | null = null;
-let activeImg: HTMLImageElement | null = null;
+let activeCanvas: HTMLCanvasElement | null = null;
+let activeCanvasContext: CanvasRenderingContext2D | null = null;
 let viewerContainerElement: HTMLElement | null = null;
-let renderLoopRafId: number | null = null;
+let decodeInFlight = false;
+let monitorIntervalId: number | null = null;
+let presentTimerId: number | null = null;
 let pendingFrame: PendingFrame | null = null;
 let metricsWindow: MetricsWindow | null = null;
 let metricsEnabled = true;
 let metricsWindowMs = DEFAULT_METRICS_WINDOW_MS;
 let frameStallTimeoutMs = DEFAULT_FRAME_STALL_TIMEOUT_MS;
+let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_MAX_PRESENT_RATE_HZ);
+let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
 let lastFramePresentedAtMs = 0;
 let stallStateActive = false;
+let viewerSessionId = 0;
+let surfaceCreatedAtMs = 0;
 
 type PendingFrame = {
   mime: string;
-  buffer: ArrayBuffer;
+  bytes: Uint8Array<ArrayBuffer>;
   receivedAtMs: number;
 };
 
@@ -89,9 +97,15 @@ function resetRuntimeState() {
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
-  if (renderLoopRafId !== null && typeof cancelAnimationFrame === "function") {
-    cancelAnimationFrame(renderLoopRafId);
-    renderLoopRafId = null;
+  decodeInFlight = false;
+  surfaceCreatedAtMs = 0;
+  if (monitorIntervalId !== null && typeof clearInterval === "function") {
+    clearInterval(monitorIntervalId);
+    monitorIntervalId = null;
+  }
+  if (presentTimerId !== null && typeof clearTimeout === "function") {
+    clearTimeout(presentTimerId);
+    presentTimerId = null;
   }
 }
 
@@ -135,13 +149,17 @@ function flushMetricsWindow(nowMs: number, force = false) {
   metricsWindow = createMetricsWindow(nowMs);
 }
 
-function queueFrame(mime: string, buffer: ArrayBuffer, receivedAtMs: number) {
+function queueFrame(
+  mime: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  receivedAtMs: number
+) {
   if (pendingFrame && metricsWindow) {
     metricsWindow.supersededFrames += 1;
   }
   pendingFrame = {
     mime,
-    buffer,
+    bytes,
     receivedAtMs,
   };
   lastFrameReceivedAtMs = receivedAtMs;
@@ -149,30 +167,116 @@ function queueFrame(mime: string, buffer: ArrayBuffer, receivedAtMs: number) {
   if (metricsWindow) {
     metricsWindow.receivedFrames += 1;
   }
+  schedulePendingFramePresentation();
 }
 
-function presentPendingFrame(nowMs: number) {
-  if (!activeImg || !pendingFrame) {
+function schedulePendingFramePresentation() {
+  if (!pendingFrame || decodeInFlight) {
+    return;
+  }
+  if (presentTimerId !== null) {
+    return;
+  }
+
+  const elapsedMs =
+    lastFramePresentedAtMs > 0
+      ? Date.now() - lastFramePresentedAtMs
+      : maxPresentIntervalMs;
+  const delayMs = Math.max(0, maxPresentIntervalMs - elapsedMs);
+  presentTimerId = window.setTimeout(() => {
+    presentTimerId = null;
+    void presentPendingFrame();
+  }, delayMs);
+}
+
+async function presentPendingFrame() {
+  if (
+    !activeCanvas ||
+    !activeCanvasContext ||
+    !pendingFrame ||
+    decodeInFlight ||
+    typeof createImageBitmap !== "function"
+  ) {
     return;
   }
 
   const frame = pendingFrame;
   pendingFrame = null;
-  const blob = new Blob([frame.buffer], { type: frame.mime });
-  const blobUrl = URL.createObjectURL(blob);
-  activeImg.src = blobUrl;
-  if (lastFrameBlobUrl) {
-    URL.revokeObjectURL(lastFrameBlobUrl);
-  }
-  lastFrameBlobUrl = blobUrl;
+  const sessionId = viewerSessionId;
+  decodeInFlight = true;
 
-  if (metricsWindow) {
-    if (lastFramePresentedAtMs > 0) {
-      metricsWindow.intervalsMs.push(nowMs - lastFramePresentedAtMs);
+  try {
+    const safeBytes = sanitizeImageBytes(frame.mime, frame.bytes);
+    if (!safeBytes) {
+      noteTransportError();
+      return;
     }
-    metricsWindow.presentedFrames += 1;
+    const blob = new Blob([safeBytes], { type: frame.mime });
+    const bitmap = await createImageBitmap(blob);
+    try {
+      if (
+        sessionId !== viewerSessionId ||
+        !activeCanvas ||
+        !activeCanvasContext
+      ) {
+        return;
+      }
+
+      if (
+        activeCanvas.width !== bitmap.width ||
+        activeCanvas.height !== bitmap.height
+      ) {
+        activeCanvas.width = bitmap.width;
+        activeCanvas.height = bitmap.height;
+      }
+
+      activeCanvasContext.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
+      activeCanvasContext.drawImage(bitmap, 0, 0);
+
+      if (metricsWindow) {
+        if (lastFramePresentedAtMs > 0) {
+          metricsWindow.intervalsMs.push(frame.receivedAtMs - lastFramePresentedAtMs);
+        }
+        metricsWindow.presentedFrames += 1;
+      }
+      lastFramePresentedAtMs = frame.receivedAtMs;
+    } finally {
+      bitmap.close();
+    }
+  } catch (err) {
+    console.warn("[streaming-image] Failed to decode frame", err);
+    noteTransportError();
+  } finally {
+    decodeInFlight = false;
+    if (pendingFrame) {
+      schedulePendingFramePresentation();
+    }
   }
-  lastFramePresentedAtMs = nowMs;
+}
+
+function sanitizeImageBytes(
+  mime: string,
+  bytes: Uint8Array<ArrayBuffer>
+): Uint8Array<ArrayBuffer> | null {
+  if (!mime.toLowerCase().includes("jpeg")) {
+    return bytes;
+  }
+
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return null;
+  }
+  const finalIndex = bytes.length - 1;
+  if (bytes[finalIndex - 1] === 0xff && bytes[finalIndex] === 0xd9) {
+    return bytes;
+  }
+
+  for (let i = bytes.length - 2; i >= 0; i -= 1) {
+    if (bytes[i] === 0xff && bytes[i + 1] === 0xd9) {
+      return bytes.subarray(0, i + 2);
+    }
+  }
+
+  return null;
 }
 
 function noteTransportError() {
@@ -182,7 +286,7 @@ function noteTransportError() {
 }
 
 function maybeHandleStall(nowMs: number) {
-  if (!activeImg || frameStallTimeoutMs <= 0 || pendingFrame) {
+  if (!activeCanvas || frameStallTimeoutMs <= 0 || pendingFrame || decodeInFlight) {
     return;
   }
   const lastActivityAtMs = Math.max(lastFrameReceivedAtMs, lastFramePresentedAtMs);
@@ -202,26 +306,71 @@ function maybeHandleStall(nowMs: number) {
   setBlackFrame();
 }
 
-function runRenderLoop() {
-  renderLoopRafId = null;
-  const nowMs = Date.now();
-  presentPendingFrame(nowMs);
-  maybeHandleStall(nowMs);
-  flushMetricsWindow(nowMs);
-  if (activeImg && typeof requestAnimationFrame === "function") {
-    renderLoopRafId = requestAnimationFrame(runRenderLoop);
-  }
-}
-
-function startRenderLoop() {
-  if (renderLoopRafId !== null || typeof requestAnimationFrame !== "function") {
+function maybeRecycleSurface(nowMs: number) {
+  if (
+    !viewerContainerElement ||
+    !activeCanvas ||
+    !activeCanvasContext ||
+    decodeInFlight ||
+    pendingFrame ||
+    surfaceRecycleIntervalMs <= 0 ||
+    lastFramePresentedAtMs <= 0 ||
+    nowMs - surfaceCreatedAtMs < surfaceRecycleIntervalMs
+  ) {
     return;
   }
-  renderLoopRafId = requestAnimationFrame(runRenderLoop);
+  recreateCanvasSurface();
 }
 
-export async function init(viewerConfig: ViewerConfig, instanceId?: number): Promise<void> {
+function startMonitorLoop() {
+  if (monitorIntervalId !== null || typeof setInterval !== "function") {
+    return;
+  }
+  monitorIntervalId = window.setInterval(() => {
+    const nowMs = Date.now();
+    maybeHandleStall(nowMs);
+    maybeRecycleSurface(nowMs);
+    flushMetricsWindow(nowMs);
+  }, 250);
+}
+
+function recreateCanvasSurface() {
+  if (!viewerContainerElement) {
+    return false;
+  }
+
+  const nextCanvas = document.createElement("canvas");
+  nextCanvas.id = "camera-stream";
+  nextCanvas.style.width = "100%";
+  nextCanvas.style.height = "100%";
+  nextCanvas.style.display = "block";
+  const nextContext = nextCanvas.getContext("2d", {
+    alpha: false,
+  });
+  if (!nextContext) {
+    return false;
+  }
+
+  const previousCanvas = activeCanvas;
+  if (previousCanvas?.parentElement === viewerContainerElement) {
+    previousCanvas.width = 1;
+    previousCanvas.height = 1;
+    viewerContainerElement.removeChild(previousCanvas);
+  } else if (viewerContainerElement.firstChild) {
+    viewerContainerElement.textContent = "";
+  }
+
+  viewerContainerElement.appendChild(nextCanvas);
+  activeCanvas = nextCanvas;
+  activeCanvasContext = nextContext;
+  surfaceCreatedAtMs = Date.now();
+  setBlackFrame();
+  return true;
+}
+
+export async function init(viewerConfig: ViewerConfig): Promise<void> {
   resetRuntimeState();
+  viewerSessionId += 1;
   console.log("Streaming Image Viewer initialized", viewerConfig);
 
   const viewerContainer =
@@ -233,12 +382,10 @@ export async function init(viewerConfig: ViewerConfig, instanceId?: number): Pro
     return;
   }
   viewerContainerElement = viewerContainer;
-
-  const cameraImg = document.createElement("img");
-  cameraImg.id = "camera-stream";
-  cameraImg.src = BLACK_PIXEL;
-  viewerContainer.appendChild(cameraImg);
-  activeImg = cameraImg;
+  if (!recreateCanvasSurface()) {
+    console.warn("[streaming-image] Failed to acquire 2D canvas context");
+    return;
+  }
 
   const streamingConfig = viewerConfig as StreamingImageViewerConfig;
   const fieldPath = streamingConfig.sourceField?.trim();
@@ -258,7 +405,14 @@ export async function init(viewerConfig: ViewerConfig, instanceId?: number): Pro
     return;
   }
 
-  const samplingRateHz = streamingConfig.samplingRateHz ?? 20;
+  const maxPresentRateHz = Math.max(
+    1,
+    Math.floor(
+      streamingConfig.maxPresentRateHz ?? DEFAULT_MAX_PRESENT_RATE_HZ
+    )
+  );
+  const requestedSamplingRateHz = streamingConfig.samplingRateHz ?? 20;
+  const samplingRateHz = Math.min(requestedSamplingRateHz, maxPresentRateHz);
   metricsEnabled = streamingConfig.telemetryMetricsEnabled ?? true;
   metricsWindowMs = Math.max(
     5_000,
@@ -268,12 +422,20 @@ export async function init(viewerConfig: ViewerConfig, instanceId?: number): Pro
     250,
     Math.floor(streamingConfig.frameStallTimeoutMs ?? DEFAULT_FRAME_STALL_TIMEOUT_MS)
   );
+  maxPresentIntervalMs = Math.max(16, Math.floor(1000 / maxPresentRateHz));
+  surfaceRecycleIntervalMs = Math.max(
+    0,
+    Math.floor(
+      streamingConfig.surfaceRecycleIntervalMs ??
+        DEFAULT_SURFACE_RECYCLE_INTERVAL_MS
+    )
+  );
   metricsSourceLabel = `${telemetryBase} :: ${fieldPath}`;
   metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
-  startRenderLoop();
+  startMonitorLoop();
 
   console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${samplingRateHz}Hz`
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${samplingRateHz}Hz (requested ${requestedSamplingRateHz}Hz, presenting up to ${maxPresentRateHz}Hz)`
   );
   telemetryDispose = subscribeTelemetry(telemetryBase, samplingRateHz, {
     callback: (model) => handleTelemetryFrame(model, fieldPath),
@@ -287,15 +449,13 @@ export async function init(viewerConfig: ViewerConfig, instanceId?: number): Pro
   });
 }
 
-export async function uninit(instanceId?: number): Promise<void> {
+export async function uninit(): Promise<void> {
   flushMetricsWindow(Date.now(), true);
   telemetryDispose?.();
   telemetryDispose = null;
-  if (lastFrameBlobUrl) {
-    URL.revokeObjectURL(lastFrameBlobUrl);
-    lastFrameBlobUrl = null;
-  }
-  activeImg = null;
+  viewerSessionId += 1;
+  activeCanvas = null;
+  activeCanvasContext = null;
   resetRuntimeState();
   if (viewerContainerElement) {
     viewerContainerElement.innerHTML = "";
@@ -305,15 +465,18 @@ export async function uninit(instanceId?: number): Promise<void> {
 }
 
 /**
- * Updates the active viewer image from a telemetry field's byte payload or resets to a black frame when unavailable.
+ * Updates the active viewer canvas from a telemetry field's byte payload.
  *
- * Reads the telemetry field at `fieldPath` from `model`. If the field contains a `Uint8Array` image payload, the function sets the viewer's image source to that payload using the field's `mime_type` when present (defaults to `image/jpeg`) and revokes the previous frame URL. If the field is missing or does not contain a `Uint8Array`, the viewer is set to a black placeholder.
+ * Reads the telemetry field at `fieldPath` from `model`. If the field contains
+ * a `Uint8Array` image payload, the function queues the latest bytes for
+ * decode. If the field is missing or malformed, the viewer keeps its current
+ * frame.
  *
  * @param model - Telemetry model to read the field from
  * @param fieldPath - Path to the telemetry field containing the image bytes
  */
 function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
-  if (!activeImg) {
+  if (!activeCanvas) {
     return;
   }
   const field = model.getField?.(fieldPath);
@@ -326,22 +489,17 @@ function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
   }
 
   const mime = field.mime_type || "image/jpeg";
-  const buffer = value.buffer.slice(
-    value.byteOffset,
-    value.byteOffset + value.byteLength
-  ) as ArrayBuffer;
-  queueFrame(mime, buffer, Date.now());
+  queueFrame(mime, value as Uint8Array<ArrayBuffer>, Date.now());
 }
 
 function setBlackFrame() {
-  if (!activeImg) return;
-  if (activeImg.src !== BLACK_PIXEL) {
-    activeImg.src = BLACK_PIXEL;
+  if (!activeCanvas || !activeCanvasContext) return;
+  if (activeCanvas.width !== 1 || activeCanvas.height !== 1) {
+    activeCanvas.width = 1;
+    activeCanvas.height = 1;
   }
-  if (lastFrameBlobUrl) {
-    URL.revokeObjectURL(lastFrameBlobUrl);
-    lastFrameBlobUrl = null;
-  }
+  activeCanvasContext.fillStyle = "#000";
+  activeCanvasContext.fillRect(0, 0, 1, 1);
 }
 
 async function resolveTelemetryBaseUrl(

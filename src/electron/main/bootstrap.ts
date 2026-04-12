@@ -808,6 +808,12 @@ export async function bootstrapElectron({
   if (env.ELECTRON_DEV === "1") {
     app.commandLine.appendSwitch("remote-debugging-port", "9222");
   }
+  const disableAccelerated2dCanvas =
+    env.ROBOTICK_STUDIO_DISABLE_ACCELERATED_2D_CANVAS !== "0";
+  if (disableAccelerated2dCanvas) {
+    app.commandLine.appendSwitch("disable-accelerated-2d-canvas", "");
+    console.log("[Bootstrap] Disabled accelerated 2D canvas");
+  }
 
   app.on("browser-window-created", (_event, window) => {
     const browserWindow = window as BrowserWindowInstance;
