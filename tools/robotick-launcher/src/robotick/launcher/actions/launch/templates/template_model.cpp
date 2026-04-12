@@ -73,12 +73,15 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
 
     {% endfor %}
+
+    {% if workloads %}
     static const WorkloadSeed* const all_workloads[] = {
     {% for w in workloads %}
         &{{ w.var_name }}{% if not loop.last %},{% endif %}
 
     {% endfor %}
     };
+    {% endif %}
 
     // === Local data connections ===
 
@@ -165,14 +168,18 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     // === Finalize model ===
 
     model.set_model_name("{{config.model_name}}");
+    {% if workloads %}
     model.use_workload_seeds(all_workloads);
+    {% endif %}
     {% if connections %}
     model.use_data_connection_seeds(all_connections);
     {% endif %}
     {% if remote_models %}
     model.use_remote_models(all_remote_models);
     {% endif %}
+    {% if workloads %}
     model.set_root_workload({{config.model.root}});
+    {% endif %}
     {% if telemetry and telemetry.port %}
     model.set_telemetry_port({{telemetry.port}});
     {% endif %}
