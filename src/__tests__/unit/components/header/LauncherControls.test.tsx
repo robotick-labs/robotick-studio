@@ -5,12 +5,18 @@ import { createRoot } from "react-dom/client";
 const { useLauncherContextMock } = vi.hoisted(() => ({
   useLauncherContextMock: vi.fn(),
 }));
+const { useProjectDataMock } = vi.hoisted(() => ({
+  useProjectDataMock: vi.fn(),
+}));
 
 vi.mock("../../../../renderer/data-sources/launcher", () => ({
   Launcher: {
     Context: {
       use: useLauncherContextMock,
     },
+  },
+  ProjectData: {
+    use: useProjectDataMock,
   },
 }));
 
@@ -23,6 +29,7 @@ type LauncherContextValue = ReturnType<typeof Launcher.Context.use>;
 const baseContextValue: LauncherContextValue = {
   status: "stopped",
   reportedStatus: "stopped",
+  activeProfile: null,
   lastError: null,
   isBusy: false,
   isAwaitingStatus: false,
@@ -32,8 +39,13 @@ const baseContextValue: LauncherContextValue = {
   launcherModels: {},
   modelHealth: {},
   run: vi.fn(),
+  runProfile: vi.fn(),
+  runModel: vi.fn(),
   stop: vi.fn(),
+  stopModel: vi.fn(),
   restart: vi.fn(),
+  restartProfile: vi.fn(),
+  restartModel: vi.fn(),
 };
 
 function renderControl(): { container: HTMLElement; unmount: () => void } {
@@ -54,6 +66,9 @@ function renderControl(): { container: HTMLElement; unmount: () => void } {
 
 describe("LauncherControls", () => {
   it("shows the play button enabled when the launcher is stopped", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "stopped",
@@ -68,6 +83,9 @@ describe("LauncherControls", () => {
   });
 
   it("keeps the stop button available while a run request is in-flight", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "launching" as LauncherStatus,
@@ -85,6 +103,9 @@ describe("LauncherControls", () => {
   });
 
   it("keeps the stop button visible while restart is pending", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "launching" as LauncherStatus,
@@ -102,6 +123,9 @@ describe("LauncherControls", () => {
   });
 
   it("shows running and non-running models in the launcher tooltip", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "running" as LauncherStatus,
@@ -121,7 +145,7 @@ describe("LauncherControls", () => {
     });
     const { container, unmount } = renderControl();
 
-    expect(container.textContent).toContain("Launcher Status");
+    expect(container.textContent).toContain("Launcher Models");
     expect(container.textContent).toContain("Running");
     expect(container.textContent).toContain("alf-e-face");
     expect(container.textContent).toContain("Not Running");
@@ -131,6 +155,9 @@ describe("LauncherControls", () => {
   });
 
   it("treats successfully launched esp32-style models as running in the tooltip", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "running" as LauncherStatus,
@@ -152,6 +179,9 @@ describe("LauncherControls", () => {
   });
 
   it("keeps detached launched models running when health is temporarily unavailable", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: { data: [], loading: false, error: null },
+    });
     useLauncherContextMock.mockReturnValue({
       ...baseContextValue,
       status: "running" as LauncherStatus,
@@ -179,7 +209,120 @@ describe("LauncherControls", () => {
     unmount();
   });
 
+  it("shows model rows even before launcher has ever reported model status", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: {
+        data: [
+          {
+            modelShortName: "barr-e-simulator",
+            modelName: "Barr.e™ Simulator",
+          },
+        ],
+        loading: false,
+        error: null,
+      },
+    });
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "stopped",
+      reportedStatus: "stopped",
+      launcherModels: {},
+      modelHealth: {},
+    });
+
+    const { container, unmount } = renderControl();
+    expect(container.textContent).toContain("Not Running");
+    expect(container.textContent).toContain("barr-e-simulator");
+    unmount();
+  });
+
+  it("runs a model-specific profile from a per-model row start button", async () => {
+    const runModel = vi.fn().mockResolvedValue(undefined);
+    useProjectDataMock.mockReturnValue({
+      projectModels: {
+        data: [
+          {
+            modelShortName: "barr-e-simulator",
+            modelName: "Barr.e™ Simulator",
+          },
+        ],
+        loading: false,
+        error: null,
+      },
+    });
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "stopped",
+      reportedStatus: "stopped",
+      runModel,
+    });
+
+    const { container, unmount } = renderControl();
+    const button = container.querySelector(
+      'button[aria-label="Start barr-e-simulator"]'
+    ) as HTMLButtonElement | null;
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+    });
+
+    expect(runModel).toHaveBeenCalledWith("barr-e-simulator");
+    unmount();
+  });
+
+  it("stops only the selected model from a per-model row stop button", async () => {
+    const stopModel = vi.fn().mockResolvedValue(undefined);
+    useProjectDataMock.mockReturnValue({
+      projectModels: {
+        data: [
+          {
+            modelShortName: "barr-e-simulator",
+            modelName: "Barr.e™ Simulator",
+          },
+          {
+            modelShortName: "barr-e-spine",
+            modelName: "Barr.e™ Spine",
+          },
+        ],
+        loading: false,
+        error: null,
+      },
+    });
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running",
+      reportedStatus: "running",
+      activeProfile: "local:barr-e-simulator",
+      stopModel,
+      launcherModels: {
+        "barr-e-simulator": { stage: "run", status: "running" },
+        "barr-e-spine": { stage: "run", status: "running" },
+      },
+      modelHealth: {
+        "barr-e-simulator": { alive: true, loading: false, error: null },
+        "barr-e-spine": { alive: true, loading: false, error: null },
+      },
+    });
+
+    const { container, unmount } = renderControl();
+    const button = container.querySelector(
+      'button[aria-label="Stop barr-e-simulator"]'
+    ) as HTMLButtonElement | null;
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+    });
+
+    expect(stopModel).toHaveBeenCalledWith("barr-e-simulator");
+    unmount();
+  });
+
   afterEach(() => {
     useLauncherContextMock.mockReset();
+    useProjectDataMock.mockReset();
   });
 });

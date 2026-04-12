@@ -44,10 +44,21 @@ export interface LauncherService {
     projectPath: string,
     launcherProfile: string
   ): Promise<void>;
+  requestLauncherRunModel(
+    projectPath: string,
+    platform: "local" | "native",
+    modelId: string
+  ): Promise<void>;
   requestLauncherStop(): Promise<void>;
+  requestLauncherStopModel(
+    projectPath: string,
+    platform: "local" | "native",
+    modelId: string
+  ): Promise<void>;
   fetchLauncherStatus(): Promise<{
     status: string;
     phase?: string | null;
+    profile?: string | null;
     models?: Record<string, { stage?: string; status?: string }>;
   } | null>;
   getLauncherLogStreamUrl(): string;

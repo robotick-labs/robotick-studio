@@ -79,19 +79,37 @@
   align-items: center;
 }
 
-.statusIndicator:hover .statusTooltip,
+.statusIndicatorOpen .statusTooltip,
 .statusIndicator:focus-within .statusTooltip {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
 }
 
+.statusTrigger {
+  cursor: pointer;
+  user-select: none;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.statusTrigger:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
 .statusTooltip {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 8px);
   right: 0;
-  min-width: 220px;
-  max-width: 320px;
+  min-width: 320px;
+  max-width: 420px;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(14, 20, 24, 0.96);
@@ -128,7 +146,7 @@
 
 .statusTooltipRow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   font-size: 12px;
@@ -149,6 +167,56 @@
   color: rgba(255, 255, 255, 0.66);
   font-size: 11px;
   text-align: right;
+}
+
+.statusTooltipRowMain {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.statusTooltipModelIcon {
+  flex: 0 0 auto;
+  transform: scale(0.72);
+  transform-origin: left center;
+}
+
+.statusTooltipRowControls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.statusTooltipControl {
+  cursor: pointer;
+  user-select: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border-radius: 8px;
+  background-color: rgba(150, 255, 150, 0.2);
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  border: none;
+  transition: background-color 180ms ease-out;
+}
+
+.statusTooltipControl:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.statusTooltipControl:not(:disabled):hover,
+.statusTooltipControl:not(:disabled):focus {
+  background-color: rgba(150, 255, 150, 0.35);
 }
 
 .statusTooltipRowError .statusTooltipDetail {

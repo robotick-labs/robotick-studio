@@ -5,6 +5,7 @@ from datetime import datetime
 import multiprocessing as mp
 import queue as queue_module
 from pathlib import Path
+import subprocess
 import sys
 import threading
 import time
@@ -274,6 +275,122 @@ def _tracked_helper_pids() -> dict[str, int]:
     return helper_pids
 
 
+def _normalize_platform(platform: str) -> Optional[str]:
+    normalized = platform.strip().lower()
+    if normalized in {"local", "native"}:
+        return normalized
+    return None
+
+
+def _active_platform() -> str:
+    profile = current_profile or ""
+    if ":" not in profile:
+        return "local"
+    platform, _ = profile.split(":", 1)
+    normalized = _normalize_platform(platform)
+    return normalized or "local"
+
+
+def _set_model_run_status(
+    model_id: str,
+    status: str,
+    *,
+    detail: Optional[str] = None,
+    returncode: Optional[int] = None,
+    pid: Optional[int] = None,
+) -> None:
+    with status_lock:
+        model_entry = current_status.setdefault("models", {}).setdefault(model_id, {})
+        model_entry.update({"stage": "run", "status": status})
+        if detail is not None:
+            model_entry["detail"] = detail
+        if returncode is not None:
+            model_entry["returncode"] = returncode
+        if pid is not None:
+            model_entry["pid"] = pid
+        if status in {"starting", "running"}:
+            current_status["status"] = "running"
+            current_status["phase"] = "run"
+
+
+def _run_single_model_worker(
+    project_path: Path,
+    platform: str,
+    model_id: str,
+) -> None:
+    global current_profile, current_project_path, current_run_started_at
+
+    project_name = project_path.name.removesuffix(".project.yaml")
+    base_dir = project_path.parent
+
+    try:
+        model_target = run_profile_module._resolve_profile_model_target(
+            project_name, base_dir, platform, model_id
+        )
+    except Exception as exc:
+        _set_model_run_status(model_id, "error", detail=str(exc))
+        return
+
+    cmd = [
+        "robotick-launcher",
+        "run",
+        project_name,
+        model_id,
+        model_target,
+        "--base-dir",
+        str(base_dir),
+        "--workspace-dir",
+        str(base_dir),
+        "--no-pre",
+    ]
+
+    _set_model_run_status(model_id, "starting")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except Exception as exc:
+        _set_model_run_status(model_id, "error", detail=str(exc))
+        return
+
+    _set_model_run_status(model_id, "running", pid=proc.pid)
+
+    loop = log_loop
+    if proc.stdout:
+        for line in proc.stdout:
+            stripped = line.rstrip("\n")
+            if not stripped:
+                continue
+            if loop is not None:
+                _broadcast_log(stripped, loop)
+            else:
+                print(stripped)
+
+    rc = proc.wait()
+    _set_model_run_status(
+        model_id,
+        "succeeded" if rc == 0 else "failed",
+        returncode=rc,
+    )
+
+    should_reset_to_stopped = False
+    with lifecycle_lock:
+        managed_process_active = process_handle is not None and process_handle.is_alive()
+        if not managed_process_active and current_profile == f"{platform}:{model_id}":
+            current_profile = None
+            current_project_path = None
+            current_run_started_at = None
+            should_reset_to_stopped = True
+
+    if should_reset_to_stopped:
+        _set_stopped_status()
+
+
 def _stop_launcher_worker() -> None:
     global process_handle, status_queue, status_thread, stop_thread, current_profile, current_project_path, current_run_started_at, log_loop
 
@@ -374,6 +491,146 @@ async def launcher_log_stream(websocket: WebSocket):
             if queue in log_subscribers:
                 log_subscribers.remove(queue)
         print("[WebSocket] Closed")
+
+
+@router.post("/run-model")
+async def run_model(
+    project_path: Path = Query(
+        ..., description="Absolute path to the project YAML file"
+    ),
+    model_id: str = Query(..., description="Model id / short name to launch"),
+    platform: str = Query(
+        "local", description="Launch platform prefix: local or native"
+    ),
+):
+    global current_profile, current_project_path, current_run_started_at
+
+    normalized_platform = _normalize_platform(platform)
+    if normalized_platform is None:
+        return {
+            "status": "error",
+            "detail": f"Invalid platform '{platform}' (expected local or native)",
+        }
+
+    trimmed_model_id = model_id.strip()
+    if not trimmed_model_id:
+        return {
+            "status": "error",
+            "detail": "model_id must be a non-empty string",
+        }
+
+    with lifecycle_lock:
+        if stop_thread and stop_thread.is_alive():
+            return {"status": "stopping"}
+        if current_project_path is None:
+            current_project_path = project_path
+        if current_profile is None:
+            current_profile = f"{normalized_platform}:{trimmed_model_id}"
+            current_run_started_at = time.monotonic()
+
+    with status_lock:
+        current_status["profile"] = current_profile
+        model_entry = current_status.setdefault("models", {}).get(trimmed_model_id) or {}
+        if model_entry.get("stage") == "run" and model_entry.get("status") in {
+            "starting",
+            "running",
+        }:
+            return {
+                "status": "already running",
+                "model": trimmed_model_id,
+            }
+        current_status["status"] = "running"
+        current_status["phase"] = "run"
+
+    worker = threading.Thread(
+        target=_run_single_model_worker,
+        args=(project_path, normalized_platform, trimmed_model_id),
+        daemon=True,
+    )
+    worker.start()
+
+    return {
+        "status": "launching",
+        "model": trimmed_model_id,
+        "profile": f"{normalized_platform}:{trimmed_model_id}",
+    }
+
+
+@router.post("/stop-model")
+async def stop_model(
+    model_id: str = Query(..., description="Model id / short name to stop"),
+    project_path: Optional[Path] = Query(
+        None, description="Absolute path to the project YAML file"
+    ),
+    platform: Optional[str] = Query(
+        None, description="Optional platform prefix override (local/native)"
+    ),
+):
+    global current_profile, current_project_path, current_run_started_at
+
+    trimmed_model_id = model_id.strip()
+    if not trimmed_model_id:
+        return {
+            "status": "error",
+            "detail": "model_id must be a non-empty string",
+        }
+
+    normalized_platform = (
+        _normalize_platform(platform) if platform is not None else _active_platform()
+    )
+    if normalized_platform is None:
+        return {
+            "status": "error",
+            "detail": f"Invalid platform '{platform}' (expected local or native)",
+        }
+
+    with lifecycle_lock:
+        effective_project_path = project_path or current_project_path
+
+    if effective_project_path is None:
+        return {
+            "status": "error",
+            "detail": "No active project to stop model from.",
+        }
+
+    helper_pid = _tracked_helper_pids().get(trimmed_model_id)
+    helper_pids = {trimmed_model_id: helper_pid} if helper_pid else None
+
+    try:
+        stop_result = run_profile_module.stop_profile(
+            project=effective_project_path.name.removesuffix(".project.yaml"),
+            profile=f"{normalized_platform}:{trimmed_model_id}",
+            base_dir=effective_project_path.parent,
+            helper_pids=helper_pids,
+        )
+    except Exception as exc:
+        stop_result = {"status": "error", "detail": str(exc)}
+
+    if stop_result.get("status") == "error":
+        _set_model_run_status(
+            trimmed_model_id,
+            "error",
+            detail=str(stop_result.get("detail") or "stop failed"),
+        )
+    else:
+        _set_model_run_status(trimmed_model_id, "stopped")
+
+    should_reset_to_stopped = False
+    with lifecycle_lock:
+        managed_process_active = process_handle is not None and process_handle.is_alive()
+        if (
+            not managed_process_active
+            and current_profile == f"{normalized_platform}:{trimmed_model_id}"
+        ):
+            current_profile = None
+            current_project_path = None
+            current_run_started_at = None
+            should_reset_to_stopped = True
+
+    if should_reset_to_stopped:
+        _set_stopped_status()
+
+    return stop_result
 
 
 @router.post("/run")

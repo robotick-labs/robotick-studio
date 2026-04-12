@@ -8,6 +8,8 @@ import {
   setTimeoutSafe,
 } from "../../utils/domEnvironment";
 
+const HEARTBEAT_PERIOD_MS = 1100;
+
 /**
  * Render a launcher status indicator that displays animated dots or a flatline.
  *
@@ -30,6 +32,7 @@ export function LauncherDots({
   const [activeIndex, setActiveIndex] = useState(0);
   const [runningSince, setRunningSince] = useState<number | null>(null);
   const [flatlineReady, setFlatlineReady] = useState(false);
+  const [heartbeatOffsetMs, setHeartbeatOffsetMs] = useState(0);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -48,6 +51,8 @@ export function LauncherDots({
   useEffect(() => {
     if (status === "running") {
       setRunningSince((prev) => prev ?? Date.now());
+      // Lock heartbeat phase to wall-clock time so all running indicators pulse in sync.
+      setHeartbeatOffsetMs(-(Date.now() % HEARTBEAT_PERIOD_MS));
     } else {
       setRunningSince(null);
       setFlatlineReady(false);
@@ -111,7 +116,17 @@ export function LauncherDots({
             );
           }
 
-          return <span key={index} className={dotClasses.join(" ")}></span>;
+          return (
+            <span
+              key={index}
+              className={dotClasses.join(" ")}
+              style={
+                status === "running" && index === 1
+                  ? { animationDelay: `${heartbeatOffsetMs}ms` }
+                  : undefined
+              }
+            ></span>
+          );
         })}
       </span>
     </span>

@@ -440,20 +440,50 @@ export async function requestLauncherRun(
   await fetchJSON(url, { method: "POST" });
 }
 
+export async function requestLauncherRunModel(
+  projectPath: string,
+  platform: "local" | "native",
+  modelId: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run-model", {
+    project_path: normalizedProjectPath,
+    platform,
+    model_id: modelId,
+  });
+  await fetchJSON(url, { method: "POST" });
+}
+
 export async function requestLauncherStop(): Promise<void> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
+  await fetchJSON(url, { method: "POST" });
+}
+
+export async function requestLauncherStopModel(
+  projectPath: string,
+  platform: "local" | "native",
+  modelId: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop-model", {
+    project_path: normalizedProjectPath,
+    platform,
+    model_id: modelId,
+  });
   await fetchJSON(url, { method: "POST" });
 }
 
 export async function fetchLauncherStatus(): Promise<{
   status: string;
   phase?: string | null;
+  profile?: string | null;
   models?: Record<string, { stage?: string; status?: string }>;
 } | null> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
   return await tryFetchJSON<{
     status: string;
     phase?: string | null;
+    profile?: string | null;
     models?: Record<string, { stage?: string; status?: string }>;
   }>(url);
 }
@@ -630,7 +660,9 @@ const currentProject: LauncherService = {
   clearProjectModelCache: invalidateModelCache,
   getModelHostName,
   requestLauncherRun,
+  requestLauncherRunModel,
   requestLauncherStop,
+  requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
 };

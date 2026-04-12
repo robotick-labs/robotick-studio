@@ -2,7 +2,9 @@ import {
   fetchProjectSettingsData,
   fetchProjectRemoteControlSettings,
   requestLauncherRun,
+  requestLauncherRunModel,
   requestLauncherStop,
+  requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
   fetchProjectModelPaths,
@@ -17,7 +19,9 @@ import {
 
 export const LauncherRest = {
   run: requestLauncherRun,
+  runModel: requestLauncherRunModel,
   stop: requestLauncherStop,
+  stopModel: requestLauncherStopModel,
   status: fetchLauncherStatus,
   logsStreamUrl: getLauncherLogStreamUrl,
   fetchProjectRemoteControlSettings,

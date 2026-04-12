@@ -6,6 +6,7 @@ import {
   Launcher,
   LauncherServiceProvider,
   Project,
+  ProjectData,
   createMockLauncherService,
 } from "../../../../renderer/data-sources/launcher";
 import type { LauncherService } from "../../../../renderer/data-sources/launcher";
@@ -179,9 +180,11 @@ describe("Launcher service integration", () => {
     const { unmount } = renderWithLauncherService(
       service,
       <Project.Context.Provider>
-        <Launcher.Context.Provider>
-          <LauncherControls />
-        </Launcher.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
       </Project.Context.Provider>
     );
 
@@ -269,9 +272,11 @@ describe("Launcher service integration", () => {
     const { unmount } = renderWithLauncherService(
       service,
       <Project.Context.Provider>
-        <Launcher.Context.Provider>
-          <LauncherControls />
-        </Launcher.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
       </Project.Context.Provider>
     );
 
