@@ -14,6 +14,7 @@ import { WindowControls } from "./WindowControls";
 import { isStandaloneElectron } from "../../utils/environment";
 import { addDocumentEventListener } from "../../utils/domEnvironment";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
+import type { RobotickStudioProcessStats } from "../../types/robotick-globals";
 import styles from "./styles/AppHeader.module.css";
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
@@ -46,6 +47,25 @@ function getUsesNativeWindowFrame(): boolean {
   return window.robotick?.environment?.usesNativeWindowFrame !== false;
 }
 
+function getStudioProcessAPI() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  return window.robotick?.studioProcess;
+}
+
+function formatStudioProcessStats(stats: RobotickStudioProcessStats): string {
+  const cpuPercent =
+    typeof stats.cpuPercent === "number" && Number.isFinite(stats.cpuPercent)
+      ? Math.max(0, stats.cpuPercent)
+      : 0;
+  const memoryMb =
+    typeof stats.memoryMb === "number" && Number.isFinite(stats.memoryMb)
+      ? Math.max(0, Math.round(stats.memoryMb))
+      : 0;
+  return `Studio: CPU ${cpuPercent.toFixed(1)}% Mem: ${memoryMb}MB`;
+}
+
 /**
  * Renders the application header with logo, grouped navigation links, profile and launcher controls, and optional window controls.
  *
@@ -61,6 +81,8 @@ export function AppHeader() {
   const [usesNativeFrame, setUsesNativeFrame] = useState<boolean>(() =>
     getUsesNativeWindowFrame()
   );
+  const [studioProcessStatsLabel, setStudioProcessStatsLabel] =
+    useState<string | null>(null);
   const [leftMenuOpen, setLeftMenuOpen] = useState(false);
   const [rightMenuOpen, setRightMenuOpen] = useState(false);
   useEffect(() => {
@@ -175,6 +197,50 @@ export function AppHeader() {
     };
     return addDocumentEventListener("contextmenu", handler);
   }, [showWindowControls, showHeaderMenu]);
+
+  useEffect(() => {
+    if (!showWindowControls) {
+      setStudioProcessStatsLabel(null);
+      return;
+    }
+    const win = typeof window === "undefined" ? undefined : window;
+    if (!win) {
+      setStudioProcessStatsLabel(null);
+      return;
+    }
+    const api = getStudioProcessAPI();
+    if (!api) {
+      setStudioProcessStatsLabel(null);
+      return;
+    }
+
+    let cancelled = false;
+    const pollStats = async () => {
+      try {
+        const stats = await api.getStats();
+        if (cancelled) {
+          return;
+        }
+        setStudioProcessStatsLabel(formatStudioProcessStats(stats));
+      } catch {
+        if (!cancelled) {
+          setStudioProcessStatsLabel("Studio: CPU --.-% Mem: --MB");
+        }
+      }
+    };
+
+    setStudioProcessStatsLabel("Studio: CPU --.-% Mem: --MB");
+    void pollStats();
+    const interval = win.setInterval(() => {
+      void pollStats();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      win.clearInterval(interval);
+    };
+  }, [showWindowControls]);
+
   const toggleLeftMenu = () => {
     setLeftMenuOpen((value) => {
       if (!value) {
@@ -326,6 +392,17 @@ export function AppHeader() {
       <div
         className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}
       >
+        {showWindowControls && studioProcessStatsLabel ? (
+          <span
+            className={[styles.studioProcessStats, noDragClass]
+              .filter(Boolean)
+              .join(" ")}
+            data-window-interactive="true"
+            data-testid="studio-process-stats"
+          >
+            {studioProcessStatsLabel}
+          </span>
+        ) : null}
         {showWindowControls ? <WindowControls /> : null}
       </div>
     </header>

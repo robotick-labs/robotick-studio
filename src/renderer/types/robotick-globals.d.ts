@@ -30,9 +30,19 @@ export interface RobotickStorage {
   readonly clear?: () => void;
 }
 
+export interface RobotickStudioProcessStats {
+  readonly cpuPercent: number;
+  readonly memoryMb: number;
+}
+
+export interface RobotickStudioProcess {
+  readonly getStats: () => Promise<RobotickStudioProcessStats>;
+}
+
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
   readonly windowControls?: RobotickWindowControls;
+  readonly studioProcess?: RobotickStudioProcess;
   readonly storage?: RobotickStorage;
   [key: string]: unknown;
 }

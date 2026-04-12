@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { screen } from "electron";
 import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
@@ -38,6 +39,7 @@ export type ElectronApp = {
   commandLine: {
     appendSwitch: (name: string, value: string) => void;
   };
+  getAppMetrics?: () => ElectronAppMetric[];
   whenReady: () => Promise<unknown>;
   on: (
     event: string,
@@ -113,6 +115,34 @@ type RendererErrorPayload = {
   href?: unknown;
 };
 
+type StudioProcessStats = {
+  cpuPercent: number;
+  memoryMb: number;
+};
+
+type ElectronAppMetric = {
+  pid?: number;
+  type?: string;
+  cpu?: {
+    percentCPU?: number;
+  };
+  memory?: {
+    workingSetSize?: number;
+  };
+};
+
+type StudioCpuSample = {
+  usage: NodeJS.CpuUsage;
+  timeNs: bigint;
+};
+
+type LinuxProcessCpuSample = {
+  totalSystemTicks: number;
+  perPidTicks: Map<number, number>;
+  sampledAtNs: bigint;
+  lastPercent: number;
+};
+
 const DEFAULT_WINDOW_STATE: WindowState = {
   width: 1400,
   height: 900,
@@ -130,6 +160,8 @@ const WINDOW_STATE_WRITE_DEBOUNCE_MS = 500;
 let pendingWindowState: WindowState | null = null;
 let windowStateWriteTimer: NodeJS.Timeout | null = null;
 let windowStateWriteInFlight = false;
+let lastStudioCpuSample: StudioCpuSample | null = null;
+let lastLinuxProcessCpuSample: LinuxProcessCpuSample | null = null;
 
 const PUBLIC_ICON_RELATIVE = path.join(
   "public",
@@ -359,6 +391,235 @@ function formatUnknownError(error: unknown): string {
   } catch {
     return String(error);
   }
+}
+
+function sampleMainProcessCpuPercent(): number {
+  const currentSample: StudioCpuSample = {
+    usage: process.cpuUsage(),
+    timeNs: process.hrtime.bigint(),
+  };
+  let cpuPercent = 0;
+  if (lastStudioCpuSample) {
+    const cpuDeltaMicros =
+      currentSample.usage.user -
+      lastStudioCpuSample.usage.user +
+      (currentSample.usage.system - lastStudioCpuSample.usage.system);
+    const timeDeltaMicros =
+      Number(currentSample.timeNs - lastStudioCpuSample.timeNs) / 1000;
+    if (timeDeltaMicros > 0 && Number.isFinite(timeDeltaMicros)) {
+      cpuPercent = Math.max(0, (cpuDeltaMicros / timeDeltaMicros) * 100);
+    }
+  }
+  lastStudioCpuSample = currentSample;
+  const cpuCount = Math.max(1, os.cpus().length);
+  return Math.max(0, Math.min(100, cpuPercent / cpuCount));
+}
+
+function sampleMainProcessMemoryMb(): number {
+  const rssBytes = process.memoryUsage().rss;
+  return Math.max(0, Math.round(rssBytes / (1024 * 1024)));
+}
+
+function readLinuxTotalSystemTicks(): number | null {
+  try {
+    const stat = fs.readFileSync("/proc/stat", { encoding: "utf-8" });
+    const firstLine = stat.split("\n")[0] ?? "";
+    const parts = firstLine.trim().split(/\s+/);
+    if (parts.length < 2 || parts[0] !== "cpu") {
+      return null;
+    }
+    let total = 0;
+    for (let i = 1; i < parts.length; i += 1) {
+      const value = Number(parts[i]);
+      if (Number.isFinite(value)) {
+        total += value;
+      }
+    }
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
+
+function readLinuxProcessTicks(pid: number): number | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, { encoding: "utf-8" });
+    const rightParen = stat.lastIndexOf(")");
+    if (rightParen === -1 || rightParen + 2 >= stat.length) {
+      return null;
+    }
+    const fields = stat.slice(rightParen + 2).trim().split(/\s+/);
+    const utime = Number(fields[11]);
+    const stime = Number(fields[12]);
+    if (!Number.isFinite(utime) || !Number.isFinite(stime)) {
+      return null;
+    }
+    return utime + stime;
+  } catch {
+    return null;
+  }
+}
+
+function sampleLinuxAggregateCpuPercent(pids: number[]): number | null {
+  if (pids.length === 0) {
+    return null;
+  }
+  const sampledAtNs = process.hrtime.bigint();
+  const totalSystemTicks = readLinuxTotalSystemTicks();
+  if (typeof totalSystemTicks !== "number") {
+    return null;
+  }
+  const perPidTicks = new Map<number, number>();
+  for (const pid of pids) {
+    const ticks = readLinuxProcessTicks(pid);
+    if (typeof ticks === "number") {
+      perPidTicks.set(pid, ticks);
+    }
+  }
+  if (perPidTicks.size === 0) {
+    return null;
+  }
+
+  const previous = lastLinuxProcessCpuSample;
+  if (previous) {
+    const elapsedMs = Number(sampledAtNs - previous.sampledAtNs) / 1_000_000;
+    if (Number.isFinite(elapsedMs) && elapsedMs < 500) {
+      return previous.lastPercent;
+    }
+  }
+
+  if (!previous) {
+    lastLinuxProcessCpuSample = {
+      totalSystemTicks,
+      perPidTicks,
+      sampledAtNs,
+      lastPercent: 0,
+    };
+    return 0;
+  }
+
+  const totalDelta = totalSystemTicks - previous.totalSystemTicks;
+  if (!(totalDelta > 0)) {
+    lastLinuxProcessCpuSample = {
+      totalSystemTicks,
+      perPidTicks,
+      sampledAtNs,
+      lastPercent: previous.lastPercent,
+    };
+    return 0;
+  }
+
+  let pidDelta = 0;
+  for (const [pid, currentTicks] of perPidTicks.entries()) {
+    const prevTicks = previous.perPidTicks.get(pid);
+    if (typeof prevTicks === "number" && currentTicks >= prevTicks) {
+      pidDelta += currentTicks - prevTicks;
+    }
+  }
+
+  const percent = (pidDelta / totalDelta) * 100;
+  const nextPercent =
+    Number.isFinite(percent)
+      ? Math.max(0, Math.min(100, percent))
+      : previous.lastPercent;
+  lastLinuxProcessCpuSample = {
+    totalSystemTicks,
+    perPidTicks,
+    sampledAtNs,
+    lastPercent: nextPercent,
+  };
+  return nextPercent;
+}
+
+function readLinuxProcessPssKb(pid: number): number | null {
+  try {
+    const smapsRollup = fs.readFileSync(`/proc/${pid}/smaps_rollup`, {
+      encoding: "utf-8",
+    });
+    const match = smapsRollup.match(/^Pss:\s+(\d+)\s+kB$/m);
+    if (!match) {
+      return null;
+    }
+    const pssKb = Number(match[1]);
+    return Number.isFinite(pssKb) && pssKb >= 0 ? pssKb : null;
+  } catch {
+    return null;
+  }
+}
+
+function sampleLinuxAggregatePssMemoryMb(pids: number[]): number | null {
+  if (pids.length === 0) {
+    return null;
+  }
+  let totalPssKb = 0;
+  let sawPss = false;
+  for (const pid of pids) {
+    const pssKb = readLinuxProcessPssKb(pid);
+    if (typeof pssKb === "number") {
+      totalPssKb += pssKb;
+      sawPss = true;
+    }
+  }
+  if (!sawPss) {
+    return null;
+  }
+  return Math.max(0, Math.round(totalPssKb / 1024));
+}
+
+function sampleStudioProcessStats(app: ElectronApp): StudioProcessStats {
+  const metrics = app.getAppMetrics?.();
+  if (Array.isArray(metrics) && metrics.length > 0) {
+    const metricPids = [
+      ...new Set(
+        metrics
+          .map((metric) =>
+            typeof metric?.pid === "number" &&
+            Number.isFinite(metric.pid) &&
+            metric.pid > 0
+              ? metric.pid
+              : null
+          )
+          .filter((pid): pid is number => pid !== null)
+      ),
+    ];
+    let metricCpuPercent = 0;
+    let sawMetricCpu = false;
+    let metricWorkingSetMb = 0;
+    let sawMetricMemory = false;
+    for (const metric of metrics) {
+      const metricCpu = metric?.cpu?.percentCPU;
+      if (typeof metricCpu === "number" && Number.isFinite(metricCpu)) {
+        metricCpuPercent += Math.max(0, metricCpu);
+        sawMetricCpu = true;
+      }
+      const workingSetKb = metric?.memory?.workingSetSize;
+      if (typeof workingSetKb === "number" && Number.isFinite(workingSetKb)) {
+        metricWorkingSetMb += Math.max(0, workingSetKb / 1024);
+        sawMetricMemory = true;
+      }
+    }
+    const linuxAggregateCpuPercent = sampleLinuxAggregateCpuPercent(metricPids);
+    const linuxAggregatePssMemoryMb = sampleLinuxAggregatePssMemoryMb(metricPids);
+    return {
+      cpuPercent:
+        typeof linuxAggregateCpuPercent === "number"
+          ? linuxAggregateCpuPercent
+          : sawMetricCpu
+          ? Math.max(0, Math.min(100, metricCpuPercent))
+          : sampleMainProcessCpuPercent(),
+      memoryMb:
+        typeof linuxAggregatePssMemoryMb === "number"
+          ? linuxAggregatePssMemoryMb
+          : sawMetricMemory
+          ? Math.max(0, Math.round(metricWorkingSetMb))
+          : sampleMainProcessMemoryMb(),
+    };
+  }
+
+  return {
+    cpuPercent: sampleMainProcessCpuPercent(),
+    memoryMb: sampleMainProcessMemoryMb(),
+  };
 }
 
 type RendererGoneDetails = {
@@ -762,6 +1023,9 @@ export async function bootstrapElectron({
         }
         return windowController(payload.command, target, payload);
       }
+    );
+    ipcMain.handle("robotick-studio-process-stats", () =>
+      sampleStudioProcessStats(app)
     );
   }
 
