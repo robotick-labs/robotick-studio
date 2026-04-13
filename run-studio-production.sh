@@ -15,7 +15,8 @@ if [ -x "$LAUNCHER_KILL" ]; then
 fi
 
 cd "$WORKING_DIR"
-ROBOTICK_WORKSPACE_ROOT="$WORKING_DIR" npm --prefix "$STUDIO_DIR" run test
-ROBOTICK_WORKSPACE_ROOT="$WORKING_DIR" npm --prefix "$STUDIO_DIR" run typecheck
+
+# Production launch should build the packaged renderer/runtime, not rerun the
+# full Studio verification suite on every start.
 ROBOTICK_WORKSPACE_ROOT="$WORKING_DIR" npm --prefix "$STUDIO_DIR" run build
 ROBOTICK_WORKSPACE_ROOT="$WORKING_DIR" npm --prefix "$STUDIO_DIR" run electron
