@@ -14,8 +14,9 @@ interface StreamingImageViewerConfig extends ViewerConfig {
   telemetryModelName?: string;
   sourceField?: string;
   telemetryBaseUrl?: string;
-  samplingRateHz?: number;
-  maxPresentRateHz?: number;
+  frameRateHz?: number;
+  samplingRateHz?: number; // legacy
+  maxPresentRateHz?: number; // legacy
   surfaceRecycleIntervalMs?: number;
   telemetryMetricsEnabled?: boolean;
   telemetryMetricsWindowMs?: number;
@@ -25,13 +26,14 @@ interface StreamingImageViewerConfig extends ViewerConfig {
 const DEFAULT_METRICS_WINDOW_MS = 60_000;
 const DEFAULT_FRAME_STALL_TIMEOUT_MS = 2_500;
 const MAX_METRICS_HISTORY = 20;
-const DEFAULT_MAX_PRESENT_RATE_HZ = 6;
+const DEFAULT_FRAME_RATE_HZ = 30;
 const DEFAULT_SURFACE_RECYCLE_INTERVAL_MS = 30_000;
 
 let telemetryDispose: (() => void) | null = null;
 let activeCanvas: HTMLCanvasElement | null = null;
 let activeCanvasContext: CanvasRenderingContext2D | null = null;
 let viewerContainerElement: HTMLElement | null = null;
+let statsOverlayElement: HTMLDivElement | null = null;
 let decodeInFlight = false;
 let monitorIntervalId: number | null = null;
 let presentTimerId: number | null = null;
@@ -40,7 +42,7 @@ let metricsWindow: MetricsWindow | null = null;
 let metricsEnabled = true;
 let metricsWindowMs = DEFAULT_METRICS_WINDOW_MS;
 let frameStallTimeoutMs = DEFAULT_FRAME_STALL_TIMEOUT_MS;
-let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_MAX_PRESENT_RATE_HZ);
+let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_FRAME_RATE_HZ);
 let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
@@ -107,6 +109,76 @@ function resetRuntimeState() {
     clearTimeout(presentTimerId);
     presentTimerId = null;
   }
+  publishDebugState();
+}
+
+function publishDebugState(extra: Record<string, unknown> = {}) {
+  const globalHost = globalThis as typeof globalThis & {
+    __robotickStreamingImageDebug?: Record<string, unknown>;
+  };
+  globalHost.__robotickStreamingImageDebug = {
+    metricsEnabled,
+    hasOverlay: Boolean(statsOverlayElement),
+    hasCanvas: Boolean(activeCanvas),
+    hasContainer: Boolean(viewerContainerElement),
+    childCount: viewerContainerElement?.children.length ?? null,
+    pendingFrame: Boolean(pendingFrame),
+    decodeInFlight,
+    monitorIntervalActive: monitorIntervalId !== null,
+    presentTimerActive: presentTimerId !== null,
+    lastFrameReceivedAtMs,
+    lastFramePresentedAtMs,
+    ...extra,
+  };
+}
+
+function ensureStatsOverlay() {
+  if (!viewerContainerElement || !metricsEnabled) {
+    return;
+  }
+  if (
+    statsOverlayElement &&
+    statsOverlayElement.isConnected &&
+    statsOverlayElement.parentElement === viewerContainerElement
+  ) {
+    return;
+  }
+  cleanupStatsOverlay();
+
+  if (typeof window !== "undefined") {
+    const computed = window.getComputedStyle(viewerContainerElement).position;
+    if (!computed || computed === "static") {
+      viewerContainerElement.style.position = "relative";
+    }
+  }
+
+  const overlay = document.createElement("div");
+  Object.assign(overlay.style, {
+    position: "absolute",
+    top: "8px",
+    left: "8px",
+    padding: "4px 8px",
+    background: "rgba(0, 0, 0, 0.65)",
+    color: "#f4f4f4",
+    fontSize: "0.75rem",
+    lineHeight: "1.2",
+    borderRadius: "4px",
+    pointerEvents: "none",
+    zIndex: "999",
+    whiteSpace: "pre",
+    fontFamily: "Menlo, Consolas, monospace",
+  });
+  statsOverlayElement = overlay;
+  viewerContainerElement.appendChild(overlay);
+  publishDebugState({ overlayCreated: true });
+}
+
+function cleanupStatsOverlay() {
+  if (statsOverlayElement?.parentElement) {
+    statsOverlayElement.parentElement.removeChild(statsOverlayElement);
+  }
+  statsOverlayElement = null;
+  publishDebugState({ overlayCreated: false });
 }
 
 function publishMetricsSummary(summary: StreamingImageMetricsSummary) {
@@ -144,9 +216,44 @@ function flushMetricsWindow(nowMs: number, force = false) {
     cadence: summarizeCadence(metricsWindow.intervalsMs),
   };
 
-  console.info("[streaming-image][metrics]", summary);
   publishMetricsSummary(summary);
   metricsWindow = createMetricsWindow(nowMs);
+}
+
+function formatRateHz(count: number, windowMs: number): string {
+  if (windowMs <= 0) {
+    return "0.0";
+  }
+  return ((count * 1000) / windowMs).toFixed(1);
+}
+
+function updateStatsOverlay(nowMs: number) {
+  if (!metricsEnabled || !statsOverlayElement || !metricsWindow) {
+    publishDebugState({ updateSkippedAtMs: nowMs });
+    return;
+  }
+
+  const windowMs = Math.max(1, nowMs - metricsWindow.startedAtMs);
+  const receiveRateHz = formatRateHz(metricsWindow.receivedFrames, windowMs);
+  const presentRateHz = formatRateHz(metricsWindow.presentedFrames, windowMs);
+  const cadence = summarizeCadence(metricsWindow.intervalsMs);
+  const cadenceLine =
+    cadence.sampleCount > 0
+      ? `Cadence: avg ${cadence.averageMs.toFixed(0)} ms  p50 ${
+          cadence.p50Ms?.toFixed(0) ?? "-"
+        }  p95 ${cadence.p95Ms?.toFixed(0) ?? "-"}`
+      : "Cadence: –";
+  statsOverlayElement.textContent =
+    `Receive: ${receiveRateHz} Hz\n` +
+    `Present: ${presentRateHz} Hz\n` +
+    `${cadenceLine}\n` +
+    `Drop: ${metricsWindow.supersededFrames}  Stall: ${metricsWindow.stallEvents}  Err: ${metricsWindow.transportErrors}`;
+  publishDebugState({
+    updateAtMs: nowMs,
+    receiveRateHz,
+    presentRateHz,
+    cadenceSamples: cadence.sampleCount,
+  });
 }
 
 function queueFrame(
@@ -328,8 +435,17 @@ function startMonitorLoop() {
   }
   monitorIntervalId = window.setInterval(() => {
     const nowMs = Date.now();
+    if (
+      metricsEnabled &&
+      (!statsOverlayElement ||
+        !statsOverlayElement.isConnected ||
+        statsOverlayElement.parentElement !== viewerContainerElement)
+    ) {
+      ensureStatsOverlay();
+    }
     maybeHandleStall(nowMs);
     maybeRecycleSurface(nowMs);
+    updateStatsOverlay(nowMs);
     flushMetricsWindow(nowMs);
   }, 250);
 }
@@ -357,6 +473,7 @@ function recreateCanvasSurface() {
     previousCanvas.height = 1;
     viewerContainerElement.removeChild(previousCanvas);
   } else if (viewerContainerElement.firstChild) {
+    cleanupStatsOverlay();
     viewerContainerElement.textContent = "";
   }
 
@@ -382,6 +499,11 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     return;
   }
   viewerContainerElement = viewerContainer;
+  if (metricsEnabled) {
+    ensureStatsOverlay();
+  } else {
+    cleanupStatsOverlay();
+  }
   if (!recreateCanvasSurface()) {
     console.warn("[streaming-image] Failed to acquire 2D canvas context");
     return;
@@ -405,14 +527,12 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     return;
   }
 
-  const maxPresentRateHz = Math.max(
+  const legacyFrameRateHz =
+    streamingConfig.maxPresentRateHz ?? streamingConfig.samplingRateHz;
+  const frameRateHz = Math.max(
     1,
-    Math.floor(
-      streamingConfig.maxPresentRateHz ?? DEFAULT_MAX_PRESENT_RATE_HZ
-    )
+    Math.floor(streamingConfig.frameRateHz ?? legacyFrameRateHz ?? DEFAULT_FRAME_RATE_HZ)
   );
-  const requestedSamplingRateHz = streamingConfig.samplingRateHz ?? 20;
-  const samplingRateHz = Math.min(requestedSamplingRateHz, maxPresentRateHz);
   metricsEnabled = streamingConfig.telemetryMetricsEnabled ?? true;
   metricsWindowMs = Math.max(
     5_000,
@@ -422,7 +542,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     250,
     Math.floor(streamingConfig.frameStallTimeoutMs ?? DEFAULT_FRAME_STALL_TIMEOUT_MS)
   );
-  maxPresentIntervalMs = Math.max(16, Math.floor(1000 / maxPresentRateHz));
+  maxPresentIntervalMs = Math.max(16, Math.floor(1000 / frameRateHz));
   surfaceRecycleIntervalMs = Math.max(
     0,
     Math.floor(
@@ -432,12 +552,23 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   );
   metricsSourceLabel = `${telemetryBase} :: ${fieldPath}`;
   metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
+  publishDebugState({
+    telemetryBase,
+    fieldPath,
+    frameRateHz,
+  });
+  if (metricsEnabled) {
+    ensureStatsOverlay();
+    updateStatsOverlay(Date.now());
+  } else {
+    cleanupStatsOverlay();
+  }
   startMonitorLoop();
 
   console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${samplingRateHz}Hz (requested ${requestedSamplingRateHz}Hz, presenting up to ${maxPresentRateHz}Hz)`
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${frameRateHz}Hz`
   );
-  telemetryDispose = subscribeTelemetry(telemetryBase, samplingRateHz, {
+  telemetryDispose = subscribeTelemetry(telemetryBase, frameRateHz, {
     callback: (model) => handleTelemetryFrame(model, fieldPath),
     error: (err) => {
       console.warn(
@@ -456,6 +587,7 @@ export async function uninit(): Promise<void> {
   viewerSessionId += 1;
   activeCanvas = null;
   activeCanvasContext = null;
+  cleanupStatsOverlay();
   resetRuntimeState();
   if (viewerContainerElement) {
     viewerContainerElement.innerHTML = "";
