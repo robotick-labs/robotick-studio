@@ -22,6 +22,7 @@ from robotick.launcher.actions.launch.target_plan import (
     TargetPlan,
     resolve_target_plan,
 )
+from robotick.launcher.actions.launch import target_plan as target_plan_module
 from robotick.launcher.actions.launch import remote_linux
 from robotick.launcher.actions.launch.remote_linux import (
     RemoteLinuxSpec,
@@ -549,3 +550,90 @@ def test_resolve_target_plan_uses_local_strategies_for_plain_linux_models(tmp_pa
     assert plan.build.strategy == LOCAL_STRATEGY
     assert plan.deploy.strategy == LOCAL_STRATEGY
     assert plan.run.strategy == LOCAL_STRATEGY
+
+
+def test_resolve_target_plan_ros2_stage_overrides_bind_handlers(tmp_path):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / "proj.project.yaml").write_text(
+        yaml.safe_dump({"runtime": {"engine": {"local_path": "engine"}}})
+    )
+    (project_dir / "proj-sim.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "target_platform": "linux",
+                    "target_variant": "x86_64",
+                    "custom_stages": {
+                        "build_command": "./ros2/do_ros2_build.sh",
+                        "run_command": "./ros2/do_ros2_run.sh",
+                        "stop_command": "./ros2/do_ros2_stop.sh",
+                    },
+                }
+            }
+        )
+    )
+
+    plan = resolve_target_plan("proj", "proj-sim", "linux", project_dir)
+
+    assert plan.build.build_handler is not None
+    assert plan.deploy.deploy_handler is None
+    assert plan.run.run_handler is not None
+    assert plan.run.stop_handler is not None
+
+
+def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(monkeypatch, tmp_path):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / "proj.project.yaml").write_text(
+        yaml.safe_dump({"runtime": {"engine": {"local_path": "engine"}}})
+    )
+    (project_dir / "proj-sim.model.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "target_platform": "linux",
+                    "target_variant": "x86_64",
+                    "custom_stages": {
+                        "run_command": "./ros2/do_ros2_run.sh",
+                        "stop_command": "./ros2/do_ros2_stop.sh",
+                    },
+                }
+            }
+        )
+    )
+
+    launcher_dir = (
+        project_dir
+        / ".launcher"
+        / "proj"
+        / "generated"
+        / "proj_sim"
+        / "linux"
+    )
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    run_script = launcher_dir / "do_launcher_run.sh"
+    stop_script = launcher_dir / "do_launcher_stop.sh"
+    run_script.write_text("#!/bin/bash\nset -e\n", encoding="utf-8")
+    stop_script.write_text("#!/bin/bash\nset -e\n", encoding="utf-8")
+
+    calls: list[tuple[list[str], Path | None]] = []
+
+    def _fake_run_subprocess(cmd, cwd=None, **kwargs):
+        calls.append((cmd, cwd))
+        class _Proc:
+            returncode = 0
+        return _Proc()
+
+    monkeypatch.setattr(target_plan_module, "run_subprocess", _fake_run_subprocess)
+
+    plan = resolve_target_plan("proj", "proj-sim", "linux", project_dir)
+    assert plan.run.run_handler is not None
+    assert plan.run.stop_handler is not None
+    plan.run.stop_handler(False)
+    plan.run.run_handler(False)
+
+    assert calls == [
+        (["bash", str(stop_script)], stop_script.parent),
+        (["bash", str(run_script)], run_script.parent),
+    ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import shlex
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -23,11 +24,18 @@ from robotick.launcher.actions.launch.remote_linux import (
     run_remote_linux,
 )
 from robotick.launcher.config import Config
+from robotick.launcher.utils import run_subprocess
 
 
 LOCAL_STRATEGY = "local"
 CONTAINER_STRATEGY = "container"
 REMOTE_STRATEGY = "remote"
+CUSTOM_STAGE_SCRIPT_NAMES = {
+    "build_command": "do_launcher_build.sh",
+    "deploy_command": "do_launcher_deploy.sh",
+    "run_command": "do_launcher_run.sh",
+    "stop_command": "do_launcher_stop.sh",
+}
 
 
 @dataclass(frozen=True)
@@ -58,6 +66,36 @@ class TargetPlan:
     build: TargetActionPlan
     deploy: TargetActionPlan
     run: TargetActionPlan
+
+
+def _run_generated_stage_script(script_path: Path, dry_run: bool) -> None:
+    cmd = ["bash", str(script_path)]
+    quoted = " ".join(shlex.quote(part) for part in cmd)
+    print(f"$ {quoted}")
+    if dry_run:
+        return
+    if not script_path.exists():
+        raise FileNotFoundError(f"Stage script not found: {script_path}")
+    run_subprocess(cmd, cwd=script_path.parent)
+
+
+def _resolve_custom_stage_script_paths(config: Config) -> dict[str, Path]:
+    runtime = dict(config.model.get("runtime") or {})
+    stages_cfg = runtime.get("custom_stages") or {}
+    if not isinstance(stages_cfg, dict):
+        raise ValueError("Model runtime.custom_stages must be a mapping when provided.")
+
+    script_paths: dict[str, Path] = {}
+    for stage_key, script_name in CUSTOM_STAGE_SCRIPT_NAMES.items():
+        command_value = stages_cfg.get(stage_key)
+        if command_value is None:
+            continue
+        if not isinstance(command_value, str) or not command_value.strip():
+            raise ValueError(
+                f"Model runtime.custom_stages.{stage_key} must be a non-empty string when provided."
+            )
+        script_paths[stage_key] = config.launcher_dir / script_name
+    return script_paths
 
 
 def resolve_target_plan(
@@ -152,6 +190,50 @@ def resolve_target_plan(
             strategy=LOCAL_STRATEGY,
             summary_printer=_print_esp32_run_summary,
             supports_script_dry_run=True,
+        )
+
+    custom_stage_scripts = _resolve_custom_stage_script_paths(config)
+    custom_build_script = custom_stage_scripts.get("build_command")
+    if custom_build_script is not None:
+        build = replace(
+            build,
+            strategy=LOCAL_STRATEGY,
+            build_handler=lambda dry_run, script=custom_build_script: _run_generated_stage_script(
+                script, dry_run
+            ),
+            local_binary_path=None,
+            display_binary_path=None,
+        )
+
+    custom_deploy_script = custom_stage_scripts.get("deploy_command")
+    if custom_deploy_script is not None:
+        deploy = replace(
+            deploy,
+            strategy=LOCAL_STRATEGY,
+            deploy_handler=lambda dry_run, script=custom_deploy_script: _run_generated_stage_script(
+                script, dry_run
+            ),
+            shared_deploy_key=None,
+        )
+
+    custom_run_script = custom_stage_scripts.get("run_command")
+    if custom_run_script is not None:
+        run = replace(
+            run,
+            strategy=LOCAL_STRATEGY,
+            run_handler=lambda dry_run, script=custom_run_script: _run_generated_stage_script(
+                script, dry_run
+            ),
+        )
+
+    custom_stop_script = custom_stage_scripts.get("stop_command")
+    if custom_stop_script is not None:
+        run = replace(
+            run,
+            strategy=LOCAL_STRATEGY,
+            stop_handler=lambda dry_run, script=custom_stop_script: _run_generated_stage_script(
+                script, dry_run
+            ),
         )
 
     return TargetPlan(
