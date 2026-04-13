@@ -73,9 +73,22 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
   { value: "stats", label: "Stats" },
 ];
 const FILTER_DEBOUNCE_MS = 160;
-const TREE_REFRESH_INTERVAL_MS = 500;
-const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 2;
+const TREE_REFRESH_INTERVAL_MS = 200;
+const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 5;
+const TREE_ROW_HEIGHT_PX = 28;
+const TREE_OVERSCAN_ROWS = 12;
 const TelemetrySampleRevisionContext = React.createContext(0);
+const TelemetryValueReaderContext = React.createContext<
+  ((field: ITelemetryField) => unknown) | null
+>(null);
+
+type FlatTreeRow = {
+  field: ITelemetryField;
+  depth: number;
+  expanded: boolean;
+  hasChildren: boolean;
+  isArrayField: boolean;
+};
 
 const TREE_STORAGE_KEYS = {
   model: "robotick-studio.telemetry.tree.model",
@@ -281,10 +294,17 @@ export default function TelemetryTreeViewer() {
       fieldConnectionHintsByModelPath.get(selectedModel.modelPath) ?? {};
     return new Map<string, FieldConnectionHint>(Object.entries(serializedHints));
   }, [fieldConnectionHintsByModelPath, selectedModel]);
+  const panelBodyRef = useRef<HTMLDivElement | null>(null);
+  const treeViewportRef = useRef<HTMLDivElement | null>(null);
+  const isPanelVisible = useElementActive(panelBodyRef);
 
   const { model, revision } = useTelemetryStream(
     telemetryBaseUrl,
-    samplingRateHz
+    samplingRateHz,
+    {
+      active: isPanelVisible,
+      ensureLayout: isPanelVisible,
+    }
   );
   const displayRevision = useThrottledRevision(
     revision,
@@ -388,6 +408,22 @@ export default function TelemetryTreeViewer() {
     fieldFilter,
     sectionSelection,
   ]);
+  const flatRows = useMemo(
+    () => flattenTreeRows(rootNodes, expandedNodes),
+    [expandedNodes, rootNodes]
+  );
+  const visibleRange = useVirtualTreeWindow(treeViewportRef, flatRows.length);
+  const visibleRows = flatRows.slice(visibleRange.start, visibleRange.end);
+  const totalVirtualHeight = flatRows.length * TREE_ROW_HEIGHT_PX;
+  const valueReader = useMemo(() => {
+    const cache = new WeakMap<ITelemetryField, unknown>();
+    return (field: ITelemetryField) => {
+      if (!cache.has(field)) {
+        cache.set(field, field.getValue?.());
+      }
+      return cache.get(field);
+    };
+  }, [displayRevision]);
 
   const toggleNode = useCallback((path: string) => {
     setExpandedNodes((prev) => {
@@ -445,14 +481,14 @@ export default function TelemetryTreeViewer() {
 
   if (!hasModels) {
     return (
-      <div className={styles.panelBody}>
+      <div className={styles.panelBody} ref={panelBodyRef}>
         <div className={styles.message}>No telemetry models available.</div>
       </div>
     );
   }
 
   return (
-    <div className={styles.panelBody}>
+    <div className={styles.panelBody} ref={panelBodyRef}>
       <div className={styles.controls}>
         <div className={styles.control}>
           <label htmlFor="tree-model">Model</label>
@@ -509,23 +545,40 @@ export default function TelemetryTreeViewer() {
         </div>
       </div>
       <TelemetrySampleRevisionContext.Provider value={displayRevision}>
-        <div className={styles.tree}>
+        <TelemetryValueReaderContext.Provider value={valueReader}>
+          <div className={styles.tree} ref={treeViewportRef}>
           {rootNodes.length === 0 ? (
             <div className={styles.message}>No telemetry fields available.</div>
           ) : (
-            rootNodes.map((node) => (
-              <TreeNode
-                key={node.path}
-                field={node}
-                expanded={expandedNodes.has(node.path)}
-                expandedPaths={expandedNodes}
-                toggle={toggleNode}
-                telemetryBaseUrl={telemetryBaseUrl}
-                fieldConnectionHints={fieldConnectionHints}
-              />
-            ))
+            <div
+              className={styles.virtualTree}
+              style={{ height: `${totalVirtualHeight}px` }}
+            >
+              {visibleRows.map((row, index) => (
+                <div
+                  key={row.field.path}
+                  className={styles.virtualRow}
+                  style={{
+                    top: `${(visibleRange.start + index) * TREE_ROW_HEIGHT_PX}px`,
+                    height: `${TREE_ROW_HEIGHT_PX}px`,
+                  }}
+                >
+                  <TreeRow
+                    field={row.field}
+                    depth={row.depth}
+                    expanded={row.expanded}
+                    hasChildren={row.hasChildren}
+                    isArrayField={row.isArrayField}
+                    toggle={toggleNode}
+                    telemetryBaseUrl={telemetryBaseUrl}
+                    fieldConnectionHints={fieldConnectionHints}
+                  />
+                </div>
+              ))}
+            </div>
           )}
-        </div>
+          </div>
+        </TelemetryValueReaderContext.Provider>
       </TelemetrySampleRevisionContext.Provider>
     </div>
   );
@@ -559,18 +612,184 @@ function useThrottledRevision(revision: number, intervalMs: number): number {
   return displayRevision;
 }
 
+function useElementActive(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    typeof document === "undefined" ? true : document.visibilityState !== "hidden"
+  );
+  const [isElementVisible, setIsElementVisible] = useState(true);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState !== "hidden");
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver !== "function") {
+      setIsElementVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsElementVisible(
+          Boolean(entry?.isIntersecting && entry.intersectionRatio > 0)
+        );
+      },
+      { threshold: 0.01 }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return isDocumentVisible && isElementVisible;
+}
+
+function useVirtualTreeWindow(
+  ref: React.RefObject<HTMLElement | null>,
+  rowCount: number
+): { start: number; end: number } {
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) {
+      return;
+    }
+
+    const updateViewport = () => {
+      setViewport((prev) => {
+        const next = {
+          scrollTop: element.scrollTop,
+          height: element.clientHeight,
+        };
+        if (
+          prev.scrollTop === next.scrollTop &&
+          prev.height === next.height
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+
+    updateViewport();
+    element.addEventListener("scroll", updateViewport, { passive: true });
+    const resizeObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => updateViewport())
+        : null;
+    resizeObserver?.observe(element);
+
+    return () => {
+      element.removeEventListener("scroll", updateViewport);
+      resizeObserver?.disconnect();
+    };
+  }, [ref, rowCount]);
+
+  const start = Math.max(
+    0,
+    Math.floor(viewport.scrollTop / TREE_ROW_HEIGHT_PX) - TREE_OVERSCAN_ROWS
+  );
+  const end = Math.min(
+    rowCount,
+    Math.ceil((viewport.scrollTop + viewport.height) / TREE_ROW_HEIGHT_PX) +
+      TREE_OVERSCAN_ROWS
+  );
+
+  return {
+    start,
+    end: Math.max(start, end),
+  };
+}
+
+function flattenTreeRows(
+  fields: ITelemetryField[],
+  expandedPaths: Set<string>,
+  depth = 0
+): FlatTreeRow[] {
+  const rows: FlatTreeRow[] = [];
+
+  for (const field of fields) {
+    const isArrayField = field.elementCount > 1;
+    const hasChildren = isArrayField || Boolean(field.fields?.length);
+    const expanded = expandedPaths.has(field.path);
+    rows.push({
+      field,
+      depth,
+      expanded,
+      hasChildren,
+      isArrayField,
+    });
+
+    if (!expanded || !hasChildren) {
+      continue;
+    }
+
+    if (isArrayField) {
+      for (let index = 0; index < field.elementCount; index += 1) {
+        const child = field.getArrayElement?.(index);
+        if (!child) {
+          continue;
+        }
+        rows.push(...flattenTreeRows([child], expandedPaths, depth + 1));
+      }
+      continue;
+    }
+
+    if (field.fields?.length) {
+      rows.push(...flattenTreeRows(field.fields, expandedPaths, depth + 1));
+    }
+  }
+
+  return rows;
+}
+
+function useTelemetryValueReader() {
+  const reader = React.useContext(TelemetryValueReaderContext);
+  return reader ?? ((field: ITelemetryField) => field.getValue?.());
+}
+
+function formatNodeSummary(field: ITelemetryField, hasChildren: boolean): string {
+  if (field.elementCount > 1) {
+    return `[${field.elementCount} items]`;
+  }
+  if (!hasChildren) {
+    return "";
+  }
+  const fieldCount = field.fields?.length ?? 0;
+  return fieldCount > 0 ? `{${fieldCount} fields}` : "{…}";
+}
+
 function TreeNodeValue({
   field,
   isArrayField,
+  hasChildren,
 }: {
   field: ITelemetryField;
   isArrayField: boolean;
+  hasChildren: boolean;
 }) {
   React.useContext(TelemetrySampleRevisionContext);
-  const value = field.getValue?.();
+  const readValue = useTelemetryValueReader();
+  const value = hasChildren
+    ? formatNodeSummary(field, hasChildren)
+    : formatFieldValue(field, readValue(field));
   return (
     <span className={styles.nodeValue}>
-      {isArrayField ? formatArraySummary(value) : formatFieldValue(field, value)}
+      {hasChildren
+        ? value
+        : isArrayField
+          ? formatArraySummary(value)
+          : value}
     </span>
   );
 }
@@ -587,6 +806,7 @@ function WritableTreeNodeField({
   tooltipText?: string | null;
 }) {
   React.useContext(TelemetrySampleRevisionContext);
+  const readValue = useTelemetryValueReader();
   return (
     <WritableTelemetryInputField
       field={field}
@@ -594,10 +814,85 @@ function WritableTreeNodeField({
       className={styles.writableNodeEntry}
       capsuleClassName={capsuleClassName}
       tooltipText={tooltipText}
-      formatCurrentValue={formatCurrentFieldValue}
+      readCurrentValue={readValue}
+      formatCurrentValue={(targetField) =>
+        formatFieldValue(targetField, readValue(targetField))
+      }
     />
   );
 }
+
+const TreeRow = React.memo(function TreeRow({
+  field,
+  depth,
+  expanded,
+  hasChildren,
+  isArrayField,
+  toggle,
+  telemetryBaseUrl,
+  fieldConnectionHints,
+}: {
+  field: ITelemetryField;
+  depth: number;
+  expanded: boolean;
+  hasChildren: boolean;
+  isArrayField: boolean;
+  toggle: (path: string) => void;
+  telemetryBaseUrl?: string;
+  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
+}) {
+  const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
+  const connectionKind = getConnectionKindFromHint(connectionHint);
+  const capsuleClass = getConnectionCapsuleClass(connectionKind);
+  const tooltipText = getConnectionTooltip(field.path, connectionHint);
+  const inputIsConnectionDriven = isInputConnectionDriven(
+    field.path,
+    connectionHint
+  );
+  const isWritableInput =
+    typeof field.writable_input_handle === "number" &&
+    field.path.includes(".inputs.") &&
+    !inputIsConnectionDriven &&
+    !hasChildren;
+
+  return (
+    <div className={styles.node} style={{ paddingLeft: `${depth * 16}px` }}>
+      <div className={styles.nodeRow}>
+        {hasChildren ? (
+          <button
+            type="button"
+            className={styles.nodeToggle}
+            onClick={() => toggle(field.path)}
+          >
+            {expanded ? "▼" : "▶"}
+          </button>
+        ) : (
+          <span className={styles.nodeToggleSpacer} aria-hidden="true" />
+        )}
+        {isWritableInput ? (
+          <WritableTreeNodeField
+            field={field}
+            telemetryBaseUrl={telemetryBaseUrl}
+            capsuleClassName={capsuleClass}
+            tooltipText={tooltipText}
+          />
+        ) : (
+          <span
+            className={`${styles.nodeEntry} ${capsuleClass}`.trim()}
+            title={tooltipText ?? undefined}
+          >
+            <span>{field.name}:</span>
+            <TreeNodeValue
+              field={field}
+              isArrayField={isArrayField}
+              hasChildren={hasChildren}
+            />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
 
 function TreeArrayChildren({
   field,
@@ -734,7 +1029,11 @@ const TreeNode = React.memo(function TreeNode({
             title={tooltipText ?? undefined}
           >
             <span>{field.name}:</span>
-            <TreeNodeValue field={field} isArrayField={isArrayField} />
+            <TreeNodeValue
+              field={field}
+              isArrayField={isArrayField}
+              hasChildren={hasChildren}
+            />
           </span>
         )}
       </div>
