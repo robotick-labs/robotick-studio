@@ -66,7 +66,7 @@ export interface ControlsConfig {
   screenSpacePanning?: boolean;
 }
 
-export interface PollFieldMap {
+export interface TelemetryFieldMap {
   // JSON key → node transform/material target
   // e.g. "root_position.x": { node:"PipRoot", prop:"position", axis:"x" }
   fieldId: string;
@@ -90,19 +90,14 @@ export interface PollFieldMap {
   multiply?: number;
 }
 
-export type ResponseType = "json" | "blob" | "png" | "jpeg";
-
-export interface RestPoller {
+export interface TelemetryAnimator {
   id: string;
   baseUrl?: string;
   modelName?: string;
   workloadName: string;
-  headers?: Record<string, string>;
-  bodyJson?: Record<string, unknown>; // for POST
-  responseType?: ResponseType; // default "json"
-  pollingRateHz?: number; // default 20Hz
+  samplingRateHz?: number; // default 20Hz
   // Map response to scene changes:
-  fields?: PollFieldMap[];
+  fields?: TelemetryFieldMap[];
   defaultSpace?: "local" | "world";
   sourceFrame?: "REP103" | "MUJOCO_ZUP_X_FORWARD_Y_RIGHT";
   sourceUp?: "Y" | "Z"; // default "Y"
@@ -164,6 +159,6 @@ export interface ViewerConfig {
   // Asset set
   models: ModelConfig[];
 
-  // REST telemetryAnimators (telemetry, textures, etc.)
-  telemetryAnimators?: RestPoller[];
+  // Telemetry stream animators (telemetry, textures, etc.)
+  telemetryAnimators?: TelemetryAnimator[];
 }

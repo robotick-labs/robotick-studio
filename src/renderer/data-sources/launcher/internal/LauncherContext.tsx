@@ -34,6 +34,7 @@ const RESTART_STOP_WAIT_TIMEOUT_MS = 10000;
 type LauncherContextValue = {
   status: LauncherStatus;
   reportedStatus: LauncherStatus;
+  activeProfile: string | null;
   lastError: string | null;
   isBusy: boolean;
   isAwaitingStatus: boolean;
@@ -43,8 +44,13 @@ type LauncherContextValue = {
   launcherModels: Record<string, LauncherModelStatus>;
   modelHealth: Record<string, LauncherModelHealth>;
   run: () => Promise<void>;
+  runProfile: (profile: string) => Promise<void>;
+  runModel: (modelId: string) => Promise<void>;
   stop: () => Promise<void>;
+  stopModel: (modelId: string) => Promise<void>;
   restart: () => Promise<void>;
+  restartProfile: (profile: string) => Promise<void>;
+  restartModel: (modelId: string) => Promise<void>;
 };
 
 const LauncherContext = createContext<LauncherContextValue | undefined>(
@@ -66,6 +72,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   );
   const [reportedStatus, setReportedStatus] =
     useState<LauncherStatus>("stopped");
+  const [activeProfile, setActiveProfile] = useState<string | null>(null);
   const fastPollUntilRef = useRef(0);
   const [isRobotAlive, setIsRobotAlive] = useState(true);
   const [robotAliveLoading, setRobotAliveLoading] = useState(false);
@@ -103,8 +110,12 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         try {
           const launcherSnapshot = await readLauncherStatus(launcherService);
           const launcherStatus = launcherSnapshot.status;
+          const launcherProfile = launcherSnapshot.profile;
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
+          );
+          setActiveProfile((prev) =>
+            prev === launcherProfile ? prev : launcherProfile
           );
           setLauncherModels((prev) =>
             areLauncherModelsEqual(prev, launcherSnapshot.models)
@@ -247,6 +258,58 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     await requestRun(true);
   }, [requestRun]);
 
+  const runProfile = useCallback(
+    async (profile: string) => {
+      if (!projectPath) {
+        setLastError("Select a project before running the launcher.");
+        return;
+      }
+
+      setIsBusy(true);
+      setLastError(null);
+      setPendingTarget("running");
+      setOptimisticStatus("launching");
+      wakeFastPolling();
+      launcherEvents.dispatchEvent(
+        new CustomEvent("run-requested", { detail: { profile } })
+      );
+
+      try {
+        await launcherService.requestLauncherRun(projectPath, profile);
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : String(err));
+        setPendingTarget(null);
+        setOptimisticStatus(null);
+        throw err;
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [launcherService, projectPath, wakeFastPolling]
+  );
+
+  const runModel = useCallback(
+    async (modelId: string) => {
+      if (!projectPath) {
+        setLastError("Select a project before running the launcher.");
+        return;
+      }
+      const platform = resolveProfilePlatform(launcherProfile);
+      setIsBusy(true);
+      setLastError(null);
+      wakeFastPolling();
+      try {
+        await launcherService.requestLauncherRunModel(projectPath, platform, modelId);
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : String(err));
+        throw err;
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [launcherProfile, launcherService, projectPath, wakeFastPolling]
+  );
+
   const requestStop = useCallback(async (cancelRestart: boolean) => {
     if (cancelRestart) {
       restartGenerationRef.current += 1;
@@ -271,6 +334,28 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const stop = useCallback(async () => {
     await requestStop(true);
   }, [requestStop]);
+
+  const stopModel = useCallback(
+    async (modelId: string) => {
+      if (!projectPath) {
+        setLastError("Select a project before running the launcher.");
+        return;
+      }
+      const platform = resolveProfilePlatform(launcherProfile);
+      setIsBusy(true);
+      setLastError(null);
+      wakeFastPolling();
+      try {
+        await launcherService.requestLauncherStopModel(projectPath, platform, modelId);
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : String(err));
+        throw err;
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [launcherProfile, launcherService, projectPath, wakeFastPolling]
+  );
 
   const restart = useCallback(async () => {
     if (!projectPath) {
@@ -325,6 +410,77 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     }
   }, [launcherService, projectPath, requestRun, requestStop, wakeFastPolling]);
 
+  const restartProfile = useCallback(
+    async (profile: string) => {
+      if (!projectPath) {
+        setLastError("Select a project before running the launcher.");
+        return;
+      }
+
+      const generation = restartGenerationRef.current + 1;
+      restartGenerationRef.current = generation;
+      setRestartPending(true);
+      setLastError(null);
+      setPendingTarget("running");
+      setOptimisticStatus("launching");
+      wakeFastPolling();
+
+      await requestStop(false);
+
+      const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
+      while (restartGenerationRef.current === generation) {
+        if (Date.now() >= restartStopWaitDeadline) {
+          const message =
+            "Timed out waiting for the launcher to stop during restart.";
+          setLastError(message);
+          setPendingTarget(null);
+          setRestartPending(false);
+          throw new Error(message);
+        }
+
+        let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
+        try {
+          snapshot = await readLauncherStatus(launcherService);
+        } catch {
+          await sleep(100);
+          continue;
+        }
+        if (snapshot.status === "stopped") {
+          break;
+        }
+        await sleep(100);
+      }
+
+      if (restartGenerationRef.current !== generation) {
+        setPendingTarget(null);
+        setRestartPending(false);
+        return;
+      }
+
+      try {
+        await runProfile(profile);
+      } catch (err) {
+        setRestartPending(false);
+        throw err;
+      }
+    },
+    [
+      launcherService,
+      projectPath,
+      requestStop,
+      runProfile,
+      wakeFastPolling,
+    ]
+  );
+
+  const restartModel = useCallback(
+    async (modelId: string) => {
+      await stopModel(modelId);
+      await runModel(modelId);
+    },
+    [runModel, stopModel]
+  );
+
   const effectiveStatus = optimisticStatus ?? status;
   const isAwaitingStatus = pendingTarget !== null;
 
@@ -332,6 +488,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     () => ({
       status: effectiveStatus,
       reportedStatus,
+      activeProfile,
       lastError,
       isBusy,
       isAwaitingStatus,
@@ -341,10 +498,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       launcherModels,
       modelHealth,
       run,
+      runProfile,
+      runModel,
       stop,
+      stopModel,
       restart,
+      restartProfile,
+      restartModel,
     }),
     [
+      activeProfile,
       effectiveStatus,
       reportedStatus,
       isAwaitingStatus,
@@ -356,8 +519,13 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       launcherModels,
       modelHealth,
       restart,
+      restartModel,
+      restartProfile,
       run,
+      runModel,
+      runProfile,
       stop,
+      stopModel,
     ]
   );
 
@@ -380,17 +548,19 @@ async function readLauncherStatus(
   service: LauncherService
 ): Promise<{
   status: LauncherStatus;
+  profile: string | null;
   models: Record<string, LauncherModelStatus>;
 }> {
   const data = await service.fetchLauncherStatus();
   const models = data?.models ?? {};
-  if (!data?.status) return { status: "stopped", models };
-  if (data.status === "running") return { status: "running", models };
-  if (data.status === "stopping") return { status: "stopping", models };
+  const profile = normalizeProfileValue(data?.profile);
+  if (!data?.status) return { status: "stopped", profile, models };
+  if (data.status === "running") return { status: "running", profile, models };
+  if (data.status === "stopping") return { status: "stopping", profile, models };
   if (data.status === "launching" || data.status === "starting") {
-    return { status: "launching", models };
+    return { status: "launching", profile, models };
   }
-  return { status: "stopped", models };
+  return { status: "stopped", profile, models };
 }
 
 function isDetachedLaunchedModel(
@@ -533,4 +703,20 @@ function areLauncherModelsEqual(
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveProfilePlatform(profile: string): "local" | "native" {
+  const value = profile.trim().toLowerCase();
+  if (value.startsWith("native:")) {
+    return "native";
+  }
+  return "local";
+}
+
+function normalizeProfileValue(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }

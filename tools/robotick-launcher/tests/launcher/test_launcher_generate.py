@@ -299,7 +299,7 @@ remote_models:
     assert telemetry_peers == []
     assert len(remote_models) == 1
     assert remote_models[0]["name"] == "mind"
-    assert remote_models[0]["mode"] == ""
+    assert remote_models[0]["mode"] == "IP"
     assert remote_models[0]["channel"] == ""
     assert remote_models[0]["connections"] == [
         {
@@ -309,6 +309,57 @@ remote_models:
                 "mind_conn_prosody_outputs_prosody_state_is_voiced__to__"
                 "voice_presence_inputs_is_present"
             ),
+        }
+    ]
+
+
+def test_prepare_codegen_model_data_propagates_receiver_side_remote_mode(tmp_path):
+    project_file = tmp_path / "test.project.yaml"
+    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+
+    (tmp_path / "spine.model.yaml").write_text("workloads: []\n")
+    (tmp_path / "simulator.model.yaml").write_text(
+        """
+remote_models:
+  - name: spine
+    mode: IP
+    channel: 10.42.0.77
+    connections:
+      - from_remote: steering.outputs.left_motor
+        to: simulator.inputs.left_motor_power
+"""
+    )
+
+    cfg = SimpleNamespace(
+        model_name="spine",
+        project_file=project_file,
+        model={"workloads": []},
+    )
+
+    workloads, connections, remote_models, telemetry, telemetry_peers = (
+        prepare_codegen_model_data(cfg)
+    )
+
+    assert workloads == []
+    assert connections == []
+    assert telemetry == {}
+    assert telemetry_peers == []
+    assert remote_models == [
+        {
+            "name": "simulator",
+            "name_safe": "simulator",
+            "mode": "IP",
+            "channel": "10.42.0.77",
+            "connections": [
+                {
+                    "from": "steering.outputs.left_motor",
+                    "to_remote": "simulator.inputs.left_motor_power",
+                    "var_name": (
+                        "simulator_conn_steering_outputs_left_motor__to__"
+                        "simulator_inputs_left_motor_power"
+                    ),
+                }
+            ],
         }
     ]
 

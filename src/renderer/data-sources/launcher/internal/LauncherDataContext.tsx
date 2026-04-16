@@ -152,13 +152,50 @@ export async function waitForModelDescriptorByName(
   return findModelByNameInList(state.data, modelName) ?? null;
 }
 
-const PROJECT_METAS_POLL_MS = 5000;
-const PROJECT_MODELS_POLL_MS = 5000;
-const RC_MODULES_POLL_MS = 10000;
+const PROJECT_METAS_POLL_MS = 30000;
 
 const LauncherDataContext = createContext<LauncherDataValue | undefined>(
   undefined
 );
+
+function areProjectSettingsEqual(
+  left: ProjectSettingsSummary[],
+  right: ProjectSettingsSummary[]
+) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a?.path !== b?.path ||
+      a?.name !== b?.name ||
+      a?.description !== b?.description
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areRcModulesEqual(
+  left: RcModuleDescriptor[],
+  right: RcModuleDescriptor[]
+) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (a?.type !== b?.type) {
+      return false;
+    }
+    if (JSON.stringify(a?.config ?? null) !== JSON.stringify(b?.config ?? null)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export function LauncherDataProvider({
   children,
@@ -213,7 +250,13 @@ export function LauncherDataProvider({
       if (!isMountedRef.current || metasRequestRef.current !== requestId) {
         return;
       }
-      setProjectSettings({ data: summaries, loading: false, error: null });
+      setProjectSettings((prev) =>
+        areProjectSettingsEqual(prev.data, summaries) &&
+        prev.loading === false &&
+        prev.error === null
+          ? prev
+          : { data: summaries, loading: false, error: null }
+      );
     } catch (err) {
       if (!isMountedRef.current || metasRequestRef.current !== requestId) {
         return;
@@ -275,11 +318,18 @@ export function LauncherDataProvider({
       if (!isMountedRef.current || rcRequestRef.current !== requestId) {
         return;
       }
-      setRcModules({
-        data: normalizeRcModules(settings ?? null),
-        loading: false,
-        error: null,
-      });
+      const normalized = normalizeRcModules(settings ?? null);
+      setRcModules((prev) =>
+        areRcModulesEqual(prev.data, normalized) &&
+        prev.loading === false &&
+        prev.error === null
+          ? prev
+          : {
+              data: normalized,
+              loading: false,
+              error: null,
+            }
+      );
     } catch (err) {
       if (!isMountedRef.current || rcRequestRef.current !== requestId) {
         return;
@@ -303,26 +353,10 @@ export function LauncherDataProvider({
 
   useEffect(() => {
     void refreshProjectModels();
-    if (!projectPath) {
-      return;
-    }
-    const intervalId = window.setInterval(
-      () => void refreshProjectModels(),
-      PROJECT_MODELS_POLL_MS
-    );
-    return () => window.clearInterval(intervalId);
   }, [projectPath, refreshProjectModels]);
 
   useEffect(() => {
     void refreshRcModules();
-    if (!projectPath) {
-      return;
-    }
-    const intervalId = window.setInterval(
-      () => void refreshRcModules(),
-      RC_MODULES_POLL_MS
-    );
-    return () => window.clearInterval(intervalId);
   }, [projectPath, refreshRcModules]);
 
   useEffect(() => {

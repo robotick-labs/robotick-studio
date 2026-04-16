@@ -34,27 +34,27 @@ function ServiceConsumer({ onValue }: { onValue: (service: any) => void }) {
 
 function StreamConsumer({
   baseUrl,
-  pollingRateHz,
+  samplingRateHz,
   active = true,
 }: {
   baseUrl: string;
-  pollingRateHz: number;
+  samplingRateHz: number;
   active?: boolean;
 }) {
-  useTelemetryStream(baseUrl, pollingRateHz, { active });
+  useTelemetryStream(baseUrl, samplingRateHz, { active });
   return null;
 }
 
 function StreamValueConsumer({
   baseUrl,
-  pollingRateHz,
+  samplingRateHz,
   onValue,
 }: {
   baseUrl: string;
-  pollingRateHz: number;
+  samplingRateHz: number;
   onValue: (value: ArrayBuffer | null) => void;
 }) {
-  const { model } = useTelemetryStream(baseUrl, pollingRateHz);
+  const { model } = useTelemetryStream(baseUrl, samplingRateHz);
   useLayoutEffect(() => {
     onValue(model?.raw ?? null);
   }, [model, model?.raw, onValue]);
@@ -89,7 +89,7 @@ describe("TelemetryServiceProvider", () => {
 
     const tree = render(
       <TelemetryServiceProvider service={mockService}>
-        <StreamConsumer baseUrl="http://example" pollingRateHz={15} />
+        <StreamConsumer baseUrl="http://example" samplingRateHz={15} />
       </TelemetryServiceProvider>
     );
 
@@ -121,7 +121,7 @@ describe("TelemetryServiceProvider", () => {
       <TelemetryServiceProvider service={mockService}>
         <StreamConsumer
           baseUrl="http://example"
-          pollingRateHz={15}
+          samplingRateHz={15}
           active={false}
         />
       </TelemetryServiceProvider>
@@ -142,7 +142,7 @@ describe("TelemetryServiceProvider", () => {
           error?: (error: unknown) => void;
         }
       | undefined;
-    const subscribeTelemetry = vi.fn((_baseUrl, _pollingRateHz, nextSubscriber) => {
+    const subscribeTelemetry = vi.fn((_baseUrl, _samplingRateHz, nextSubscriber) => {
       subscriber = nextSubscriber;
       return unsubscribe;
     });
@@ -162,7 +162,7 @@ describe("TelemetryServiceProvider", () => {
       <TelemetryServiceProvider service={mockService}>
         <StreamValueConsumer
           baseUrl="http://example"
-          pollingRateHz={15}
+          samplingRateHz={15}
           onValue={onValue}
         />
       </TelemetryServiceProvider>

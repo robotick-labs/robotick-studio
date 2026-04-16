@@ -49,7 +49,9 @@ export function buildUrl(
 }
 
 export function buildWebSocketUrl(baseUrl: string, path: string): string {
-  const url = new URL(path, ensureTrailingSlash(baseUrl));
+  const url =
+    tryBuildRoutedTelemetryUrl(baseUrl, path) ??
+    new URL(path, ensureTrailingSlash(baseUrl));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
@@ -97,7 +99,7 @@ export interface ProjectModelDescriptor<T = unknown> {
   modelName: string;
   telemetryPort: number;
   telemetryBaseUrl: string;
-  preferredTelemetryPollRateHz?: number;
+  preferredTelemetrySampleRateHz?: number;
   data: T;
 }
 
@@ -305,10 +307,10 @@ function normalizePort(portValue: unknown): number {
   return DEFAULT_TELEMETRY_PORT;
 }
 
-function normalizePreferredTelemetryPollRateHz(
-  pollRateHzValue: unknown
+function normalizePreferredTelemetrySampleRateHz(
+  sampleRateHzValue: unknown
 ): number | undefined {
-  const next = Number(pollRateHzValue);
+  const next = Number(sampleRateHzValue);
   if (Number.isFinite(next) && next > 0) {
     return next;
   }
@@ -438,20 +440,50 @@ export async function requestLauncherRun(
   await fetchJSON(url, { method: "POST" });
 }
 
+export async function requestLauncherRunModel(
+  projectPath: string,
+  platform: "local" | "native",
+  modelId: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run-model", {
+    project_path: normalizedProjectPath,
+    platform,
+    model_id: modelId,
+  });
+  await fetchJSON(url, { method: "POST" });
+}
+
 export async function requestLauncherStop(): Promise<void> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
+  await fetchJSON(url, { method: "POST" });
+}
+
+export async function requestLauncherStopModel(
+  projectPath: string,
+  platform: "local" | "native",
+  modelId: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop-model", {
+    project_path: normalizedProjectPath,
+    platform,
+    model_id: modelId,
+  });
   await fetchJSON(url, { method: "POST" });
 }
 
 export async function fetchLauncherStatus(): Promise<{
   status: string;
   phase?: string | null;
+  profile?: string | null;
   models?: Record<string, { stage?: string; status?: string }>;
 } | null> {
   const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
   return await tryFetchJSON<{
     status: string;
     phase?: string | null;
+    profile?: string | null;
     models?: Record<string, { stage?: string; status?: string }>;
   }>(url);
 }
@@ -502,13 +534,13 @@ async function buildModelDescriptors(
       const telemetryPort = normalizePort(
         (data as { telemetry?: { port?: number } })?.telemetry?.port
       );
-      const preferredTelemetryPollRateHz =
-        normalizePreferredTelemetryPollRateHz(
+      const preferredTelemetrySampleRateHz =
+        normalizePreferredTelemetrySampleRateHz(
           (
             data as {
-              telemetry?: { preferred_poll_rate_hz?: number };
+              telemetry?: { preferred_sample_rate_hz?: number };
             }
-          )?.telemetry?.preferred_poll_rate_hz
+          )?.telemetry?.preferred_sample_rate_hz
         );
 
       return {
@@ -519,7 +551,7 @@ async function buildModelDescriptors(
         telemetryBaseUrl: useLocalModelHosts
           ? buildTelemetryBaseUrl(telemetryPort)
           : buildDirectTelemetryBaseUrl(data, telemetryPort),
-        preferredTelemetryPollRateHz,
+        preferredTelemetrySampleRateHz,
         data,
       } as ProjectModelDescriptor;
     } catch (err) {
@@ -536,10 +568,6 @@ async function buildModelDescriptors(
     (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
   );
 
-  if (useLocalModelHosts) {
-    return filteredDescriptors;
-  }
-
   const gatewayDescriptor = filteredDescriptors.find((descriptor) =>
     isTelemetryGatewayModel(descriptor.data)
   );
@@ -548,10 +576,7 @@ async function buildModelDescriptors(
     return filteredDescriptors;
   }
 
-  const gatewayBaseUrl = buildDirectTelemetryBaseUrl(
-    gatewayDescriptor.data,
-    gatewayDescriptor.telemetryPort
-  );
+  const gatewayBaseUrl = gatewayDescriptor.telemetryBaseUrl;
   const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
 
   return filteredDescriptors.map((descriptor) => {
@@ -635,7 +660,9 @@ const currentProject: LauncherService = {
   clearProjectModelCache: invalidateModelCache,
   getModelHostName,
   requestLauncherRun,
+  requestLauncherRunModel,
   requestLauncherStop,
+  requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
 };

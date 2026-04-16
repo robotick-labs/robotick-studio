@@ -33,7 +33,6 @@ export default function RemoteControlsPanel({
   const [leftKnobEl, setLeftKnobEl] = useState<HTMLDivElement | null>(null);
   const [rightAreaEl, setRightAreaEl] = useState<HTMLDivElement | null>(null);
   const [rightKnobEl, setRightKnobEl] = useState<HTMLDivElement | null>(null);
-  const nextSeqRef = useRef(1);
   const inFlightRef = useRef(false);
   const queuedWritesRef = useRef<Map<string, unknown>>(new Map());
 
@@ -113,14 +112,13 @@ export default function RemoteControlsPanel({
       return;
     }
 
-    const seq = nextSeqRef.current++;
     inFlightRef.current = true;
     try {
       const result = await telemetryService.setWorkloadInputFieldsData(
         currentBaseUrl,
         {
           engine_session_id: currentModel.schemaSessionId,
-          writes: writes.map((write) => ({ ...write, seq })),
+          writes: writes.map((write) => ({ ...write })),
         },
         {
           maxAttempts: 1,

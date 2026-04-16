@@ -12,7 +12,9 @@
 // Raw Layout Types (directly from engine /layout endpoint)
 // -----------------------------------------------------------------------------
 
-import { buildUrl } from "../../launcher/internal/launcher-interface";
+import { sendTelemetryWriteWs } from "./telemetry-ws-client";
+
+const plainTextDecoder = new TextDecoder();
 
 export interface LayoutField {
   name: string;
@@ -123,68 +125,6 @@ export interface ITelemetryModel {
   getField?(path: string): ITelemetryField | undefined;
 }
 
-// -----------------------------------------------------------------------------
-// Core endpoints
-// -----------------------------------------------------------------------------
-
-export async function fetchLayout(
-  base_url: string,
-): Promise<LayoutModel | null> {
-  const requestUrl = buildUrl(base_url, "/api/telemetry/workloads_buffer/layout");
-  try {
-    const r = await fetch(requestUrl, {
-      cache: "no-store",
-    });
-    if (!r.ok) return null;
-    const layout = (await r.json()) as unknown;
-    if (!isLayoutModel(layout)) {
-      const serverError =
-        typeof (layout as { error?: unknown })?.error === "string"
-          ? (layout as { error: string }).error
-          : "invalid_layout_response";
-      throw new Error(`telemetry layout invalid: ${serverError}`);
-    }
-    return layout;
-  } catch {
-    return null;
-  }
-}
-
-function isLayoutModel(value: unknown): value is LayoutModel {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as { types?: unknown; workloads?: unknown };
-  return Array.isArray(candidate.types) && Array.isArray(candidate.workloads);
-}
-
-export async function fetchRaw(
-  base_url: string,
-): Promise<{ raw: ArrayBuffer; sid: string; frameSeq: number | null }> {
-  const requestUrl = buildUrl(base_url, "/api/telemetry/workloads_buffer/raw");
-  try {
-    const r = await fetch(requestUrl, {
-      cache: "no-store",
-    });
-    if (!r.ok) {
-      throw new Error(`telemetry raw request failed: ${r.status}`);
-    }
-    const buf = await r.arrayBuffer();
-    const sid = r.headers.get("x-robotick-session-id") || "";
-    const frameSeqHeader = r.headers.get("x-robotick-frame-seq");
-    const frameSeq =
-      frameSeqHeader !== null ? Number.parseInt(frameSeqHeader, 10) : null;
-    return {
-      raw: buf,
-      sid,
-      frameSeq: Number.isFinite(frameSeq) ? frameSeq : null,
-    };
-  } catch (error) {
-    console.warn(`fetchRaw() failed for '${requestUrl}'`, error);
-    throw error instanceof Error ? error : new Error(String(error));
-  }
-}
-
 export interface SetWorkloadInputFieldWrite {
   field_handle?: number;
   field_path?: string;
@@ -246,10 +186,6 @@ export async function setWorkloadInputFieldsData(
   request: SetWorkloadInputFieldsDataRequest,
   options: SetWorkloadInputFieldsDataOptions = {},
 ): Promise<SetWorkloadInputFieldsDataResult> {
-  const endpoint = buildUrl(
-    base_url,
-    "/api/telemetry/set_workload_input_fields_data"
-  );
   const currentRequest: SetWorkloadInputFieldsDataRequest = {
     engine_session_id: request.engine_session_id,
     writes: request.writes.map((write) => ({ ...write })),
@@ -264,51 +200,19 @@ export async function setWorkloadInputFieldsData(
   let attempt = 0;
   while (attempt < maxAttempts) {
     attempt += 1;
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify(currentRequest),
-      });
-    } catch (error) {
-      if (attempt >= maxAttempts) {
-        return {
-          ok: false,
-          status: 0,
-          body: {
-            error: "network_error",
-            message: error instanceof Error ? error.message : String(error),
-          },
-        };
-      }
-      await delay(
-        computeRetryDelayMs(
-          attempt,
-          503,
-          null,
-          baseRetryDelayMs,
-          maxRetryDelayMs,
-        ),
-      );
-      continue;
-    }
-
-    let body: SetWorkloadInputFieldsDataResponseBody | null = null;
-    try {
-      body = (await response.json()) as SetWorkloadInputFieldsDataResponseBody;
-    } catch {
-      body = null;
-    }
-
-    if (response.ok) {
-      return { ok: true, status: response.status, body };
+    const result = await sendTelemetryWriteWs(base_url, currentRequest);
+    const body = result.body as SetWorkloadInputFieldsDataResponseBody | null;
+    if (result.ok) {
+      return {
+        ok: true,
+        status: result.status,
+        body,
+      };
     }
 
     const correctedSessionId = body?.engine_session_id;
     if (
-      response.status === 412 &&
+      result.status === 412 &&
       typeof correctedSessionId === "string" &&
       correctedSessionId.length > 0 &&
       correctedSessionId !== currentRequest.engine_session_id &&
@@ -319,16 +223,16 @@ export async function setWorkloadInputFieldsData(
     }
 
     if (
-      !RETRYABLE_WRITE_STATUS_CODES.has(response.status) ||
+      (!RETRYABLE_WRITE_STATUS_CODES.has(result.status) && result.status !== 0) ||
       attempt >= maxAttempts
     ) {
-      return { ok: false, status: response.status, body };
+      return { ok: false, status: result.status, body };
     }
 
     await delay(
       computeRetryDelayMs(
         attempt,
-        response.status,
+        result.status === 0 ? 503 : result.status,
         body,
         baseRetryDelayMs,
         maxRetryDelayMs,
@@ -410,7 +314,7 @@ function readSingle(
       const bytes = new Uint8Array(raw, offset, available);
       const zero = bytes.indexOf(0);
       const slice = bytes.slice(0, zero >= 0 ? zero : available);
-      return new TextDecoder().decode(slice);
+      return plainTextDecoder.decode(slice);
     } catch {
       return "";
     }

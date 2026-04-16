@@ -23,14 +23,14 @@ function createModel(
   name: string,
   port: number,
   preferredHost: string,
-  options: { isGateway?: boolean; preferredPollRateHz?: number } = {},
+  options: { isGateway?: boolean; preferredSampleRateHz?: number } = {},
 ) {
   return {
     name,
     telemetry: {
       port,
-      ...(options.preferredPollRateHz
-        ? { preferred_poll_rate_hz: options.preferredPollRateHz }
+      ...(options.preferredSampleRateHz
+        ? { preferred_sample_rate_hz: options.preferredSampleRateHz }
         : {}),
       ...(options.isGateway ? { is_gateway: true } : {}),
     },
@@ -213,7 +213,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     );
   });
 
-  it("keeps all model telemetry local when the active launcher profile is local", async () => {
+  it("uses gateway telemetry routes when a gateway model exists, even for local launcher profiles", async () => {
     vi.mocked(readStorageValue).mockImplementation((key: string) => {
       if (key === "robotick-studio.launcherProfile") {
         return "local:ALL";
@@ -261,6 +261,27 @@ describe("launcher-interface gateway telemetry resolution", () => {
         );
       }
 
+      if (path === "/api/telemetry-gateway/models") {
+        expect(url.origin).toBe("http://localhost:7102");
+        return createJsonResponse({
+          gateway_model_id: "alf-e-rc",
+          models: [
+            {
+              model_id: "alf-e-rc",
+              telemetry_path: "/api/telemetry-gateway/alf-e-rc",
+            },
+            {
+              model_id: "alf-e-face",
+              telemetry_path: "/api/telemetry-gateway/alf-e-face",
+            },
+            {
+              model_id: "alf-e-spine",
+              telemetry_path: "/api/telemetry-gateway/alf-e-spine",
+            },
+          ],
+        });
+      }
+
       throw new Error(`Unexpected fetch: ${url.toString()}`);
     });
 
@@ -275,16 +296,17 @@ describe("launcher-interface gateway telemetry resolution", () => {
     );
 
     expect(byName.get("alf-e-rc")?.telemetryBaseUrl).toBe(
-      "http://localhost:7102",
+      "http://localhost:7102/api/telemetry-gateway/alf-e-rc",
     );
     expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
-      "http://localhost:7103",
+      "http://localhost:7102/api/telemetry-gateway/alf-e-face",
     );
     expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
-      "http://localhost:7104",
+      "http://localhost:7102/api/telemetry-gateway/alf-e-spine",
     );
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      expect.stringContaining("/api/telemetry-gateway/models"),
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:7102/api/telemetry-gateway/models",
+      undefined,
     );
   });
 
@@ -364,7 +386,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(
       localModels.find((model) => model.modelShortName === "alf-e-spine")
         ?.telemetryBaseUrl,
-    ).toBe("http://localhost:7104");
+    ).toBe("http://localhost:7102/api/telemetry-gateway/alf-e-spine");
     expect(setStorageValue).toHaveBeenCalledWith(
       "robotick-studio.launcherProfile",
       "local:ALL",
@@ -383,6 +405,18 @@ describe("launcher-interface gateway telemetry resolution", () => {
     ).toBe(
       "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
     );
+  });
+
+  it("builds routed telemetry websocket urls without duplicating the api prefix", async () => {
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    expect(
+      launcherInterface.buildWebSocketUrl(
+        "http://192.168.5.16:7102/api/telemetry-gateway/alf-e-face",
+        "/api/telemetry/ws",
+      ),
+    ).toBe("ws://192.168.5.16:7102/api/telemetry-gateway/alf-e-face/ws");
   });
 
   it("resolves stored project basenames to absolute project paths before run requests", async () => {
@@ -427,7 +461,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("surfaces advisory telemetry poll rates from model yaml", async () => {
+  it("surfaces advisory telemetry sample rates from model yaml", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       const path = url.pathname;
@@ -443,7 +477,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
       ) {
         return createJsonResponse(
           createModel("Alf.e Spine", 7104, "10.42.0.2", {
-            preferredPollRateHz: 7.5,
+            preferredSampleRateHz: 7.5,
           }),
         );
       }
@@ -459,6 +493,6 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
 
     expect(models).toHaveLength(1);
-    expect(models[0]?.preferredTelemetryPollRateHz).toBe(7.5);
+    expect(models[0]?.preferredTelemetrySampleRateHz).toBe(7.5);
   });
 });

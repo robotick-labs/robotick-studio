@@ -50,11 +50,13 @@ const useContextMenuMock = useContextMenu as unknown as vi.Mock;
 type RobotickEnvOptions = {
   usesNativeWindowFrame?: boolean;
   includeWindowControls?: boolean;
+  studioProcessStats?: { cpuPercent: number; memoryMb: number };
 };
 
 function setRobotickEnvironment({
   usesNativeWindowFrame = true,
   includeWindowControls = false,
+  studioProcessStats,
 }: RobotickEnvOptions = {}): void {
   if (typeof window === "undefined") {
     return;
@@ -76,6 +78,13 @@ function setRobotickEnvironment({
       usesNativeWindowFrame,
     },
     ...(windowControls ? { windowControls } : {}),
+    ...(studioProcessStats
+      ? {
+          studioProcess: {
+            getStats: vi.fn().mockResolvedValue(studioProcessStats),
+          },
+        }
+      : {}),
   };
 }
 
@@ -122,6 +131,45 @@ describe("AppHeader", () => {
       </MemoryRouter>
     );
     expect(markup).toContain('data-testid="window-controls"');
+  });
+
+  it("shows studio CPU/memory stats beside window controls", async () => {
+    (isStandaloneElectron as vi.Mock).mockReturnValue(true);
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+      studioProcessStats: {
+        cpuPercent: 12.34,
+        memoryMb: 456,
+      },
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Studio: CPU 12.3% Mem: 456MB");
+    });
+
+    const headerRight = container.querySelector(
+      '[data-testid="window-controls"]'
+    )?.parentElement;
+    const stats = container.querySelector('[data-testid="studio-process-stats"]');
+    expect(headerRight?.firstElementChild).toBe(stats);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
   });
 
   it("opens the header context menu on right click when frameless", () => {

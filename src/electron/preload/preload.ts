@@ -129,6 +129,14 @@ const expose = () => {
         },
       };
 
+  const studioProcess = {
+    getStats: () =>
+      ipcRenderer.invoke("robotick-studio-process-stats") as Promise<{
+        cpuPercent: number;
+        memoryMb: number;
+      }>,
+  };
+
   const cesiumToken = process.env.CESIUM_TOKEN?.trim();
   if (!cesiumToken) {
     console.warn(
@@ -223,6 +231,7 @@ const expose = () => {
         process.env.ROBOTICK_WORKSPACE_ROOT,
     },
     windowControls,
+    studioProcess,
     storage: storageBridge,
   };
 

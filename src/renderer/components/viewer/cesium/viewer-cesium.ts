@@ -59,7 +59,7 @@ type CesiumTelemetryTrackerConfig = {
   fields: CesiumTelemetryFields;
   telemetryModelName?: string;
   baseUrl?: string;
-  pollingRateHz?: number;
+  samplingRateHz?: number;
 };
 
 type CesiumOptions = {
@@ -391,8 +391,8 @@ async function installTelemetryTrackers(
       continue;
     }
 
-    const pollingRate = tracker.pollingRateHz ?? 30;
-    const unsubscribe = subscribeTelemetry(telemetryBaseUrl, pollingRate, {
+    const samplingRate = tracker.samplingRateHz ?? 30;
+    const unsubscribe = subscribeTelemetry(telemetryBaseUrl, samplingRate, {
       callback: (model) => {
         if (exitRequested) return;
         try {

@@ -96,6 +96,21 @@ function getCurrentFieldDraftValue(field: TelemetryField): string {
   return "";
 }
 
+function getCurrentFieldDraftValueFromValue(
+  field: TelemetryField,
+  current: unknown
+): string {
+  if (typeof current === "string") return current;
+  if (typeof current === "number" || typeof current === "bigint") {
+    if (isNumericFieldType(field.type)) {
+      return formatNumberSmart(current);
+    }
+    return String(current);
+  }
+  if (typeof current === "boolean") return current ? "true" : "false";
+  return "";
+}
+
 function formatDraftValueForWrite(field: TelemetryField, value: unknown): string {
   if (typeof value === "number" || typeof value === "bigint") {
     if (isNumericFieldType(field.type)) {
@@ -140,6 +155,29 @@ function parseNumericDraftValue(field: TelemetryField, draftValue: string): numb
   return null;
 }
 
+function parseNumericDraftValueFromCurrent(
+  field: TelemetryField,
+  draftValue: string,
+  current: unknown
+): number | null {
+  try {
+    const parsed = parseDraftValue(field, draftValue);
+    if (typeof parsed === "number" && Number.isFinite(parsed)) {
+      return normalizeNumericValue(field, parsed);
+    }
+  } catch {
+    // Fall back to current field value below.
+  }
+
+  if (typeof current === "number" && Number.isFinite(current)) {
+    return normalizeNumericValue(field, current);
+  }
+  if (typeof current === "bigint") {
+    return normalizeNumericValue(field, Number(current));
+  }
+  return null;
+}
+
 function getNumericStep(field: TelemetryField, shiftKey: boolean, altKey: boolean): number {
   const baseStep = INTEGER_FIELD_TYPES.has(field.type) ? 1 : 0.01;
   let step = baseStep;
@@ -171,6 +209,7 @@ export type WritableTelemetryInputFieldProps = {
   className?: string;
   capsuleClassName?: string;
   tooltipText?: string | null;
+  readCurrentValue?: (field: TelemetryField) => unknown;
   formatCurrentValue?: (field: TelemetryField) => string;
 };
 
@@ -180,15 +219,17 @@ export function WritableTelemetryInputField({
   className,
   capsuleClassName,
   tooltipText,
+  readCurrentValue,
   formatCurrentValue = defaultFormatCurrentValue,
 }: WritableTelemetryInputFieldProps) {
   const telemetryService = useTelemetryService();
+  const readCurrentFieldValue = () =>
+    readCurrentValue ? readCurrentValue(field) : field.getValue();
   const [draftValue, setDraftValue] = useState<string>(() =>
-    getCurrentFieldDraftValue(field)
+    getCurrentFieldDraftValueFromValue(field, readCurrentFieldValue())
   );
   const [optimisticDraftValue, setOptimisticDraftValue] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const nextSeqRef = useRef(1);
   const scrubRef = useRef<{
     onMove: (event: MouseEvent) => void;
     onUp: () => void;
@@ -218,7 +259,6 @@ export function WritableTelemetryInputField({
     setOptimisticDraftValue(optimisticValue);
     setDraftValue(optimisticValue);
 
-    const seq = nextSeqRef.current++;
     const result = await telemetryService.setWorkloadInputFieldsData(
       telemetryBaseUrl,
       {
@@ -228,7 +268,6 @@ export function WritableTelemetryInputField({
             field_handle: writableHandle,
             field_path: field.path,
             value,
-            seq,
           },
         ],
       }
@@ -262,7 +301,11 @@ export function WritableTelemetryInputField({
   };
 
   const currentValue = formatCurrentValue(field);
-  const currentDraftValue = getCurrentFieldDraftValue(field);
+  const currentFieldValue = readCurrentFieldValue();
+  const currentDraftValue = getCurrentFieldDraftValueFromValue(
+    field,
+    currentFieldValue
+  );
   const isNumericField = isNumericFieldType(field.type);
 
   useEffect(() => {
@@ -304,7 +347,11 @@ export function WritableTelemetryInputField({
     shiftKey: boolean,
     altKey: boolean
   ) => {
-    const currentNumeric = parseNumericDraftValue(field, draftValue);
+    const currentNumeric = parseNumericDraftValueFromCurrent(
+      field,
+      draftValue,
+      currentFieldValue
+    );
     if (currentNumeric === null) {
       return;
     }
@@ -412,7 +459,11 @@ export function WritableTelemetryInputField({
       return;
     }
 
-    const startValue = parseNumericDraftValue(field, draftValue);
+    const startValue = parseNumericDraftValueFromCurrent(
+      field,
+      draftValue,
+      currentFieldValue
+    );
     if (startValue === null) {
       return;
     }
@@ -428,7 +479,7 @@ export function WritableTelemetryInputField({
 
   if (field.type === "bool") {
     const checked = (() => {
-      const value = field.getValue();
+      const value = currentFieldValue;
       if (typeof value === "boolean") return value;
       const normal = draftValue.toLowerCase();
       return normal === "true" || normal === "1";

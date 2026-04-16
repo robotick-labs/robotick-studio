@@ -156,9 +156,9 @@ export default function TelemetryImageViewer() {
 
   const telemetryBaseUrl =
     settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
-  const pollingRateHz = selectedModel?.preferredTelemetryPollRateHz ?? 20;
+  const samplingRateHz = selectedModel?.preferredTelemetrySampleRateHz ?? 20;
 
-  const { model } = useTelemetryStream(telemetryBaseUrl, pollingRateHz);
+  const { model } = useTelemetryStream(telemetryBaseUrl, samplingRateHz);
   const schemaSessionId = model?.schemaSessionId ?? "";
   const previousSchemaSessionIdRef = useRef<string>("");
   const workloads = model?.workloads ?? [];

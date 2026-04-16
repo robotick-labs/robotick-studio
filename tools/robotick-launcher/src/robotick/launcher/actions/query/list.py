@@ -20,7 +20,7 @@ def find_files_by_wildcard(wildcard: str, base_dir: Optional[str]) -> list[str]:
             if fnmatch.fnmatch(file_name, wildcard):
                 full_path = Path(root) / file_name
                 matches.append(str(full_path.relative_to(base_path)))
-    return matches
+    return sorted(matches)
 
 
 def list_project_models(project_file_path: str) -> list[str]:

@@ -85,7 +85,9 @@ export function createMockLauncherService(
       return "mock-host";
     },
     async requestLauncherRun() {},
+    async requestLauncherRunModel() {},
     async requestLauncherStop() {},
+    async requestLauncherStopModel() {},
     async fetchLauncherStatus() {
       return { status: "stopped", phase: null, models: {} };
     },

@@ -26,24 +26,33 @@ import {
   uninit,
 } from "../../../../renderer/components/viewer/streaming-image/viewer-streaming-image";
 
-describe("viewer-streaming-image polling rate config", () => {
+describe("viewer-streaming-image frame rate config", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="viewer-container"></div>';
     subscribeTelemetry.mockClear();
+    vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue({
+        fillStyle: "#000",
+        fillRect: vi.fn(),
+        clearRect: vi.fn(),
+        drawImage: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
   });
 
   afterEach(async () => {
     await uninit();
     document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 
-  it("accepts legacy pollingRateHz for streaming-image viewers", async () => {
+  it("uses frameRateHz when configured", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
       sourceField: "camera.outputs.jpeg_data.data_buffer",
-      pollingRateHz: 33,
+      frameRateHz: 33,
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
@@ -56,19 +65,36 @@ describe("viewer-streaming-image polling rate config", () => {
     );
   });
 
-  it("prefers telemetryPollingRateHz when both keys are present", async () => {
+  it("falls back to legacy samplingRateHz when present", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
       sourceField: "camera.outputs.jpeg_data.data_buffer",
-      pollingRateHz: 33,
-      telemetryPollingRateHz: 12,
+      samplingRateHz: 24,
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
       "http://example.test:7101",
-      12,
+      24,
+      expect.objectContaining({
+        callback: expect.any(Function),
+        error: expect.any(Function),
+      })
+    );
+  });
+
+  it("defaults to 30 Hz when no frame rate is configured", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      sourceModel: "alf-e-sensing-visual",
+      sourceField: "camera.outputs.jpeg_data.data_buffer",
+    });
+
+    expect(subscribeTelemetry).toHaveBeenCalledWith(
+      "http://example.test:7101",
+      30,
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { BrowserRouter, HashRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
 import {
@@ -23,6 +23,13 @@ type RouterSelectionOptions = {
   isElectronRuntime?: boolean;
   isVsCodeWebview?: boolean;
 };
+
+const DEV_USER_TIMING_CLEAR_INTERVAL_MS = 3_000;
+const DEV_USER_TIMING_ENTRY_THRESHOLD = 1_000;
+
+function shouldInstallDevUserTimingGuard(): boolean {
+  return import.meta.env.DEV && typeof performance !== "undefined";
+}
 
 export function selectRouterComponent(
   options: RouterSelectionOptions = {}
@@ -67,6 +74,36 @@ export function selectRouterComponent(
 
 export function App() {
   const RouterComponent = useMemo(() => selectRouterComponent(), []);
+
+  useEffect(() => {
+    if (!shouldInstallDevUserTimingGuard()) {
+      return;
+    }
+
+    const clearUserTimingEntries = () => {
+      const measureCount = performance.getEntriesByType("measure").length;
+      const markCount = performance.getEntriesByType("mark").length;
+      if (
+        measureCount < DEV_USER_TIMING_ENTRY_THRESHOLD &&
+        markCount < DEV_USER_TIMING_ENTRY_THRESHOLD
+      ) {
+        return;
+      }
+      performance.clearMeasures();
+      performance.clearMarks();
+    };
+
+    clearUserTimingEntries();
+    const intervalId = window.setInterval(
+      clearUserTimingEntries,
+      DEV_USER_TIMING_CLEAR_INTERVAL_MS
+    );
+    return () => {
+      window.clearInterval(intervalId);
+      clearUserTimingEntries();
+    };
+  }, []);
+
   return (
     <AppConfigProvider>
       <TelemetryServiceProvider service={telemetryService}>
