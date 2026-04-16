@@ -73,7 +73,6 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     };
 
     {% endfor %}
-
     {% if workloads %}
     static const WorkloadSeed* const all_workloads[] = {
     {% for w in workloads %}
