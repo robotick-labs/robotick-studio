@@ -19,7 +19,7 @@ fi
 
 IMAGE_NAME="robotick-launcher-esp32s3"
 ENGINE_ROOT="${ROBOTICK_ENGINE_PATH:-$REPO_ROOT/robotick/robotick-engine}"
-DOCKERFILE="$ENGINE_ROOT/tools/docker/esp32s3.Dockerfile"
+DOCKERFILE="$ENGINE_ROOT/tools/docker/robotick-idf5.4-esp32.Dockerfile"
 DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
 CONTAINER_HOME="/tmp/robotick-home"
 CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"

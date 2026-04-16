@@ -57,7 +57,12 @@ def load_docker_linux_arm32_spec(
     binary_rel = binary_path.resolve().relative_to(repo_root)
 
     engine_root = _resolve_engine_root(config, repo_root)
-    dockerfile = engine_root / "tools" / "docker" / "linux-arm32.Dockerfile"
+    dockerfile = (
+        engine_root
+        / "tools"
+        / "docker"
+        / "robotick-debian12-cross-linux-arm32.Dockerfile"
+    )
 
     container_root = repo_root.as_posix()
     return DockerLinuxArm32Spec(

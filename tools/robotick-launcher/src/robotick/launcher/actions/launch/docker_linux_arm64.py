@@ -56,7 +56,12 @@ def load_docker_linux_arm64_spec(
     binary_rel = binary_path.resolve().relative_to(repo_root)
 
     engine_root = _resolve_engine_root(config, repo_root)
-    dockerfile = engine_root / "tools" / "docker" / "linux-arm64.Dockerfile"
+    dockerfile = (
+        engine_root
+        / "tools"
+        / "docker"
+        / "robotick-debian12-cross-linux-arm64.Dockerfile"
+    )
 
     # Mount the repo at the same absolute path inside the container so generated CMake
     # caches can be reused across host/docker rebuilds without path-mismatch errors.

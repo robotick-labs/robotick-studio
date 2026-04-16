@@ -306,14 +306,14 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
     spec = load_docker_linux_arm64_spec("alf-e", "alf-e-face", "linux", project_dir)
 
     assert spec is not None
-    assert spec.dockerfile.name == "linux-arm64.Dockerfile"
+    assert spec.dockerfile.name == "robotick-debian12-cross-linux-arm64.Dockerfile"
     assert spec.dockerfile == (
         repo_root
         / "robotick"
         / "robotick-engine"
         / "tools"
         / "docker"
-        / "linux-arm64.Dockerfile"
+        / "robotick-debian12-cross-linux-arm64.Dockerfile"
     )
     assert spec.container_name.startswith("robotick-launcher-linux-arm64-build-")
     assert spec.container_launcher_dir.endswith(
@@ -324,7 +324,7 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
 def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
     spec = DockerLinuxArm64Spec(
         image_name="robotick-dev-linux-arm64",
-        dockerfile=Path("/tmp/linux-arm64.Dockerfile"),
+        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm64.Dockerfile"),
         container_name="robotick-launcher-linux-arm64-build-test",
         local_repo_root=Path("/tmp/repo"),
         local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
@@ -409,7 +409,7 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
         / "robotick-engine"
         / "tools"
         / "docker"
-        / "linux-arm32.Dockerfile"
+        / "robotick-debian12-cross-linux-arm32.Dockerfile"
     )
     assert spec.container_name.startswith("robotick-launcher-linux-arm32-build-")
 
@@ -417,7 +417,7 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
 def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
     spec = DockerLinuxArm32Spec(
         image_name="robotick-dev-linux-arm32",
-        dockerfile=Path("/tmp/linux-arm32.Dockerfile"),
+        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm32.Dockerfile"),
         container_name="robotick-launcher-linux-arm32-build-test",
         local_repo_root=Path("/tmp/repo"),
         local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
