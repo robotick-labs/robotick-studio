@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import hashlib
 import os
 import shlex
@@ -14,8 +13,7 @@ from robotick.launcher.config import Config
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
-IMAGE_NAME = "robotick-dev-linux-arm32"
-DOCKERFILE_SHA_LABEL = "robotick.dockerfile_sha"
+IMAGE_NAME = "ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest"
 CONTAINER_NAME_PREFIX = "robotick-launcher-linux-arm32-build"
 ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
 
@@ -113,7 +111,6 @@ def build_docker_linux_arm32(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> No
 
 def ensure_docker_image(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
     inspect_cmd = ["docker", "image", "inspect", spec.image_name]
-    current_sha = hashlib.sha256(spec.dockerfile.read_bytes()).hexdigest()
     image_exists = subprocess.run(
         inspect_cmd,
         stdout=subprocess.DEVNULL,
@@ -121,38 +118,12 @@ def ensure_docker_image(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
         check=False,
     ).returncode == 0
     if image_exists:
-        label_cmd = [
-            "docker",
-            "image",
-            "inspect",
-            "-f",
-            f"{{{{ index .Config.Labels \"{DOCKERFILE_SHA_LABEL}\" }}}}",
-            spec.image_name,
-        ]
-        label_result = subprocess.run(
-            label_cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        existing_sha = label_result.stdout.strip()
-        if existing_sha == current_sha:
-            return
+        return
 
-    build_cmd = [
-        "docker",
-        "build",
-        "-t",
-        spec.image_name,
-        "--label",
-        f"{DOCKERFILE_SHA_LABEL}={current_sha}",
-        "-f",
-        str(spec.dockerfile),
-        str(spec.dockerfile.parent),
-    ]
-    _print_command(build_cmd)
+    pull_cmd = ["docker", "pull", spec.image_name]
+    _print_command(pull_cmd)
     if not dry_run:
-        run_subprocess(build_cmd)
+        run_subprocess(pull_cmd)
 
 
 def ensure_running_docker_linux_arm32_container(

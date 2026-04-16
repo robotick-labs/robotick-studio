@@ -323,7 +323,7 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
 
 def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
     spec = DockerLinuxArm64Spec(
-        image_name="robotick-dev-linux-arm64",
+        image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm64:latest",
         dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm64.Dockerfile"),
         container_name="robotick-launcher-linux-arm64-build-test",
         local_repo_root=Path("/tmp/repo"),
@@ -416,7 +416,7 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
 
 def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
     spec = DockerLinuxArm32Spec(
-        image_name="robotick-dev-linux-arm32",
+        image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
         dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm32.Dockerfile"),
         container_name="robotick-launcher-linux-arm32-build-test",
         local_repo_root=Path("/tmp/repo"),
