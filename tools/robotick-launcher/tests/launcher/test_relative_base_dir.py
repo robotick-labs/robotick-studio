@@ -45,6 +45,7 @@ runtime:
             base_dir=project_dir,
             dry_run=True,
             stub_install=True,
+            skip_prepare_project_docker=True,
         )
     finally:
         os.chdir(original_cwd)

@@ -1,3 +1,11 @@
+"""Workspace hydration for launcher projects.
+
+This module owns the mutable state that should live in the checked-out
+workspace under .launcher/.../deps/... such as Python venvs, runtime repo
+checkouts, and lockfiles. It does not define the container or system dependency
+contract for a project; that job now lives in prepare-project-docker.
+"""
+
 from __future__ import annotations
 
 import contextlib
@@ -15,9 +23,6 @@ from rich import print
 import typer
 
 from robotick.launcher.config import Config, PythonRootConfig
-from robotick.launcher.actions.launch.sync_dependencies import (
-    sync_model_dependencies,
-)
 from robotick.launcher.actions.query.list import list_project_models
 from robotick.launcher.runtime_lock import load_runtime_lock, write_runtime_lock
 
@@ -30,14 +35,11 @@ RUNTIME_DIRNAME = "runtime"
 
 
 @dataclass
-class InstallDepsResult:
+class ProjectWorkspaceHydrationResult:
     venv_path: Path
     lock_path: Path
     site_packages: Optional[str]
     python_roots: List[PythonRootConfig]
-    git_dependencies: List[tuple[str, str, Optional[str], Path]]
-    apt_packages: List[str]
-    missing_apt: List[str]
 
 
 @dataclass
@@ -56,18 +58,13 @@ class RuntimeRepoSpec:
 def _runtime_repo_lock(
     project_dir: Path, project_safe: str, *, timeout: float = 300.0
 ) -> None:
-    lock_dir = (
-        project_dir
-        / LAUNCHER_ROOT
-        / project_safe
-        / "deps"
-        / RUNTIME_DIRNAME
-    )
+    lock_dir = project_dir / LAUNCHER_ROOT / project_safe / "deps" / RUNTIME_DIRNAME
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / ".install.lock"
     start = time.time()
     notified_wait = False
     fd: Optional[int] = None
+
     def _pid_alive(pid: int) -> bool:
         try:
             os.kill(pid, 0)
@@ -82,7 +79,9 @@ def _runtime_repo_lock(
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
             os.write(fd, str(os.getpid()).encode("utf-8"))
             if notified_wait:
-                print(f"[green]🔓 install-deps lock acquired:[/] {lock_path}")
+                print(
+                    f"[green]🔓 prepare-project-workspace lock acquired:[/] {lock_path}"
+                )
             break
         except FileExistsError:
             holder = None
@@ -97,7 +96,7 @@ def _runtime_repo_lock(
                     try:
                         lock_path.unlink()
                         print(
-                            f"[yellow]⚠️ install-deps lock held by stale pid {pid}; removing stale lock[/] {lock_path}"
+                            f"[yellow]⚠️ prepare-project-workspace lock held by stale pid {pid}; removing stale lock[/] {lock_path}"
                         )
                         continue
                     except OSError:
@@ -106,13 +105,13 @@ def _runtime_repo_lock(
             if not notified_wait:
                 owner_msg = f" (pid {holder})" if holder else ""
                 print(
-                    f"[yellow]⏳ install-deps already running{owner_msg}; waiting for lock[/] {lock_path}"
+                    f"[yellow]⏳ prepare-project-workspace already running{owner_msg}; waiting for lock[/] {lock_path}"
                 )
                 notified_wait = True
             if (time.time() - start) > timeout:
                 raise RuntimeError(
                     f"Timed out waiting for runtime repo lock at {lock_path}. "
-                    "If no other install-deps command is running, remove the lock file."
+                    "If no other prepare-project-workspace command is running, remove the lock file."
                 )
             time.sleep(0.5)
     try:
@@ -329,24 +328,29 @@ def _git_checkout_runtime_repo(
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     if (dest / ".git").exists():
-        print(f"[cyan]• Updating runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])")
-        subprocess.run(["git", "fetch", "--all", "--tags", "--prune"], cwd=dest, check=True)
+        print(
+            f"[cyan]• Updating runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])"
+        )
+        subprocess.run(
+            ["git", "fetch", "--all", "--tags", "--prune"], cwd=dest, check=True
+        )
     elif dest.exists():
         raise RuntimeError(
             f"Runtime repo destination exists but is not a git repo: {dest}"
         )
     else:
-        print(f"[green]• Cloning runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])")
+        print(
+            f"[green]• Cloning runtime repo[/] {spec.label} ([dim]{repo}@{ref}[/dim])"
+        )
         subprocess.run(["git", "clone", repo, str(dest)], check=True)
 
     subprocess.run(["git", "checkout", ref], cwd=dest, check=True)
     subprocess.run(
         ["git", "submodule", "update", "--init", "--recursive"], cwd=dest, check=True
     )
-    commit = (
-        subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=dest, text=True)
-        .strip()
-    )
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=dest, text=True
+    ).strip()
     return commit
 
 
@@ -358,6 +362,13 @@ def _sync_runtime_repo_sources(
     dry_run: bool,
     stub_install: bool,
 ) -> None:
+    """Clone/update runtime repos into the workspace-owned launcher cache.
+
+    These repos are mutable project state rather than image-level toolchain
+    inputs, so they stay under .launcher/.../deps/runtime instead of being baked
+    into the shared or derived Docker images.
+    """
+
     specs = _collect_runtime_repo_specs(config, workspace_root, target)
     if not specs:
         return
@@ -365,9 +376,7 @@ def _sync_runtime_repo_sources(
     project_safe = config.project_name.replace("-", "_")
     if dry_run or stub_install:
         for spec in specs:
-            _git_checkout_runtime_repo(
-                spec, dry_run=dry_run, stub_install=stub_install
-            )
+            _git_checkout_runtime_repo(spec, dry_run=dry_run, stub_install=stub_install)
         return
 
     entries: Dict[str, Any] = {
@@ -415,7 +424,7 @@ def _sync_runtime_repo_sources(
     )
 
 
-def _install_deps_locked(
+def _hydrate_project_workspace_locked(
     *,
     config: Config,
     project: str,
@@ -425,7 +434,14 @@ def _install_deps_locked(
     stub_install: bool,
     model: Optional[str],
     target: str,
-) -> InstallDepsResult:
+) -> ProjectWorkspaceHydrationResult:
+    """Perform the locked workspace-hydration work.
+
+    The lock ensures multiple launcher invocations do not race while updating
+    shared workspace state such as runtime repo checkouts or the project Python
+    venv.
+    """
+
     project_launcher_dir = get_project_python_dir(config.project_name, workspace_root)
     project_launcher_dir.mkdir(parents=True, exist_ok=True)
 
@@ -465,9 +481,9 @@ def _install_deps_locked(
                     "id": root.id,
                     "relative_path": str(root.relative_path),
                     "absolute_path": str(root.absolute_path),
-                    "requirements": str(root.requirements_file)
-                    if root.requirements_file
-                    else None,
+                    "requirements": (
+                        str(root.requirements_file) if root.requirements_file else None
+                    ),
                 }
                 for root in python_roots
             ],
@@ -485,46 +501,15 @@ def _install_deps_locked(
         stub_install=stub_install,
     )
 
-    # --- Repo deps + apt packages ---
-    model_names = _collect_model_names(project, base_dir, model)
-    git_dependencies: List[tuple[str, str, Optional[str], Path]] = []
-    for model_name in model_names:
-        try:
-            model_config = Config(
-                project, model_name, target, base_dir, dry_run, stub_install
-            )
-        except Exception as exc:
-            print(
-                f"[yellow]⚠️ Skipping model '{model_name}' while collecting deps:[/] {exc}"
-            )
-            continue
-
-        deps, apt = sync_model_dependencies(model_config)
-        git_dependencies.extend(deps)
-        runtime_cfg = dict(model_config.model.get("runtime") or {})
-        target_platform = str(runtime_cfg.get("target_platform") or "").strip().lower()
-        target_variant = str(runtime_cfg.get("target_variant") or "").strip().lower()
-        if apt:
-            # Build/runtime toolchains now come from the published Docker images instead of the host.
-            # We still collect git/python deps here, but declared apt requirements are informational only
-            # until we have a richer per-model container hydration step.
-            print(
-                f"[dim]↪︎ Skipping host apt validation for {model_name} "
-                f"({target_platform or target}/{target_variant or 'default'}); build deps are provided by Docker[/dim]"
-            )
-
-    return InstallDepsResult(
+    return ProjectWorkspaceHydrationResult(
         venv_path=venv_path,
         lock_path=lock_path,
         site_packages=site_packages,
         python_roots=config.python_roots,
-        git_dependencies=git_dependencies,
-        apt_packages=[],
-        missing_apt=[],
     )
 
 
-def install_deps(
+def hydrate_project_workspace(
     project: str,
     base_dir: Path,
     workspace_root: Path,
@@ -533,9 +518,13 @@ def install_deps(
     stub_install: bool = False,
     model: Optional[str] = None,
     target: str = "linux",
-) -> Optional[InstallDepsResult]:
+) -> Optional[ProjectWorkspaceHydrationResult]:
     """
-    Hydrate python_roots into a shared .launcher/<project>/deps/python/.venv-python environment.
+    Hydrate mutable project workspace state under .launcher/<project>/deps/.
+
+    This intentionally excludes image-level concerns such as apt packages,
+    toolchains, or third-party source archives that now belong to the
+    prepare-project-docker stage.
     """
 
     base_dir = base_dir.resolve()
@@ -553,7 +542,7 @@ def install_deps(
     project_safe = config.project_name.replace("-", "_")
 
     with _runtime_repo_lock(config.project_dir, project_safe):
-        return _install_deps_locked(
+        return _hydrate_project_workspace_locked(
             config=config,
             project=project,
             base_dir=base_dir,
@@ -566,17 +555,15 @@ def install_deps(
 
 
 def get_project_python_dir(project: str, workspace_root: Path) -> Path:
+    """Return the workspace-owned python hydration folder for a project."""
+
     project_safe = project.replace("-", "_")
-    return (
-        workspace_root
-        / LAUNCHER_ROOT
-        / project_safe
-        / "deps"
-        / PYTHON_DIRNAME
-    )
+    return workspace_root / LAUNCHER_ROOT / project_safe / "deps" / PYTHON_DIRNAME
 
 
 def load_python_root_lock(project: str, workspace_root: Path) -> Optional[dict]:
+    """Load the recorded Python hydration state, if present."""
+
     python_dir = get_project_python_dir(project, workspace_root)
     lock_path = python_dir / LOCK_FILENAME
     if not lock_path.exists():
@@ -588,7 +575,7 @@ def load_python_root_lock(project: str, workspace_root: Path) -> Optional[dict]:
         return None
 
 
-def install_deps_command(
+def hydrate_project_workspace_command(
     project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Directory containing <project>.project.yaml"
@@ -607,7 +594,7 @@ def install_deps_command(
 ) -> None:
     base_dir = base_dir.resolve()
     workspace_root = (workspace_dir or base_dir).resolve()
-    install_deps(
+    hydrate_project_workspace(
         project=project,
         base_dir=base_dir,
         workspace_root=workspace_root,

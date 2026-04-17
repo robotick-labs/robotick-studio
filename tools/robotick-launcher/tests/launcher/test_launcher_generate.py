@@ -133,13 +133,6 @@ def assert_dirs_match(output_dir: Path, golden_dir: Path):
         )
         pytest.fail(msg, pytrace=False)
 
-    for component_dir in (Path("components/M5GFX"), Path("components/M5Unified")):
-        output_component = output_dir / component_dir
-        golden_component = golden_dir / component_dir
-        if output_component.exists() or golden_component.exists():
-            assert output_component.exists(), f"Missing generated component dir: {component_dir}"
-            assert output_component.is_dir(), f"Generated component path is not a dir: {component_dir}"
-
     for rel_path in output_files:
         out_file = output_dir / rel_path
         gold_file = golden_dir / rel_path
@@ -214,6 +207,7 @@ def test_launcher_generate(target, model):
         "--base-dir",
         str(TEST_BASE),
         "--stub-install",
+        "--skip-prepare-project-docker",
     ]
     print(f"💻 Running subprocess: {' '.join(cmd)}")
 

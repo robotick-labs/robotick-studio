@@ -17,7 +17,7 @@ if [[ -f "$LAUNCHER_ENV_FILE" ]]; then
     . "$LAUNCHER_ENV_FILE"
 fi
 
-IMAGE_NAME="ghcr.io/robotick-labs/robotick-idf5.4-esp32:latest"
+IMAGE_NAME="${ROBOTICK_PROJECT_DOCKER_IMAGE:-ghcr.io/robotick-labs/robotick-idf5.4-esp32:latest}"
 CONTAINER_HOME="/tmp/robotick-home"
 CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"
 ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
@@ -108,6 +108,7 @@ run_esp32_container() {
     container_name="$(container_name_for_mode "$mode")"
     ensure_esp32_container "$mode" "$container_name"
     local wrapped_command="mkdir -p \"$CONTAINER_CACHE_HOME\" && . /opt/esp/idf/export.sh >/dev/null && $*"
+    local materialize_command="if [[ -d /opt/robotick/project-target-cache/components ]]; then mkdir -p \"$SCRIPT_DIR/components\" && cp -a /opt/robotick/project-target-cache/components/. \"$SCRIPT_DIR/components/\"; fi"
 
     local -a cmd=(
         docker exec
@@ -138,7 +139,7 @@ run_esp32_container() {
         )
     fi
 
-    cmd+=("$container_name" bash -lc "$wrapped_command")
+    cmd+=("$container_name" bash -lc "$materialize_command && $wrapped_command")
 
     echo "\$ ${cmd[*]}"
     if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then

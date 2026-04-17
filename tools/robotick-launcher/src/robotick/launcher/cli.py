@@ -8,7 +8,9 @@ from pathlib import Path
 # Import all actions
 from robotick.launcher.actions.launch import (
     clean,
-    install_deps,
+    project_workspace_hydration,
+    prepare_project_workspace,
+    prepare_project_docker,
     generate,
     build,
     deploy,
@@ -25,8 +27,8 @@ def create_app() -> typer.Typer:
     # Subcommand group for cleaning tools
     app.add_typer(clean.clean_app, name="clean")
 
-    @app.command("install-deps")
-    def install_deps_cmd(
+    @app.command("prepare-project-workspace")
+    def prepare_project_workspace_cmd(
         project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
         base_dir: Path = typer.Option(
             Path.cwd(), help="Directory containing <project>.project.yaml"
@@ -47,7 +49,7 @@ def create_app() -> typer.Typer:
     ):
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
-        install_deps.install_deps_command(
+        prepare_project_workspace.prepare_project_workspace_command(
             project=project,
             base_dir=base_dir,
             workspace_dir=workspace_dir,
@@ -86,8 +88,13 @@ def create_app() -> typer.Typer:
             False,
             help="Only create target-folder for each installed dependency, not full install",
         ),
-        skip_install_deps: bool = typer.Option(
-            False, help="Assume install-deps already ran and skip it during generate"
+        skip_prepare_project_workspace: bool = typer.Option(
+            False,
+            help="Assume prepare-project-workspace already ran and skip it during generate",
+        ),
+        skip_prepare_project_docker: bool = typer.Option(
+            False,
+            help="Assume prepare-project-docker already ran and skip it during generate",
         ),
     ) -> None:
         base_dir = base_dir.resolve()
@@ -101,7 +108,35 @@ def create_app() -> typer.Typer:
             dry_run,
             bool(stub_install),
             workspace_dir,
-            skip_install_deps=skip_install_deps,
+            skip_prepare_project_workspace=skip_prepare_project_workspace,
+            skip_prepare_project_docker=skip_prepare_project_docker,
+        )
+
+    @app.command("prepare-project-docker")
+    def prepare_project_docker_cmd(
+        project: str = typer.Argument(..., help="Project name (e.g. 'my_robot')"),
+        target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
+        base_dir: Path = typer.Option(
+            Path.cwd(), help="Directory containing <project>.project.yaml"
+        ),
+        dry_run: bool = typer.Option(
+            False, "--dry-run", help="Show what would be created without creating it"
+        ),
+        stub_install: bool = typer.Option(
+            False,
+            help="Only create target-folder for each installed dependency, not full install",
+        ),
+        model: Optional[str] = typer.Option(
+            None, help="Limit preparation to one model instead of all models in scope"
+        ),
+    ) -> None:
+        prepare_project_docker.prepare_project_docker(
+            project=project,
+            base_dir=base_dir.resolve(),
+            target=target,
+            model=model,
+            dry_run=dry_run,
+            stub_install=stub_install,
         )
 
     @app.command("build")
@@ -117,8 +152,13 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
-        skip_install_deps: bool = typer.Option(
-            False, help="Assume install-deps already ran and skip it during generate"
+        skip_prepare_project_workspace: bool = typer.Option(
+            False,
+            help="Assume prepare-project-workspace already ran and skip it during generate",
+        ),
+        skip_prepare_project_docker: bool = typer.Option(
+            False,
+            help="Assume prepare-project-docker already ran and skip it during generate",
         ),
     ):
         base_dir = base_dir.resolve()
@@ -135,7 +175,8 @@ def create_app() -> typer.Typer:
                 force=force,
                 verbose=verbose,
                 stub_install=False,
-                skip_install_deps=skip_install_deps,
+                skip_prepare_project_workspace=skip_prepare_project_workspace,
+                skip_prepare_project_docker=skip_prepare_project_docker,
             )
 
         build.build(project, model, target, base_dir, dry_run)
@@ -153,8 +194,13 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
-        skip_install_deps: bool = typer.Option(
-            False, help="Assume install-deps already ran and skip it during generate"
+        skip_prepare_project_workspace: bool = typer.Option(
+            False,
+            help="Assume prepare-project-workspace already ran and skip it during generate",
+        ),
+        skip_prepare_project_docker: bool = typer.Option(
+            False,
+            help="Assume prepare-project-docker already ran and skip it during generate",
         ),
     ):
         base_dir = base_dir.resolve()
@@ -170,7 +216,8 @@ def create_app() -> typer.Typer:
                 no_pre,
                 force=force,
                 verbose=verbose,
-                skip_install_deps=skip_install_deps,
+                skip_prepare_project_workspace=skip_prepare_project_workspace,
+                skip_prepare_project_docker=skip_prepare_project_docker,
             )
 
         deploy.deploy(project, model, target, base_dir, dry_run)
@@ -188,8 +235,13 @@ def create_app() -> typer.Typer:
         no_pre: bool = typer.Option(False),
         force: bool = typer.Option(False),
         verbose: bool = typer.Option(False),
-        skip_install_deps: bool = typer.Option(
-            False, help="Assume install-deps already ran and skip it during generate"
+        skip_prepare_project_workspace: bool = typer.Option(
+            False,
+            help="Assume prepare-project-workspace already ran and skip it during generate",
+        ),
+        skip_prepare_project_docker: bool = typer.Option(
+            False,
+            help="Assume prepare-project-docker already ran and skip it during generate",
         ),
     ):
         base_dir = base_dir.resolve()
@@ -205,7 +257,8 @@ def create_app() -> typer.Typer:
                 no_pre,
                 force=force,
                 verbose=verbose,
-                skip_install_deps=skip_install_deps,
+                skip_prepare_project_workspace=skip_prepare_project_workspace,
+                skip_prepare_project_docker=skip_prepare_project_docker,
             )
 
         run.run(project, model, target, base_dir, workspace_dir, dry_run)

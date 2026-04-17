@@ -19,7 +19,9 @@ from robotick.launcher.utils import (
     run_subprocess,
     stop_local_binary_process,
 )
-from robotick.launcher.actions.launch.install_deps import load_python_root_lock
+from robotick.launcher.actions.launch.prepare_project_workspace import (
+    load_python_root_lock,
+)
 
 
 def _build_python_env(project: str, workspace_root: Path) -> Optional[dict[str, str]]:
@@ -134,9 +136,7 @@ def run(
     if run_script.exists():
         print(f"[bold green]🚀 Running [cyan]{run_script}[/] instead of binary[/]")
         try:
-            run_subprocess(
-                ["bash", str(run_script)], cwd=working_dir, env=python_env
-            )
+            run_subprocess(["bash", str(run_script)], cwd=working_dir, env=python_env)
         except subprocess.CalledProcessError as e:
             print(f"[bold red]❌ Script exited with code {e.returncode}[/]")
             raise typer.Exit(code=e.returncode)

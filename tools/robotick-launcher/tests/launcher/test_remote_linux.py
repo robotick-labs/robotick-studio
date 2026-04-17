@@ -4,27 +4,15 @@ from pathlib import Path
 
 import yaml
 
-from robotick.launcher.actions.launch.docker_linux_arm64 import (
-    DockerLinuxArm64Spec,
-    build_docker_linux_arm64,
-    ensure_docker_image as ensure_docker_linux_arm64_image,
-    load_docker_linux_arm64_spec,
-)
-from robotick.launcher.actions.launch.docker_linux_x64 import (
-    DockerLinuxX64Spec,
-    build_docker_linux_x64,
-    deploy_docker_linux_x64,
-    ensure_running_docker_linux_x64_container,
-    ensure_docker_image as ensure_docker_linux_x64_image,
-    load_docker_linux_x64_spec,
-    run_docker_linux_x64,
-    stop_docker_linux_x64,
-)
-from robotick.launcher.actions.launch.docker_linux_arm32 import (
-    DockerLinuxArm32Spec,
-    build_docker_linux_arm32,
-    ensure_docker_image as ensure_docker_linux_arm32_image,
-    load_docker_linux_arm32_spec,
+from robotick.launcher.actions.launch.docker_linux import (
+    DockerLinuxSpec,
+    build_docker_linux,
+    deploy_docker_linux,
+    ensure_running_docker_linux_container,
+    ensure_docker_image as ensure_docker_linux_image,
+    load_docker_linux_spec,
+    run_docker_linux,
+    stop_docker_linux,
 )
 from robotick.launcher.actions.launch.target_plan import (
     CONTAINER_STRATEGY,
@@ -41,6 +29,52 @@ from robotick.launcher.actions.launch.remote_linux import (
     load_remote_linux_spec,
 )
 from robotick.launcher.actions.launch import run as run_module
+
+
+DockerLinuxArm64Spec = DockerLinuxSpec
+DockerLinuxArm32Spec = DockerLinuxSpec
+DockerLinuxX64Spec = DockerLinuxSpec
+build_docker_linux_arm64 = build_docker_linux
+build_docker_linux_arm32 = build_docker_linux
+build_docker_linux_x64 = build_docker_linux
+deploy_docker_linux_x64 = deploy_docker_linux
+ensure_running_docker_linux_x64_container = ensure_running_docker_linux_container
+ensure_docker_linux_arm64_image = ensure_docker_linux_image
+ensure_docker_linux_arm32_image = ensure_docker_linux_image
+ensure_docker_linux_x64_image = ensure_docker_linux_image
+load_docker_linux_arm64_spec = load_docker_linux_spec
+load_docker_linux_arm32_spec = load_docker_linux_spec
+load_docker_linux_x64_spec = load_docker_linux_spec
+run_docker_linux_x64 = run_docker_linux
+stop_docker_linux_x64 = stop_docker_linux
+
+
+def _docker_linux_spec(
+    *,
+    family: str,
+    image_name: str,
+    dockerfile: str,
+    container_name: str,
+    launcher_dir: str,
+    binary_path: str,
+    workspace_root: str = "/tmp/repo",
+    working_dir: str = "/tmp/repo/robots/proj",
+    supports_runtime: bool = False,
+) -> DockerLinuxSpec:
+    return DockerLinuxSpec(
+        family=family,
+        image_name=image_name,
+        dockerfile=Path(dockerfile),
+        container_name=container_name,
+        local_repo_root=Path(workspace_root),
+        local_launcher_dir=Path(launcher_dir),
+        local_binary_path=Path(binary_path),
+        container_workspace_root=workspace_root,
+        container_launcher_dir=launcher_dir,
+        container_working_dir=working_dir,
+        container_binary_path=binary_path,
+        supports_runtime=supports_runtime,
+    )
 
 
 def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
@@ -101,7 +135,10 @@ def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
     sync_remotes = {sync.remote_path for sync in spec.sync_paths}
     assert "$HOME/dev/robotick/robotick-knitware/robots/barr-e/cpp/src" in sync_remotes
     assert "$HOME/dev/robotick/robotick-knitware/robots/barr-e" not in sync_remotes
-    assert "$HOME/dev/robotick/robotick-knitware/robots/barr-e/cpp/include" not in sync_remotes
+    assert (
+        "$HOME/dev/robotick/robotick-knitware/robots/barr-e/cpp/include"
+        not in sync_remotes
+    )
 
 
 def test_run_dry_run_uses_remote_linux_path(monkeypatch, tmp_path):
@@ -166,8 +203,8 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
     assert "LD_LIBRARY_PATH=" in ssh_cmd[2]
     assert "/generated/alf_e_face/linux/build/robotick_engine/cpp:" in ssh_cmd[2]
     assert "/generated/alf_e_face/linux/build:$LD_LIBRARY_PATH" in ssh_cmd[2]
-    assert 'trap cleanup INT TERM HUP EXIT' in ssh_cmd[2]
-    assert 'child_pid=$!' in ssh_cmd[2]
+    assert "trap cleanup INT TERM HUP EXIT" in ssh_cmd[2]
+    assert "child_pid=$!" in ssh_cmd[2]
     assert 'kill -TERM "$child_pid"' in ssh_cmd[2]
     assert callable(on_interrupt)
 
@@ -187,7 +224,9 @@ def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
     )
 
     commands: list[list[str]] = []
-    monkeypatch.setattr(remote_linux, "run_subprocess", lambda cmd: commands.append(cmd))
+    monkeypatch.setattr(
+        remote_linux, "run_subprocess", lambda cmd: commands.append(cmd)
+    )
 
     remote_linux.stop_remote_linux_process(spec, dry_run=False)
 
@@ -236,7 +275,9 @@ def test_find_local_process_ids_for_binary_matches_exact_exe_path(tmp_path):
     nonsensical = proc_root / "not-a-pid"
     nonsensical.mkdir()
 
-    assert run_module._find_local_process_ids_for_binary(binary_path, proc_root=proc_root) == [101]
+    assert run_module._find_local_process_ids_for_binary(
+        binary_path, proc_root=proc_root
+    ) == [101]
 
 
 def test_run_dry_run_local_path_does_not_launch_binary(monkeypatch, tmp_path):
@@ -334,34 +375,31 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
 
 
 def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
-    spec = DockerLinuxArm64Spec(
+    spec = _docker_linux_spec(
+        family="linux-arm64",
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm64:latest",
-        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm64.Dockerfile"),
+        dockerfile="/tmp/robotick-debian12-cross-linux-arm64.Dockerfile",
         container_name="robotick-launcher-linux-arm64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
     )
     ensure_calls: list[tuple[DockerLinuxArm64Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm64.ensure_running_docker_linux_arm64_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm64.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm64.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -377,31 +415,42 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "-e",
             "HOME=/tmp/robotick-home",
             "-w",
+            "/tmp/repo",
+            "robotick-launcher-linux-arm64-build-test",
+            "bash",
+            "-lc",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+        ],
+        [
+            "docker",
+            "exec",
+            "--user",
+            "1234:5678",
+            "-e",
+            "HOME=/tmp/robotick-home",
+            "-w",
             "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
             "robotick-launcher-linux-arm64-build-test",
             "bash",
             "-lc",
             "bash ./do_launcher_build.sh",
-        ]
+        ],
     ]
 
 
 def test_ensure_docker_linux_arm64_image_refreshes_latest(monkeypatch):
-    spec = DockerLinuxArm64Spec(
+    spec = _docker_linux_spec(
+        family="linux-arm64",
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm64:latest",
-        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm64.Dockerfile"),
+        dockerfile="/tmp/robotick-debian12-cross-linux-arm64.Dockerfile",
         container_name="robotick-launcher-linux-arm64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
     )
     pull_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
 
@@ -451,34 +500,31 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
 
 
 def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
-    spec = DockerLinuxArm32Spec(
+    spec = _docker_linux_spec(
+        family="linux-arm32",
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
-        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm32.Dockerfile"),
+        dockerfile="/tmp/robotick-debian12-cross-linux-arm32.Dockerfile",
         container_name="robotick-launcher-linux-arm32-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
     )
     ensure_calls: list[tuple[DockerLinuxArm32Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm32.ensure_running_docker_linux_arm32_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm32.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm32.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm32.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -494,31 +540,42 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
             "-e",
             "HOME=/tmp/robotick-home",
             "-w",
+            "/tmp/repo",
+            "robotick-launcher-linux-arm32-build-test",
+            "bash",
+            "-lc",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+        ],
+        [
+            "docker",
+            "exec",
+            "--user",
+            "1234:5678",
+            "-e",
+            "HOME=/tmp/robotick-home",
+            "-w",
             "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
             "robotick-launcher-linux-arm32-build-test",
             "bash",
             "-lc",
             "bash ./do_launcher_build.sh",
-        ]
+        ],
     ]
 
 
 def test_ensure_docker_linux_arm32_image_refreshes_latest(monkeypatch):
-    spec = DockerLinuxArm32Spec(
+    spec = _docker_linux_spec(
+        family="linux-arm32",
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
-        dockerfile=Path("/tmp/robotick-debian12-cross-linux-arm32.Dockerfile"),
+        dockerfile="/tmp/robotick-debian12-cross-linux-arm32.Dockerfile",
         container_name="robotick-launcher-linux-arm32-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        container_binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
     )
     pull_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_arm32.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
 
@@ -527,7 +584,9 @@ def test_ensure_docker_linux_arm32_image_refreshes_latest(monkeypatch):
     assert pull_calls == [["docker", "pull", spec.image_name]]
 
 
-def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(tmp_path):
+def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
+    tmp_path,
+):
     repo_root = tmp_path / "repo"
     project_dir = repo_root / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
@@ -535,7 +594,13 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
 
     (project_dir / "alf-e.project.yaml").write_text(
         yaml.safe_dump(
-            {"runtime": {"engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"}}}
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    }
+                }
+            }
         )
     )
     (project_dir / "alf-e-face.model.yaml").write_text(
@@ -557,7 +622,9 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
     assert plan.run.strategy == REMOTE_STRATEGY
 
 
-def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(tmp_path):
+def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(
+    tmp_path,
+):
     repo_root = tmp_path / "repo"
     project_dir = repo_root / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
@@ -565,7 +632,13 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(
 
     (project_dir / "alf-e.project.yaml").write_text(
         yaml.safe_dump(
-            {"runtime": {"engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"}}}
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    }
+                }
+            }
         )
     )
     (project_dir / "alf-e-face.model.yaml").write_text(
@@ -595,7 +668,13 @@ def test_load_docker_linux_x64_spec_points_at_shared_engine_dockerfile(tmp_path)
 
     (project_dir / "proj.project.yaml").write_text(
         yaml.safe_dump(
-            {"runtime": {"engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"}}}
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    }
+                }
+            }
         )
     )
     (project_dir / "proj-face.model.yaml").write_text(
@@ -625,36 +704,75 @@ def test_load_docker_linux_x64_spec_points_at_shared_engine_dockerfile(tmp_path)
     assert spec.container_working_dir.endswith("/robots/proj")
 
 
+def test_load_docker_linux_x64_spec_uses_prepared_project_image_when_present(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "proj"
+    project_dir.mkdir(parents=True)
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    (project_dir / "proj.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
+                }
+            }
+        )
+    )
+    (project_dir / "proj-face.model.yaml").write_text(
+        yaml.safe_dump(
+            {"runtime": {"target_platform": "linux", "target_variant": "x86_64"}}
+        )
+    )
+
+    metadata_dir = (
+        project_dir / ".launcher" / "proj" / "project_docker" / "linux" / "linux-x64"
+    )
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    (metadata_dir / "resolved-image.json").write_text(
+        '{"image_name":"robotick-proj-linux-docker:linux-x64-deadbeef","image_repo":"robotick-proj-linux-docker","image_tag":"linux-x64-deadbeef","dockerfile_path":"'
+        + str(metadata_dir / "Dockerfile")
+        + '","context_dir":"'
+        + str(metadata_dir)
+        + '","scoped_models":["proj-face"]}\n',
+        encoding="utf-8",
+    )
+
+    spec = load_docker_linux_x64_spec("proj", "proj-face", "linux", project_dir)
+
+    assert spec is not None
+    assert spec.image_name == "robotick-proj-linux-docker:linux-x64-deadbeef"
+
+
 def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     ensure_calls: list[tuple[DockerLinuxX64Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.ensure_running_docker_linux_x64_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -670,32 +788,43 @@ def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
             "-e",
             "HOME=/tmp/robotick-home",
             "-w",
+            "/tmp/repo",
+            "robotick-launcher-linux-x64-build-test",
+            "bash",
+            "-lc",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/proj/generated/proj_face/linux/deps/; fi",
+        ],
+        [
+            "docker",
+            "exec",
+            "--user",
+            "1234:5678",
+            "-e",
+            "HOME=/tmp/robotick-home",
+            "-w",
             "/tmp/repo/.launcher/proj/generated/proj_face/linux",
             "robotick-launcher-linux-x64-build-test",
             "bash",
             "-lc",
             "bash ./do_launcher_build.sh",
-        ]
+        ],
     ]
 
 
 def test_ensure_docker_linux_x64_image_refreshes_latest(monkeypatch):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     pull_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
 
@@ -707,26 +836,23 @@ def test_ensure_docker_linux_x64_image_refreshes_latest(monkeypatch):
 def test_ensure_running_docker_linux_x64_container_dry_run_tolerates_missing_docker(
     monkeypatch,
 ):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     pull_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.subprocess.run",
+        "robotick.launcher.actions.launch.docker_linux.subprocess.run",
         lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("docker")),
     )
 
@@ -736,35 +862,32 @@ def test_ensure_running_docker_linux_x64_container_dry_run_tolerates_missing_doc
 
 
 def test_deploy_docker_linux_x64_checks_binary_inside_keepalive_container(monkeypatch):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     ensure_calls: list[tuple[DockerLinuxX64Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.ensure_running_docker_linux_x64_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -790,35 +913,32 @@ def test_deploy_docker_linux_x64_checks_binary_inside_keepalive_container(monkey
 
 
 def test_stop_docker_linux_x64_kills_existing_binary_inside_container(monkeypatch):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     ensure_calls: list[tuple[DockerLinuxX64Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.ensure_running_docker_linux_x64_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -837,39 +957,39 @@ def test_stop_docker_linux_x64_kills_existing_binary_inside_container(monkeypatc
         "robotick-launcher-linux-x64-build-test",
         "bash",
     ]
-    assert "pkill -TERM -f -- /tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face" in run_calls[0][11]
+    assert (
+        "pkill -TERM -f -- /tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"
+        in run_calls[0][11]
+    )
 
 
 def test_run_docker_linux_x64_execs_run_script_inside_keepalive_container(monkeypatch):
-    spec = DockerLinuxX64Spec(
+    spec = _docker_linux_spec(
+        family="linux-x64",
         image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
-        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
         container_name="robotick-launcher-linux-x64-build-test",
-        local_repo_root=Path("/tmp/repo"),
-        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
-        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
-        container_workspace_root="/tmp/repo",
-        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
-        container_working_dir="/tmp/repo/robots/proj",
-        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
     )
     ensure_calls: list[tuple[DockerLinuxX64Spec, bool]] = []
     run_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.ensure_running_docker_linux_x64_container",
+        "robotick.launcher.actions.launch.docker_linux.ensure_running_docker_linux_container",
         lambda actual_spec, dry_run: ensure_calls.append((actual_spec, dry_run)),
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getuid",
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
         lambda: 1234,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.os.getgid",
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
         lambda: 5678,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: run_calls.append(cmd),
     )
 
@@ -888,7 +1008,10 @@ def test_run_docker_linux_x64_execs_run_script_inside_keepalive_container(monkey
         "robotick-launcher-linux-x64-build-test",
         "bash",
     ]
-    assert "export LD_LIBRARY_PATH=/tmp/repo/.launcher/proj/generated/proj_face/linux/build/robotick_engine/cpp:/tmp/repo/.launcher/proj/generated/proj_face/linux/build:$LD_LIBRARY_PATH" in run_calls[0][11]
+    assert (
+        "export LD_LIBRARY_PATH=/tmp/repo/.launcher/proj/generated/proj_face/linux/build/robotick_engine/cpp:/tmp/repo/.launcher/proj/generated/proj_face/linux/build:$LD_LIBRARY_PATH"
+        in run_calls[0][11]
+    )
     assert "bash ./do_launcher_run.sh" in run_calls[0][11]
 
 
@@ -947,7 +1070,9 @@ def test_resolve_target_plan_ros2_stage_overrides_bind_handlers(tmp_path):
     assert plan.run.stop_handler is not None
 
 
-def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(monkeypatch, tmp_path):
+def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(
+    monkeypatch, tmp_path
+):
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "proj.project.yaml").write_text(
@@ -969,12 +1094,7 @@ def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(monkeypatch
     )
 
     launcher_dir = (
-        project_dir
-        / ".launcher"
-        / "proj"
-        / "generated"
-        / "proj_sim"
-        / "linux"
+        project_dir / ".launcher" / "proj" / "generated" / "proj_sim" / "linux"
     )
     launcher_dir.mkdir(parents=True, exist_ok=True)
     run_script = launcher_dir / "do_launcher_run.sh"
@@ -986,8 +1106,10 @@ def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(monkeypatch
 
     def _fake_run_subprocess(cmd, cwd=None, **kwargs):
         calls.append((cmd, cwd))
+
         class _Proc:
             returncode = 0
+
         return _Proc()
 
     monkeypatch.setattr(target_plan_module, "run_subprocess", _fake_run_subprocess)

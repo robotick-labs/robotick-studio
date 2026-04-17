@@ -5,7 +5,7 @@ from rich import print
 import typer
 
 from robotick.launcher.runtime_lock import RUNTIME_LOCK_FILENAME
-from robotick.launcher.actions.launch.install_deps import (
+from robotick.launcher.actions.launch.project_workspace_hydration import (
     LOCK_FILENAME as PYTHON_LOCK_FILENAME,
 )
 from robotick.launcher.utils import get_launcher_paths
@@ -23,9 +23,7 @@ def _delete_path(path: Path, dry_run: bool, label: str) -> None:
         print(f"[yellow]⚠️ {label} does not exist anyway:[/] {path}")
         return
     action = (
-        "[yellow]🧹 Dry run — would delete:[/]"
-        if dry_run
-        else "[green]🧹 Deleting:[/]"
+        "[yellow]🧹 Dry run — would delete:[/]" if dry_run else "[green]🧹 Deleting:[/]"
     )
     print(f"{action} {path}")
     if dry_run:
@@ -77,12 +75,7 @@ def _runtime_paths(
     ).resolve()
     runtime_target = (runtime_root / target_safe).resolve()
     python_lock = (
-        base_dir
-        / ".launcher"
-        / project_safe
-        / "deps"
-        / "python"
-        / PYTHON_LOCK_FILENAME
+        base_dir / ".launcher" / project_safe / "deps" / "python" / PYTHON_LOCK_FILENAME
     ).resolve()
     runtime_lock = (runtime_root / RUNTIME_LOCK_FILENAME).resolve()
     install_lock = (runtime_root / INSTALL_LOCK_FILENAME).resolve()
