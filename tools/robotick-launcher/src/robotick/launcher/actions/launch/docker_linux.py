@@ -143,6 +143,7 @@ def load_docker_linux_spec(
             family_config.container_name_prefix,
             image_name,
             repo_root,
+            launcher_dir.resolve(),
         ),
         local_repo_root=repo_root,
         local_launcher_dir=launcher_dir.resolve(),
@@ -459,6 +460,13 @@ def _inspect_docker_value(command: list[str]) -> str:
     return result.stdout.strip()
 
 
-def _build_container_name(prefix: str, image_name: str, repo_root: Path) -> str:
-    scope_hash = hashlib.sha256(f"{image_name}|{repo_root}".encode("utf-8")).hexdigest()[:12]
+def _build_container_name(
+    prefix: str,
+    image_name: str,
+    repo_root: Path,
+    launcher_dir: Path,
+) -> str:
+    scope_hash = hashlib.sha256(
+        f"{image_name}|{repo_root}|{launcher_dir}".encode("utf-8")
+    ).hexdigest()[:12]
     return f"{prefix}-{scope_hash}"
