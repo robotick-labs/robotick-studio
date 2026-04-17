@@ -9,7 +9,10 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from robotick.launcher.actions.launch import install_deps, generate as generate_module
+from robotick.launcher.actions.launch import (
+    project_workspace_hydration,
+    generate as generate_module,
+)
 from robotick.launcher.config import Config
 from robotick.launcher.utils import copy_extras_for_target
 
@@ -41,12 +44,12 @@ def _init_git_repo(repo_path: Path, filename: str) -> str:
     return "main"
 
 
-def test_install_deps_creates_shared_venv_and_lock(tmp_path):
+def test_project_workspace_hydration_creates_shared_venv_and_lock(tmp_path):
     project_dir = _clone_fixture(tmp_path)
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
 
-    result = install_deps.install_deps(
+    result = project_workspace_hydration.hydrate_project_workspace(
         project="test-project",
         base_dir=project_dir,
         workspace_root=workspace_dir,
@@ -72,7 +75,7 @@ def test_install_deps_creates_shared_venv_and_lock(tmp_path):
     assert len(payload["python_roots"]) == 2
 
 
-def test_install_deps_no_python_roots_is_noop(tmp_path):
+def test_project_workspace_hydration_no_python_roots_is_noop(tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
@@ -83,8 +86,18 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
 
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
+    lock_path = (
+        workspace_dir
+        / ".launcher"
+        / "test_project"
+        / "deps"
+        / "python"
+        / "python-roots-lock.json"
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text('{"stale": true}', encoding="utf-8")
 
-    result = install_deps.install_deps(
+    result = project_workspace_hydration.hydrate_project_workspace(
         project="test-project",
         base_dir=project_dir,
         workspace_root=workspace_dir,
@@ -101,21 +114,30 @@ def test_install_deps_no_python_roots_is_noop(tmp_path):
         / "python"
         / ".venv-python"
     ).exists()
+    assert not lock_path.exists()
 
 
-def test_generate_auto_runs_install_deps(monkeypatch, tmp_path):
+def test_generate_auto_runs_prepare_project_workspace(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
 
     captured = {}
+    docker_captured = {}
 
-    def fake_install_deps(**kwargs):
+    def fake_prepare_project_workspace(**kwargs):
         captured["kwargs"] = kwargs
 
+    def fake_prepare_project_docker(**kwargs):
+        docker_captured["kwargs"] = kwargs
+
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.generate.install_deps_stage.install_deps",
-        fake_install_deps,
+        "robotick.launcher.actions.launch.generate.prepare_project_workspace_stage.prepare_project_workspace",
+        fake_prepare_project_workspace,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.generate.prepare_project_docker",
+        fake_prepare_project_docker,
     )
 
     generate_module.generate(
@@ -129,12 +151,15 @@ def test_generate_auto_runs_install_deps(monkeypatch, tmp_path):
     )
 
     assert "kwargs" in captured
+    assert "kwargs" in docker_captured
     assert captured["kwargs"]["workspace_root"] == workspace_dir
     assert captured["kwargs"]["model"] == "test-project-brain"
     assert captured["kwargs"]["target"] == "linux"
+    assert docker_captured["kwargs"]["model"] == "test-project-brain"
+    assert docker_captured["kwargs"]["target"] == "linux"
 
 
-def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
+def test_generate_calls_prepare_project_workspace_even_without_python(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     project_file = project_dir / "test-project.project.yaml"
     data = yaml.safe_load(project_file.read_text())
@@ -147,14 +172,23 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     workspace_dir.mkdir()
 
     called = False
+    docker_called = False
 
-    def fake_install_deps(**kwargs):
+    def fake_prepare_project_workspace(**kwargs):
         nonlocal called
         called = True
 
+    def fake_prepare_project_docker(**kwargs):
+        nonlocal docker_called
+        docker_called = True
+
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.generate.install_deps_stage.install_deps",
-        fake_install_deps,
+        "robotick.launcher.actions.launch.generate.prepare_project_workspace_stage.prepare_project_workspace",
+        fake_prepare_project_workspace,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.generate.prepare_project_docker",
+        fake_prepare_project_docker,
     )
 
     generate_module.generate(
@@ -168,6 +202,7 @@ def test_generate_calls_install_deps_even_without_python(monkeypatch, tmp_path):
     )
 
     assert called
+    assert docker_called
 
 
 def test_generate_writes_ros2_stage_override_scripts(tmp_path):
@@ -191,7 +226,8 @@ def test_generate_writes_ros2_stage_override_scripts(tmp_path):
         base_dir=project_dir,
         dry_run=False,
         stub_install=True,
-        skip_install_deps=True,
+        skip_prepare_project_workspace=True,
+        skip_prepare_project_docker=True,
     )
 
     launcher_dir = (
@@ -240,7 +276,8 @@ def test_generate_removes_stale_ros2_stage_script_when_override_removed(tmp_path
         base_dir=project_dir,
         dry_run=False,
         stub_install=True,
-        skip_install_deps=True,
+        skip_prepare_project_workspace=True,
+        skip_prepare_project_docker=True,
     )
 
     launcher_dir = (
@@ -264,7 +301,8 @@ def test_generate_removes_stale_ros2_stage_script_when_override_removed(tmp_path
         base_dir=project_dir,
         dry_run=False,
         stub_install=True,
-        skip_install_deps=True,
+        skip_prepare_project_workspace=True,
+        skip_prepare_project_docker=True,
     )
 
     assert not run_script.exists()
@@ -338,6 +376,7 @@ def test_generate_esp32_build_script_reuses_existing_build_dir(tmp_path):
         base_dir=project_dir,
         dry_run=False,
         stub_install=True,
+        skip_prepare_project_docker=True,
     )
 
     script_path = (
@@ -374,6 +413,7 @@ def test_generate_esp32_run_script_skips_flash_when_checksum_unchanged(tmp_path)
         base_dir=project_dir,
         dry_run=False,
         stub_install=True,
+        skip_prepare_project_docker=True,
     )
 
     script_path = (
@@ -399,44 +439,77 @@ def test_generate_esp32_run_script_skips_flash_when_checksum_unchanged(tmp_path)
     assert ". /opt/esp/idf/export.sh >/dev/null &&" in common_setup
 
 
-def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
+def test_project_workspace_hydration_skips_model_dependency_sync_entirely(monkeypatch, tmp_path):
     project_dir = _clone_fixture(tmp_path)
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
+    sync_calls: list[object] = []
 
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.install_deps._ensure_python_venv",
+        "robotick.launcher.actions.launch.project_workspace_hydration._ensure_python_venv",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.install_deps._pip_install",
+        "robotick.launcher.actions.launch.project_workspace_hydration._pip_install",
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.install_deps._discover_site_packages",
+        "robotick.launcher.actions.launch.project_workspace_hydration._discover_site_packages",
         lambda *_: "/tmp/site-packages",
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.install_deps.sync_model_dependencies",
-        lambda config: ([], ["cmake", "git"]),
+        "robotick.launcher.actions.launch.project_workspace_hydration._sync_runtime_repo_sources",
+        lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        "robotick.launcher.actions.launch.install_deps._find_missing_apt_packages",
-        lambda pkgs: {"git"},
+        "robotick.launcher.actions.launch.sync_dependencies.sync_model_dependencies",
+        lambda config: sync_calls.append(config),
+        raising=False,
     )
 
-    result = install_deps.install_deps(
+    result = project_workspace_hydration.hydrate_project_workspace(
         project="test-project",
         base_dir=project_dir,
         workspace_root=workspace_dir,
         dry_run=False,
         stub_install=True,
+        target="linux",
     )
 
     assert result is not None
-    assert "cmake" in result.apt_packages
-    assert "git" in result.apt_packages
-    assert result.missing_apt == ["git"]
+    assert sync_calls == []
+
+
+def test_project_workspace_hydration_only_returns_workspace_state(monkeypatch, tmp_path):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+
+    base_config = SimpleNamespace(
+        project_name="proj",
+        project_dir=project_dir,
+        python_roots=[],
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.project_workspace_hydration._sync_runtime_repo_sources",
+        lambda **kwargs: None,
+    )
+
+    result = project_workspace_hydration._hydrate_project_workspace_locked(
+        config=base_config,
+        project="proj",
+        base_dir=project_dir,
+        workspace_root=workspace_dir,
+        dry_run=False,
+        stub_install=True,
+        model=None,
+        target="linux",
+    )
+
+    assert result is not None
+    assert hasattr(result, "venv_path")
+    assert hasattr(result, "lock_path")
 
 
 def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
@@ -472,7 +545,7 @@ def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
     }
     (project_dir / "pip.project.yaml").write_text(yaml.safe_dump(project_yaml))
 
-    install_deps.install_deps(
+    project_workspace_hydration.hydrate_project_workspace(
         project="pip",
         base_dir=project_dir,
         workspace_root=project_dir,

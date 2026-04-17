@@ -21,7 +21,13 @@ from robotick.launcher.utils import (
     stop_local_binary_process,
 )
 from robotick.launcher.actions.query.list import list_project_models
-from robotick.launcher.actions.launch import install_deps as install_deps_stage
+from robotick.launcher.actions.launch import (
+    prepare_project_workspace as prepare_project_workspace_stage,
+)
+from robotick.launcher.actions.launch.prepare_project_docker import (
+    prepare_project_docker,
+)
+from robotick.launcher.actions.launch.stages import LaunchStage
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.config import Config
 
@@ -105,6 +111,7 @@ def _collect_descendant_pids(pid: int) -> list[int]:
             stack.append(child)
     return descendants
 
+
 def _stop_local_launcher_helper(pid: int) -> None:
     if pid <= 0:
         return
@@ -183,7 +190,7 @@ def _emit_models_running(
             status_queue,
             event="model",
             model=model_id,
-            stage="run",
+            stage=LaunchStage.RUN.value,
             status="running",
             pid=proc.pid,
         )
@@ -214,7 +221,7 @@ def _wait_for_run_readiness(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="run",
+                    stage=LaunchStage.RUN.value,
                     status="running",
                     pid=proc.pid,
                 )
@@ -259,7 +266,9 @@ def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]
             f"Profile '{model_spec}' must be a list of model ids or a mapping with 'models'."
         )
 
-    if not isinstance(models, list) or any(not isinstance(model_id, str) or not model_id for model_id in models):
+    if not isinstance(models, list) or any(
+        not isinstance(model_id, str) or not model_id for model_id in models
+    ):
         raise ValueError(
             f"Profile '{model_spec}' must resolve to a list of non-empty model ids."
         )
@@ -300,7 +309,9 @@ def _resolve_profile_model_target(
     return str(runtime.get("target_platform") or "linux").strip().lower() or "linux"
 
 
-def _resolve_model_auto_launch(project_name: str, base_dir: Path, model_id: str) -> bool:
+def _resolve_model_auto_launch(
+    project_name: str, base_dir: Path, model_id: str
+) -> bool:
     config = Config(
         project_name,
         model_id,
@@ -453,6 +464,14 @@ def run_profile(
     *,
     run_after_build: bool = True,
 ):
+    """Build and optionally run a launcher profile using prepared Docker stages.
+
+    The important orchestration detail is that we now prepare images by target
+    family before any per-model build commands are launched. That gives all
+    models in the same family the same resolved local image while avoiding
+    rebuilding identical project-target environments repeatedly.
+    """
+
     if ":" not in profile:
         return {
             "status": "error",
@@ -491,7 +510,9 @@ def run_profile(
 
     try:
         model_targets = {
-            model_id: _resolve_profile_model_target(project_name, base_dir, platform, model_id)
+            model_id: _resolve_profile_model_target(
+                project_name, base_dir, platform, model_id
+            )
             for model_id in model_ids
         }
     except Exception as e:
@@ -536,14 +557,66 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="build",
+        phase=LaunchStage.BUILD.value,
         status="starting",
         models=model_ids,
     )
 
-    for target in dict.fromkeys(model_targets.values()):
+    # First group by launcher target (linux/esp32/...), then by more specific
+    # target family (linux-x64/linux-arm64/linux-arm32/esp32). The family split
+    # is what determines which shared base image and therefore which local
+    # derived project image should be prepared.
+    grouped_models_by_target: dict[str, list[str]] = {}
+    for model_id in model_ids:
+        grouped_models_by_target.setdefault(model_targets[model_id], []).append(
+            model_id
+        )
+
+    for target, scoped_models in grouped_models_by_target.items():
+        family_groups: dict[str, list[str]] = {}
+        for model_id in scoped_models:
+            runtime = dict(
+                Config(
+                    project_name,
+                    model_id,
+                    target,
+                    base_dir,
+                    dry_run=False,
+                    stub_install=False,
+                ).model.get("runtime")
+                or {}
+            )
+            target_platform = (
+                str(runtime.get("target_platform") or target).strip().lower()
+            )
+            target_variant = str(runtime.get("target_variant") or "").strip().lower()
+            family = target if target_platform == "esp32" else target_platform
+            if target_platform == "linux":
+                if target_variant in {"arm64", "aarch64"}:
+                    family = "linux-arm64"
+                elif target_variant in {"arm32", "armhf", "armv7", "armv7hf"}:
+                    family = "linux-arm32"
+                else:
+                    family = "linux-x64"
+            family_groups.setdefault(family, []).append(model_id)
+
+        for family_models in family_groups.values():
+            try:
+                prepare_project_docker(
+                    project=project_name,
+                    base_dir=base_dir,
+                    target=target,
+                    models=family_models,
+                )
+            except Exception as exc:
+                detail = f"prepare-project-docker failed for target '{target}': {exc}"
+                print(f"[bold red]❌ {detail}[/]")
+                return {"status": "error", "detail": detail}
+
+        # Workspace hydration still happens per target because the runtime repo
+        # and python state are target-scoped under .launcher/.../deps/...
         try:
-            install_deps_stage.install_deps(
+            prepare_project_workspace_stage.prepare_project_workspace(
                 project=project_name,
                 base_dir=base_dir,
                 workspace_root=base_dir,
@@ -551,7 +624,7 @@ def run_profile(
                 target=target,
             )
         except Exception as exc:
-            detail = f"install-deps failed for target '{target}': {exc}"
+            detail = f"prepare-project-workspace failed for target '{target}': {exc}"
             print(f"[bold red]❌ {detail}[/]")
             return {"status": "error", "detail": detail}
 
@@ -594,6 +667,8 @@ def run_profile(
 
         for model_id in batch_model_ids:
             model_target = model_targets[model_id]
+            # The child build command can skip both preparation stages because
+            # the parent profile runner has already resolved them for this batch.
             build_cmd = [
                 "robotick-launcher",
                 "build",
@@ -604,14 +679,15 @@ def run_profile(
                 str(base_dir),
                 "--workspace-dir",
                 str(base_dir),
-                "--skip-install-deps",
+                "--skip-prepare-project-workspace",
+                "--skip-prepare-project-docker",
             ]
             print(f"[Launcher] Building model: {model_id} → {build_cmd}")
             _emit_status(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="build",
+                stage=LaunchStage.BUILD.value,
                 status="starting",
             )
             try:
@@ -636,7 +712,7 @@ def run_profile(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="build",
+                    stage=LaunchStage.BUILD.value,
                     status="error",
                     detail=f"Failed to start build: {e}",
                 )
@@ -652,7 +728,7 @@ def run_profile(
                         status_queue,
                         event="model",
                         model=model_id,
-                        stage="build",
+                        stage=LaunchStage.BUILD.value,
                         status="succeeded",
                     )
                 else:
@@ -662,7 +738,7 @@ def run_profile(
                         status_queue,
                         event="model",
                         model=model_id,
-                        stage="build",
+                        stage=LaunchStage.BUILD.value,
                         status="failed",
                         returncode=rc,
                     )
@@ -673,7 +749,7 @@ def run_profile(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="build",
+                    stage=LaunchStage.BUILD.value,
                     status="error",
                     detail=str(e),
                 )
@@ -689,7 +765,7 @@ def run_profile(
         _emit_status(
             status_queue,
             event="phase",
-            phase="build",
+            phase=LaunchStage.BUILD.value,
             status="failed",
             failed=failed,
         )
@@ -710,7 +786,7 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="build",
+        phase=LaunchStage.BUILD.value,
         status="completed",
         models=succeeded,
     )
@@ -726,7 +802,7 @@ def run_profile(
         _emit_status(
             status_queue,
             event="phase",
-            phase="run",
+            phase=LaunchStage.RUN.value,
             status="skipped",
             launched=[],
         )
@@ -737,7 +813,7 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="deploy",
+        phase=LaunchStage.DEPLOY.value,
         status="starting",
         models=succeeded,
     )
@@ -760,7 +836,14 @@ def run_profile(
             deploy_jobs.append((model_id, members, shared_deploy_key))
 
     deploy_procs: list[
-        tuple[str, list[str], Optional[tuple[str, ...]], list[str], subprocess.Popen, threading.Thread]
+        tuple[
+            str,
+            list[str],
+            Optional[tuple[str, ...]],
+            list[str],
+            subprocess.Popen,
+            threading.Thread,
+        ]
     ] = []
 
     for leader_model_id, job_models, shared_deploy_key in deploy_jobs:
@@ -771,7 +854,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="deploy",
+                stage=LaunchStage.DEPLOY.value,
                 status="starting",
                 shared=shared_deploy_key is not None and model_id != leader_model_id,
             )
@@ -787,9 +870,10 @@ def run_profile(
                         status_queue,
                         event="model",
                         model=model_id,
-                        stage="deploy",
+                        stage=LaunchStage.DEPLOY.value,
                         status="succeeded",
-                        shared=shared_deploy_key is not None and model_id != leader_model_id,
+                        shared=shared_deploy_key is not None
+                        and model_id != leader_model_id,
                     )
                 continue
 
@@ -800,10 +884,11 @@ def run_profile(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="deploy",
+                    stage=LaunchStage.DEPLOY.value,
                     status="failed",
                     detail=detail,
-                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    shared=shared_deploy_key is not None
+                    and model_id != leader_model_id,
                 )
             print(f"[bold red]❌ Deploy failed for {leader_model_id}: {detail}[/]")
             continue
@@ -844,20 +929,30 @@ def run_profile(
             )
         except Exception as e:
             detail = str(e)
-            print(f"[bold red]❌ Failed to start deploy for {leader_model_id}: {detail}[/]")
+            print(
+                f"[bold red]❌ Failed to start deploy for {leader_model_id}: {detail}[/]"
+            )
             for model_id in job_models:
                 deploy_failed.append(model_id)
                 _emit_status(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="deploy",
+                    stage=LaunchStage.DEPLOY.value,
                     status="error",
                     detail=detail,
-                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    shared=shared_deploy_key is not None
+                    and model_id != leader_model_id,
                 )
 
-    for leader_model_id, job_models, shared_deploy_key, deploy_cmd, proc, deploy_thread in deploy_procs:
+    for (
+        leader_model_id,
+        job_models,
+        shared_deploy_key,
+        deploy_cmd,
+        proc,
+        deploy_thread,
+    ) in deploy_procs:
         try:
             rc = proc.wait()
             deploy_thread.join()
@@ -869,24 +964,28 @@ def run_profile(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="deploy",
+                    stage=LaunchStage.DEPLOY.value,
                     status="succeeded",
-                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    shared=shared_deploy_key is not None
+                    and model_id != leader_model_id,
                 )
         except subprocess.CalledProcessError as e:
             detail = f"returncode={e.returncode}"
-            print(f"[bold red]❌ Deploy failed for {leader_model_id} (rc={e.returncode})[/]")
+            print(
+                f"[bold red]❌ Deploy failed for {leader_model_id} (rc={e.returncode})[/]"
+            )
             for model_id in job_models:
                 deploy_failed.append(model_id)
                 _emit_status(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="deploy",
+                    stage=LaunchStage.DEPLOY.value,
                     status="failed",
                     returncode=e.returncode,
                     detail=detail,
-                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    shared=shared_deploy_key is not None
+                    and model_id != leader_model_id,
                 )
         except Exception as e:
             detail = str(e)
@@ -897,10 +996,11 @@ def run_profile(
                     status_queue,
                     event="model",
                     model=model_id,
-                    stage="deploy",
+                    stage=LaunchStage.DEPLOY.value,
                     status="error",
                     detail=detail,
-                    shared=shared_deploy_key is not None and model_id != leader_model_id,
+                    shared=shared_deploy_key is not None
+                    and model_id != leader_model_id,
                 )
 
     if deploy_failed:
@@ -909,7 +1009,7 @@ def run_profile(
         _emit_status(
             status_queue,
             event="phase",
-            phase="deploy",
+            phase=LaunchStage.DEPLOY.value,
             status="failed",
             failed=deploy_failed,
         )
@@ -926,7 +1026,7 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="deploy",
+        phase=LaunchStage.DEPLOY.value,
         status="completed",
         models=deployed,
     )
@@ -940,7 +1040,7 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="run",
+        phase=LaunchStage.RUN.value,
         status="starting",
         models=[
             model_id
@@ -960,7 +1060,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="skipped",
                 detail="launcher.auto_launch=false",
             )
@@ -984,7 +1084,7 @@ def run_profile(
             status_queue,
             event="model",
             model=model_id,
-            stage="run",
+            stage=LaunchStage.RUN.value,
             status="starting",
         )
         try:
@@ -1007,7 +1107,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="starting",
                 pid=proc.pid,
             )
@@ -1025,7 +1125,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="error",
                 detail=str(e),
             )
@@ -1041,7 +1141,7 @@ def run_profile(
         _emit_status(
             status_queue,
             event="phase",
-            phase="run",
+            phase=LaunchStage.RUN.value,
             status="in_progress",
             launched=ready_models,
         )
@@ -1055,7 +1155,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="succeeded" if rc == 0 else "failed",
                 returncode=rc,
             )
@@ -1073,7 +1173,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="error",
                 detail=str(e),
             )
@@ -1092,7 +1192,7 @@ def run_profile(
                 status_queue,
                 event="model",
                 model=model_id,
-                stage="run",
+                stage=LaunchStage.RUN.value,
                 status="interrupted",
                 returncode=rc,
             )
@@ -1106,7 +1206,7 @@ def run_profile(
         _emit_status(
             status_queue,
             event="phase",
-            phase="run",
+            phase=LaunchStage.RUN.value,
             status="interrupted",
             launched=launched_models,
             skipped=skipped_auto_launch,
@@ -1115,7 +1215,9 @@ def run_profile(
         return result
 
     result = {
-        "status": "ok" if (launched_models or skipped_auto_launch) else "nothing_launched",
+        "status": (
+            "ok" if (launched_models or skipped_auto_launch) else "nothing_launched"
+        ),
         "launched": launched_models,
         "skipped_auto_launch": skipped_auto_launch,
         "skipped_failed_builds": failed,
@@ -1124,7 +1226,7 @@ def run_profile(
     _emit_status(
         status_queue,
         event="phase",
-        phase="run",
+        phase=LaunchStage.RUN.value,
         status="completed",
         launched=launched_models,
         skipped=skipped_auto_launch,

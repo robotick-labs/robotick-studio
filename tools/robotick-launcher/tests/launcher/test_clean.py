@@ -2,7 +2,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from robotick.launcher.actions.launch.install_deps import (
+from robotick.launcher.actions.launch.project_workspace_hydration import (
     LOCK_FILENAME as PYTHON_LOCK_FILENAME,
 )
 from robotick.launcher.actions.launch.clean import INSTALL_LOCK_FILENAME

@@ -1,0 +1,73 @@
+"""Canonical launcher stage definitions and default ordering.
+
+These stages are the documented contract for launcher orchestration. They serve
+two purposes:
+
+- make the discrete pipeline visible in code instead of relying on ad hoc
+  string literals
+- provide one obvious place to document the default sequential dependency order
+
+Not every invocation executes every stage. For example, build-profile stops
+after BUILD, and STOP is a runtime-control stage rather than part of the normal
+forward pipeline. But the enum defines the common stage vocabulary that the
+launcher, tests, and docs should all speak.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class LaunchStage(StrEnum):
+    PREPARE_PROJECT_DOCKER = "prepare-project-docker"
+    PREPARE_PROJECT_WORKSPACE = "prepare-project-workspace"
+    GENERATE = "generate"
+    BUILD = "build"
+    DEPLOY = "deploy"
+    RUN = "run"
+    STOP = "stop"
+
+
+# runtime.custom_stages in model YAML uses these canonical keys. Keeping the
+# mapping here means generate/target-plan/docs all speak the same stage
+# vocabulary instead of duplicating local dictionaries.
+CUSTOM_STAGE_COMMAND_KEY_BY_STAGE: dict[LaunchStage, str] = {
+    LaunchStage.BUILD: "build_command",
+    LaunchStage.DEPLOY: "deploy_command",
+    LaunchStage.RUN: "run_command",
+    LaunchStage.STOP: "stop_command",
+}
+
+
+# Generated launcher override scripts intentionally mirror the public stage
+# names, so the filename mapping also belongs next to the enum.
+CUSTOM_STAGE_SCRIPT_NAME_BY_STAGE: dict[LaunchStage, str] = {
+    LaunchStage.BUILD: "do_launcher_build.sh",
+    LaunchStage.DEPLOY: "do_launcher_deploy.sh",
+    LaunchStage.RUN: "do_launcher_run.sh",
+    LaunchStage.STOP: "do_launcher_stop.sh",
+}
+
+
+# The forward pipeline launcher follows when preparing a runnable model.
+DEFAULT_STAGE_SEQUENCE: tuple[LaunchStage, ...] = (
+    LaunchStage.PREPARE_PROJECT_DOCKER,
+    LaunchStage.PREPARE_PROJECT_WORKSPACE,
+    LaunchStage.GENERATE,
+    LaunchStage.BUILD,
+    LaunchStage.DEPLOY,
+    LaunchStage.RUN,
+)
+
+
+def prerequisites_for(stage: LaunchStage) -> tuple[LaunchStage, ...]:
+    """Return the default upstream stages that must run before `stage`."""
+
+    if stage == LaunchStage.STOP:
+        return ()
+
+    if stage not in DEFAULT_STAGE_SEQUENCE:
+        return ()
+
+    index = DEFAULT_STAGE_SEQUENCE.index(stage)
+    return DEFAULT_STAGE_SEQUENCE[:index]

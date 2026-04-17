@@ -43,18 +43,24 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
         yaml.safe_dump(
             {
                 "runtime": {
-                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
                 }
             }
         ),
         encoding="utf-8",
     )
     (project_dir / "alf-e-face.model.yaml").write_text(
-        yaml.safe_dump({"runtime": {"target_platform": "linux", "target_variant": "arm64"}}),
+        yaml.safe_dump(
+            {"runtime": {"target_platform": "linux", "target_variant": "arm64"}}
+        ),
         encoding="utf-8",
     )
     (project_dir / "alf-e-spine.model.yaml").write_text(
-        yaml.safe_dump({"runtime": {"target_platform": "esp32", "target_variant": "esp32s3_m5"}}),
+        yaml.safe_dump(
+            {"runtime": {"target_platform": "esp32", "target_variant": "esp32s3_m5"}}
+        ),
         encoding="utf-8",
     )
 
@@ -69,12 +75,22 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
         binary_path.write_text("fake-binary", encoding="utf-8")
 
     install_targets: list[str] = []
+    prepared_groups: list[tuple[str, tuple[str, ...]]] = []
     launched_commands: list[list[str]] = []
 
     monkeypatch.setattr(
-        run_profile_module.install_deps_stage,
-        "install_deps",
-        lambda project, base_dir, workspace_root, model, target: install_targets.append(target),
+        run_profile_module.prepare_project_workspace_stage,
+        "prepare_project_workspace",
+        lambda project, base_dir, workspace_root, model, target: install_targets.append(
+            target
+        ),
+    )
+    monkeypatch.setattr(
+        run_profile_module,
+        "prepare_project_docker",
+        lambda project, base_dir, target, models: prepared_groups.append(
+            (target, tuple(models))
+        ),
     )
     monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
     monkeypatch.setattr(
@@ -99,6 +115,8 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
 
     assert result["status"] == "ok"
     assert install_targets == ["linux", "esp32"]
+    assert ("linux", ("alf-e-face",)) in prepared_groups
+    assert ("esp32", ("alf-e-spine",)) in prepared_groups
 
     build_targets = {
         (cmd[2], cmd[3]): cmd[4]
@@ -129,7 +147,9 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
         yaml.safe_dump(
             {
                 "runtime": {
-                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
                 }
             }
         ),
@@ -141,9 +161,12 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(
-        run_profile_module.install_deps_stage,
-        "install_deps",
+        run_profile_module.prepare_project_workspace_stage,
+        "prepare_project_workspace",
         lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_profile_module, "prepare_project_docker", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
     monkeypatch.setattr(
@@ -180,7 +203,9 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
         yaml.safe_dump(
             {
                 "runtime": {
-                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
                 }
             }
         ),
@@ -213,9 +238,12 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
     commands: list[list[str]] = []
 
     monkeypatch.setattr(
-        run_profile_module.install_deps_stage,
-        "install_deps",
+        run_profile_module.prepare_project_workspace_stage,
+        "prepare_project_workspace",
         lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_profile_module, "prepare_project_docker", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
     monkeypatch.setattr(
@@ -253,7 +281,9 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
         yaml.safe_dump(
             {
                 "runtime": {
-                    "engine": {"local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"},
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
                 }
             }
         ),
@@ -281,9 +311,12 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
     commands: list[list[str]] = []
 
     monkeypatch.setattr(
-        run_profile_module.install_deps_stage,
-        "install_deps",
+        run_profile_module.prepare_project_workspace_stage,
+        "prepare_project_workspace",
         lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_profile_module, "prepare_project_docker", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
     monkeypatch.setattr(
@@ -317,7 +350,9 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     project_dir = tmp_path / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump({}), encoding="utf-8")
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump({}), encoding="utf-8"
+    )
     (project_dir / "alf-e-face.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
@@ -362,7 +397,9 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
                 deploy=TargetActionPlan(strategy=REMOTE_STRATEGY),
                 run=TargetActionPlan(
                     strategy=REMOTE_STRATEGY,
-                    stop_handler=lambda dry_run, m=model: stop_calls.append((m, dry_run)),
+                    stop_handler=lambda dry_run, m=model: stop_calls.append(
+                        (m, dry_run)
+                    ),
                 ),
             )
         return TargetPlan(
@@ -376,14 +413,18 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
             run=TargetActionPlan(strategy=LOCAL_STRATEGY),
         )
 
-    monkeypatch.setattr(run_profile_module, "resolve_target_plan", _fake_resolve_target_plan)
+    monkeypatch.setattr(
+        run_profile_module, "resolve_target_plan", _fake_resolve_target_plan
+    )
     monkeypatch.setattr(
         run_profile_module,
         "stop_local_binary_process",
         lambda binary_path, dry_run: local_stop_calls.append((binary_path, dry_run)),
     )
 
-    result = run_profile_module.stop_profile("alf-e", "native:ALL", base_dir=project_dir)
+    result = run_profile_module.stop_profile(
+        "alf-e", "native:ALL", base_dir=project_dir
+    )
 
     assert result["status"] == "stopped"
     assert stop_calls == [("alf-e-rc", False)]
@@ -395,7 +436,9 @@ def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
     project_dir = tmp_path / "robots" / "alf-e"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump({}), encoding="utf-8")
+    (project_dir / "alf-e.project.yaml").write_text(
+        yaml.safe_dump({}), encoding="utf-8"
+    )
     (project_dir / "alf-e-brain.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
@@ -489,7 +532,10 @@ def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
         assert not run_profile_module._pid_is_active(child_pid)
         assert find_local_process_ids_for_binary(helper_binary) == []
     finally:
-        for pid in [*run_profile_module._collect_descendant_pids(helper_proc.pid), helper_proc.pid]:
+        for pid in [
+            *run_profile_module._collect_descendant_pids(helper_proc.pid),
+            helper_proc.pid,
+        ]:
             try:
                 os.kill(pid, 9)
             except OSError:
@@ -524,9 +570,12 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
     commands: list[list[str]] = []
 
     monkeypatch.setattr(
-        run_profile_module.install_deps_stage,
-        "install_deps",
+        run_profile_module.prepare_project_workspace_stage,
+        "prepare_project_workspace",
         lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_profile_module, "prepare_project_docker", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(run_profile_module, "stream_output", lambda proc, tag: None)
     monkeypatch.setattr(
@@ -541,7 +590,11 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
 
     monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
 
-    shared_key = ("remote-linux-project-sync", "paul@pi5", "$HOME/dev/robotick/robots/alf-e")
+    shared_key = (
+        "remote-linux-project-sync",
+        "paul@pi5",
+        "$HOME/dev/robotick/robots/alf-e",
+    )
 
     def _fake_resolve_target_plan(project, model, target, base_dir):
         return TargetPlan(
@@ -558,7 +611,9 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
             run=TargetActionPlan(strategy=REMOTE_STRATEGY),
         )
 
-    monkeypatch.setattr(run_profile_module, "resolve_target_plan", _fake_resolve_target_plan)
+    monkeypatch.setattr(
+        run_profile_module, "resolve_target_plan", _fake_resolve_target_plan
+    )
 
     result = run_profile_module.run_profile(
         "alf-e",

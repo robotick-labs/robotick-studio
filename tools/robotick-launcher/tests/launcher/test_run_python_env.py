@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from robotick.launcher.actions.launch.install_deps import (
+from robotick.launcher.actions.launch.project_workspace_hydration import (
     get_project_python_dir,
     LOCK_FILENAME,
 )
