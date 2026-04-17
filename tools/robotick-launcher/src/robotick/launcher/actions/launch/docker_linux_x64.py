@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import hashlib
 import os
 import shlex
@@ -13,13 +14,15 @@ from robotick.launcher.config import Config
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
-IMAGE_NAME = "ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest"
-CONTAINER_NAME_PREFIX = "robotick-launcher-linux-arm32-build"
+IMAGE_NAME = "ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest"
+CONTAINER_NAME_PREFIX = "robotick-launcher-linux-x64-build"
+X64_TARGET_VARIANTS = {"", "x64", "x86_64", "amd64", "native"}
+ARM64_TARGET_VARIANTS = {"arm64", "aarch64"}
 ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
 
 
 @dataclass(frozen=True)
-class DockerLinuxArm32Spec:
+class DockerLinuxX64Spec:
     image_name: str
     dockerfile: Path
     container_name: str
@@ -28,15 +31,16 @@ class DockerLinuxArm32Spec:
     local_binary_path: Path
     container_workspace_root: str
     container_launcher_dir: str
+    container_working_dir: str
     container_binary_path: str
 
 
-def load_docker_linux_arm32_spec(
+def load_docker_linux_x64_spec(
     project: str,
     model: str,
     target: str,
     base_dir: Path,
-) -> Optional[DockerLinuxArm32Spec]:
+) -> Optional[DockerLinuxX64Spec]:
     if target != "linux":
         return None
 
@@ -46,24 +50,34 @@ def load_docker_linux_arm32_spec(
         return None
 
     target_variant = (runtime.get("target_variant") or "").strip().lower()
-    if target_variant not in ARM32_TARGET_VARIANTS:
+    if target_variant in ARM64_TARGET_VARIANTS | ARM32_TARGET_VARIANTS:
+        return None
+    if target_variant not in X64_TARGET_VARIANTS:
         return None
 
     repo_root = _compute_local_repo_root(config)
     launcher_dir, _, binary_path = get_launcher_paths(project, model, target, base_dir)
     launcher_rel = launcher_dir.resolve().relative_to(repo_root)
     binary_rel = binary_path.resolve().relative_to(repo_root)
+    working_dir = config.project_dir.resolve()
+    working_dir_value = str(config.project.get("working_dir") or ".").strip()
+    if working_dir_value and working_dir_value != ".":
+        candidate = Path(working_dir_value)
+        if not candidate.is_absolute():
+            candidate = (config.project_dir / candidate).resolve()
+        working_dir = candidate
+    working_dir_rel = working_dir.resolve().relative_to(repo_root)
 
     engine_root = _resolve_engine_root(config, repo_root)
     dockerfile = (
         engine_root
         / "tools"
         / "docker"
-        / "robotick-debian12-cross-linux-arm32.Dockerfile"
+        / "robotick-ubuntu24.04-native-linux.Dockerfile"
     )
 
     container_root = repo_root.as_posix()
-    return DockerLinuxArm32Spec(
+    return DockerLinuxX64Spec(
         image_name=IMAGE_NAME,
         dockerfile=dockerfile,
         container_name=_build_container_name(IMAGE_NAME, repo_root),
@@ -72,11 +86,12 @@ def load_docker_linux_arm32_spec(
         local_binary_path=binary_path.resolve(),
         container_workspace_root=container_root,
         container_launcher_dir=f"{container_root}/{launcher_rel.as_posix()}",
+        container_working_dir=f"{container_root}/{working_dir_rel.as_posix()}",
         container_binary_path=f"{container_root}/{binary_rel.as_posix()}",
     )
 
 
-def print_docker_linux_arm32_summary(spec: DockerLinuxArm32Spec) -> None:
+def print_docker_linux_x64_summary(spec: DockerLinuxX64Spec) -> None:
     print(f"[cyan]🐳 Docker image:     [/] {spec.image_name}")
     print(f"[cyan]📦 Docker container: [/] {spec.container_name}")
     print(f"[cyan]🧱 Dockerfile:      [/] {spec.dockerfile}")
@@ -85,31 +100,64 @@ def print_docker_linux_arm32_summary(spec: DockerLinuxArm32Spec) -> None:
     print(f"[cyan]🚀 Binary path:     [/] {spec.local_binary_path}")
 
 
-def build_docker_linux_arm32(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
-    ensure_running_docker_linux_arm32_container(spec, dry_run=dry_run)
-
-    uid = os.getuid()
-    gid = os.getgid()
-    run_cmd = [
-        "docker",
-        "exec",
-        "--user",
-        f"{uid}:{gid}",
-        "-e",
-        "HOME=/tmp/robotick-home",
-        "-w",
+def build_docker_linux_x64(spec: DockerLinuxX64Spec, *, dry_run: bool) -> None:
+    ensure_running_docker_linux_x64_container(spec, dry_run=dry_run)
+    run_cmd = _docker_exec_command(
+        spec,
         spec.container_launcher_dir,
-        spec.container_name,
-        "bash",
-        "-lc",
         "bash ./do_launcher_build.sh",
-    ]
-    _print_command(run_cmd)
-    if not dry_run:
-        run_subprocess(run_cmd)
+    )
+    _run_docker_exec(run_cmd, dry_run=dry_run)
 
 
-def ensure_docker_image(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
+def deploy_docker_linux_x64(spec: DockerLinuxX64Spec, *, dry_run: bool) -> None:
+    ensure_running_docker_linux_x64_container(spec, dry_run=dry_run)
+    run_cmd = _docker_exec_command(
+        spec,
+        spec.container_workspace_root,
+        f"test -f {shlex.quote(spec.container_binary_path)}",
+    )
+    _run_docker_exec(run_cmd, dry_run=dry_run)
+
+
+def stop_docker_linux_x64(spec: DockerLinuxX64Spec, *, dry_run: bool) -> None:
+    ensure_running_docker_linux_x64_container(spec, dry_run=dry_run)
+    binary_pattern = shlex.quote(spec.container_binary_path)
+    stop_cmd = (
+        f"if pgrep -f -- {binary_pattern} >/dev/null 2>&1; then "
+        f"echo '[Launcher] Stopping existing container instance: {spec.container_binary_path}'; "
+        f"pkill -TERM -f -- {binary_pattern} || true; "
+        "for i in $(seq 1 25); do "
+        f"pgrep -f -- {binary_pattern} >/dev/null 2>&1 || exit 0; "
+        "sleep 0.2; "
+        "done; "
+        f"pkill -KILL -f -- {binary_pattern} || true; "
+        "fi; true"
+    )
+    run_cmd = _docker_exec_command(spec, spec.container_working_dir, stop_cmd)
+    _run_docker_exec(run_cmd, dry_run=dry_run)
+
+
+def run_docker_linux_x64(spec: DockerLinuxX64Spec, *, dry_run: bool) -> None:
+    ensure_running_docker_linux_x64_container(spec, dry_run=dry_run)
+    binary_dir = Path(spec.container_binary_path).parent.as_posix()
+    engine_lib_dir = f"{binary_dir}/robotick_engine/cpp"
+    run_cmd = _docker_exec_command(
+        spec,
+        spec.container_working_dir,
+        (
+            f"export LD_LIBRARY_PATH={shlex.quote(engine_lib_dir)}:{shlex.quote(binary_dir)}:$LD_LIBRARY_PATH && "
+            "if [[ -f ./do_launcher_run.sh ]]; then "
+            "bash ./do_launcher_run.sh; "
+            "else "
+            f"{shlex.quote(spec.container_binary_path)}; "
+            "fi"
+        ),
+    )
+    _run_docker_exec(run_cmd, dry_run=dry_run)
+
+
+def ensure_docker_image(spec: DockerLinuxX64Spec, *, dry_run: bool) -> None:
     if spec.image_name.endswith(":latest"):
         pull_cmd = ["docker", "pull", spec.image_name]
         _print_command(pull_cmd)
@@ -133,8 +181,8 @@ def ensure_docker_image(spec: DockerLinuxArm32Spec, *, dry_run: bool) -> None:
         run_subprocess(pull_cmd)
 
 
-def ensure_running_docker_linux_arm32_container(
-    spec: DockerLinuxArm32Spec, *, dry_run: bool
+def ensure_running_docker_linux_x64_container(
+    spec: DockerLinuxX64Spec, *, dry_run: bool
 ) -> None:
     ensure_docker_image(spec, dry_run=dry_run)
 
@@ -213,7 +261,7 @@ def _compute_local_repo_root(config: Config) -> Path:
             root_paths = entry_dict.get("root_paths") or []
             if root_paths:
                 for root_path in root_paths:
-                    candidate = (source_root / root_path)
+                    candidate = source_root / root_path
                     if candidate.exists():
                         local_paths.append(candidate)
             else:
@@ -240,6 +288,35 @@ def _resolve_project_mount_path(config: Config, raw: str) -> Path:
 
 def _print_command(command: Iterable[str]) -> None:
     print(f"[bold]$ {' '.join(shlex.quote(part) for part in command)}[/]")
+
+
+def _docker_exec_command(
+    spec: DockerLinuxX64Spec,
+    working_dir: str,
+    shell_command: str,
+) -> list[str]:
+    uid = os.getuid()
+    gid = os.getgid()
+    return [
+        "docker",
+        "exec",
+        "--user",
+        f"{uid}:{gid}",
+        "-e",
+        "HOME=/tmp/robotick-home",
+        "-w",
+        working_dir,
+        spec.container_name,
+        "bash",
+        "-lc",
+        shell_command,
+    ]
+
+
+def _run_docker_exec(command: list[str], *, dry_run: bool) -> None:
+    _print_command(command)
+    if not dry_run:
+        run_subprocess(command)
 
 
 def _inspect_docker_value(command: list[str]) -> str:

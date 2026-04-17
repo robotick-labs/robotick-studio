@@ -506,16 +506,15 @@ def _install_deps_locked(
         runtime_cfg = dict(model_config.model.get("runtime") or {})
         target_platform = str(runtime_cfg.get("target_platform") or "").strip().lower()
         target_variant = str(runtime_cfg.get("target_variant") or "").strip().lower()
-        if target_platform == "linux" and target_variant in {"arm64", "aarch64", "arm32", "armhf", "armv7", "armv7hf"}:
-            # linux/arm cross-build models build inside the launcher Docker image, so validating host apt
-            # packages here would be both noisy and misleading on x86_64 developer machines/CI.
+        if target_platform == "linux":
+            # Keep install-deps as the launcher stage that hydrates python roots, runtime repos,
+            # and model-specific dependency state. The only thing skipped here is host apt
+            # validation for Linux targets, because their build/run environment now lives in Docker.
             print(
                 f"[dim]↪︎ Skipping host apt validation for {model_name} "
-                f"({target_platform}/{target_variant}); build deps are provided by Docker[/dim]"
+                f"({target_platform}/{target_variant or 'x64'}); build deps are provided by Docker[/dim]"
             )
         else:
-            if target_platform == "linux":
-                apt_packages.add("libcurl4-openssl-dev")
             apt_packages.update(apt)
 
     missing_apt: List[str] = []

@@ -26,11 +26,14 @@ IDF_EXTRA_CMAKE_ARGS_VALUE="${IDF_EXTRA_CMAKE_ARGS:-}"
 ROBOTICK_PLATFORM_ESP32S3_M5_VALUE="${ROBOTICK_PLATFORM_ESP32S3_M5:-}"
 
 ensure_esp32_image() {
-    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+    if [[ "$IMAGE_NAME" == *":latest" ]]; then
+        echo "🐳 Refreshing ESP32 image: $IMAGE_NAME"
+    elif docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
         return
+    else
+        echo "🐳 Pulling ESP32 image: $IMAGE_NAME"
     fi
 
-    echo "🐳 Pulling ESP32 image: $IMAGE_NAME"
     if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then
         return
     fi

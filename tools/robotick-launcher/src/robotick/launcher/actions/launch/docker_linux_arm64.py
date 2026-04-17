@@ -111,6 +111,13 @@ def build_docker_linux_arm64(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> No
 
 
 def ensure_docker_image(spec: DockerLinuxArm64Spec, *, dry_run: bool) -> None:
+    if spec.image_name.endswith(":latest"):
+        pull_cmd = ["docker", "pull", spec.image_name]
+        _print_command(pull_cmd)
+        if not dry_run:
+            run_subprocess(pull_cmd)
+        return
+
     inspect_cmd = ["docker", "image", "inspect", spec.image_name]
     image_exists = subprocess.run(
         inspect_cmd,
