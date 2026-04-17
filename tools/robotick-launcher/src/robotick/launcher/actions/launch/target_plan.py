@@ -21,7 +21,11 @@ from robotick.launcher.actions.launch.remote_linux import (
     stop_remote_linux_process,
     run_remote_linux,
 )
-from robotick.launcher.actions.launch.stages import LaunchStage
+from robotick.launcher.actions.launch.stages import (
+    CUSTOM_STAGE_COMMAND_KEY_BY_STAGE,
+    CUSTOM_STAGE_SCRIPT_NAME_BY_STAGE,
+    LaunchStage,
+)
 from robotick.launcher.config import Config
 from robotick.launcher.utils import run_subprocess
 
@@ -29,18 +33,6 @@ from robotick.launcher.utils import run_subprocess
 LOCAL_STRATEGY = "local"
 CONTAINER_STRATEGY = "container"
 REMOTE_STRATEGY = "remote"
-CUSTOM_STAGE_COMMAND_KEY_BY_STAGE = {
-    LaunchStage.BUILD: "build_command",
-    LaunchStage.DEPLOY: "deploy_command",
-    LaunchStage.RUN: "run_command",
-    LaunchStage.STOP: "stop_command",
-}
-CUSTOM_STAGE_SCRIPT_NAME_BY_STAGE = {
-    LaunchStage.BUILD: "do_launcher_build.sh",
-    LaunchStage.DEPLOY: "do_launcher_deploy.sh",
-    LaunchStage.RUN: "do_launcher_run.sh",
-    LaunchStage.STOP: "do_launcher_stop.sh",
-}
 
 
 @dataclass(frozen=True)
@@ -123,55 +115,75 @@ def resolve_target_plan(
     run = TargetActionPlan(strategy=LOCAL_STRATEGY)
 
     if container_spec:
-        summary_printer = lambda spec=container_spec: print_docker_linux_summary(spec)
+        def print_container_summary() -> None:
+            print_docker_linux_summary(container_spec)
+
+        def handle_container_build(dry_run: bool) -> None:
+            build_docker_linux(container_spec, dry_run=dry_run)
+
+        def handle_container_deploy(dry_run: bool) -> None:
+            deploy_docker_linux(container_spec, dry_run=dry_run)
+
+        def handle_container_stop(dry_run: bool) -> None:
+            stop_docker_linux(container_spec, dry_run=dry_run)
+
+        def handle_container_run(dry_run: bool) -> None:
+            run_docker_linux(container_spec, dry_run=dry_run)
+
         build = TargetActionPlan(
             strategy=CONTAINER_STRATEGY,
-            summary_printer=summary_printer,
-            build_handler=lambda dry_run, spec=container_spec: build_docker_linux(
-                spec, dry_run=dry_run
-            ),
+            summary_printer=print_container_summary,
+            build_handler=handle_container_build,
             local_binary_path=container_spec.local_binary_path,
             display_binary_path=str(container_spec.local_binary_path),
         )
         if container_spec.supports_runtime:
             deploy = TargetActionPlan(
                 strategy=CONTAINER_STRATEGY,
-                summary_printer=summary_printer,
-                deploy_handler=lambda dry_run, spec=container_spec: deploy_docker_linux(
-                    spec, dry_run=dry_run
-                ),
+                summary_printer=print_container_summary,
+                deploy_handler=handle_container_deploy,
                 display_binary_path=str(container_spec.local_binary_path),
             )
             run = TargetActionPlan(
                 strategy=CONTAINER_STRATEGY,
-                summary_printer=summary_printer,
-                stop_handler=lambda dry_run, spec=container_spec: stop_docker_linux(
-                    spec, dry_run=dry_run
-                ),
-                run_handler=lambda dry_run, spec=container_spec: run_docker_linux(
-                    spec, dry_run=dry_run
-                ),
+                summary_printer=print_container_summary,
+                stop_handler=handle_container_stop,
+                run_handler=handle_container_run,
                 display_binary_path=str(container_spec.local_binary_path),
             )
     elif remote_spec:
         # Legacy fallback: if a target is remote but has no local container/cross-build
         # path, fall back to building on the remote host.
+        def print_remote_summary() -> None:
+            print_remote_linux_summary(remote_spec)
+
+        def handle_remote_build(dry_run: bool) -> None:
+            build_remote_linux(remote_spec, dry_run=dry_run)
+
         build = TargetActionPlan(
             strategy=REMOTE_STRATEGY,
-            summary_printer=lambda spec=remote_spec: print_remote_linux_summary(spec),
-            build_handler=lambda dry_run, spec=remote_spec: build_remote_linux(
-                spec, dry_run=dry_run
-            ),
+            summary_printer=print_remote_summary,
+            build_handler=handle_remote_build,
             display_binary_path=remote_spec.remote_binary_path,
         )
 
     if remote_spec:
+        def print_remote_summary() -> None:
+            print_remote_linux_summary(remote_spec)
+
+        def handle_remote_deploy(dry_run: bool) -> None:
+            sync_remote_linux_project(remote_spec, dry_run=dry_run)
+
+        def handle_remote_stop(dry_run: bool) -> None:
+            stop_remote_linux_process(remote_spec, dry_run=dry_run)
+
+        def handle_remote_run(dry_run: bool) -> None:
+            run_remote_linux(remote_spec, dry_run=dry_run)
+
         deploy = TargetActionPlan(
             strategy=REMOTE_STRATEGY,
-            summary_printer=lambda spec=remote_spec: print_remote_linux_summary(spec),
-            deploy_handler=lambda dry_run, spec=remote_spec: sync_remote_linux_project(
-                spec, dry_run=dry_run
-            ),
+            summary_printer=print_remote_summary,
+            deploy_handler=handle_remote_deploy,
             display_binary_path=remote_spec.remote_binary_path,
             shared_deploy_key=(
                 "remote-linux-project-sync",
@@ -181,13 +193,9 @@ def resolve_target_plan(
         )
         run = TargetActionPlan(
             strategy=REMOTE_STRATEGY,
-            summary_printer=lambda spec=remote_spec: print_remote_linux_summary(spec),
-            stop_handler=lambda dry_run, spec=remote_spec: stop_remote_linux_process(
-                spec, dry_run=dry_run
-            ),
-            run_handler=lambda dry_run, spec=remote_spec: run_remote_linux(
-                spec, dry_run=dry_run
-            ),
+            summary_printer=print_remote_summary,
+            stop_handler=handle_remote_stop,
+            run_handler=handle_remote_run,
             display_binary_path=remote_spec.remote_binary_path,
         )
 
@@ -233,6 +241,10 @@ def resolve_target_plan(
             shared_deploy_key=None,
         )
     elif custom_stage_scripts:
+        # When custom_stage_scripts exists but deploy_command is omitted, we
+        # intentionally disable deploy via replace(deploy, strategy=LOCAL_STRATEGY,
+        # deploy_handler=None, shared_deploy_key=None). This prevents accidental
+        # deploys for custom pipelines and keeps deploy as an explicit opt-in.
         deploy = replace(
             deploy,
             strategy=LOCAL_STRATEGY,

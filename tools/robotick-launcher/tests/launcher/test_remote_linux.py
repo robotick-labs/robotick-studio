@@ -14,6 +14,7 @@ from robotick.launcher.actions.launch.docker_linux import (
     run_docker_linux,
     stop_docker_linux,
 )
+from robotick.launcher.actions.launch import docker_linux as docker_linux_module
 from robotick.launcher.actions.launch.target_plan import (
     CONTAINER_STRATEGY,
     LOCAL_STRATEGY,
@@ -436,6 +437,43 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "bash ./do_launcher_build.sh",
         ],
     ]
+
+
+def test_docker_exec_command_falls_back_when_platform_has_no_getuid(monkeypatch):
+    spec = _docker_linux_spec(
+        family="linux-x64",
+        image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
+        container_name="robotick-launcher-linux-x64-build-test",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
+    )
+
+    monkeypatch.delattr(docker_linux_module.os, "getuid", raising=False)
+    monkeypatch.delattr(docker_linux_module.os, "getgid", raising=False)
+    monkeypatch.setenv("ROBOTICK_DOCKER_UID", "2001")
+    monkeypatch.setenv("ROBOTICK_DOCKER_GID", "2002")
+
+    command = docker_linux_module._docker_exec_command(
+        spec,
+        "/tmp/repo",
+        "bash ./do_launcher_build.sh",
+    )
+
+    assert command[:10] == [
+        "docker",
+        "exec",
+        "--user",
+        "2001:2002",
+        "-e",
+        "HOME=/tmp/robotick-home",
+        "-w",
+        "/tmp/repo",
+        "robotick-launcher-linux-x64-build-test",
+        "bash",
+    ]
+    assert command[10:] == ["-lc", "bash ./do_launcher_build.sh"]
 
 
 def test_ensure_docker_linux_arm64_image_refreshes_latest(monkeypatch):

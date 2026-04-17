@@ -17,6 +17,8 @@ if [[ -f "$LAUNCHER_ENV_FILE" ]]; then
     . "$LAUNCHER_ENV_FILE"
 fi
 
+# Prefer the resolved local project-target image when prepare-project-docker has
+# built one; otherwise fall back to the shared published ESP32 base image.
 IMAGE_NAME="${ROBOTICK_PROJECT_DOCKER_IMAGE:-ghcr.io/robotick-labs/robotick-idf5.4-esp32:latest}"
 CONTAINER_HOME="/tmp/robotick-home"
 CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"
@@ -108,6 +110,9 @@ run_esp32_container() {
     container_name="$(container_name_for_mode "$mode")"
     ensure_esp32_container "$mode" "$container_name"
     local wrapped_command="mkdir -p \"$CONTAINER_CACHE_HOME\" && . /opt/esp/idf/export.sh >/dev/null && $*"
+    # Project-specific ESP-IDF components are cached inside the derived image so
+    # they can be reused across container restarts. Materialise them back into
+    # the bind-mounted launcher directory just before invoking the real helper.
     local materialize_command="if [[ -d /opt/robotick/project-target-cache/components ]]; then mkdir -p \"$SCRIPT_DIR/components\" && cp -a /opt/robotick/project-target-cache/components/. \"$SCRIPT_DIR/components/\"; fi"
 
     local -a cmd=(

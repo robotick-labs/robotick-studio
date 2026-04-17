@@ -41,6 +41,110 @@ BASE_IMAGE_BY_FAMILY = {
     "linux-arm32": "ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
     "esp32": "ghcr.io/robotick-labs/robotick-idf5.4-esp32:latest",
 }
+BASE_IMAGE_APT_PACKAGES_BY_FAMILY = {
+    # The shared x64 images already cover the standard native Linux build stack.
+    # prepare-project-docker should only add project-specific extras on top.
+    "linux-x64": frozenset(
+        {
+            "bash",
+            "build-essential",
+            "ca-certificates",
+            "catch2",
+            "ccache",
+            "cmake",
+            "git",
+            "libasound2t64",
+            "libcurl4-openssl-dev",
+            "libgl1-mesa-dev",
+            "libkissfft-dev",
+            "libopencv-dev",
+            "libsdl2-dev",
+            "libsdl2-gfx-dev",
+            "libsdl2-ttf-dev",
+            "libssl-dev",
+            "libxcursor-dev",
+            "libxi-dev",
+            "libxinerama-dev",
+            "libxkbcommon-dev",
+            "libxrandr-dev",
+            "libyaml-cpp-dev",
+            "ninja-build",
+            "pkg-config",
+            "pybind11-dev",
+            "python3",
+            "python3-dev",
+            "python3-pip",
+            "python3-venv",
+            "xvfb",
+        }
+    ),
+    # The cross images already contain the target-architecture system deps for
+    # the shared workloads; re-adding unqualified package names here causes apt
+    # to pull host-arch packages and fight the cross toolchain setup.
+    "linux-arm64": frozenset(
+        {
+            "bash",
+            "ca-certificates",
+            "cmake",
+            "crossbuild-essential-arm64",
+            "file",
+            "git",
+            "libasound2-dev",
+            "libcurl4-openssl-dev",
+            "libegl1-mesa-dev",
+            "libgl1-mesa-dev",
+            "libkissfft-dev",
+            "libopencv-dev",
+            "libpng-dev",
+            "libsdl2-dev",
+            "libsdl2-gfx-dev",
+            "libsdl2-ttf-dev",
+            "libssl-dev",
+            "libxcursor-dev",
+            "libxi-dev",
+            "libxinerama-dev",
+            "libxkbcommon-dev",
+            "libxrandr-dev",
+            "libyaml-cpp-dev",
+            "ninja-build",
+            "pkg-config",
+            "python3",
+            "zlib1g-dev",
+        }
+    ),
+    "linux-arm32": frozenset(
+        {
+            "bash",
+            "ca-certificates",
+            "cmake",
+            "crossbuild-essential-armhf",
+            "file",
+            "git",
+            "libasound2-dev",
+            "libcurl4-openssl-dev",
+            "libegl1-mesa-dev",
+            "libgl1-mesa-dev",
+            "libkissfft-dev",
+            "libopencv-dev",
+            "libpng-dev",
+            "libsdl2-dev",
+            "libsdl2-gfx-dev",
+            "libsdl2-ttf-dev",
+            "libssl-dev",
+            "libxcursor-dev",
+            "libxi-dev",
+            "libxinerama-dev",
+            "libxkbcommon-dev",
+            "libxrandr-dev",
+            "libyaml-cpp-dev",
+            "ninja-build",
+            "pkg-config",
+            "python3",
+            "zlib1g-dev",
+        }
+    ),
+    "esp32": frozenset({"bash", "ccache", "git", "ninja-build"}),
+}
 ARM64_TARGET_VARIANTS = {"arm64", "aarch64"}
 ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
 
@@ -178,10 +282,24 @@ def _merge_dependency_tree(source: Path, dest: Path) -> None:
             shutil.copy2(child, target)
 
 
+def _filter_base_image_apt_packages(family: str, apt_packages: Iterable[str]) -> list[str]:
+    """Drop packages that are already guaranteed by the shared base image.
+
+    The shared GHCR images are the published environment contract. Derived
+    project-target images should therefore only add genuinely project-specific
+    extras, not restate the standard toolchain packages the base already
+    promises.
+    """
+
+    base_packages = BASE_IMAGE_APT_PACKAGES_BY_FAMILY.get(family, frozenset())
+    return sorted({package for package in apt_packages if package not in base_packages})
+
+
 def _collect_materialized_dependencies(
     project: str,
     base_dir: Path,
     target: str,
+    family: str,
     scoped_models: list[str],
     family_context_dir: Path,
     *,
@@ -207,8 +325,11 @@ def _collect_materialized_dependencies(
     installed_deps: list[dict[str, object]] = []
     model_entries: list[dict[str, object]] = []
     staged_root = family_context_dir / "model-cache"
-    staged_root.mkdir(parents=True, exist_ok=True)
     merged_cache = family_context_dir / "cache"
+    if not dry_run:
+        shutil.rmtree(staged_root, ignore_errors=True)
+        shutil.rmtree(merged_cache, ignore_errors=True)
+    staged_root.mkdir(parents=True, exist_ok=True)
     deps_cache = merged_cache / "deps"
     components_cache = merged_cache / "components"
 
@@ -243,7 +364,7 @@ def _collect_materialized_dependencies(
 
     merged_cache.mkdir(parents=True, exist_ok=True)
     (merged_cache / ".keep").write_text("project-target-cache\n", encoding="utf-8")
-    return sorted(apt_packages), installed_deps, model_entries
+    return _filter_base_image_apt_packages(family, apt_packages), installed_deps, model_entries
 
 
 def _render_dockerfile(base_image: str, apt_packages: list[str], include_cache: bool) -> str:
@@ -348,6 +469,7 @@ def prepare_project_docker(
         project,
         base_dir,
         target,
+        family,
         scoped_models,
         state_dir,
         dry_run=dry_run,
@@ -392,7 +514,6 @@ def prepare_project_docker(
         "scoped_models": scoped_models,
         "metadata_path": str(context_metadata_path),
     }
-    write_text_if_changed(resolved_metadata_path, json.dumps(resolved_payload, indent=2) + "\n")
 
     if dry_run:
         print(f"[yellow]DRY RUN:[/] would prepare project docker image {image_name}")
@@ -409,6 +530,9 @@ def prepare_project_docker(
         )
 
     if _docker_image_exists(image_name):
+        write_text_if_changed(
+            resolved_metadata_path, json.dumps(resolved_payload, indent=2) + "\n"
+        )
         return PreparedProjectDockerInfo(
             family=family,
             image_name=image_name,
@@ -425,6 +549,9 @@ def prepare_project_docker(
     build_cmd = ["docker", "build", "-t", image_name, str(state_dir)]
     _print_command(build_cmd)
     run_subprocess(build_cmd)
+    write_text_if_changed(
+        resolved_metadata_path, json.dumps(resolved_payload, indent=2) + "\n"
+    )
     return PreparedProjectDockerInfo(
         family=family,
         image_name=image_name,
@@ -486,8 +613,8 @@ def project_cache_materialize_shell(
     launcher directory. Materialising the cache bridges those two worlds.
     """
 
-    cache_dir = f"{PROJECT_DOCKER_CACHE_ROOT}/{subdir}"
-    launcher_cache_dir = f"{launcher_dir}/{subdir}"
+    cache_dir = shlex.quote(f"{PROJECT_DOCKER_CACHE_ROOT}/{subdir}")
+    launcher_cache_dir = shlex.quote(f"{launcher_dir}/{subdir}")
     return (
         f"if [[ -d {cache_dir} ]]; then "
         f"mkdir -p {launcher_cache_dir} && "

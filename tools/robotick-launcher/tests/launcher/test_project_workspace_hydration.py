@@ -86,6 +86,16 @@ def test_project_workspace_hydration_no_python_roots_is_noop(tmp_path):
 
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
+    lock_path = (
+        workspace_dir
+        / ".launcher"
+        / "test_project"
+        / "deps"
+        / "python"
+        / "python-roots-lock.json"
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text('{"stale": true}', encoding="utf-8")
 
     result = project_workspace_hydration.hydrate_project_workspace(
         project="test-project",
@@ -104,6 +114,7 @@ def test_project_workspace_hydration_no_python_roots_is_noop(tmp_path):
         / "python"
         / ".venv-python"
     ).exists()
+    assert not lock_path.exists()
 
 
 def test_generate_auto_runs_prepare_project_workspace(monkeypatch, tmp_path):

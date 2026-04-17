@@ -492,6 +492,19 @@ def _hydrate_project_workspace_locked(
         _write_lock(lock_path, lock_payload, dry_run=dry_run)
     else:
         print("[yellow]ℹ️ No python_roots defined; skipping python venv hydration.[/]")
+        try:
+            if lock_path.exists():
+                if dry_run:
+                    print(f"[yellow]DRY RUN:[/] would remove stale lockfile {lock_path}")
+                else:
+                    lock_path.unlink()
+                    print(f"[green]🧹 Removed stale python deps lock:[/] {lock_path}")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(
+                f"[red]⚠️ Failed to remove stale python deps lock {lock_path}:[/] {exc}"
+            )
 
     _sync_runtime_repo_sources(
         config=config,

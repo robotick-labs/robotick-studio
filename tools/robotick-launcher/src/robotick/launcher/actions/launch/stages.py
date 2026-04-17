@@ -28,6 +28,27 @@ class LaunchStage(StrEnum):
     STOP = "stop"
 
 
+# runtime.custom_stages in model YAML uses these canonical keys. Keeping the
+# mapping here means generate/target-plan/docs all speak the same stage
+# vocabulary instead of duplicating local dictionaries.
+CUSTOM_STAGE_COMMAND_KEY_BY_STAGE: dict[LaunchStage, str] = {
+    LaunchStage.BUILD: "build_command",
+    LaunchStage.DEPLOY: "deploy_command",
+    LaunchStage.RUN: "run_command",
+    LaunchStage.STOP: "stop_command",
+}
+
+
+# Generated launcher override scripts intentionally mirror the public stage
+# names, so the filename mapping also belongs next to the enum.
+CUSTOM_STAGE_SCRIPT_NAME_BY_STAGE: dict[LaunchStage, str] = {
+    LaunchStage.BUILD: "do_launcher_build.sh",
+    LaunchStage.DEPLOY: "do_launcher_deploy.sh",
+    LaunchStage.RUN: "do_launcher_run.sh",
+    LaunchStage.STOP: "do_launcher_stop.sh",
+}
+
+
 # The forward pipeline launcher follows when preparing a runnable model.
 DEFAULT_STAGE_SEQUENCE: tuple[LaunchStage, ...] = (
     LaunchStage.PREPARE_PROJECT_DOCKER,

@@ -46,7 +46,7 @@ def create_app() -> typer.Typer:
         target: str = typer.Option(
             "linux", help="Target name to resolve dependencies for"
         ),
-    ):
+    ) -> None:
         base_dir = base_dir.resolve()
         workspace_dir = workspace_dir.resolve() if workspace_dir else None
         prepare_project_workspace.prepare_project_workspace_command(

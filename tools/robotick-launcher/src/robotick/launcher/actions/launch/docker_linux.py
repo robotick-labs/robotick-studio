@@ -381,6 +381,26 @@ def _print_command(command: Iterable[str]) -> None:
     print(f"[bold]$ {' '.join(shlex.quote(part) for part in command)}[/]")
 
 
+def _resolve_docker_exec_user() -> str:
+    """Return a stable uid:gid string for docker exec.
+
+    Most local Linux/macOS environments expose os.getuid()/os.getgid(), which
+    lets the container write files back to the bind-mounted workspace with the
+    caller's ownership. Some platforms, notably Windows, do not provide those
+    APIs. In that case we still return a valid --user value so the command can
+    be constructed consistently, falling back to environment overrides before a
+    conservative 1000:1000 default.
+    """
+
+    try:
+        uid = os.getuid()
+        gid = os.getgid()
+    except AttributeError:
+        uid = os.environ.get("ROBOTICK_DOCKER_UID", "1000")
+        gid = os.environ.get("ROBOTICK_DOCKER_GID", "1000")
+    return f"{uid}:{gid}"
+
+
 def _docker_exec_command(
     spec: DockerLinuxSpec,
     working_dir: str,
@@ -388,13 +408,11 @@ def _docker_exec_command(
 ) -> list[str]:
     """Build a docker exec command that preserves host file ownership."""
 
-    uid = os.getuid()
-    gid = os.getgid()
     return [
         "docker",
         "exec",
         "--user",
-        f"{uid}:{gid}",
+        _resolve_docker_exec_user(),
         "-e",
         "HOME=/tmp/robotick-home",
         "-w",
