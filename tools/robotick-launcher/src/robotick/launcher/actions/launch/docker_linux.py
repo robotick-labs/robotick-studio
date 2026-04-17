@@ -100,7 +100,8 @@ def load_docker_linux_spec(
 
     config = Config(project, model, target, base_dir, dry_run=False, stub_install=False)
     runtime = dict(config.model.get("runtime") or {})
-    if (runtime.get("target_platform") or "").strip() != "linux":
+    target_platform = str(runtime.get("target_platform") or target).strip().lower()
+    if target_platform != "linux":
         return None
 
     target_variant = (runtime.get("target_variant") or "").strip().lower()

@@ -784,6 +784,34 @@ def test_load_docker_linux_x64_spec_uses_prepared_project_image_when_present(tmp
     assert spec.image_name == "robotick-proj-linux-docker:linux-x64-deadbeef"
 
 
+def test_load_docker_linux_x64_spec_defaults_target_platform_from_target(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "proj"
+    project_dir.mkdir(parents=True)
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    (project_dir / "proj.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
+                }
+            }
+        )
+    )
+    (project_dir / "proj-face.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_variant": "x86_64"}})
+    )
+
+    spec = load_docker_linux_x64_spec("proj", "proj-face", "linux", project_dir)
+
+    assert spec is not None
+    assert spec.family == "linux-x64"
+    assert spec.supports_runtime is True
+
+
 def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
     spec = _docker_linux_spec(
         family="linux-x64",
