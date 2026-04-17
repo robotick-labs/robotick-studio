@@ -44,11 +44,15 @@ def load_remote_linux_spec(
     model: str,
     target: str,
     base_dir: Path,
+    *,
+    config: Optional[Config] = None,
 ) -> Optional[RemoteLinuxSpec]:
     if target != "linux":
         return None
 
-    config = Config(project, model, target, base_dir, dry_run=False, stub_install=False)
+    config = config or Config(
+        project, model, target, base_dir, dry_run=False, stub_install=False
+    )
     runtime = dict(config.model.get("runtime") or {})
     if (runtime.get("target_platform") or "").strip() != "linux":
         return None

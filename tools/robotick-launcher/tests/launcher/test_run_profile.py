@@ -596,7 +596,7 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
         "$HOME/dev/robotick/robots/alf-e",
     )
 
-    def _fake_resolve_target_plan(project, model, target, base_dir):
+    def _fake_resolve_target_plan(project, model, target, base_dir, config=None):
         return TargetPlan(
             project=project,
             model=model,

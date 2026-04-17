@@ -32,6 +32,13 @@ from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.config import Config
 
 
+def _print_plain(message: str) -> None:
+    """Write a plain log line without Rich interpreting bracket tags as markup."""
+
+    sys.stdout.write(f"{message}\n")
+    sys.stdout.flush()
+
+
 def stream_output(proc: subprocess.Popen, tag: str):
     for line in iter(proc.stdout.readline, b""):
         sys.stdout.buffer.write(f"[{tag}] ".encode("utf-8") + line)
@@ -47,6 +54,36 @@ def _emit_status(status_queue: Optional[Any], **payload):
         status_queue.put_nowait(message)
     except Exception:
         pass
+
+
+def _log_stage_start(stage: LaunchStage, detail: str) -> None:
+    """Emit a consistent stage start banner for interactive launcher runs."""
+
+    _print_plain(f"[{stage.value}:/] start — {detail}")
+
+
+def _log_stage_success(stage: LaunchStage, detail: str) -> None:
+    """Emit a consistent stage completion banner for interactive launcher runs."""
+
+    _print_plain(f"[{stage.value}:/] done — {detail}")
+
+
+def _log_stage_failure(stage: LaunchStage, detail: str) -> None:
+    """Emit a consistent stage failure banner for interactive launcher runs."""
+
+    _print_plain(f"❌ [{stage.value}:/] failed — {detail}")
+
+
+def _log_init_step(detail: str) -> None:
+    """Emit a tagged launcher-init progress line for Studio terminal logs."""
+
+    _print_plain(f"[init:/] {detail}")
+
+
+def _log_init_done(detail: str) -> None:
+    """Emit a tagged launcher-init completion line for Studio terminal logs."""
+
+    _print_plain(f"[init:/] done — {detail}")
 
 
 def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
@@ -288,6 +325,21 @@ def _profile_selection_is_automatic(project_path: Path, model_spec: str) -> bool
     return model_spec in profiles
 
 
+def _build_project_model_index(project_path: Path) -> dict[str, Path]:
+    """Scan project models once and reuse that map for the whole invocation."""
+
+    model_index: dict[str, Path] = {}
+    for rel_path in list_project_models(str(project_path)):
+        model_path = (project_path.parent / rel_path).resolve()
+        model_id = Path(rel_path).stem.removesuffix(".model")
+        if model_id in model_index:
+            raise RuntimeError(
+                f"Multiple model files found for '{model_id}': {model_index[model_id]} and {model_path}"
+            )
+        model_index[model_id] = model_path
+    return model_index
+
+
 def _resolve_profile_model_target(
     project_name: str,
     base_dir: Path,
@@ -346,6 +398,7 @@ def stop_profile(
     dry_run: bool = False,
     helper_pids: Optional[dict[str, int]] = None,
 ) -> dict[str, object]:
+    _print_plain(f"[stop:/] start — stopping profile '{profile}'")
     if ":" not in profile:
         return {
             "status": "error",
@@ -383,14 +436,23 @@ def stop_profile(
     stopped_models: list[str] = []
     errors: list[str] = []
     results_lock = threading.Lock()
+    stop_started_by_model: dict[str, float] = {}
 
     def _record_success(model_id: str) -> None:
         with results_lock:
             stopped_models.append(model_id)
+            started_at = stop_started_by_model.get(model_id)
+        if started_at is None:
+            _print_plain(f"[stop:{model_id}] done — stopped")
+            return
+        _print_plain(
+            f"[stop:{model_id}] done — stopped in {time.monotonic() - started_at:.3f}s"
+        )
 
     def _record_error(model_id: str, exc: Exception) -> None:
         with results_lock:
             errors.append(f"{model_id}: {exc}")
+        _print_plain(f"❌ [stop:{model_id}] failed — {exc}")
 
     def _stop_one_local_model(
         model_id: str,
@@ -414,16 +476,34 @@ def stop_profile(
 
     local_stop_threads: list[threading.Thread] = []
 
+    def _run_stop_handler_in_thread(
+        model_id: str,
+        stop_handler,
+    ) -> None:
+        try:
+            stop_handler(dry_run)
+            _record_success(model_id)
+        except Exception as exc:
+            _record_error(model_id, exc)
+
     for model_id in reversed(model_ids):
         model_target = model_targets[model_id]
         try:
+            with results_lock:
+                stop_started_by_model[model_id] = time.monotonic()
+            _print_plain(f"[stop:{model_id}] start — stopping model")
             _, _, binary_path = get_launcher_paths(
                 project_name, model_id, model_target, base_dir
             )
             plan = resolve_target_plan(project_name, model_id, model_target, base_dir)
             if plan.run.stop_handler is not None:
-                plan.run.stop_handler(dry_run)
-                _record_success(model_id)
+                thread = threading.Thread(
+                    target=_run_stop_handler_in_thread,
+                    args=(model_id, plan.run.stop_handler),
+                    daemon=True,
+                )
+                thread.start()
+                local_stop_threads.append(thread)
                 continue
 
             if plan.run.strategy == "local":
@@ -445,12 +525,14 @@ def stop_profile(
         thread.join()
 
     if errors:
+        _print_plain(f"❌ [stop:/] failed — {'; '.join(errors)}")
         return {
             "status": "error",
             "detail": "; ".join(errors),
             "stopped": stopped_models,
         }
 
+    _print_plain(f"[stop:/] done — stopped {len(stopped_models)} model(s)")
     return {"status": "stopped", "stopped": stopped_models}
 
 
@@ -495,34 +577,90 @@ def run_profile(
 
     base_dir = project_path.parent
     project_name = project_path.stem.removesuffix(".project")
-
     try:
-        model_ids = _resolve_profile_model_ids(project_path, model_spec)
+        _log_init_step("loading project configuration...")
+        project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
+        _log_init_done("project configuration loaded")
     except Exception as e:
         return {"status": "error", "detail": f"Failed to parse project file: {e}"}
 
     try:
-        auto_launch_policy_applies = _profile_selection_is_automatic(
-            project_path, model_spec
+        _log_init_step("discovering the models in this profile...")
+        model_ids = _resolve_profile_model_ids(project_path, model_spec)
+        _log_init_done(f"discovered {len(model_ids)} model(s) in profile '{profile}'")
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to parse project file: {e}"}
+
+    try:
+        _log_init_step("indexing project model YAML files...")
+        project_model_index = _build_project_model_index(project_path)
+        _log_init_done(f"indexed {len(project_model_index)} model file(s)")
+    except Exception as e:
+        return {"status": "error", "detail": f"Failed to index project models: {e}"}
+
+    try:
+        _log_init_step("checking whether profile auto-launch policy applies...")
+        auto_launch_policy_applies = _profile_selection_is_automatic(project_path, model_spec)
+        _log_init_done(
+            "profile-level auto-launch rules will be applied"
+            if auto_launch_policy_applies
+            else "explicit model selection will ignore auto-launch=false"
         )
     except Exception as e:
         return {"status": "error", "detail": f"Failed to parse project file: {e}"}
 
     try:
-        model_targets = {
-            model_id: _resolve_profile_model_target(
-                project_name, base_dir, platform, model_id
+        _log_init_step("loading model configuration for target resolution...")
+        model_configs = {
+            model_id: Config(
+                project_name,
+                model_id,
+                None,
+                base_dir,
+                dry_run=False,
+                stub_install=False,
+                project_data=project_data,
+                model_path=project_model_index[model_id],
             )
             for model_id in model_ids
         }
+        _log_init_step("resolving each model's effective target (linux/esp32/etc.)...")
+        if platform == "local":
+            model_targets = {model_id: "linux" for model_id in model_ids}
+        else:
+            model_targets = {}
+            for model_id, model_config in model_configs.items():
+                runtime = dict(model_config.model.get("runtime") or {})
+                model_targets[model_id] = (
+                    str(runtime.get("target_platform") or "linux").strip().lower()
+                    or "linux"
+                )
+        _log_init_done("model targets resolved")
     except Exception as e:
         return {"status": "error", "detail": f"Failed to resolve model targets: {e}"}
 
     try:
-        model_auto_launch = {
-            model_id: _resolve_model_auto_launch(project_name, base_dir, model_id)
-            for model_id in model_ids
-        }
+        _log_init_step("reading per-model launcher auto-launch settings...")
+        model_auto_launch = {}
+        for model_id, model_config in model_configs.items():
+            launcher = model_config.model.get("launcher")
+            if launcher is None:
+                model_auto_launch[model_id] = True
+                continue
+            if not isinstance(launcher, dict):
+                raise ValueError(
+                    f"Model '{model_id}' has invalid 'launcher' section; expected a mapping."
+                )
+            auto_launch = launcher.get("auto_launch")
+            if auto_launch is None:
+                model_auto_launch[model_id] = True
+                continue
+            if not isinstance(auto_launch, bool):
+                raise ValueError(
+                    f"Model '{model_id}' has invalid 'launcher.auto_launch'; expected a boolean."
+                )
+            model_auto_launch[model_id] = auto_launch
+        _log_init_done("launcher auto-launch policy resolved")
     except Exception as e:
         return {
             "status": "error",
@@ -530,15 +668,33 @@ def run_profile(
         }
 
     try:
+        _log_init_step(
+            "loading target-specific config and resolving build/deploy/run plans for each model..."
+        )
+        targeted_model_configs = {
+            model_id: Config(
+                project_name,
+                model_id,
+                model_targets[model_id],
+                base_dir,
+                dry_run=False,
+                stub_install=False,
+                project_data=project_data,
+                model_path=project_model_index[model_id],
+            )
+            for model_id in model_ids
+        }
         model_plans = {
             model_id: resolve_target_plan(
                 project_name,
                 model_id,
                 model_targets[model_id],
                 base_dir,
+                config=targeted_model_configs[model_id],
             )
             for model_id in model_ids
         }
+        _log_init_done("target plans resolved")
     except Exception as e:
         return {"status": "error", "detail": f"Failed to resolve target plans: {e}"}
 
@@ -554,11 +710,17 @@ def run_profile(
         models=model_ids,
     )
 
+    _log_stage_start(
+        LaunchStage.PREPARE_PROJECT_DOCKER,
+        f"resolve container environments for profile '{profile}' "
+        f"across {len(model_ids)} model(s)",
+    )
     _emit_status(
         status_queue,
         event="phase",
-        phase=LaunchStage.BUILD.value,
+        phase=LaunchStage.PREPARE_PROJECT_DOCKER.value,
         status="starting",
+        profile=profile,
         models=model_ids,
     )
 
@@ -575,21 +737,9 @@ def run_profile(
     for target, scoped_models in grouped_models_by_target.items():
         family_groups: dict[str, list[str]] = {}
         for model_id in scoped_models:
-            runtime = dict(
-                Config(
-                    project_name,
-                    model_id,
-                    target,
-                    base_dir,
-                    dry_run=False,
-                    stub_install=False,
-                ).model.get("runtime")
-                or {}
-            )
-            target_platform = (
-                str(runtime.get("target_platform") or target).strip().lower()
-            )
-            target_variant = str(runtime.get("target_variant") or "").strip().lower()
+            plan = model_plans[model_id]
+            target_platform = plan.target_platform
+            target_variant = plan.target_variant
             family = target if target_platform == "esp32" else target_platform
             if target_platform == "linux":
                 if target_variant in {"arm64", "aarch64"}:
@@ -600,33 +750,108 @@ def run_profile(
                     family = "linux-x64"
             family_groups.setdefault(family, []).append(model_id)
 
-        for family_models in family_groups.values():
+        for family_name, family_models in family_groups.items():
             try:
-                prepare_project_docker(
+                _log_stage_start(
+                    LaunchStage.PREPARE_PROJECT_DOCKER,
+                    f"target '{target}' family '{family_name}': "
+                    f"resolve/reuse a project image for {len(family_models)} model(s)",
+                )
+                prepared_info = prepare_project_docker(
                     project=project_name,
                     base_dir=base_dir,
                     target=target,
                     models=family_models,
                 )
+                resolved_image_name = (
+                    prepared_info.image_name
+                    if prepared_info is not None
+                    else "<resolved by prepare-project-docker>"
+                )
+                _log_stage_success(
+                    LaunchStage.PREPARE_PROJECT_DOCKER,
+                    f"target '{target}' family '{family_name}': "
+                    f"using image {resolved_image_name}",
+                )
             except Exception as exc:
                 detail = f"prepare-project-docker failed for target '{target}': {exc}"
-                print(f"[bold red]❌ {detail}[/]")
+                _emit_status(
+                    status_queue,
+                    event="phase",
+                    phase=LaunchStage.PREPARE_PROJECT_DOCKER.value,
+                    status="failed",
+                    target=target,
+                    family=family_name,
+                    detail=detail,
+                )
+                _log_stage_failure(LaunchStage.PREPARE_PROJECT_DOCKER, detail)
                 return {"status": "error", "detail": detail}
+
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase=LaunchStage.PREPARE_PROJECT_WORKSPACE.value,
+            status="starting",
+            target=target,
+            models=scoped_models,
+        )
 
         # Workspace hydration still happens per target because the runtime repo
         # and python state are target-scoped under .launcher/.../deps/...
         try:
-            prepare_project_workspace_stage.prepare_project_workspace(
+            _log_stage_start(
+                LaunchStage.PREPARE_PROJECT_WORKSPACE,
+                f"target '{target}': hydrate persistent .launcher deps state",
+            )
+            workspace_info = prepare_project_workspace_stage.prepare_project_workspace(
                 project=project_name,
                 base_dir=base_dir,
                 workspace_root=base_dir,
                 model=None,
                 target=target,
             )
+            workspace_summary = (
+                f"venv at {workspace_info.venv_path}"
+                if workspace_info is not None
+                else "workspace state hydrated"
+            )
+            _log_stage_success(
+                LaunchStage.PREPARE_PROJECT_WORKSPACE,
+                f"target '{target}': {workspace_summary}",
+            )
+            _emit_status(
+                status_queue,
+                event="phase",
+                phase=LaunchStage.PREPARE_PROJECT_WORKSPACE.value,
+                status="completed",
+                target=target,
+                models=scoped_models,
+            )
         except Exception as exc:
             detail = f"prepare-project-workspace failed for target '{target}': {exc}"
-            print(f"[bold red]❌ {detail}[/]")
+            _emit_status(
+                status_queue,
+                event="phase",
+                phase=LaunchStage.PREPARE_PROJECT_WORKSPACE.value,
+                status="failed",
+                target=target,
+                detail=detail,
+            )
+            _log_stage_failure(LaunchStage.PREPARE_PROJECT_WORKSPACE, detail)
             return {"status": "error", "detail": detail}
+
+    _emit_status(
+        status_queue,
+        event="phase",
+        phase=LaunchStage.PREPARE_PROJECT_DOCKER.value,
+        status="completed",
+        profile=profile,
+        models=model_ids,
+    )
+    _log_stage_success(
+        LaunchStage.PREPARE_PROJECT_DOCKER,
+        f"profile '{profile}': all required project images resolved",
+    )
 
     max_parallel_env = os.getenv("ROBOTICK_LAUNCHER_MAX_PARALLEL_BUILDS", "").strip()
     max_parallel_builds = len(model_ids)
@@ -652,9 +877,16 @@ def run_profile(
     max_parallel_builds = min(max_parallel_builds, len(model_ids))
 
     # --- Build phase (bounded parallelism to avoid CI over-subscription) ---
-    print(
-        "[Launcher] Building "
-        f"{len(model_ids)} models with up to {max_parallel_builds} parallel build(s)..."
+    _log_stage_start(
+        LaunchStage.BUILD,
+        f"build {len(model_ids)} model(s) with up to {max_parallel_builds} parallel worker(s)",
+    )
+    _emit_status(
+        status_queue,
+        event="phase",
+        phase=LaunchStage.BUILD.value,
+        status="starting",
+        models=model_ids,
     )
 
     succeeded: list[str] = []
@@ -760,7 +992,10 @@ def run_profile(
 
     # After build loop:
     if failed:
-        print(f"[bold red]❌ Build failed for: {', '.join(failed)}[/]")
+        _log_stage_failure(
+            LaunchStage.BUILD,
+            f"failed models: {', '.join(failed)}",
+        )
         print("[Launcher] Aborting run phase — at least one build failed.")
         _emit_status(
             status_queue,
@@ -782,7 +1017,10 @@ def run_profile(
         }
 
     # If we get here, all builds succeeded:
-    print(f"[Launcher] All builds succeeded. Launching models...")
+    _log_stage_success(
+        LaunchStage.BUILD,
+        f"built {len(succeeded)} model(s) successfully",
+    )
     _emit_status(
         status_queue,
         event="phase",
@@ -798,7 +1036,14 @@ def run_profile(
             "skipped_run": True,
             "failed": failed,
         }
-        print("[Launcher] build-profile requested; skipping run phase.")
+        print("[Launcher] build-profile requested; skipping deploy/run stages.")
+        _emit_status(
+            status_queue,
+            event="phase",
+            phase=LaunchStage.DEPLOY.value,
+            status="skipped",
+            launched=[],
+        )
         _emit_status(
             status_queue,
             event="phase",
@@ -806,10 +1051,21 @@ def run_profile(
             status="skipped",
             launched=[],
         )
+        _log_stage_success(
+            LaunchStage.DEPLOY,
+            "skipped because build-profile stops after a successful build",
+        )
+        _log_stage_success(
+            LaunchStage.RUN,
+            "skipped because build-profile stops after a successful build",
+        )
         _emit_status(status_queue, event="result", result=result)
         return result
 
-    print(f"[Launcher] All builds succeeded. Deploying models...")
+    _log_stage_start(
+        LaunchStage.DEPLOY,
+        f"deploy {len(succeeded)} built model(s), deduplicating shared deploy work where possible",
+    )
     _emit_status(
         status_queue,
         event="phase",
@@ -1004,6 +1260,10 @@ def run_profile(
                 )
 
     if deploy_failed:
+        _log_stage_failure(
+            LaunchStage.DEPLOY,
+            f"failed models: {', '.join(deploy_failed)}",
+        )
         print(f"[bold red]❌ Deploy failed for: {', '.join(deploy_failed)}[/]")
         print("[Launcher] Aborting run phase — at least one deploy failed.")
         _emit_status(
@@ -1022,7 +1282,10 @@ def run_profile(
         _emit_status(status_queue, event="result", result=result)
         return result
 
-    print(f"[Launcher] All deploys succeeded. Launching models...")
+    _log_stage_success(
+        LaunchStage.DEPLOY,
+        f"deployed {len(deployed)} model(s) successfully",
+    )
     _emit_status(
         status_queue,
         event="phase",
@@ -1037,16 +1300,21 @@ def run_profile(
     model_health_urls: dict[str, Optional[str]] = {}
     skipped_auto_launch: list[str] = []
 
+    models_to_auto_launch = [
+        model_id
+        for model_id in deployed
+        if (not auto_launch_policy_applies) or model_auto_launch[model_id]
+    ]
+    _log_stage_start(
+        LaunchStage.RUN,
+        f"run {len(models_to_auto_launch)} model(s) and skip models with launcher.auto_launch=false",
+    )
     _emit_status(
         status_queue,
         event="phase",
         phase=LaunchStage.RUN.value,
         status="starting",
-        models=[
-            model_id
-            for model_id in deployed
-            if (not auto_launch_policy_applies) or model_auto_launch[model_id]
-        ],
+        models=models_to_auto_launch,
     )
 
     for model_id in deployed:
@@ -1182,6 +1450,10 @@ def run_profile(
         t.join()
 
     if interrupted:
+        _log_stage_failure(
+            LaunchStage.RUN,
+            "interrupted while waiting for launched model processes",
+        )
         for model_id, proc in run_procs:
             try:
                 rc = proc.wait(timeout=5)
@@ -1230,6 +1502,10 @@ def run_profile(
         status="completed",
         launched=launched_models,
         skipped=skipped_auto_launch,
+    )
+    _log_stage_success(
+        LaunchStage.RUN,
+        f"launched {len(launched_models)} model(s); skipped {len(skipped_auto_launch)} auto-launch-disabled model(s)",
     )
     _emit_status(status_queue, event="result", result=result)
     return result
