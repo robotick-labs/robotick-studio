@@ -506,7 +506,9 @@ def _install_deps_locked(
         runtime_cfg = dict(model_config.model.get("runtime") or {})
         target_platform = str(runtime_cfg.get("target_platform") or "").strip().lower()
         target_variant = str(runtime_cfg.get("target_variant") or "").strip().lower()
-        if target_platform == "linux":
+        custom_stages = runtime_cfg.get("custom_stages") or {}
+        uses_host_local_stages = bool(custom_stages)
+        if target_platform == "linux" and not uses_host_local_stages:
             # Keep install-deps as the launcher stage that hydrates python roots, runtime repos,
             # and model-specific dependency state. The only thing skipped here is host apt
             # validation for Linux targets, because their build/run environment now lives in Docker.

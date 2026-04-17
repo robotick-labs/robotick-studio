@@ -320,12 +320,15 @@ def _run_docker_exec(command: list[str], *, dry_run: bool) -> None:
 
 
 def _inspect_docker_value(command: list[str]) -> str:
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return ""
     if result.returncode != 0:
         return ""
     return result.stdout.strip()

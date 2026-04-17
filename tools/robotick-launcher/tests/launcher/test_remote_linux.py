@@ -14,6 +14,7 @@ from robotick.launcher.actions.launch.docker_linux_x64 import (
     DockerLinuxX64Spec,
     build_docker_linux_x64,
     deploy_docker_linux_x64,
+    ensure_running_docker_linux_x64_container,
     ensure_docker_image as ensure_docker_linux_x64_image,
     load_docker_linux_x64_spec,
     run_docker_linux_x64,
@@ -701,6 +702,37 @@ def test_ensure_docker_linux_x64_image_refreshes_latest(monkeypatch):
     ensure_docker_linux_x64_image(spec, dry_run=False)
 
     assert pull_calls == [["docker", "pull", spec.image_name]]
+
+
+def test_ensure_running_docker_linux_x64_container_dry_run_tolerates_missing_docker(
+    monkeypatch,
+):
+    spec = DockerLinuxX64Spec(
+        image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
+        dockerfile=Path("/tmp/robotick-ubuntu24.04-native-linux.Dockerfile"),
+        container_name="robotick-launcher-linux-x64-build-test",
+        local_repo_root=Path("/tmp/repo"),
+        local_launcher_dir=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux"),
+        local_binary_path=Path("/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face"),
+        container_workspace_root="/tmp/repo",
+        container_launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        container_working_dir="/tmp/repo/robots/proj",
+        container_binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+    )
+    pull_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_x64.run_subprocess",
+        lambda cmd: pull_calls.append(cmd),
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux_x64.subprocess.run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("docker")),
+    )
+
+    ensure_running_docker_linux_x64_container(spec, dry_run=True)
+
+    assert pull_calls == []
 
 
 def test_deploy_docker_linux_x64_checks_binary_inside_keepalive_container(monkeypatch):

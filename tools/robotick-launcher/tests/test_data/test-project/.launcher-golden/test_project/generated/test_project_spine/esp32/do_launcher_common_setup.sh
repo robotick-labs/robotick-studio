@@ -17,10 +17,7 @@ if [[ -f "$LAUNCHER_ENV_FILE" ]]; then
     . "$LAUNCHER_ENV_FILE"
 fi
 
-IMAGE_NAME="robotick-launcher-esp32s3"
-ENGINE_ROOT="${ROBOTICK_ENGINE_PATH:-$REPO_ROOT/robotick/robotick-engine}"
-DOCKERFILE="$ENGINE_ROOT/tools/docker/esp32s3.Dockerfile"
-DOCKERFILE_SHA_LABEL="robotick.dockerfile_sha"
+IMAGE_NAME="ghcr.io/robotick-labs/robotick-idf5.4-esp32:latest"
 CONTAINER_HOME="/tmp/robotick-home"
 CONTAINER_CACHE_HOME="$CONTAINER_HOME/.cache"
 ESP32_SERIAL_PORT="${ROBOTICK_ESP32_SERIAL_PORT:-/dev/ttyACM1}"
@@ -29,26 +26,18 @@ IDF_EXTRA_CMAKE_ARGS_VALUE="${IDF_EXTRA_CMAKE_ARGS:-}"
 ROBOTICK_PLATFORM_ESP32S3_M5_VALUE="${ROBOTICK_PLATFORM_ESP32S3_M5:-}"
 
 ensure_esp32_image() {
-    local current_sha
-    current_sha="$(sha256sum "$DOCKERFILE" | awk '{print $1}')"
-
-    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-        local existing_sha
-        existing_sha="$(docker image inspect -f "{{ index .Config.Labels \"$DOCKERFILE_SHA_LABEL\" }}" "$IMAGE_NAME" 2>/dev/null || true)"
-        if [[ "$existing_sha" == "$current_sha" ]]; then
-            return
-        fi
+    if [[ "$IMAGE_NAME" == *":latest" ]]; then
+        echo "🐳 Refreshing ESP32 image: $IMAGE_NAME"
+    elif docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        return
+    else
+        echo "🐳 Pulling ESP32 image: $IMAGE_NAME"
     fi
 
-    echo "🐳 Building ESP32-S3 image: $IMAGE_NAME"
     if [[ "${ROBOTICK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then
         return
     fi
-    docker build \
-        -t "$IMAGE_NAME" \
-        --label "$DOCKERFILE_SHA_LABEL=$current_sha" \
-        -f "$DOCKERFILE" \
-        "$REPO_ROOT"
+    docker pull "$IMAGE_NAME"
 }
 
 container_name_for_mode() {

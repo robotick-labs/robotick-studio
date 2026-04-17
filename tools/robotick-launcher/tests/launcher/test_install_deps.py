@@ -439,6 +439,65 @@ def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
     assert result.missing_apt == ["git"]
 
 
+def test_install_deps_keeps_linux_apt_for_custom_stage_models(monkeypatch, tmp_path):
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+
+    base_config = SimpleNamespace(
+        project_name="proj",
+        project_dir=project_dir,
+        python_roots=[],
+    )
+    custom_stage_model_config = SimpleNamespace(
+        model={
+            "runtime": {
+                "target_platform": "linux",
+                "target_variant": "x86_64",
+                "custom_stages": {
+                    "run_command": "./scripts/run.sh",
+                },
+            }
+        }
+    )
+
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._sync_runtime_repo_sources",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._collect_model_names",
+        lambda *args, **kwargs: ["proj-model"],
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps.Config",
+        lambda project, model_name, target, base_dir, dry_run, stub_install: custom_stage_model_config,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps.sync_model_dependencies",
+        lambda config: ([], ["cmake", "git"]),
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.install_deps._find_missing_apt_packages",
+        lambda pkgs: set(),
+    )
+
+    result = install_deps._install_deps_locked(
+        config=base_config,
+        project="proj",
+        base_dir=project_dir,
+        workspace_root=workspace_dir,
+        dry_run=False,
+        stub_install=True,
+        model=None,
+        target="linux",
+    )
+
+    assert result is not None
+    assert result.apt_packages == ["cmake", "git"]
+
+
 def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):
     engine_repo = tmp_path / "engine-repo"
     workloads_repo = tmp_path / "workloads-repo"
