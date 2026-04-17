@@ -210,6 +210,32 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
     assert callable(on_interrupt)
 
 
+def test_load_docker_linux_spec_uses_model_scoped_container_name(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "pip-e"
+    project_dir.mkdir(parents=True)
+
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    project_yaml = {
+        "runtime": {
+            "engine": {
+                "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine",
+            },
+        }
+    }
+    (project_dir / "pip-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "pip-e-brain.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
+    (project_dir / "pip-e-face.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
+
+    brain_spec = load_docker_linux_spec("pip-e", "pip-e-brain", "linux", project_dir)
+    face_spec = load_docker_linux_spec("pip-e", "pip-e-face", "linux", project_dir)
+
+    assert brain_spec is not None
+    assert face_spec is not None
+    assert brain_spec.container_name != face_spec.container_name
+
+
 def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
     spec = RemoteLinuxSpec(
         host="raspberrypi.local",
@@ -420,7 +446,7 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm64-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -582,7 +608,7 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm32-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -784,6 +810,34 @@ def test_load_docker_linux_x64_spec_uses_prepared_project_image_when_present(tmp
     assert spec.image_name == "robotick-proj-linux-docker:linux-x64-deadbeef"
 
 
+def test_load_docker_linux_x64_spec_defaults_target_platform_from_target(tmp_path):
+    repo_root = tmp_path / "repo"
+    project_dir = repo_root / "robots" / "proj"
+    project_dir.mkdir(parents=True)
+    (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
+
+    (project_dir / "proj.project.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {
+                    "engine": {
+                        "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
+                    },
+                }
+            }
+        )
+    )
+    (project_dir / "proj-face.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_variant": "x86_64"}})
+    )
+
+    spec = load_docker_linux_x64_spec("proj", "proj-face", "linux", project_dir)
+
+    assert spec is not None
+    assert spec.family == "linux-x64"
+    assert spec.supports_runtime is True
+
+
 def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
     spec = _docker_linux_spec(
         family="linux-x64",
@@ -830,7 +884,7 @@ def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-x64-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/proj/generated/proj_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && mkdir -p /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/proj/generated/proj_face/linux/deps/; fi",
         ],
         [
             "docker",

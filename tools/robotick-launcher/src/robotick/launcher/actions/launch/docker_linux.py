@@ -100,7 +100,8 @@ def load_docker_linux_spec(
 
     config = Config(project, model, target, base_dir, dry_run=False, stub_install=False)
     runtime = dict(config.model.get("runtime") or {})
-    if (runtime.get("target_platform") or "").strip() != "linux":
+    target_platform = str(runtime.get("target_platform") or target).strip().lower()
+    if target_platform != "linux":
         return None
 
     target_variant = (runtime.get("target_variant") or "").strip().lower()
@@ -142,6 +143,7 @@ def load_docker_linux_spec(
             family_config.container_name_prefix,
             image_name,
             repo_root,
+            launcher_dir.resolve(),
         ),
         local_repo_root=repo_root,
         local_launcher_dir=launcher_dir.resolve(),
@@ -458,6 +460,13 @@ def _inspect_docker_value(command: list[str]) -> str:
     return result.stdout.strip()
 
 
-def _build_container_name(prefix: str, image_name: str, repo_root: Path) -> str:
-    scope_hash = hashlib.sha256(f"{image_name}|{repo_root}".encode("utf-8")).hexdigest()[:12]
+def _build_container_name(
+    prefix: str,
+    image_name: str,
+    repo_root: Path,
+    launcher_dir: Path,
+) -> str:
+    scope_hash = hashlib.sha256(
+        f"{image_name}|{repo_root}|{launcher_dir}".encode("utf-8")
+    ).hexdigest()[:12]
     return f"{prefix}-{scope_hash}"

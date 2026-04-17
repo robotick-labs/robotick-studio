@@ -617,6 +617,7 @@ def project_cache_materialize_shell(
     launcher_cache_dir = shlex.quote(f"{launcher_dir}/{subdir}")
     return (
         f"if [[ -d {cache_dir} ]]; then "
+        f"rm -rf {launcher_cache_dir} && "
         f"mkdir -p {launcher_cache_dir} && "
         f"cp -a {cache_dir}/. {launcher_cache_dir}/; "
         "fi"
