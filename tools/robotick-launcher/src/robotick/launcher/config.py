@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from rich import print
 import typer
@@ -55,6 +55,9 @@ class Config:
         launcher_path_getter: Optional[
             Callable[[str, str, str, Path], Tuple[Path, Path, Path]]
         ] = None,
+        project_data: Optional[Mapping[str, Any]] = None,
+        model_path: Optional[Path] = None,
+        model_data: Optional[Mapping[str, Any]] = None,
     ):
         from robotick.launcher.utils import get_launcher_paths
 
@@ -70,13 +73,20 @@ class Config:
         self.project_name_safe = project.replace("-", "_")
 
         # Load YAMLs
-        self.project = self._load_yaml(self.project_file)
+        self.project = self._load_yaml(
+            self.project_file, data=project_data, label=str(self.project_file)
+        )
         self.tooling = DotDict({})
         self.runtime = DotDict({})
         self._normalize_project_schema()
         self.model = DotDict({})
         if model:
-            self.model = self._load_yaml(self._find_model_yaml(base_dir, model))
+            resolved_model_path = model_path or self._find_model_yaml(base_dir, model)
+            self.model = self._load_yaml(
+                resolved_model_path,
+                data=model_data,
+                label=str(resolved_model_path),
+            )
 
         # Derived helpers
         self.python_roots: List[PythonRootConfig] = self._parse_python_roots()
@@ -100,7 +110,22 @@ class Config:
             )
         return matches[0]
 
-    def _load_yaml(self, path: Path) -> DotDict:
+    def _load_yaml(
+        self,
+        path: Path,
+        *,
+        data: Optional[Mapping[str, Any]] = None,
+        label: Optional[str] = None,
+    ) -> DotDict:
+        if data is not None:
+            try:
+                return DotDict(dict(data))
+            except Exception as exc:  # pragma: no cover - defensive
+                display = label or str(path)
+                print(f"[red]❌ Failed to parse YAML data:[/] {display}")
+                print(f"[red]Reason:[/] {exc}")
+                raise typer.Exit(1)
+
         if not path.exists():
             print(f"[red]❌ Missing YAML file:[/] {path}")
             raise typer.Exit(1)

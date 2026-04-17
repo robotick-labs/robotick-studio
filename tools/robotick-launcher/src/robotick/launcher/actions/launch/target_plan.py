@@ -101,14 +101,20 @@ def resolve_target_plan(
     model: str,
     target: str,
     base_dir: Path,
+    *,
+    config: Optional[Config] = None,
 ) -> TargetPlan:
-    config = Config(project, model, target, base_dir, dry_run=False, stub_install=False)
+    config = config or Config(
+        project, model, target, base_dir, dry_run=False, stub_install=False
+    )
     runtime = dict(config.model.get("runtime") or {})
     target_platform = str(runtime.get("target_platform") or target).strip().lower()
     target_variant = str(runtime.get("target_variant") or "").strip().lower()
 
-    container_spec = load_docker_linux_spec(project, model, target, base_dir)
-    remote_spec = load_remote_linux_spec(project, model, target, base_dir)
+    container_spec = load_docker_linux_spec(
+        project, model, target, base_dir, config=config
+    )
+    remote_spec = load_remote_linux_spec(project, model, target, base_dir, config=config)
 
     build = TargetActionPlan(strategy=LOCAL_STRATEGY)
     deploy = TargetActionPlan(strategy=LOCAL_STRATEGY)

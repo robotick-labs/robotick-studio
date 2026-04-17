@@ -191,6 +191,11 @@ def _pip_install(
     if stub_install:
         print("[yellow]⚠️  Stub install requested — skipping pip commands.")
         return
+    if not requirements_files:
+        print(
+            "[dim][Launcher] prepare-project-workspace: no python requirements files; skipping pip install.[/]"
+        )
+        return
     if dry_run:
         for req in requirements_files:
             print(f"[yellow]DRY RUN:[/] would install requirements from {req}")
@@ -542,6 +547,11 @@ def hydrate_project_workspace(
 
     base_dir = base_dir.resolve()
     workspace_root = workspace_root.resolve()
+
+    print(
+        "[Launcher] prepare-project-workspace: hydrating "
+        f"{project}/{target} workspace state under .launcher/..."
+    )
 
     config = Config(
         project,

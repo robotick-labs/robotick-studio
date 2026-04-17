@@ -27,6 +27,7 @@ from typing import Iterable, Optional
 
 from rich import print
 
+from robotick.launcher.discover_deps import collect_all_dependencies
 from robotick.launcher.actions.launch.sync_dependencies import sync_model_dependencies
 from robotick.launcher.actions.query.list import list_project_models
 from robotick.launcher.config import Config
@@ -147,6 +148,7 @@ BASE_IMAGE_APT_PACKAGES_BY_FAMILY = {
 }
 ARM64_TARGET_VARIANTS = {"arm64", "aarch64"}
 ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
+MATERIALIZED_DEP_SOURCE_TYPES = frozenset({"git", "git_source_archive", "idf"})
 
 
 @dataclass(frozen=True)
@@ -367,6 +369,80 @@ def _collect_materialized_dependencies(
     return _filter_base_image_apt_packages(family, apt_packages), installed_deps, model_entries
 
 
+def _collect_image_requirement_summary(
+    project: str,
+    base_dir: Path,
+    target: str,
+    family: str,
+    scoped_models: list[str],
+) -> tuple[list[str], list[dict[str, object]], list[dict[str, object]]]:
+    """Summarise image-level requirements without hydrating/copying any deps.
+
+    Warm launches should not pay the cost of fully syncing launcher dependency
+    trees when the selected models only rely on packages already promised by the
+    shared base image. This lightweight scan looks only at declared workload
+    dependencies and decides whether a derived local image is needed at all.
+    """
+
+    apt_packages: set[str] = set()
+    materialized_deps: list[dict[str, object]] = []
+    model_entries: list[dict[str, object]] = []
+
+    for model_name in scoped_models:
+        model_config = Config(
+            project,
+            model_name,
+            target,
+            base_dir,
+            dry_run=False,
+            stub_install=False,
+        )
+        used_workload_types = {
+            workload.get("type")
+            for workload in (model_config.model.get("workloads") or [])
+            if isinstance(workload, dict) and workload.get("type")
+        }
+        deps = collect_all_dependencies(
+            model_config,
+            target,
+            allowed_types=used_workload_types,
+        )
+        model_entries.append(
+            {
+                "model": model_name,
+                "target": target,
+                "target_family": _family_for_model(project, model_name, target, base_dir),
+            }
+        )
+        for dep in deps:
+            source = dep.source
+            if source.type == "apt":
+                package_name = getattr(source, "package", None)
+                if package_name:
+                    apt_packages.add(package_name)
+                continue
+            if source.type not in MATERIALIZED_DEP_SOURCE_TYPES:
+                continue
+            materialized_deps.append(
+                {
+                    "model": model_name,
+                    "name": dep.name,
+                    "source_type": source.type,
+                    "url": getattr(source, "url", None),
+                    "repo": getattr(source, "repo", None),
+                    "asset": getattr(source, "asset", None),
+                    "component": getattr(source, "component", None),
+                    "pin": getattr(source, "pin", None),
+                }
+            )
+
+    return (
+        _filter_base_image_apt_packages(family, apt_packages),
+        materialized_deps,
+        model_entries,
+    )
+
+
 def _render_dockerfile(base_image: str, apt_packages: list[str], include_cache: bool) -> str:
     """Render the small derived Dockerfile for a project-target image.
 
@@ -465,6 +541,55 @@ def prepare_project_docker(
     state_dir = _family_state_dir(project, target, family, base_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
 
+    print(
+        "[Launcher] prepare-project-docker: resolving "
+        f"{family} image for {project}/{target} ({len(scoped_models)} model(s))..."
+    )
+
+    apt_packages, summarized_materialized_deps, model_entries = (
+        _collect_image_requirement_summary(
+            project,
+            base_dir,
+            target,
+            family,
+            scoped_models,
+        )
+    )
+
+    if not apt_packages and not summarized_materialized_deps:
+        resolved_metadata_path = _family_metadata_path(project, target, family, base_dir)
+        resolved_payload = {
+            "family": family,
+            "image_name": base_image,
+            "image_repo": base_image.split(":", 1)[0],
+            "image_tag": base_image.split(":", 1)[-1],
+            "base_image": base_image,
+            "dockerfile_path": "",
+            "context_dir": str(state_dir),
+            "scoped_models": scoped_models,
+            "metadata_path": "",
+            "uses_base_image_directly": True,
+        }
+        if not dry_run:
+            write_text_if_changed(
+                resolved_metadata_path, json.dumps(resolved_payload, indent=2) + "\n"
+            )
+        print(
+            "[Launcher] prepare-project-docker: no project-specific image deps; "
+            f"reusing shared base image {base_image}"
+        )
+        return PreparedProjectDockerInfo(
+            family=family,
+            image_name=base_image,
+            image_repo=base_image.split(":", 1)[0],
+            image_tag=base_image.split(":", 1)[-1],
+            base_image=base_image,
+            metadata_path=resolved_metadata_path,
+            dockerfile_path=state_dir / "Dockerfile",
+            context_dir=state_dir,
+            scoped_models=tuple(scoped_models),
+        )
+
     apt_packages, installed_deps, model_entries = _collect_materialized_dependencies(
         project,
         base_dir,
@@ -533,6 +658,10 @@ def prepare_project_docker(
         write_text_if_changed(
             resolved_metadata_path, json.dumps(resolved_payload, indent=2) + "\n"
         )
+        print(
+            "[Launcher] prepare-project-docker: reusing local project image "
+            f"{image_name}"
+        )
         return PreparedProjectDockerInfo(
             family=family,
             image_name=image_name,
@@ -546,6 +675,10 @@ def prepare_project_docker(
         )
 
     _ensure_base_image(base_image, dry_run=dry_run)
+    print(
+        "[Launcher] prepare-project-docker: building local project image "
+        f"{image_name}"
+    )
     build_cmd = ["docker", "build", "-t", image_name, str(state_dir)]
     _print_command(build_cmd)
     run_subprocess(build_cmd)
