@@ -399,7 +399,9 @@ def test_generate_esp32_run_script_skips_flash_when_checksum_unchanged(tmp_path)
     assert ". /opt/esp/idf/export.sh >/dev/null &&" in common_setup
 
 
-def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
+def test_install_deps_skips_host_apt_validation_for_non_linux_targets(
+    monkeypatch, tmp_path
+):
     project_dir = _clone_fixture(tmp_path)
     workspace_dir = tmp_path / "workspace"
     workspace_dir.mkdir()
@@ -431,15 +433,15 @@ def test_install_deps_reports_missing_apt(monkeypatch, tmp_path):
         workspace_root=workspace_dir,
         dry_run=False,
         stub_install=True,
+        target="esp32",
     )
 
     assert result is not None
-    assert "cmake" in result.apt_packages
-    assert "git" in result.apt_packages
-    assert result.missing_apt == ["git"]
+    assert result.apt_packages == []
+    assert result.missing_apt == []
 
 
-def test_install_deps_keeps_linux_apt_for_custom_stage_models(monkeypatch, tmp_path):
+def test_install_deps_skips_linux_apt_for_custom_stage_models(monkeypatch, tmp_path):
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     workspace_dir = tmp_path / "workspace"
@@ -495,7 +497,8 @@ def test_install_deps_keeps_linux_apt_for_custom_stage_models(monkeypatch, tmp_p
     )
 
     assert result is not None
-    assert result.apt_packages == ["cmake", "git"]
+    assert result.apt_packages == []
+    assert result.missing_apt == []
 
 
 def test_runtime_repo_pinning_writes_lock_and_overrides_paths(tmp_path):

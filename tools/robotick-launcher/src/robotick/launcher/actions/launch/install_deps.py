@@ -488,8 +488,6 @@ def _install_deps_locked(
     # --- Repo deps + apt packages ---
     model_names = _collect_model_names(project, base_dir, model)
     git_dependencies: List[tuple[str, str, Optional[str], Path]] = []
-    apt_packages: Set[str] = set()
-
     for model_name in model_names:
         try:
             model_config = Config(
@@ -506,42 +504,14 @@ def _install_deps_locked(
         runtime_cfg = dict(model_config.model.get("runtime") or {})
         target_platform = str(runtime_cfg.get("target_platform") or "").strip().lower()
         target_variant = str(runtime_cfg.get("target_variant") or "").strip().lower()
-        custom_stages = runtime_cfg.get("custom_stages") or {}
-        uses_host_local_stages = bool(custom_stages)
-        if target_platform == "linux" and not uses_host_local_stages:
-            # Keep install-deps as the launcher stage that hydrates python roots, runtime repos,
-            # and model-specific dependency state. The only thing skipped here is host apt
-            # validation for Linux targets, because their build/run environment now lives in Docker.
+        if apt:
+            # Build/runtime toolchains now come from the published Docker images instead of the host.
+            # We still collect git/python deps here, but declared apt requirements are informational only
+            # until we have a richer per-model container hydration step.
             print(
                 f"[dim]↪︎ Skipping host apt validation for {model_name} "
-                f"({target_platform}/{target_variant or 'x64'}); build deps are provided by Docker[/dim]"
+                f"({target_platform or target}/{target_variant or 'default'}); build deps are provided by Docker[/dim]"
             )
-        else:
-            apt_packages.update(apt)
-
-    missing_apt: List[str] = []
-    apt_packages_sorted: List[str] = sorted(apt_packages)
-    if apt_packages:
-        if dry_run:
-            missing_apt = apt_packages_sorted
-            print(
-                f"[yellow]↪︎ DRY-RUN:[/] would verify apt packages: {', '.join(apt_packages_sorted)}"
-            )
-        else:
-            missing_set = _find_missing_apt_packages(apt_packages)
-            missing_apt = sorted(missing_set)
-        if missing_apt:
-            print(
-                f"[yellow]⚠ Missing apt packages:[/] {', '.join(missing_apt)}\n"
-                f"[yellow]↳ Please run:[/] sudo apt-get install -y {' '.join(missing_apt)}"
-            )
-            if not stub_install:
-                raise RuntimeError(
-                    f"Missing apt packages: {', '.join(missing_apt)}. "
-                    "Install them and rerun install-deps."
-                )
-        else:
-            print(f"[dim]✓ All required apt packages are installed[/dim]")
 
     return InstallDepsResult(
         venv_path=venv_path,
@@ -549,8 +519,8 @@ def _install_deps_locked(
         site_packages=site_packages,
         python_roots=config.python_roots,
         git_dependencies=git_dependencies,
-        apt_packages=apt_packages_sorted,
-        missing_apt=missing_apt,
+        apt_packages=[],
+        missing_apt=[],
     )
 
 
