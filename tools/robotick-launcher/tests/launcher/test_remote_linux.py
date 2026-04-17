@@ -446,7 +446,7 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm64-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -608,7 +608,7 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm32-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -884,7 +884,7 @@ def test_build_docker_linux_x64_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-x64-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then mkdir -p /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/proj/generated/proj_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && mkdir -p /tmp/repo/.launcher/proj/generated/proj_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/proj/generated/proj_face/linux/deps/; fi",
         ],
         [
             "docker",
