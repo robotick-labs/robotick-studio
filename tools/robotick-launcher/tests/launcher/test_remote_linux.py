@@ -1113,7 +1113,10 @@ def test_stop_docker_linux_x64_kills_existing_binary_inside_container(monkeypatc
     stop_docker_linux_x64(spec, dry_run=False)
 
     assert ensure_calls == []
-    assert rm_calls == [["docker", "rm", "-f", "robotick-launcher-linux-x64-build-test-run"]]
+    assert rm_calls == [
+        ["docker", "kill", "robotick-launcher-linux-x64-build-test-run"],
+        ["docker", "rm", "-f", "robotick-launcher-linux-x64-build-test-run"],
+    ]
 
 
 def test_run_docker_linux_x64_execs_run_script_inside_keepalive_container(monkeypatch):
@@ -1358,17 +1361,29 @@ def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(
     run_script.write_text("#!/bin/bash\nset -e\n", encoding="utf-8")
     stop_script.write_text("#!/bin/bash\nset -e\n", encoding="utf-8")
 
-    calls: list[tuple[list[str], Path | None]] = []
+    run_subprocess_calls: list[tuple[list[str], Path | None]] = []
+    subprocess_run_calls: list[tuple[list[str], Path | None]] = []
 
     def _fake_run_subprocess(cmd, cwd=None, **kwargs):
-        calls.append((cmd, cwd))
+        run_subprocess_calls.append((cmd, cwd))
 
         class _Proc:
             returncode = 0
 
         return _Proc()
 
+    def _fake_subprocess_run(cmd, cwd=None, text=None, capture_output=None, check=None):
+        subprocess_run_calls.append((cmd, cwd))
+
+        class _Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Completed()
+
     monkeypatch.setattr(target_plan_module, "run_subprocess", _fake_run_subprocess)
+    monkeypatch.setattr(target_plan_module.subprocess, "run", _fake_subprocess_run)
 
     plan = resolve_target_plan("proj", "proj-sim", "linux", project_dir)
     assert plan.run.run_handler is not None
@@ -1376,7 +1391,9 @@ def test_resolve_target_plan_ros2_handlers_execute_generated_scripts(
     plan.run.stop_handler(False)
     plan.run.run_handler(False)
 
-    assert calls == [
+    assert subprocess_run_calls == [
         (["bash", str(stop_script)], stop_script.parent),
+    ]
+    assert run_subprocess_calls == [
         (["bash", str(run_script)], run_script.parent),
     ]

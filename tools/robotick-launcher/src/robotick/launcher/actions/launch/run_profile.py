@@ -32,6 +32,13 @@ from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.config import Config
 
 
+def _print_plain(message: str) -> None:
+    """Write a plain log line without Rich interpreting bracket tags as markup."""
+
+    sys.stdout.write(f"{message}\n")
+    sys.stdout.flush()
+
+
 def stream_output(proc: subprocess.Popen, tag: str):
     for line in iter(proc.stdout.readline, b""):
         sys.stdout.buffer.write(f"[{tag}] ".encode("utf-8") + line)
@@ -52,31 +59,31 @@ def _emit_status(status_queue: Optional[Any], **payload):
 def _log_stage_start(stage: LaunchStage, detail: str) -> None:
     """Emit a consistent stage start banner for interactive launcher runs."""
 
-    print(f"[{stage.value}] start — {detail}")
+    _print_plain(f"[{stage.value}:/] start — {detail}")
 
 
 def _log_stage_success(stage: LaunchStage, detail: str) -> None:
     """Emit a consistent stage completion banner for interactive launcher runs."""
 
-    print(f"[green][{stage.value}] done — {detail}[/]")
+    _print_plain(f"[{stage.value}:/] done — {detail}")
 
 
 def _log_stage_failure(stage: LaunchStage, detail: str) -> None:
     """Emit a consistent stage failure banner for interactive launcher runs."""
 
-    print(f"[bold red]❌ [{stage.value}] failed — {detail}[/]")
+    _print_plain(f"❌ [{stage.value}:/] failed — {detail}")
 
 
 def _log_init_step(detail: str) -> None:
     """Emit a tagged launcher-init progress line for Studio terminal logs."""
 
-    print(f"[init] {detail}")
+    _print_plain(f"[init:/] {detail}")
 
 
 def _log_init_done(detail: str) -> None:
     """Emit a tagged launcher-init completion line for Studio terminal logs."""
 
-    print(f"[green][init] done — {detail}[/]")
+    _print_plain(f"[init:/] done — {detail}")
 
 
 def _signal_process_group(proc: subprocess.Popen, sig: int) -> None:
@@ -391,6 +398,7 @@ def stop_profile(
     dry_run: bool = False,
     helper_pids: Optional[dict[str, int]] = None,
 ) -> dict[str, object]:
+    _print_plain(f"[stop:/] start — stopping profile '{profile}'")
     if ":" not in profile:
         return {
             "status": "error",
@@ -428,14 +436,23 @@ def stop_profile(
     stopped_models: list[str] = []
     errors: list[str] = []
     results_lock = threading.Lock()
+    stop_started_by_model: dict[str, float] = {}
 
     def _record_success(model_id: str) -> None:
         with results_lock:
             stopped_models.append(model_id)
+            started_at = stop_started_by_model.get(model_id)
+        if started_at is None:
+            _print_plain(f"[stop:{model_id}] done — stopped")
+            return
+        _print_plain(
+            f"[stop:{model_id}] done — stopped in {time.monotonic() - started_at:.3f}s"
+        )
 
     def _record_error(model_id: str, exc: Exception) -> None:
         with results_lock:
             errors.append(f"{model_id}: {exc}")
+        _print_plain(f"❌ [stop:{model_id}] failed — {exc}")
 
     def _stop_one_local_model(
         model_id: str,
@@ -459,16 +476,34 @@ def stop_profile(
 
     local_stop_threads: list[threading.Thread] = []
 
+    def _run_stop_handler_in_thread(
+        model_id: str,
+        stop_handler,
+    ) -> None:
+        try:
+            stop_handler(dry_run)
+            _record_success(model_id)
+        except Exception as exc:
+            _record_error(model_id, exc)
+
     for model_id in reversed(model_ids):
         model_target = model_targets[model_id]
         try:
+            with results_lock:
+                stop_started_by_model[model_id] = time.monotonic()
+            _print_plain(f"[stop:{model_id}] start — stopping model")
             _, _, binary_path = get_launcher_paths(
                 project_name, model_id, model_target, base_dir
             )
             plan = resolve_target_plan(project_name, model_id, model_target, base_dir)
             if plan.run.stop_handler is not None:
-                plan.run.stop_handler(dry_run)
-                _record_success(model_id)
+                thread = threading.Thread(
+                    target=_run_stop_handler_in_thread,
+                    args=(model_id, plan.run.stop_handler),
+                    daemon=True,
+                )
+                thread.start()
+                local_stop_threads.append(thread)
                 continue
 
             if plan.run.strategy == "local":
@@ -490,12 +525,14 @@ def stop_profile(
         thread.join()
 
     if errors:
+        _print_plain(f"❌ [stop:/] failed — {'; '.join(errors)}")
         return {
             "status": "error",
             "detail": "; ".join(errors),
             "stopped": stopped_models,
         }
 
+    _print_plain(f"[stop:/] done — stopped {len(stopped_models)} model(s)")
     return {"status": "stopped", "stopped": stopped_models}
 
 

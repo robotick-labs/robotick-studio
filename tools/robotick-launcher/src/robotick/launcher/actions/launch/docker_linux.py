@@ -201,10 +201,19 @@ def deploy_docker_linux(spec: DockerLinuxSpec, *, dry_run: bool) -> None:
 def stop_docker_linux(spec: DockerLinuxSpec, *, dry_run: bool) -> None:
     _require_runtime_support(spec, stage="stop")
     if spec.use_host_network:
-        remove_cmd = ["docker", "rm", "-f", _runtime_container_name(spec)]
+        runtime_container = _runtime_container_name(spec)
+        kill_cmd = ["docker", "kill", runtime_container]
+        remove_cmd = ["docker", "rm", "-f", runtime_container]
         if dry_run:
+            _print_command(kill_cmd)
             _print_command(remove_cmd)
         if not dry_run:
+            subprocess.run(
+                kill_cmd,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             subprocess.run(
                 remove_cmd,
                 check=False,

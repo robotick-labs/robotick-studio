@@ -84,6 +84,46 @@ class _QueueStream:
             self._buffer = ""
 
 
+class _BroadcastStream:
+    """Mirror listener-thread output to websocket log subscribers line by line."""
+
+    def __init__(self, passthrough):
+        self.passthrough = passthrough
+        self._buffer = ""
+        self._lock = threading.Lock()
+        self.buffer = self
+        self.encoding = getattr(passthrough, "encoding", "utf-8")
+
+    def write(self, data: str):
+        if not data:
+            return 0
+        with self._lock:
+            if isinstance(data, bytes):
+                text = data.decode(self.encoding or "utf-8", errors="replace")
+            else:
+                text = str(data)
+            self.passthrough.write(text)
+            self.passthrough.flush()
+            self._buffer += text
+            loop = log_loop
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                if loop is not None:
+                    _broadcast_log(line, loop)
+        return len(text)
+
+    def flush(self):
+        self.passthrough.flush()
+
+    def close(self):
+        with self._lock:
+            if self._buffer:
+                loop = log_loop
+                if loop is not None:
+                    _broadcast_log(self._buffer, loop)
+                self._buffer = ""
+
+
 def _set_initial_status(profile: str):
     with status_lock:
         current_status.clear()
@@ -261,8 +301,6 @@ def _status_consumer(loop: asyncio.AbstractEventLoop):
 
     if current_status.get("status") not in ("error", "completed", "stopping"):
         _set_stopped_status()
-    _close_log_subscribers()
-
 
 def _tracked_helper_pids() -> dict[str, int]:
     with status_lock:
@@ -404,28 +442,37 @@ def _stop_launcher_worker() -> None:
         process_handle = None
         status_queue = None
         status_thread = None
-        current_profile = None
-        current_project_path = None
-        current_run_started_at = None
-        log_loop = None
 
     if profile and project_path:
-        try:
-            run_profile_module.stop_profile(
-                project=project_path.name.removesuffix(".project.yaml"),
-                profile=profile,
-                base_dir=project_path.parent,
-                helper_pids=helper_pids,
-            )
-        except Exception as exc:
-            print(f"[Launcher] Best-effort profile stop failed: {exc}")
+        stdout = _BroadcastStream(sys.__stdout__)
+        stderr = _BroadcastStream(sys.__stderr__)
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                stop_started_at = time.monotonic()
+                run_profile_module.stop_profile(
+                    project=project_path.name.removesuffix(".project.yaml"),
+                    profile=profile,
+                    base_dir=project_path.parent,
+                    helper_pids=helper_pids,
+                )
+                stop_elapsed = time.monotonic() - stop_started_at
+                print(f"[stop:/] model stop completed in {stop_elapsed:.3f}s")
+            except Exception as exc:
+                print(f"[Launcher] Best-effort profile stop failed: {exc}")
+            finally:
+                stdout.close()
+                stderr.close()
 
     if proc and proc.is_alive():
+        reap_started_at = time.monotonic()
         proc.terminate()
-        proc.join(timeout=3)
+        proc.join(timeout=0.25)
         if proc.is_alive():
             proc.kill()
-            proc.join(timeout=1)
+            proc.join(timeout=0.25)
+        print(
+            f"[stop:/] launcher worker cleanup completed in {time.monotonic() - reap_started_at:.3f}s"
+        )
 
     if queue:
         try:
@@ -439,9 +486,12 @@ def _stop_launcher_worker() -> None:
         thread.join(timeout=1)
 
     _set_stopped_status()
-    _close_log_subscribers()
 
     with lifecycle_lock:
+        current_profile = None
+        current_project_path = None
+        current_run_started_at = None
+        log_loop = None
         stop_thread = None
 
 

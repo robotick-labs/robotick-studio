@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import shlex
 from pathlib import Path
+import subprocess
+import sys
 from typing import Callable, Optional
 
 from robotick.launcher.actions.launch.docker_linux import (
@@ -65,15 +67,43 @@ class TargetPlan:
     run: TargetActionPlan
 
 
-def _run_generated_stage_script(script_path: Path, dry_run: bool) -> None:
+def _run_generated_stage_script(
+    script_path: Path,
+    dry_run: bool,
+    *,
+    quiet_success: bool = False,
+    quiet_label: Optional[str] = None,
+) -> None:
     cmd = ["bash", str(script_path)]
     quoted = " ".join(shlex.quote(part) for part in cmd)
-    print(f"$ {quoted}")
+    if quiet_success and quiet_label:
+        sys.stdout.write(f"{quiet_label}\n")
+        sys.stdout.flush()
+    else:
+        print(f"$ {quoted}")
     if dry_run:
         return
     if not script_path.exists():
         raise FileNotFoundError(f"Stage script not found: {script_path}")
-    run_subprocess(cmd, cwd=script_path.parent)
+    if not quiet_success:
+        run_subprocess(cmd, cwd=script_path.parent)
+        return
+
+    proc = subprocess.run(
+        cmd,
+        cwd=script_path.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        if proc.stdout:
+            sys.stdout.write(proc.stdout)
+            sys.stdout.flush()
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+            sys.stderr.flush()
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
 def _resolve_custom_stage_script_paths(config: Config) -> dict[LaunchStage, Path]:
@@ -274,7 +304,9 @@ def resolve_target_plan(
             run,
             strategy=LOCAL_STRATEGY,
             stop_handler=lambda dry_run, script=custom_stop_script: _run_generated_stage_script(
-                script, dry_run
+                script,
+                dry_run,
+                quiet_success=True,
             ),
         )
 
