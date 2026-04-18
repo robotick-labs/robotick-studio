@@ -13,6 +13,7 @@
 // -----------------------------------------------------------------------------
 
 import { sendTelemetryWriteWs } from "./telemetry-ws-client";
+import { buildUrl } from "../../launcher/internal/launcher-interface";
 
 const plainTextDecoder = new TextDecoder();
 
@@ -180,6 +181,19 @@ export interface SetWorkloadInputConnectionStateResult {
   body: SetWorkloadInputConnectionStateResponseBody | null;
 }
 
+export async function fetchTelemetryLayout(base_url: string): Promise<LayoutModel> {
+  const response = await fetch(
+    buildUrl(base_url, "/api/telemetry/workloads_buffer/layout"),
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Request failed ${response.status} ${response.statusText}: ${text}`,
+    );
+  }
+  return (await response.json()) as LayoutModel;
+}
+
 const RETRYABLE_WRITE_STATUS_CODES = new Set([409, 429, 503]);
 
 function delay(ms: number): Promise<void> {
@@ -277,7 +291,7 @@ export async function setWorkloadInputConnectionState(
   let response: Response;
   try {
     response = await fetch(
-      `${base_url}/set_workload_input_connection_state`,
+      buildUrl(base_url, "/api/telemetry/set_workload_input_connection_state"),
       {
         method: "POST",
         headers: {

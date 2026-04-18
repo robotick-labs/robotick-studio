@@ -68,6 +68,7 @@ describe("WritableTelemetryInputField", () => {
     const telemetryService = {
       subscribeTelemetry: vi.fn(() => () => undefined),
       ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
       setWorkloadInputFieldsData,
       setWorkloadInputConnectionState: vi.fn(async () => ({
         ok: true,
@@ -200,6 +201,7 @@ describe("WritableTelemetryInputField", () => {
     const telemetryService = {
       subscribeTelemetry: vi.fn(() => () => undefined),
       ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
       setWorkloadInputFieldsData,
       setWorkloadInputConnectionState,
       getLatestModel: vi.fn(() => model),
@@ -237,6 +239,117 @@ describe("WritableTelemetryInputField", () => {
         setWorkloadInputConnectionState.mock.invocationCallOrder[0],
       ).toBeLessThan(setWorkloadInputFieldsData.mock.invocationCallOrder[0]);
       expect(currentValue).toBe(false);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("toggles incoming connection state from the lightning button", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid-1",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      writable_inputs_by_path: new Map([
+        [
+          "workload.inputs.enabled",
+          {
+            field_handle: 7,
+            field_path: "workload.inputs.enabled",
+            incoming_connection_handle: 11,
+            incoming_connection_enabled: true,
+          },
+        ],
+      ]),
+    };
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "workload.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_enabled: true,
+      model,
+      getValue: () => true,
+    };
+
+    const setWorkloadInputConnectionState = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, body: {} })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: {} });
+
+    const telemetryService = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
+      setWorkloadInputFieldsData: vi.fn(async () => ({ ok: true, status: 200, body: {} })),
+      setWorkloadInputConnectionState,
+      getLatestModel: vi
+        .fn()
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce({
+          ...model,
+          writable_inputs_by_path: new Map([
+            [
+              "workload.inputs.enabled",
+              {
+                field_handle: 7,
+                field_path: "workload.inputs.enabled",
+                incoming_connection_handle: 11,
+                incoming_connection_enabled: false,
+              },
+            ],
+          ]),
+        }),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <WritableTelemetryInputField
+              field={field}
+              telemetryBaseUrl="http://example"
+            />
+          </TelemetryServiceProvider>,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      const toggleButton = buttons.find(
+        (button) => button.getAttribute("aria-label") === "Suppress incoming connection for enabled",
+      ) as HTMLButtonElement | undefined;
+      expect(toggleButton).toBeDefined();
+
+      act(() => {
+        toggleButton?.click();
+      });
+      await settle();
+
+      expect(setWorkloadInputConnectionState).toHaveBeenCalledWith(
+        "http://example",
+        expect.objectContaining({
+          updates: [
+            expect.objectContaining({
+              field_handle: 7,
+              field_path: "workload.inputs.enabled",
+              enabled: false,
+            }),
+          ],
+        }),
+      );
     } finally {
       act(() => {
         root.unmount();

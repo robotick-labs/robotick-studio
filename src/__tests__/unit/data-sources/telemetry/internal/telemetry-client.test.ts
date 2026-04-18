@@ -146,7 +146,7 @@ describe("setWorkloadInputConnectionState", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://example/set_workload_input_connection_state",
+      "http://example/api/telemetry/set_workload_input_connection_state",
       expect.objectContaining({
         method: "POST",
       }),

@@ -3,6 +3,7 @@
  */
 import {
   createTelemetryModel,
+  fetchTelemetryLayout,
   type ITelemetryModel,
   type LayoutModel,
 } from "./telemetry-client";
@@ -55,6 +56,7 @@ export type TelemetryStore = {
     subscriber: SubscriberCallbacks
   ) => () => void;
   ensureLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
+  refreshLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
   reset: () => void;
 };
@@ -411,6 +413,17 @@ export function createTelemetryStore(
     });
   }
 
+  async function refreshLayout(baseUrl: string): Promise<ITelemetryModel | null> {
+    if (!baseUrl) {
+      return null;
+    }
+
+    const entry = getOrCreateEntry(baseUrl);
+    const layout = await fetchTelemetryLayout(baseUrl);
+    handleLayoutMessage(entry, layout);
+    return getOrCreateModel(entry);
+  }
+
   function getLatestModel(baseUrl: string): ITelemetryModel | null {
     const entry = stores.get(baseUrl);
     if (!entry) {
@@ -451,6 +464,7 @@ export function createTelemetryStore(
   return {
     subscribeTelemetry,
     ensureLayout,
+    refreshLayout,
     getLatestModel,
     reset,
   };
@@ -460,5 +474,6 @@ const defaultTelemetryStore = createTelemetryStore();
 
 export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
 export const ensureTelemetryLayout = defaultTelemetryStore.ensureLayout;
+export const refreshTelemetryLayout = defaultTelemetryStore.refreshLayout;
 export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

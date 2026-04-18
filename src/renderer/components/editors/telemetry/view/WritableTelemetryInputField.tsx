@@ -20,6 +20,8 @@ const INTEGER_FIELD_TYPES = new Set([
 
 const FLOAT_FIELD_TYPES = new Set(["float", "double"]);
 const SCRUB_WRITE_INTERVAL_MS = 80;
+const LAYOUT_REFRESH_RETRY_DELAY_MS = 1000;
+const MAX_LAYOUT_REFRESH_ATTEMPTS = 5;
 
 function isNumericFieldType(type: string): boolean {
   return INTEGER_FIELD_TYPES.has(type) || FLOAT_FIELD_TYPES.has(type);
@@ -231,6 +233,8 @@ export function WritableTelemetryInputField({
   const [optimisticDraftValue, setOptimisticDraftValue] = useState<string | null>(null);
   const [optimisticConnectionEnabled, setOptimisticConnectionEnabled] = useState<boolean | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const layoutRefreshTimerRef = useRef<number | null>(null);
+  const layoutRefreshAttemptsRef = useRef(0);
   const scrubRef = useRef<{
     onMove: (event: MouseEvent) => void;
     onUp: () => void;
@@ -385,6 +389,30 @@ export function WritableTelemetryInputField({
   const reportedIncomingConnectionEnabled = writableMeta.incomingConnectionEnabled;
   const incomingConnectionEnabled =
     optimisticConnectionEnabled ?? reportedIncomingConnectionEnabled;
+  const connectionToneClassName =
+    capsuleClassName === styles.remoteConnectedCapsule
+      ? styles.inputWriteRowConnectionRemote
+      : capsuleClassName === styles.bothConnectedCapsule
+        ? styles.inputWriteRowConnectionBoth
+        : styles.inputWriteRowConnectionLocal;
+  const connectionToggleToneClassName =
+    capsuleClassName === styles.remoteConnectedCapsule
+      ? styles.inputConnectionToggleRemote
+      : capsuleClassName === styles.bothConnectedCapsule
+        ? styles.inputConnectionToggleBoth
+        : styles.inputConnectionToggleLocal;
+
+  useEffect(() => {
+    if (!hasIncomingConnection) {
+      return;
+    }
+
+    layoutRefreshAttemptsRef.current = 0;
+    if (layoutRefreshTimerRef.current !== null) {
+      window.clearTimeout(layoutRefreshTimerRef.current);
+      layoutRefreshTimerRef.current = null;
+    }
+  }, [hasIncomingConnection]);
 
   useEffect(() => {
     if (isEditing) {
@@ -424,6 +452,56 @@ export function WritableTelemetryInputField({
     hasIncomingConnection,
     reportedIncomingConnectionEnabled,
     optimisticConnectionEnabled,
+  ]);
+
+  useEffect(() => {
+    const writableMeta = getWritableMeta();
+    if (
+      !telemetryBaseUrl ||
+      typeof writableMeta.writableHandle !== "number" ||
+      typeof writableMeta.incomingConnectionHandle === "number"
+    ) {
+      layoutRefreshAttemptsRef.current = 0;
+      return;
+    }
+
+    let cancelled = false;
+    const tryRefresh = () => {
+      if (
+        cancelled ||
+        layoutRefreshAttemptsRef.current >= MAX_LAYOUT_REFRESH_ATTEMPTS
+      ) {
+        return;
+      }
+      layoutRefreshAttemptsRef.current += 1;
+      void telemetryService.refreshLayout(telemetryBaseUrl).catch((error) => {
+        console.warn("refreshLayout rejected", {
+          fieldPath: field.path,
+          error,
+        });
+      });
+      layoutRefreshTimerRef.current = window.setTimeout(
+        tryRefresh,
+        LAYOUT_REFRESH_RETRY_DELAY_MS
+      );
+    };
+
+    tryRefresh();
+
+    return () => {
+      cancelled = true;
+      if (layoutRefreshTimerRef.current !== null) {
+        window.clearTimeout(layoutRefreshTimerRef.current);
+        layoutRefreshTimerRef.current = null;
+      }
+      layoutRefreshAttemptsRef.current = 0;
+    };
+  }, [
+    field.path,
+    telemetryBaseUrl,
+    telemetryService,
+    field.writable_input_handle,
+    field.incoming_connection_handle,
   ]);
 
   useEffect(() => {
@@ -573,13 +651,13 @@ export function WritableTelemetryInputField({
 
   const rowClassName = [
     styles.inputWriteRow,
+    hasIncomingConnection ? styles.inputWriteRowHasConnection : "",
     hasIncomingConnection
       ? incomingConnectionEnabled === false
         ? styles.inputWriteRowConnectionSuppressed
-        : styles.inputWriteRowConnectionActive
+        : connectionToneClassName
       : "",
     className ?? "",
-    capsuleClassName ?? "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -591,10 +669,10 @@ export function WritableTelemetryInputField({
         className={`${styles.inputConnectionToggle} ${
           incomingConnectionEnabled === false
             ? styles.inputConnectionToggleSuppressed
-            : styles.inputConnectionToggleActive
+            : connectionToggleToneClassName
         }`}
         onClick={() => {
-          void setIncomingConnectionEnabled(!(incomingConnectionEnabled === false));
+          void setIncomingConnectionEnabled(incomingConnectionEnabled === false);
         }}
         title={
           incomingConnectionEnabled === false
@@ -607,7 +685,7 @@ export function WritableTelemetryInputField({
             : `Suppress incoming connection for ${field.name}`
         }
       >
-        {"\u26A1"}
+        <span className={styles.inputConnectionGlyph}>{"\u26A1\uFE0E"}</span>
       </button>
     ) : null;
 
@@ -621,9 +699,9 @@ export function WritableTelemetryInputField({
 
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
+        {connectionToggle}
         <span className={styles.inputWriteLabelText}>{field.name}:</span>
         <span className={styles.inputWriteControls}>
-          {connectionToggle}
           <label className={styles.inputWriteCheckboxLabel}>
             <input
               className={styles.inputWriteCheckbox}
@@ -644,11 +722,11 @@ export function WritableTelemetryInputField({
   if (field.enum_values && field.enum_values.length > 0 && !field.enum_is_flags) {
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
+        {connectionToggle}
         <span className={styles.inputWriteLabelText}>
           {field.name}: {currentValue}
         </span>
         <span className={styles.inputWriteControls}>
-          {connectionToggle}
           <span className={styles.inputWriteScrubHotspotSpacer} aria-hidden="true" />
           <select
             className={styles.inputWriteSelect}
@@ -682,12 +760,12 @@ export function WritableTelemetryInputField({
   if (isNumericField) {
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
+        {connectionToggle}
         <span className={styles.inputWriteLabel}>
           <span>{field.name}:</span>
           <span>{currentValue}</span>
         </span>
         <span className={styles.inputWriteControls}>
-          {connectionToggle}
           <button
             type="button"
             className={styles.inputWriteScrubHotspot}
@@ -755,11 +833,11 @@ export function WritableTelemetryInputField({
 
   return (
     <div className={rowClassName} title={tooltipText ?? undefined}>
+      {connectionToggle}
       <span className={styles.inputWriteLabelText}>
         {field.name}: {currentValue}
       </span>
       <span className={styles.inputWriteControls}>
-        {connectionToggle}
         <span className={styles.inputWriteScrubHotspotSpacer} aria-hidden="true" />
         <input
           className={styles.inputWriteInput}
