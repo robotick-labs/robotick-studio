@@ -38,6 +38,7 @@ export type RemoteControlStickMode = {
   label: string;
   shapeTransform: RemoteControlShapeTransform;
   deadZone: RemoteControlVector;
+  scale: RemoteControlVector;
   outputs: Partial<Record<"x" | "y", RemoteControlTargetBinding>>;
 };
 
@@ -54,6 +55,7 @@ export type NormalizedRemoteControlsConfig = {
 type RawStickModeConfig = {
   shapeTransform?: unknown;
   deadZone?: { x?: unknown; y?: unknown } | null;
+  scale?: { x?: unknown; y?: unknown } | null;
   outputs?: { x?: unknown; y?: unknown } | null;
 };
 
@@ -73,6 +75,13 @@ function clampDeadZone(value: unknown): number {
     return 0;
   }
   return Math.max(0, Math.min(0.99, value));
+}
+
+function normalizeScale(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 1;
+  }
+  return value;
 }
 
 function normalizeShapeTransform(
@@ -121,6 +130,7 @@ function normalizeStickMode(
   }
 
   const deadZoneRaw = isPlainObject(rawMode.deadZone) ? rawMode.deadZone : {};
+  const scaleRaw = isPlainObject(rawMode.scale) ? rawMode.scale : {};
 
   return {
     id: modeId,
@@ -129,6 +139,10 @@ function normalizeStickMode(
     deadZone: {
       x: clampDeadZone(deadZoneRaw.x),
       y: clampDeadZone(deadZoneRaw.y),
+    },
+    scale: {
+      x: normalizeScale(scaleRaw.x),
+      y: normalizeScale(scaleRaw.y),
     },
     outputs,
   };
@@ -236,8 +250,10 @@ export function applyStickModeTransform(
   const shaped = shouldApplyShapeTransform
     ? applyShapeTransform(input, mode.shapeTransform)
     : { ...input };
+  const x = applyDeadZone(shaped.x, mode.deadZone.x) * mode.scale.x;
+  const y = applyDeadZone(shaped.y, mode.deadZone.y) * mode.scale.y;
   return {
-    x: applyDeadZone(shaped.x, mode.deadZone.x),
-    y: applyDeadZone(shaped.y, mode.deadZone.y),
+    x: Math.max(-1, Math.min(1, x)),
+    y: Math.max(-1, Math.min(1, y)),
   };
 }
