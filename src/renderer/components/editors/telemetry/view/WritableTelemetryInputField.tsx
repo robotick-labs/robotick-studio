@@ -229,6 +229,7 @@ export function WritableTelemetryInputField({
     getCurrentFieldDraftValueFromValue(field, readCurrentFieldValue())
   );
   const [optimisticDraftValue, setOptimisticDraftValue] = useState<string | null>(null);
+  const [optimisticConnectionEnabled, setOptimisticConnectionEnabled] = useState<boolean | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const scrubRef = useRef<{
     onMove: (event: MouseEvent) => void;
@@ -241,16 +242,87 @@ export function WritableTelemetryInputField({
     previousUserSelect: string;
   } | null>(null);
 
+  const getWritableMeta = () => {
+    const liveModel = telemetryBaseUrl
+      ? telemetryService.getLatestModel(telemetryBaseUrl)
+      : null;
+    const writableMeta = liveModel?.writable_inputs_by_path?.get(field.path);
+    const targetModel = liveModel ?? field.model;
+    const writableHandle = writableMeta?.field_handle ?? field.writable_input_handle;
+    const incomingConnectionHandle =
+      writableMeta?.incoming_connection_handle ?? field.incoming_connection_handle;
+    const incomingConnectionEnabled =
+      writableMeta?.incoming_connection_enabled ?? field.incoming_connection_enabled;
+
+    return {
+      targetModel,
+      writableHandle,
+      incomingConnectionHandle,
+      incomingConnectionEnabled,
+    };
+  };
+
+  const setIncomingConnectionEnabled = async (enabled: boolean) => {
+    if (!telemetryBaseUrl) {
+      return false;
+    }
+
+    const writableMeta = getWritableMeta();
+    if (
+      !writableMeta.targetModel?.schemaSessionId ||
+      typeof writableMeta.writableHandle !== "number" ||
+      typeof writableMeta.incomingConnectionHandle !== "number"
+    ) {
+      return false;
+    }
+
+    setOptimisticConnectionEnabled(enabled);
+    const result = await telemetryService.setWorkloadInputConnectionState(
+      telemetryBaseUrl,
+      {
+        engine_session_id: writableMeta.targetModel.schemaSessionId,
+        updates: [
+          {
+            field_handle: writableMeta.writableHandle,
+            field_path: field.path,
+            enabled,
+          },
+        ],
+      },
+    );
+    if (!result.ok) {
+      setOptimisticConnectionEnabled(null);
+      console.warn("setWorkloadInputConnectionState rejected", {
+        fieldPath: field.path,
+        status: result.status,
+        body: result.body,
+      });
+      return false;
+    }
+
+    return true;
+  };
+
   const submitValue = async (value: unknown) => {
     if (!telemetryBaseUrl) {
       return;
     }
 
-    const liveModel = telemetryService.getLatestModel(telemetryBaseUrl);
-    const targetModel = liveModel ?? field.model;
-    const writableHandle =
-      liveModel?.writable_inputs_by_path?.get(field.path)?.field_handle ??
-      field.writable_input_handle;
+    const writableMeta = getWritableMeta();
+    const targetModel = writableMeta.targetModel;
+    const writableHandle = writableMeta.writableHandle;
+    const connectionEnabled =
+      optimisticConnectionEnabled ?? writableMeta.incomingConnectionEnabled;
+    if (
+      typeof writableMeta.incomingConnectionHandle === "number" &&
+      connectionEnabled !== false
+    ) {
+      const suppressed = await setIncomingConnectionEnabled(false);
+      if (!suppressed) {
+        return;
+      }
+    }
+
     if (!targetModel?.schemaSessionId || typeof writableHandle !== "number") {
       return;
     }
@@ -307,6 +379,12 @@ export function WritableTelemetryInputField({
     currentFieldValue
   );
   const isNumericField = isNumericFieldType(field.type);
+  const writableMeta = getWritableMeta();
+  const hasIncomingConnection =
+    typeof writableMeta.incomingConnectionHandle === "number";
+  const reportedIncomingConnectionEnabled = writableMeta.incomingConnectionEnabled;
+  const incomingConnectionEnabled =
+    optimisticConnectionEnabled ?? reportedIncomingConnectionEnabled;
 
   useEffect(() => {
     if (isEditing) {
@@ -327,6 +405,26 @@ export function WritableTelemetryInputField({
       setDraftValue(currentDraftValue);
     }
   }, [currentDraftValue, draftValue, isEditing, optimisticDraftValue]);
+
+  useEffect(() => {
+    if (!hasIncomingConnection) {
+      if (optimisticConnectionEnabled !== null) {
+        setOptimisticConnectionEnabled(null);
+      }
+      return;
+    }
+
+    if (
+      optimisticConnectionEnabled !== null &&
+      reportedIncomingConnectionEnabled === optimisticConnectionEnabled
+    ) {
+      setOptimisticConnectionEnabled(null);
+    }
+  }, [
+    hasIncomingConnection,
+    reportedIncomingConnectionEnabled,
+    optimisticConnectionEnabled,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -473,9 +571,45 @@ export function WritableTelemetryInputField({
     startNumericScrub(event.clientX, startValue);
   };
 
-  const rowClassName = `${styles.inputWriteRow} ${className ?? ""} ${
-    capsuleClassName ?? ""
-  }`.trim();
+  const rowClassName = [
+    styles.inputWriteRow,
+    hasIncomingConnection
+      ? incomingConnectionEnabled === false
+        ? styles.inputWriteRowConnectionSuppressed
+        : styles.inputWriteRowConnectionActive
+      : "",
+    className ?? "",
+    capsuleClassName ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const connectionToggle =
+    hasIncomingConnection ? (
+      <button
+        type="button"
+        className={`${styles.inputConnectionToggle} ${
+          incomingConnectionEnabled === false
+            ? styles.inputConnectionToggleSuppressed
+            : styles.inputConnectionToggleActive
+        }`}
+        onClick={() => {
+          void setIncomingConnectionEnabled(!(incomingConnectionEnabled === false));
+        }}
+        title={
+          incomingConnectionEnabled === false
+            ? "Incoming connection suppressed. Click to re-enable."
+            : "Incoming connection active. Click to suppress."
+        }
+        aria-label={
+          incomingConnectionEnabled === false
+            ? `Re-enable incoming connection for ${field.name}`
+            : `Suppress incoming connection for ${field.name}`
+        }
+      >
+        {"\u26A1"}
+      </button>
+    ) : null;
 
   if (field.type === "bool") {
     const checked = (() => {
@@ -487,19 +621,22 @@ export function WritableTelemetryInputField({
 
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
-        <label className={styles.inputWriteCheckboxLabel}>
-          <span>{field.name}:</span>
-          <input
-            className={styles.inputWriteCheckbox}
-            type="checkbox"
-            checked={checked}
-            onChange={(event) => {
-              setDraftValue(event.target.checked ? "true" : "false");
-              void submitValue(event.target.checked);
-            }}
-          />
-          <span>{checked ? "true" : "false"}</span>
-        </label>
+        <span className={styles.inputWriteLabelText}>{field.name}:</span>
+        <span className={styles.inputWriteControls}>
+          {connectionToggle}
+          <label className={styles.inputWriteCheckboxLabel}>
+            <input
+              className={styles.inputWriteCheckbox}
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => {
+                setDraftValue(event.target.checked ? "true" : "false");
+                void submitValue(event.target.checked);
+              }}
+            />
+            <span>{checked ? "true" : "false"}</span>
+          </label>
+        </span>
       </div>
     );
   }
@@ -511,6 +648,7 @@ export function WritableTelemetryInputField({
           {field.name}: {currentValue}
         </span>
         <span className={styles.inputWriteControls}>
+          {connectionToggle}
           <span className={styles.inputWriteScrubHotspotSpacer} aria-hidden="true" />
           <select
             className={styles.inputWriteSelect}
@@ -549,6 +687,7 @@ export function WritableTelemetryInputField({
           <span>{currentValue}</span>
         </span>
         <span className={styles.inputWriteControls}>
+          {connectionToggle}
           <button
             type="button"
             className={styles.inputWriteScrubHotspot}
@@ -620,6 +759,7 @@ export function WritableTelemetryInputField({
         {field.name}: {currentValue}
       </span>
       <span className={styles.inputWriteControls}>
+        {connectionToggle}
         <span className={styles.inputWriteScrubHotspotSpacer} aria-hidden="true" />
         <input
           className={styles.inputWriteInput}

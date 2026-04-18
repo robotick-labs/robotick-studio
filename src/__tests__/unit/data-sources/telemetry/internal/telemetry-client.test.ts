@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTelemetryModel,
   type LayoutModel,
+  setWorkloadInputConnectionState,
   setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
 import { sendTelemetryWriteWs } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
@@ -109,6 +110,50 @@ describe("setWorkloadInputFieldsData", () => {
     expect(result.status).toBe(200);
   });
 
+});
+
+describe("setWorkloadInputConnectionState", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("posts connection suppression updates over REST", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          status: "processed",
+          updates: [
+            {
+              field_handle: 7,
+              incoming_connection_enabled: false,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputConnectionState("http://example", {
+      engine_session_id: "sid",
+      updates: [{ field_handle: 7, enabled: false }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://example/set_workload_input_connection_state",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
 });
 
 describe("createTelemetryModel", () => {
@@ -352,5 +397,59 @@ describe("createTelemetryModel", () => {
       workloadsBufferDynamicBytes: 0,
       workloadsBufferTotalBytes: 2644,
     });
+  });
+
+  it("attaches incoming connection metadata to writable input fields", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "plain",
+          type: "PlainWorkload",
+          offset_within_container: 0,
+          stats_offset_within_container: 64,
+          inputs: {
+            type: "PlainInputs",
+            offset_within_container: 0,
+          },
+        },
+      ],
+      writable_inputs: [
+        {
+          field_handle: 11,
+          field_path: "plain.inputs.enabled",
+          type: "bool",
+          size: 1,
+          incoming_connection_handle: 21,
+          incoming_connection_path: "plain.inputs.enabled",
+          incoming_connection_enabled: true,
+        },
+      ],
+      types: [
+        { name: "bool", size: 1 },
+        { name: "WorkloadInstanceStats", size: 32 },
+        {
+          name: "PlainInputs",
+          size: 1,
+          fields: [
+            {
+              name: "enabled",
+              type: "bool",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const model = createTelemetryModel(layout);
+    const field = model.getField?.("plain.inputs.enabled");
+
+    expect(field?.writable_input_handle).toBe(11);
+    expect(field?.incoming_connection_handle).toBe(21);
+    expect(field?.incoming_connection_enabled).toBe(true);
   });
 });

@@ -62,6 +62,9 @@ export interface LayoutWritableInput {
   field_path: string;
   type?: string;
   size?: number;
+  incoming_connection_handle?: number;
+  incoming_connection_path?: string;
+  incoming_connection_enabled?: boolean;
 }
 
 export interface LayoutModel {
@@ -89,6 +92,9 @@ export interface ITelemetryField {
   enum_is_signed?: boolean;
   enum_underlying_size?: number;
   writable_input_handle?: number;
+  incoming_connection_handle?: number;
+  incoming_connection_path?: string;
+  incoming_connection_enabled?: boolean;
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
@@ -151,6 +157,27 @@ export interface SetWorkloadInputFieldsDataOptions {
   maxAttempts?: number;
   baseRetryDelayMs?: number;
   maxRetryDelayMs?: number;
+}
+
+export interface SetWorkloadInputConnectionStateUpdate {
+  field_handle?: number;
+  field_path?: string;
+  enabled: boolean;
+}
+
+export interface SetWorkloadInputConnectionStateRequest {
+  engine_session_id: string;
+  updates: SetWorkloadInputConnectionStateUpdate[];
+}
+
+export interface SetWorkloadInputConnectionStateResponseBody {
+  [key: string]: unknown;
+}
+
+export interface SetWorkloadInputConnectionStateResult {
+  ok: boolean;
+  status: number;
+  body: SetWorkloadInputConnectionStateResponseBody | null;
 }
 
 const RETRYABLE_WRITE_STATUS_CODES = new Set([409, 429, 503]);
@@ -241,6 +268,46 @@ export async function setWorkloadInputFieldsData(
   }
 
   return { ok: false, status: 0, body: { error: "unexpected_retry_exit" } };
+}
+
+export async function setWorkloadInputConnectionState(
+  base_url: string,
+  request: SetWorkloadInputConnectionStateRequest,
+): Promise<SetWorkloadInputConnectionStateResult> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${base_url}/set_workload_input_connection_state`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      body: {
+        error: error instanceof Error ? error.message : "network_error",
+      },
+    };
+  }
+
+  let body: SetWorkloadInputConnectionStateResponseBody | null = null;
+  try {
+    body = (await response.json()) as SetWorkloadInputConnectionStateResponseBody;
+  } catch {
+    body = null;
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    body,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -732,6 +799,9 @@ namespace TelemetryFactory {
                 childType?.enum_is_signed,
                 childType?.enum_underlying_size,
                 writableMeta?.field_handle,
+                writableMeta?.incoming_connection_handle,
+                writableMeta?.incoming_connection_path,
+                writableMeta?.incoming_connection_enabled,
               ),
             );
           } else {
@@ -753,6 +823,9 @@ namespace TelemetryFactory {
                 childType?.enum_is_signed,
                 childType?.enum_underlying_size,
                 writableMeta?.field_handle,
+                writableMeta?.incoming_connection_handle,
+                writableMeta?.incoming_connection_path,
+                writableMeta?.incoming_connection_enabled,
               ),
             );
           }
@@ -928,6 +1001,9 @@ class TelemetryField implements ITelemetryField {
     public readonly enum_is_signed?: boolean,
     public readonly enum_underlying_size?: number,
     public readonly writable_input_handle?: number,
+    public readonly incoming_connection_handle?: number,
+    public readonly incoming_connection_path?: string,
+    public readonly incoming_connection_enabled?: boolean,
   ) {}
 
   getValue(): any {
@@ -1076,6 +1152,9 @@ class TelemetryField implements ITelemetryField {
       this.enum_is_signed,
       this.enum_underlying_size,
       this.writable_input_handle,
+      this.incoming_connection_handle,
+      this.incoming_connection_path,
+      this.incoming_connection_enabled,
     );
   }
 
@@ -1113,6 +1192,9 @@ class TelemetryField implements ITelemetryField {
       child.enum_is_signed,
       child.enum_underlying_size,
       child.writable_input_handle,
+      child.incoming_connection_handle,
+      child.incoming_connection_path,
+      child.incoming_connection_enabled,
     );
   }
 
@@ -1156,6 +1238,9 @@ class TelemetryField implements ITelemetryField {
       field.enum_is_signed,
       field.enum_underlying_size,
       field.writable_input_handle,
+      field.incoming_connection_handle,
+      field.incoming_connection_path,
+      field.incoming_connection_enabled,
     );
   }
 

@@ -25,7 +25,6 @@ import {
   getConnectionHint,
   getConnectionKindFromHint,
   getConnectionTooltip,
-  isInputConnectionDriven,
 } from "./field-connections";
 
 /**
@@ -113,7 +112,6 @@ export function TelemetryStructFields({
     const connectionKind = getConnectionKindFromHint(connectionHint);
     const capsuleClass = getConnectionCapsuleClass(connectionKind);
     const tooltipText = getConnectionTooltip(f.path, connectionHint);
-    const inputIsConnectionDriven = isInputConnectionDriven(f.path, connectionHint);
 
     // Nested struct
     if (f.fields && f.fields.length > 0) {
@@ -142,10 +140,7 @@ export function TelemetryStructFields({
     }
 
     // Primitive leaf
-    if (
-      typeof f.writable_input_handle === "number" &&
-      !inputIsConnectionDriven
-    ) {
+    if (typeof f.writable_input_handle === "number") {
       return (
         <WritableTelemetryInputField
           key={f.path}

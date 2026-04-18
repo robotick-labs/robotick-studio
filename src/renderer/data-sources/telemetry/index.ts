@@ -18,8 +18,13 @@ export type {
   SetWorkloadInputFieldsDataRequest,
   SetWorkloadInputFieldsDataResult,
   SetWorkloadInputFieldsDataOptions,
+  SetWorkloadInputConnectionStateRequest,
+  SetWorkloadInputConnectionStateResult,
 } from "./internal/telemetry-client";
-export { setWorkloadInputFieldsData } from "./internal/telemetry-client";
+export {
+  setWorkloadInputConnectionState,
+  setWorkloadInputFieldsData,
+} from "./internal/telemetry-client";
 
 // Public React hook for components that just want telemetry snapshots.
 export { useTelemetryStream } from "./internal/useTelemetryStream";

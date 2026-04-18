@@ -4,13 +4,17 @@ import {
   getLatestTelemetryModel,
   subscribeTelemetry,
 } from "./telemetry-store";
-import { setWorkloadInputFieldsData } from "./telemetry-client";
+import {
+  setWorkloadInputConnectionState,
+  setWorkloadInputFieldsData,
+} from "./telemetry-client";
 import type { ITelemetryModel } from "./telemetry-client";
 
 export interface TelemetryService {
   subscribeTelemetry: typeof subscribeTelemetry;
   ensureLayout: typeof ensureTelemetryLayout;
   setWorkloadInputFieldsData: typeof setWorkloadInputFieldsData;
+  setWorkloadInputConnectionState: typeof setWorkloadInputConnectionState;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
 }
 
@@ -24,6 +28,7 @@ export function createTelemetryService(
       subscribeTelemetry,
       ensureLayout: ensureTelemetryLayout,
       setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState,
       getLatestModel: getLatestTelemetryModel,
     };
   }
@@ -31,6 +36,7 @@ export function createTelemetryService(
     subscribeTelemetry,
     ensureLayout: ensureTelemetryLayout,
     setWorkloadInputFieldsData,
+    setWorkloadInputConnectionState,
     getLatestModel: getLatestTelemetryModel,
     ...overrides,
   };

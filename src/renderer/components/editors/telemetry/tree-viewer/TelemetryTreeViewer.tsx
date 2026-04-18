@@ -44,7 +44,6 @@ import {
   getConnectionHint,
   getConnectionKindFromHint,
   getConnectionTooltip,
-  isInputConnectionDriven,
 } from "../view/field-connections";
 
 type SectionKind = "inputs" | "outputs" | "config" | "stats";
@@ -845,14 +844,9 @@ const TreeRow = React.memo(function TreeRow({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const inputIsConnectionDriven = isInputConnectionDriven(
-    field.path,
-    connectionHint
-  );
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
-    !inputIsConnectionDriven &&
     !hasChildren;
 
   return (
@@ -992,14 +986,9 @@ const TreeNode = React.memo(function TreeNode({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const inputIsConnectionDriven = isInputConnectionDriven(
-    field.path,
-    connectionHint
-  );
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
-    !inputIsConnectionDriven &&
     !hasChildren;
 
   return (
