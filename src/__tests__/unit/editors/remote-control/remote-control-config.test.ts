@@ -33,8 +33,7 @@ describe("remote-control-config", () => {
         },
       },
       buttons: {
-        left_stick_button:
-          "barr-e-brain.non_drive_control_toggle.inputs.rc_blink_request",
+        left_stick_button: "barr-e-face.face_control.inputs.blink_request",
       },
     });
 
@@ -50,7 +49,7 @@ describe("remote-control-config", () => {
       y: 0.75,
     });
     expect(config.buttons.left_stick_button?.fieldPath).toBe(
-      "non_drive_control_toggle.inputs.rc_blink_request"
+      "face_control.inputs.blink_request"
     );
   });
 
