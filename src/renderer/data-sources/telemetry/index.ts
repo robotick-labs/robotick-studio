@@ -14,6 +14,7 @@ export type {
   ITelemetryField,
   ITelemetryStruct,
   LayoutModel,
+  LayoutWritableInput,
   SetWorkloadInputFieldWrite,
   SetWorkloadInputFieldsDataRequest,
   SetWorkloadInputFieldsDataResult,

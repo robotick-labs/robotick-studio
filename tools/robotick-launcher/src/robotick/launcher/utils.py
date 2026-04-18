@@ -154,8 +154,8 @@ def render_template(template_name: str, context: dict) -> str:
 
     Example:
         render_template("main.cpp", {
-            "model": "barr-e-rc",
-            "model_safe": "barr_e_rc",
+            "model": "barr-e-brain",
+            "model_safe": "barr_e_brain",
         })
     """
     try:

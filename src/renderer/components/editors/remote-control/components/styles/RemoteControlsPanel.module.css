@@ -44,24 +44,56 @@
   z-index: 1000;
 }
 
-.toggleButton {
-  padding: 10px 20px;
-  font-size: 1.1em;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-bottom: 1em;
-  transition: background 0.2s;
+.modeControls {
+  display: inline-flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(15, 19, 31, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.toggleButtonActive {
-  background: rgb(80, 216, 80);
-  color: #ffffff;
+.modeControl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 9.5rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.88);
 }
 
-.toggleButtonInactive {
-  background: silver;
-  color: #ffffff;
+.modeControl span {
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.modeControl select {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 18, 29, 0.9);
+  color: white;
+}
+
+.statusNote {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.statusWarning {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: #ffbf6c;
 }
 
 @media (max-width: 480px) {

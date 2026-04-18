@@ -357,8 +357,8 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-rc.model.yaml").write_text(
-        yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
+    (project_dir / "alf-e-spine.model.yaml").write_text(
+        yaml.safe_dump({"runtime": {"target_platform": "esp32"}}),
         encoding="utf-8",
     )
 
@@ -377,16 +377,18 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     monkeypatch.setattr(
         run_profile_module,
         "_resolve_profile_model_ids",
-        lambda project_path, model_spec: ["alf-e-face", "alf-e-rc"],
+        lambda project_path, model_spec: ["alf-e-face", "alf-e-spine"],
     )
     monkeypatch.setattr(
         run_profile_module,
         "_resolve_profile_model_target",
-        lambda project_name, base_dir, platform, model_id: "linux",
+        lambda project_name, base_dir, platform, model_id: "native"
+        if model_id == "alf-e-face"
+        else "local",
     )
 
     def _fake_resolve_target_plan(project, model, target, base_dir):
-        if model == "alf-e-rc":
+        if model == "alf-e-face":
             return TargetPlan(
                 project=project,
                 model=model,
@@ -406,8 +408,8 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
             project=project,
             model=model,
             target=target,
-            target_platform="linux",
-            target_variant="arm64",
+            target_platform="esp32",
+            target_variant="esp32s3_m5",
             build=TargetActionPlan(strategy=LOCAL_STRATEGY),
             deploy=TargetActionPlan(strategy=LOCAL_STRATEGY),
             run=TargetActionPlan(strategy=LOCAL_STRATEGY),
@@ -427,9 +429,9 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     )
 
     assert result["status"] == "stopped"
-    assert stop_calls == [("alf-e-rc", False)]
+    assert stop_calls == [("alf-e-face", False)]
     assert len(local_stop_calls) == 1
-    assert local_stop_calls[0][0].name == "alf-e-face"
+    assert local_stop_calls[0][0].name == "alf-e-spine"
 
 
 def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
@@ -562,7 +564,7 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-rc.model.yaml").write_text(
+    (project_dir / "alf-e-sensing-visual.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )

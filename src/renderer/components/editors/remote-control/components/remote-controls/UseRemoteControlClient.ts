@@ -16,8 +16,7 @@ interface StickController {
   movePointerToCenter: () => void;
 }
 
-type JoystickState = {
-  use_web_inputs: boolean;
+export type RemoteControlState = {
   left: Vector2;
   right: Vector2;
   left_trigger: number;
@@ -39,46 +38,47 @@ type JoystickState = {
   dpad_right: boolean;
 };
 
-type TelemetryFieldDelta = {
-  fieldPath: string;
-  value: unknown;
-};
-
-type WriteTelemetryFieldsFn = (writes: TelemetryFieldDelta[]) => void;
+export type RemoteControlStateKey = keyof RemoteControlState;
+type RemoteControlButtonStateKey = Exclude<
+  RemoteControlStateKey,
+  "left" | "right" | "left_trigger" | "right_trigger"
+>;
+type RemoteControlTriggerStateKey = "left_trigger" | "right_trigger";
+export type RemoteControlStateKeysCallback = (
+  state: RemoteControlState,
+  keys: ReadonlyArray<RemoteControlStateKey>
+) => void;
 
 type UseRemoteControlClientOptions = {
   leftArea: HTMLDivElement | null;
   leftKnob: HTMLDivElement | null;
   rightArea: HTMLDivElement | null;
   rightKnob: HTMLDivElement | null;
-  useWebInputs: boolean;
-  workloadName?: string | null;
-  writeTelemetryFields?: WriteTelemetryFieldsFn | null;
-  writesReady?: boolean;
+  onStateKeys?: RemoteControlStateKeysCallback | null;
+  enabled?: boolean;
 };
 
-function cloneState(state: JoystickState): JoystickState {
+function cloneState(state: RemoteControlState): RemoteControlState {
   return JSON.parse(JSON.stringify(state));
 }
 
 class RemoteControlClient {
   private leftStick: StickController;
   private rightStick: StickController;
-  private joystickState: JoystickState;
-  private readonly workloadName: string;
-  private readonly writeTelemetryFields: WriteTelemetryFieldsFn | null;
-  private readonly controlsEnabled: boolean;
+  private joystickState: RemoteControlState;
+  private onStateKeys: RemoteControlStateKeysCallback | null;
+  private controlsEnabled = false;
   private readonly localState = {
     left: { x: 0.0, y: 0.0 },
     right: { x: 0.0, y: 0.0 },
   };
   private allowReadGamePad = true;
-  private dirtyKeys = new Set<keyof JoystickState>();
+  private dirtyKeys = new Set<RemoteControlStateKey>();
   private ticking = false;
   private tickTimeout: number | null = null;
   private rafId: number | null = null;
   private disposed = false;
-  private lastSentState: JoystickState;
+  private lastSentState: RemoteControlState;
   private cleanup: Array<() => void> = [];
 
   constructor(options: {
@@ -86,19 +86,12 @@ class RemoteControlClient {
     leftKnob: HTMLDivElement;
     rightArea: HTMLDivElement;
     rightKnob: HTMLDivElement;
-    workloadName: string;
-    writeTelemetryFields: WriteTelemetryFieldsFn | null;
+    onStateKeys: RemoteControlStateKeysCallback | null;
+    enabled: boolean;
   }) {
-    this.workloadName = options.workloadName;
-    this.writeTelemetryFields = options.writeTelemetryFields;
-    this.controlsEnabled = Boolean(this.writeTelemetryFields);
-    if (!this.controlsEnabled) {
-      console.warn(
-        "[remote-controls] telemetry writer is not configured; controls disabled."
-      );
-    }
+    this.onStateKeys = options.onStateKeys;
+    this.controlsEnabled = Boolean(options.enabled && this.onStateKeys);
     this.joystickState = {
-      use_web_inputs: true,
       left: { x: 0.0, y: 0.0 },
       right: { x: 0.0, y: 0.0 },
       left_trigger: 0.0,
@@ -156,9 +149,17 @@ class RemoteControlClient {
     this.cleanup = [];
   }
 
-  setUseWebInputs(enabled: boolean) {
-    this.joystickState.use_web_inputs = enabled;
-    this.dirtyKeys.add("use_web_inputs");
+  setEmitter(onStateKeys: RemoteControlStateKeysCallback | null, enabled: boolean) {
+    this.onStateKeys = onStateKeys;
+    this.controlsEnabled = Boolean(enabled && this.onStateKeys);
+    if (!this.controlsEnabled) {
+      this.moveStickVisual(this.leftStick, 0, 0);
+      this.moveStickVisual(this.rightStick, 0, 0);
+      this.leftStick.movePointerToCenter();
+      this.rightStick.movePointerToCenter();
+      this.stopTickLoop();
+      return;
+    }
     this.sendFullState();
   }
 
@@ -395,7 +396,7 @@ class RemoteControlClient {
       const lt = gp.buttons[6]?.value || 0;
       const rt = gp.buttons[7]?.value || 0;
 
-      const buttonMap: Array<[keyof JoystickState, number]> = [
+      const buttonMap: Array<[RemoteControlButtonStateKey, number]> = [
         ["a", 0],
         ["b", 1],
         ["x", 2],
@@ -437,11 +438,10 @@ class RemoteControlClient {
         this.updateTrigger("left_trigger", lt);
         this.updateTrigger("right_trigger", rt);
 
-        const joystickRecord = this.joystickState as Record<string, unknown>;
         for (const [name, idx] of buttonMap) {
           const pressed = !!gp.buttons[idx]?.pressed;
-          if (joystickRecord[name as string] !== pressed) {
-            joystickRecord[name as string] = pressed;
+          if (this.joystickState[name] !== pressed) {
+            this.joystickState[name] = pressed;
             this.dirtyKeys.add(name);
           }
         }
@@ -471,11 +471,10 @@ class RemoteControlClient {
     this.dirtyKeys.add(topic === "left_stick" ? "left" : "right");
   }
 
-  private updateTrigger(key: keyof JoystickState, value: number) {
+  private updateTrigger(key: RemoteControlTriggerStateKey, value: number) {
     if (!this.controlsEnabled) return;
     const clamped = Math.max(0, Math.min(1, value));
     if (this.joystickState[key] !== clamped) {
-      // @ts-ignore
       this.joystickState[key] = clamped;
       this.dirtyKeys.add(key);
     }
@@ -585,68 +584,22 @@ class RemoteControlClient {
     tick();
   }
 
-  private sendFields(deltas: Array<{ fieldSuffix: string; value: unknown }>) {
-    if (!this.controlsEnabled || !this.writeTelemetryFields || deltas.length === 0) {
-      return;
+  private stopTickLoop() {
+    this.ticking = false;
+    if (this.tickTimeout !== null) {
+      clearTimeout(this.tickTimeout);
+      this.tickTimeout = null;
     }
-    this.writeTelemetryFields(
-      deltas.map(({ fieldSuffix, value }) => ({
-        fieldPath: `${this.workloadName}.inputs.${fieldSuffix}`,
-        value,
-      }))
-    );
   }
 
   private sendStateKeys(
-    state: JoystickState,
-    keys: ReadonlyArray<keyof JoystickState>
+    state: RemoteControlState,
+    keys: ReadonlyArray<RemoteControlStateKey>
   ) {
-    const deltas: Array<{ fieldSuffix: string; value: unknown }> = [];
-    for (const key of keys) {
-      switch (key) {
-        case "use_web_inputs":
-          deltas.push({ fieldSuffix: "use_web_inputs", value: state.use_web_inputs });
-          break;
-        case "left":
-          deltas.push({ fieldSuffix: "gamepad_state_raw.left.x", value: state.left.x });
-          deltas.push({ fieldSuffix: "gamepad_state_raw.left.y", value: state.left.y });
-          break;
-        case "right":
-          deltas.push({ fieldSuffix: "gamepad_state_raw.right.x", value: state.right.x });
-          deltas.push({ fieldSuffix: "gamepad_state_raw.right.y", value: state.right.y });
-          break;
-        case "left_trigger":
-          deltas.push({
-            fieldSuffix: "gamepad_state_raw.left_trigger",
-            value: state.left_trigger,
-          });
-          break;
-        case "right_trigger":
-          deltas.push({
-            fieldSuffix: "gamepad_state_raw.right_trigger",
-            value: state.right_trigger,
-          });
-          break;
-        case "a":
-        case "b":
-        case "x":
-        case "y":
-        case "left_bumper":
-        case "right_bumper":
-        case "back":
-        case "start":
-        case "guide":
-        case "left_stick_button":
-        case "right_stick_button":
-        case "dpad_up":
-        case "dpad_down":
-        case "dpad_left":
-        case "dpad_right":
-          deltas.push({ fieldSuffix: `gamepad_state_raw.${key}`, value: state[key] });
-          break;
-      }
+    if (!this.controlsEnabled || !this.onStateKeys || keys.length === 0) {
+      return;
     }
-    this.sendFields(deltas);
+    this.onStateKeys(state, keys);
   }
 
   private sendDirtyKeys() {
@@ -662,7 +615,6 @@ class RemoteControlClient {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
     this.sendStateKeys(nextState, [
-      "use_web_inputs",
       "left",
       "right",
       "left_trigger",
@@ -695,10 +647,8 @@ export function useRemoteControlClient({
   leftKnob,
   rightArea,
   rightKnob,
-  useWebInputs,
-  workloadName,
-  writeTelemetryFields,
-  writesReady,
+  onStateKeys,
+  enabled = true,
 }: UseRemoteControlClientOptions) {
   const clientRef = useRef<RemoteControlClient | null>(null);
 
@@ -712,10 +662,9 @@ export function useRemoteControlClient({
       leftKnob,
       rightArea,
       rightKnob,
-      workloadName: workloadName ?? "remote_control",
-      writeTelemetryFields: writeTelemetryFields ?? null,
+      onStateKeys: onStateKeys ?? null,
+      enabled,
     });
-    client.setUseWebInputs(useWebInputs);
     clientRef.current = client;
 
     return () => {
@@ -727,20 +676,13 @@ export function useRemoteControlClient({
     leftKnob,
     rightArea,
     rightKnob,
-    workloadName,
-    writeTelemetryFields,
+    onStateKeys,
+    enabled,
   ]);
 
   useEffect(() => {
     if (clientRef.current) {
-      clientRef.current.setUseWebInputs(useWebInputs);
+      clientRef.current.setEmitter(onStateKeys ?? null, enabled);
     }
-  }, [useWebInputs]);
-
-  useEffect(() => {
-    if (!writesReady) {
-      return;
-    }
-    clientRef.current?.syncNow();
-  }, [writesReady]);
+  }, [enabled, onStateKeys]);
 }
