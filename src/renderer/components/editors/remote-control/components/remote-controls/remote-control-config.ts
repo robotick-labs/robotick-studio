@@ -229,9 +229,13 @@ export function applyDeadZone(value: number, deadZone: number): number {
 
 export function applyStickModeTransform(
   input: RemoteControlVector,
-  mode: RemoteControlStickMode
+  mode: RemoteControlStickMode,
+  options: { applyShapeTransform?: boolean } = {}
 ): RemoteControlVector {
-  const shaped = applyShapeTransform(input, mode.shapeTransform);
+  const shouldApplyShapeTransform = options.applyShapeTransform ?? true;
+  const shaped = shouldApplyShapeTransform
+    ? applyShapeTransform(input, mode.shapeTransform)
+    : { ...input };
   return {
     x: applyDeadZone(shaped.x, mode.deadZone.x),
     y: applyDeadZone(shaped.y, mode.deadZone.y),

@@ -11,7 +11,11 @@ interface Vector2 {
 interface StickController {
   area: HTMLDivElement;
   knob: HTMLDivElement;
-  movePointer: (globalX: number, globalY: number) => void;
+  movePointer: (
+    globalX: number,
+    globalY: number,
+    source?: RemoteControlInputSource
+  ) => void;
   resetKnob: () => void;
   movePointerToCenter: () => void;
 }
@@ -39,6 +43,10 @@ export type RemoteControlState = {
 };
 
 export type RemoteControlStateKey = keyof RemoteControlState;
+export type RemoteControlInputSource = "pointer" | "gamepad" | "programmatic";
+export type RemoteControlStateKeysMeta = {
+  inputSources: Partial<Record<RemoteControlStateKey, RemoteControlInputSource>>;
+};
 type RemoteControlButtonStateKey = Exclude<
   RemoteControlStateKey,
   "left" | "right" | "left_trigger" | "right_trigger"
@@ -46,7 +54,8 @@ type RemoteControlButtonStateKey = Exclude<
 type RemoteControlTriggerStateKey = "left_trigger" | "right_trigger";
 export type RemoteControlStateKeysCallback = (
   state: RemoteControlState,
-  keys: ReadonlyArray<RemoteControlStateKey>
+  keys: ReadonlyArray<RemoteControlStateKey>,
+  meta: RemoteControlStateKeysMeta
 ) => void;
 
 type UseRemoteControlClientOptions = {
@@ -74,6 +83,7 @@ class RemoteControlClient {
   };
   private allowReadGamePad = true;
   private dirtyKeys = new Set<RemoteControlStateKey>();
+  private dirtySources = new Map<RemoteControlStateKey, RemoteControlInputSource>();
   private ticking = false;
   private tickTimeout: number | null = null;
   private rafId: number | null = null;
@@ -118,14 +128,12 @@ class RemoteControlClient {
       options.leftArea,
       options.leftKnob,
       "left_stick",
-      true,
       true
     );
     this.rightStick = this.createStick(
       options.rightArea,
       options.rightKnob,
       "right_stick",
-      true,
       true
     );
 
@@ -210,7 +218,7 @@ class RemoteControlClient {
         const rect = stick.area.getBoundingClientRect();
         const centerX = rect.left + stick.area.clientWidth / 2;
         const centerY = rect.top + stick.area.clientHeight / 2;
-        stick.movePointer(centerX + dx, centerY + dy);
+        stick.movePointer(centerX + dx, centerY + dy, "pointer");
       }
     };
 
@@ -273,7 +281,7 @@ class RemoteControlClient {
       const rect = stick.area.getBoundingClientRect();
       const centerX = rect.left + stick.area.clientWidth / 2;
       const centerY = rect.top + stick.area.clientHeight / 2;
-      stick.movePointer(centerX + dx, centerY + dy);
+      stick.movePointer(centerX + dx, centerY + dy, "pointer");
     };
 
     const onMouseUp = () => {
@@ -433,16 +441,16 @@ class RemoteControlClient {
         ryLast = ry;
         lastButtons = currentButtons;
 
-        this.sendJoystickInput("left_stick", lx, ly);
-        this.sendJoystickInput("right_stick", rx, ry);
-        this.updateTrigger("left_trigger", lt);
-        this.updateTrigger("right_trigger", rt);
+        this.sendJoystickInput("left_stick", lx, ly, "gamepad");
+        this.sendJoystickInput("right_stick", rx, ry, "gamepad");
+        this.updateTrigger("left_trigger", lt, "gamepad");
+        this.updateTrigger("right_trigger", rt, "gamepad");
 
         for (const [name, idx] of buttonMap) {
           const pressed = !!gp.buttons[idx]?.pressed;
           if (this.joystickState[name] !== pressed) {
             this.joystickState[name] = pressed;
-            this.dirtyKeys.add(name);
+            this.markDirty(name, "gamepad");
           }
         }
 
@@ -457,10 +465,24 @@ class RemoteControlClient {
     this.rafId = requestAnimationFrame(loop);
   }
 
-  private sendJoystickInput(topic: StickTopic, x: number, y: number) {
+  private markDirty(
+    key: RemoteControlStateKey,
+    source: RemoteControlInputSource
+  ) {
+    this.dirtyKeys.add(key);
+    this.dirtySources.set(key, source);
+  }
+
+  private sendJoystickInput(
+    topic: StickTopic,
+    x: number,
+    y: number,
+    source: RemoteControlInputSource = "programmatic"
+  ) {
     if (!this.controlsEnabled) return;
     const clampedX = Math.max(-1, Math.min(1, x));
     const clampedY = Math.max(-1, Math.min(1, y));
+    const key = topic === "left_stick" ? "left" : "right";
 
     if (topic === "left_stick") {
       this.joystickState.left = { x: clampedX, y: clampedY };
@@ -468,15 +490,19 @@ class RemoteControlClient {
       this.joystickState.right = { x: clampedX, y: clampedY };
     }
 
-    this.dirtyKeys.add(topic === "left_stick" ? "left" : "right");
+    this.markDirty(key, source);
   }
 
-  private updateTrigger(key: RemoteControlTriggerStateKey, value: number) {
+  private updateTrigger(
+    key: RemoteControlTriggerStateKey,
+    value: number,
+    source: RemoteControlInputSource = "programmatic"
+  ) {
     if (!this.controlsEnabled) return;
     const clamped = Math.max(0, Math.min(1, value));
     if (this.joystickState[key] !== clamped) {
       this.joystickState[key] = clamped;
-      this.dirtyKeys.add(key);
+      this.markDirty(key, source);
     }
   }
 
@@ -500,33 +526,25 @@ class RemoteControlClient {
     area: HTMLDivElement,
     knob: HTMLDivElement,
     topic: StickTopic,
-    clampCircular: boolean,
     updateLocalState: boolean
   ): StickController {
     const radius = area.clientWidth / 2;
-    const movePointer = (globalX: number, globalY: number) => {
+    const movePointer = (
+      globalX: number,
+      globalY: number,
+      source: RemoteControlInputSource = "pointer"
+    ) => {
       const rect = area.getBoundingClientRect();
       const dx = globalX - (rect.left + radius);
       const dy = globalY - (rect.top + radius);
-      let normX = dx / radius;
-      let normY = -(dy / radius);
-
-      if (clampCircular) {
-        const length = Math.hypot(normX, normY);
-        if (length > 1) {
-          normX /= length;
-          normY /= length;
-        }
-      } else {
-        normX = Math.max(-1, Math.min(1, normX));
-        normY = Math.max(-1, Math.min(1, normY));
-      }
+      const normX = Math.max(-1, Math.min(1, dx / radius));
+      const normY = Math.max(-1, Math.min(1, -(dy / radius)));
 
       knob.style.transform = `translate(-50%, -50%) translate(${
         normX * radius
       }px, ${-normY * radius}px)`;
 
-      this.sendJoystickInput(topic, normX, normY);
+      this.sendJoystickInput(topic, normX, normY, source);
       if (!this.ticking) this.startTickLoop();
 
       if (updateLocalState) {
@@ -540,7 +558,7 @@ class RemoteControlClient {
     const resetKnob = () => {
       if (!this.controlsEnabled) return;
       knob.style.transform = `translate(-50%, -50%)`;
-      this.sendJoystickInput(topic, 0, 0);
+      this.sendJoystickInput(topic, 0, 0, "pointer");
       if (!this.ticking) this.startTickLoop();
       if (updateLocalState) {
         const local =
@@ -560,7 +578,7 @@ class RemoteControlClient {
     controller.movePointerToCenter = () => {
       if (!this.controlsEnabled) return;
       this.moveStickVisual(controller, 0, 0);
-      this.sendJoystickInput(topic, 0, 0);
+      this.sendJoystickInput(topic, 0, 0, "programmatic");
       if (!this.ticking) this.startTickLoop();
       if (updateLocalState) {
         const local =
@@ -594,12 +612,13 @@ class RemoteControlClient {
 
   private sendStateKeys(
     state: RemoteControlState,
-    keys: ReadonlyArray<RemoteControlStateKey>
+    keys: ReadonlyArray<RemoteControlStateKey>,
+    meta: RemoteControlStateKeysMeta
   ) {
     if (!this.controlsEnabled || !this.onStateKeys || keys.length === 0) {
       return;
     }
-    this.onStateKeys(state, keys);
+    this.onStateKeys(state, keys, meta);
   }
 
   private sendDirtyKeys() {
@@ -607,14 +626,21 @@ class RemoteControlClient {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
     const dirtyKeys = Array.from(this.dirtyKeys);
+    const inputSources = Object.fromEntries(
+      dirtyKeys.map((key) => [
+        key,
+        this.dirtySources.get(key) ?? "programmatic",
+      ])
+    ) as RemoteControlStateKeysMeta["inputSources"];
     this.dirtyKeys.clear();
-    this.sendStateKeys(nextState, dirtyKeys);
+    this.dirtySources.clear();
+    this.sendStateKeys(nextState, dirtyKeys, { inputSources });
   }
 
   private sendFullState() {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
-    this.sendStateKeys(nextState, [
+    const keys: RemoteControlStateKey[] = [
       "left",
       "right",
       "left_trigger",
@@ -634,7 +660,12 @@ class RemoteControlClient {
       "dpad_down",
       "dpad_left",
       "dpad_right",
-    ]);
+    ];
+    this.sendStateKeys(nextState, keys, {
+      inputSources: Object.fromEntries(
+        keys.map((key) => [key, "programmatic"])
+      ) as RemoteControlStateKeysMeta["inputSources"],
+    });
   }
 
   syncNow() {

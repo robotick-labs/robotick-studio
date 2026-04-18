@@ -73,4 +73,23 @@ describe("remote-control-config", () => {
     expect(transformed.x).toBeGreaterThan(0.65);
     expect(transformed.y).toBeGreaterThan(0.65);
   });
+
+  it("can skip shape transforms for square-gated pointer stick values", () => {
+    const transformed = applyStickModeTransform(
+      { x: 1, y: 1 },
+      {
+        id: "drive_wheels",
+        label: "Drive Wheels",
+        shapeTransform: "CircleToSquare",
+        deadZone: {
+          x: 0,
+          y: 0,
+        },
+        outputs: {},
+      },
+      { applyShapeTransform: false }
+    );
+
+    expect(transformed).toEqual({ x: 1, y: 1 });
+  });
 });

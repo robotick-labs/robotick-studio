@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRemoteControlClient, type RemoteControlState } from "./UseRemoteControlClient";
+import {
+  useRemoteControlClient,
+  type RemoteControlState,
+  type RemoteControlStateKeysMeta,
+} from "./UseRemoteControlClient";
 import {
   applyStickModeTransform,
   normalizeRemoteControlsConfig,
@@ -416,6 +420,8 @@ export default function RemoteControlsPanel({
   const lastControlStateRef = useRef<RemoteControlState>({
     ...DEFAULT_REMOTE_CONTROL_STATE,
   });
+  const lastControlInputSourcesRef =
+    useRef<RemoteControlStateKeysMeta["inputSources"]>({});
 
   const getCurrentTelemetryModel = useCallback(
     async (baseUrl: string): Promise<ITelemetryModel | null> => {
@@ -636,7 +642,10 @@ export default function RemoteControlsPanel({
   );
 
   const computeDesiredStates = useCallback(
-    (state: RemoteControlState) => {
+    (
+      state: RemoteControlState,
+      inputSources: RemoteControlStateKeysMeta["inputSources"]
+    ) => {
       const desiredStates = new Map<string, DesiredFieldState>();
 
       for (const stickName of ["left", "right"] as const) {
@@ -656,7 +665,9 @@ export default function RemoteControlsPanel({
           continue;
         }
 
-        const transformed = applyStickModeTransform(state[stickName], mode);
+        const transformed = applyStickModeTransform(state[stickName], mode, {
+          applyShapeTransform: inputSources[stickName] === "gamepad",
+        });
         const outputValues = {
           x: transformed.x,
           y: transformed.y,
@@ -755,15 +766,30 @@ export default function RemoteControlsPanel({
   );
 
   const handleStateKeys = useCallback(
-    (state: RemoteControlState) => {
+    (
+      state: RemoteControlState,
+      _keys: ReadonlyArray<keyof RemoteControlState>,
+      meta: RemoteControlStateKeysMeta
+    ) => {
       lastControlStateRef.current = state;
-      applyDesiredStates(computeDesiredStates(state));
+      lastControlInputSourcesRef.current = {
+        ...lastControlInputSourcesRef.current,
+        ...meta.inputSources,
+      };
+      applyDesiredStates(
+        computeDesiredStates(state, lastControlInputSourcesRef.current)
+      );
     },
     [applyDesiredStates, computeDesiredStates]
   );
 
   useEffect(() => {
-    applyDesiredStates(computeDesiredStates(lastControlStateRef.current));
+    applyDesiredStates(
+      computeDesiredStates(
+        lastControlStateRef.current,
+        lastControlInputSourcesRef.current
+      )
+    );
   }, [applyDesiredStates, computeDesiredStates]);
 
   useEffect(() => {
