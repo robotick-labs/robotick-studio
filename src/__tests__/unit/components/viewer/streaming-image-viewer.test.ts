@@ -22,6 +22,7 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
 }));
 
 import {
+  extractStreamingImageBytes,
   init,
   uninit,
 } from "../../../../renderer/components/viewer/streaming-image/viewer-streaming-image";
@@ -100,5 +101,29 @@ describe("viewer-streaming-image frame rate config", () => {
         error: expect.any(Function),
       })
     );
+  });
+});
+
+describe("viewer-streaming-image byte extraction", () => {
+  it("uses count to trim dynamic byte buffers", () => {
+    const raw = new Uint8Array([0xff, 0xd8, 0xff, 0xd9, 0, 0, 0]);
+
+    const bytes = extractStreamingImageBytes({
+      data_buffer: raw,
+      count: 4,
+      capacity: 7,
+    });
+
+    expect(Array.from(bytes ?? [])).toEqual([0xff, 0xd8, 0xff, 0xd9]);
+  });
+
+  it("ignores empty counted dynamic byte buffers", () => {
+    const bytes = extractStreamingImageBytes({
+      data_buffer: new Uint8Array([0xff, 0xd8]),
+      count: 0,
+      capacity: 2,
+    });
+
+    expect(bytes).toBeNull();
   });
 });

@@ -80,6 +80,40 @@ type StreamingImageMetricsSummary = {
   cadence: ReturnType<typeof summarizeCadence>;
 };
 
+export function extractStreamingImageBytes(
+  value: unknown
+): Uint8Array<ArrayBuffer> | null {
+  if (value instanceof Uint8Array) {
+    return value as Uint8Array<ArrayBuffer>;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const maybeCountedBytes = value as {
+    data_buffer?: unknown;
+    count?: unknown;
+  };
+  if (!(maybeCountedBytes.data_buffer instanceof Uint8Array)) {
+    return null;
+  }
+
+  const raw = maybeCountedBytes.data_buffer as Uint8Array<ArrayBuffer>;
+  if (
+    typeof maybeCountedBytes.count !== "number" ||
+    !Number.isFinite(maybeCountedBytes.count)
+  ) {
+    return raw;
+  }
+
+  const count = Math.max(
+    0,
+    Math.min(raw.byteLength, Math.trunc(maybeCountedBytes.count))
+  );
+  return count > 0 ? raw.subarray(0, count) as Uint8Array<ArrayBuffer> : null;
+}
+
 function createMetricsWindow(startedAtMs: number): MetricsWindow {
   return {
     startedAtMs,
@@ -600,9 +634,9 @@ export async function uninit(): Promise<void> {
  * Updates the active viewer canvas from a telemetry field's byte payload.
  *
  * Reads the telemetry field at `fieldPath` from `model`. If the field contains
- * a `Uint8Array` image payload, the function queues the latest bytes for
- * decode. If the field is missing or malformed, the viewer keeps its current
- * frame.
+ * a `Uint8Array` image payload or a `{ data_buffer, count }` dynamic byte
+ * struct, the function queues the latest bytes for decode. If the field is
+ * missing or malformed, the viewer keeps its current frame.
  *
  * @param model - Telemetry model to read the field from
  * @param fieldPath - Path to the telemetry field containing the image bytes
@@ -616,12 +650,13 @@ function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
     return;
   }
   const value = field.getValue?.();
-  if (!(value instanceof Uint8Array)) {
+  const bytes = extractStreamingImageBytes(value);
+  if (!bytes) {
     return;
   }
 
   const mime = field.mime_type || "image/jpeg";
-  queueFrame(mime, value as Uint8Array<ArrayBuffer>, Date.now());
+  queueFrame(mime, bytes, Date.now());
 }
 
 function setBlackFrame() {

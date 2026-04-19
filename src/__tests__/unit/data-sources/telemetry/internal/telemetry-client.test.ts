@@ -399,6 +399,138 @@ describe("createTelemetryModel", () => {
     });
   });
 
+  it("reads repeated dynamic struct fields through their instance-specific layout types", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 4096,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "first",
+          type: "ImageRefToJpegWorkload",
+          offset_within_container: 100,
+          stats_offset_within_container: 3000,
+          outputs: {
+            type: "ImageRefToJpegOutputs_A",
+            offset_within_container: 0,
+          },
+        },
+        {
+          name: "second",
+          type: "ImageRefToJpegWorkload",
+          offset_within_container: 200,
+          stats_offset_within_container: 3100,
+          outputs: {
+            type: "ImageRefToJpegOutputs_B",
+            offset_within_container: 0,
+          },
+        },
+      ],
+      types: [
+        { name: "uint8_t", size: 1 },
+        { name: "uint32_t", size: 4 },
+        { name: "WorkloadInstanceStats", size: 32 },
+        {
+          name: "ImageJpegByte",
+          size: 1,
+          mime_type: "image/jpeg",
+        },
+        {
+          name: "ImageRefToJpegOutputs_A",
+          size: 8,
+          fields: [
+            {
+              name: "jpeg_data",
+              type: "ImageJpegDynamic_A",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageRefToJpegOutputs_B",
+          size: 8,
+          fields: [
+            {
+              name: "jpeg_data",
+              type: "ImageJpegDynamic_B",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageJpegDynamic_A",
+          size: 8,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "ImageJpegByte",
+              offset_within_container: 1000,
+              element_count: 8,
+            },
+            {
+              name: "count",
+              type: "uint32_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageJpegDynamic_B",
+          size: 8,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "ImageJpegByte",
+              offset_within_container: 2000,
+              element_count: 8,
+            },
+            {
+              name: "count",
+              type: "uint32_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const raw = new ArrayBuffer(4096);
+    const bytes = new Uint8Array(raw);
+    const view = new DataView(raw);
+    view.setUint32(100, 4, true);
+    view.setUint32(200, 4, true);
+    bytes.set([0xff, 0xd8, 0xaa, 0xd9], 1100);
+    bytes.set([0xff, 0xd8, 0xbb, 0xd9], 2200);
+
+    const model = createTelemetryModel(layout);
+    model.raw = raw;
+
+    const secondBuffer = model
+      .getField?.("second.outputs.jpeg_data.data_buffer")
+      ?.getValue() as Uint8Array | null;
+    expect(Array.from(secondBuffer?.slice(0, 4) ?? [])).toEqual([
+      0xff,
+      0xd8,
+      0xbb,
+      0xd9,
+    ]);
+
+    const secondJpegData = model
+      .getField?.("second.outputs.jpeg_data")
+      ?.getValue() as { data_buffer?: Uint8Array; count?: number } | null;
+    expect(secondJpegData?.count).toBe(4);
+    expect(Array.from(secondJpegData?.data_buffer?.slice(0, 4) ?? [])).toEqual([
+      0xff,
+      0xd8,
+      0xbb,
+      0xd9,
+    ]);
+  });
+
   it("attaches incoming connection metadata to writable input fields", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
