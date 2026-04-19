@@ -62,6 +62,7 @@ export type TelemetryStore = {
 };
 
 const DEFAULT_LAYOUT_ENSURE_TIMEOUT_MS = 3000;
+const SUBSCRIBER_CADENCE_TOLERANCE_MS = 8;
 
 /**
  * Create a telemetry websocket store that manages subscriptions, per-base-url socket lifecycle,
@@ -141,10 +142,14 @@ export function createTelemetryStore(
     force = false
   ) {
     const now = Date.now();
+    const toleranceMs = Math.min(
+      SUBSCRIBER_CADENCE_TOLERANCE_MS,
+      subscriber.intervalMs * 0.1,
+    );
     if (
       force ||
       subscriber.lastNotified === 0 ||
-      now - subscriber.lastNotified >= subscriber.intervalMs
+      now - subscriber.lastNotified + toleranceMs >= subscriber.intervalMs
     ) {
       subscriber.lastNotified = now;
       subscriber.callback(model);

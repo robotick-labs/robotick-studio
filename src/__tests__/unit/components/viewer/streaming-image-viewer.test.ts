@@ -24,6 +24,7 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
 import {
   extractStreamingImageBytes,
   init,
+  resolveStreamingImageMime,
   uninit,
 } from "../../../../renderer/components/viewer/streaming-image/viewer-streaming-image";
 
@@ -47,7 +48,7 @@ describe("viewer-streaming-image frame rate config", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses frameRateHz when configured", async () => {
+  it("uses a higher telemetry sampling rate than the configured presentation rate", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
@@ -58,7 +59,7 @@ describe("viewer-streaming-image frame rate config", () => {
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
       "http://example.test:7101",
-      33,
+      132,
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
@@ -66,7 +67,7 @@ describe("viewer-streaming-image frame rate config", () => {
     );
   });
 
-  it("falls back to legacy samplingRateHz when present", async () => {
+  it("uses the legacy samplingRateHz as the presentation rate when present", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
@@ -77,7 +78,7 @@ describe("viewer-streaming-image frame rate config", () => {
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
       "http://example.test:7101",
-      24,
+      96,
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
@@ -95,7 +96,7 @@ describe("viewer-streaming-image frame rate config", () => {
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
       "http://example.test:7101",
-      30,
+      120,
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
@@ -125,5 +126,39 @@ describe("viewer-streaming-image byte extraction", () => {
     });
 
     expect(bytes).toBeNull();
+  });
+});
+
+describe("viewer-streaming-image mime resolution", () => {
+  it("infers PNG when dynamic parent fields have no mime_type", () => {
+    const pngBytes = new Uint8Array([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+    ]);
+
+    expect(resolveStreamingImageMime(undefined, pngBytes)).toBe("image/png");
+  });
+
+  it("keeps explicit field mime_type when present", () => {
+    const pngBytes = new Uint8Array([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+    ]);
+
+    expect(resolveStreamingImageMime("image/custom", pngBytes)).toBe(
+      "image/custom"
+    );
   });
 });

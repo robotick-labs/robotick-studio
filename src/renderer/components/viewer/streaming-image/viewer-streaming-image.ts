@@ -28,6 +28,7 @@ const DEFAULT_FRAME_STALL_TIMEOUT_MS = 2_500;
 const MAX_METRICS_HISTORY = 20;
 const DEFAULT_FRAME_RATE_HZ = 30;
 const DEFAULT_SURFACE_RECYCLE_INTERVAL_MS = 30_000;
+const TELEMETRY_SAMPLING_MULTIPLIER = 4;
 
 let telemetryDispose: (() => void) | null = null;
 let activeCanvas: HTMLCanvasElement | null = null;
@@ -112,6 +113,35 @@ export function extractStreamingImageBytes(
     Math.min(raw.byteLength, Math.trunc(maybeCountedBytes.count))
   );
   return count > 0 ? raw.subarray(0, count) as Uint8Array<ArrayBuffer> : null;
+}
+
+export function resolveStreamingImageMime(
+  configuredMime: string | undefined,
+  bytes: Uint8Array<ArrayBuffer>
+): string {
+  if (configuredMime?.trim()) {
+    return configuredMime;
+  }
+
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    return "image/jpeg";
+  }
+
+  return "image/jpeg";
 }
 
 function createMetricsWindow(startedAtMs: number): MetricsWindow {
@@ -567,6 +597,10 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     1,
     Math.floor(streamingConfig.frameRateHz ?? legacyFrameRateHz ?? DEFAULT_FRAME_RATE_HZ)
   );
+  const telemetrySamplingRateHz = Math.max(
+    frameRateHz,
+    Math.ceil(frameRateHz * TELEMETRY_SAMPLING_MULTIPLIER)
+  );
   metricsEnabled = streamingConfig.telemetryMetricsEnabled ?? true;
   metricsWindowMs = Math.max(
     5_000,
@@ -590,6 +624,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     telemetryBase,
     fieldPath,
     frameRateHz,
+    telemetrySamplingRateHz,
   });
   if (metricsEnabled) {
     ensureStatsOverlay();
@@ -600,9 +635,9 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   startMonitorLoop();
 
   console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${frameRateHz}Hz`
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${telemetrySamplingRateHz}Hz, presenting @ ${frameRateHz}Hz`
   );
-  telemetryDispose = subscribeTelemetry(telemetryBase, frameRateHz, {
+  telemetryDispose = subscribeTelemetry(telemetryBase, telemetrySamplingRateHz, {
     callback: (model) => handleTelemetryFrame(model, fieldPath),
     error: (err) => {
       console.warn(
@@ -655,7 +690,7 @@ function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
     return;
   }
 
-  const mime = field.mime_type || "image/jpeg";
+  const mime = resolveStreamingImageMime(field.mime_type, bytes);
   queueFrame(mime, bytes, Date.now());
 }
 
