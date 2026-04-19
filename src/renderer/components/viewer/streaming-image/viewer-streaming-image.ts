@@ -6,6 +6,11 @@ import {
   ITelemetryModel,
 } from "../../../data-sources/telemetry";
 import { ProjectData } from "../../../data-sources/launcher";
+import {
+  buildNamespacedKey,
+  readStorageValue,
+  setStorageValue,
+} from "../../../services/storage";
 import { summarizeCadence } from "./streaming-image-metrics";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
@@ -14,6 +19,8 @@ interface StreamingImageViewerConfig extends ViewerConfig {
   telemetryModelName?: string;
   sourceField?: string;
   telemetryBaseUrl?: string;
+  selectedStream?: string;
+  streams?: Record<string, unknown>;
   frameRateHz?: number;
   samplingRateHz?: number; // legacy
   maxPresentRateHz?: number; // legacy
@@ -35,6 +42,11 @@ let activeCanvas: HTMLCanvasElement | null = null;
 let activeCanvasContext: CanvasRenderingContext2D | null = null;
 let viewerContainerElement: HTMLElement | null = null;
 let statsOverlayElement: HTMLDivElement | null = null;
+let streamSelectorContainerElement: HTMLLabelElement | null = null;
+let streamSelectorElement: HTMLSelectElement | null = null;
+let activeStreamingConfig: StreamingImageViewerConfig | null = null;
+let activeStreamSources: StreamingImageSource[] = [];
+let activeSelectedStreamStorageKey: string | null = null;
 let decodeInFlight = false;
 let monitorIntervalId: number | null = null;
 let presentTimerId: number | null = null;
@@ -44,6 +56,9 @@ let metricsEnabled = true;
 let metricsWindowMs = DEFAULT_METRICS_WINDOW_MS;
 let frameStallTimeoutMs = DEFAULT_FRAME_STALL_TIMEOUT_MS;
 let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_FRAME_RATE_HZ);
+let activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
+let activeTelemetrySamplingRateHz =
+  DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
 let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
@@ -56,6 +71,24 @@ type PendingFrame = {
   mime: string;
   bytes: Uint8Array<ArrayBuffer>;
   receivedAtMs: number;
+};
+
+type StreamingImageSourceInput = {
+  id?: string;
+  sourceModel?: string;
+  modelName?: string;
+  telemetryModelName?: string;
+  sourceField?: string;
+  telemetryBaseUrl?: string;
+};
+
+type StreamingImageSource = Required<Pick<StreamingImageSourceInput, "id">> & {
+  label: string;
+  sourceField: string;
+  sourceModel?: string;
+  modelName?: string;
+  telemetryModelName?: string;
+  telemetryBaseUrl?: string;
 };
 
 type MetricsWindow = {
@@ -160,11 +193,17 @@ function resetRuntimeState() {
   pendingFrame = null;
   metricsWindow = null;
   metricsSourceLabel = "";
+  activeStreamingConfig = null;
+  activeStreamSources = [];
+  activeSelectedStreamStorageKey = null;
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
   decodeInFlight = false;
   surfaceCreatedAtMs = 0;
+  activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
+  activeTelemetrySamplingRateHz =
+    DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
   if (monitorIntervalId !== null && typeof clearInterval === "function") {
     clearInterval(monitorIntervalId);
     monitorIntervalId = null;
@@ -173,6 +212,7 @@ function resetRuntimeState() {
     clearTimeout(presentTimerId);
     presentTimerId = null;
   }
+  cleanupStreamSelector();
   publishDebugState();
 }
 
@@ -243,6 +283,101 @@ function cleanupStatsOverlay() {
   }
   statsOverlayElement = null;
   publishDebugState({ overlayCreated: false });
+}
+
+function cleanupStreamSelector() {
+  if (streamSelectorContainerElement?.parentElement) {
+    streamSelectorContainerElement.parentElement.removeChild(
+      streamSelectorContainerElement
+    );
+  } else if (streamSelectorElement?.parentElement) {
+    streamSelectorElement.parentElement.removeChild(streamSelectorElement);
+  }
+  streamSelectorContainerElement = null;
+  streamSelectorElement = null;
+}
+
+function ensureStreamSelector(
+  sources: StreamingImageSource[],
+  selectedStreamId: string
+) {
+  if (!viewerContainerElement || sources.length <= 1) {
+    cleanupStreamSelector();
+    return;
+  }
+
+  if (
+    streamSelectorElement &&
+    streamSelectorElement.isConnected &&
+    streamSelectorElement.parentElement === viewerContainerElement
+  ) {
+    streamSelectorElement.value = selectedStreamId;
+    return;
+  }
+
+  cleanupStreamSelector();
+  const container = document.createElement("label");
+  container.title = "Image stream";
+  Object.assign(container.style, {
+    position: "absolute",
+    top: "8px",
+    right: "8px",
+    zIndex: "1000",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: "0.3rem",
+    minWidth: "9.5rem",
+    maxWidth: "190px",
+    padding: "0.5rem 0.75rem",
+    borderRadius: "10px",
+    background: "rgba(15, 19, 31, 0.55)",
+    color: "rgba(255, 255, 255, 0.88)",
+    fontSize: "0.85rem",
+    fontFamily: "system-ui, sans-serif",
+    backdropFilter: "blur(12px)",
+    WebkitBackdropFilter: "blur(12px)",
+  });
+
+  const labelText = document.createElement("span");
+  labelText.textContent = "Image Stream";
+  Object.assign(labelText.style, {
+    letterSpacing: "0.03em",
+    textTransform: "uppercase",
+    fontSize: "0.72rem",
+    opacity: "0.85",
+  });
+
+  const selector = document.createElement("select");
+  selector.setAttribute("aria-label", "Image stream");
+  selector.title = "Image stream";
+  Object.assign(selector.style, {
+    width: "100%",
+    minHeight: "2rem",
+    padding: "0.4rem 0.6rem",
+    border: "1px solid rgba(255, 255, 255, 0.18)",
+    borderRadius: "8px",
+    background: "rgba(13, 18, 29, 0.9)",
+    color: "white",
+    fontSize: "0.85rem",
+  });
+
+  for (const source of sources) {
+    const option = document.createElement("option");
+    option.value = source.id;
+    option.textContent = source.label;
+    selector.appendChild(option);
+  }
+
+  selector.value = selectedStreamId;
+  selector.addEventListener("change", () => {
+    void switchStreamingImageSource(selector.value);
+  });
+  container.appendChild(labelText);
+  container.appendChild(selector);
+  streamSelectorContainerElement = container;
+  streamSelectorElement = selector;
+  viewerContainerElement.appendChild(container);
 }
 
 function publishMetricsSummary(summary: StreamingImageMetricsSummary) {
@@ -549,6 +684,281 @@ function recreateCanvasSurface() {
   return true;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function prettifyStreamLabel(streamId: string): string {
+  return streamId
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function splitQualifiedFieldPath(
+  sourceField: string,
+  explicitSourceModel?: string
+): { sourceModel?: string; sourceField: string } {
+  const trimmedField = sourceField.trim();
+  const trimmedModel = explicitSourceModel?.trim();
+  if (trimmedModel) {
+    const qualifiedPrefix = `${trimmedModel}.`;
+    return {
+      sourceModel: trimmedModel,
+      sourceField: trimmedField.startsWith(qualifiedPrefix)
+        ? trimmedField.slice(qualifiedPrefix.length)
+        : trimmedField,
+    };
+  }
+
+  const firstDotIndex = trimmedField.indexOf(".");
+  if (firstDotIndex <= 0 || firstDotIndex === trimmedField.length - 1) {
+    return { sourceField: trimmedField };
+  }
+
+  return {
+    sourceModel: trimmedField.slice(0, firstDotIndex),
+    sourceField: trimmedField.slice(firstDotIndex + 1),
+  };
+}
+
+function normalizeStreamingImageSource(
+  streamId: string,
+  rawSource: unknown
+): StreamingImageSource | null {
+  const sourceInput: StreamingImageSourceInput =
+    typeof rawSource === "string"
+      ? { sourceField: rawSource }
+      : isPlainObject(rawSource)
+        ? {
+            sourceModel:
+              typeof rawSource.sourceModel === "string"
+                ? rawSource.sourceModel
+                : undefined,
+            modelName:
+              typeof rawSource.modelName === "string"
+                ? rawSource.modelName
+                : undefined,
+            telemetryModelName:
+              typeof rawSource.telemetryModelName === "string"
+                ? rawSource.telemetryModelName
+                : undefined,
+            sourceField:
+              typeof rawSource.sourceField === "string"
+                ? rawSource.sourceField
+                : undefined,
+            telemetryBaseUrl:
+              typeof rawSource.telemetryBaseUrl === "string"
+                ? rawSource.telemetryBaseUrl
+                : undefined,
+          }
+        : {};
+
+  const sourceField = sourceInput.sourceField?.trim();
+  if (!sourceField) {
+    return null;
+  }
+
+  const explicitModel =
+    sourceInput.telemetryModelName ??
+    sourceInput.modelName ??
+    sourceInput.sourceModel;
+  const qualified = splitQualifiedFieldPath(sourceField, explicitModel);
+  return {
+    id: streamId,
+    label: prettifyStreamLabel(streamId),
+    sourceField: qualified.sourceField,
+    sourceModel: sourceInput.sourceModel ?? qualified.sourceModel,
+    modelName: sourceInput.modelName,
+    telemetryModelName: sourceInput.telemetryModelName,
+    telemetryBaseUrl: sourceInput.telemetryBaseUrl,
+  };
+}
+
+function getStreamingImageSources(
+  config: StreamingImageViewerConfig
+): StreamingImageSource[] {
+  const streamEntries = isPlainObject(config.streams)
+    ? Object.entries(config.streams)
+    : [];
+  const configuredSources = streamEntries
+    .map(([streamId, rawSource]) => {
+      const trimmedStreamId = streamId.trim();
+      return trimmedStreamId
+        ? normalizeStreamingImageSource(trimmedStreamId, rawSource)
+        : null;
+    })
+    .filter((source): source is StreamingImageSource => source !== null);
+
+  if (configuredSources.length > 0) {
+    return configuredSources;
+  }
+
+  const legacySource = normalizeStreamingImageSource("default", {
+    sourceModel: config.sourceModel,
+    modelName: config.modelName,
+    telemetryModelName: config.telemetryModelName,
+    sourceField: config.sourceField,
+    telemetryBaseUrl: config.telemetryBaseUrl,
+  });
+  return legacySource ? [legacySource] : [];
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = Math.imul(31, hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function buildStreamingImageSourcesStorageSignature(
+  sources: StreamingImageSource[]
+): string {
+  return hashString(
+    JSON.stringify(
+      sources.map((source) => ({
+        id: source.id,
+        sourceModel: source.sourceModel ?? "",
+        modelName: source.modelName ?? "",
+        telemetryModelName: source.telemetryModelName ?? "",
+        sourceField: source.sourceField,
+        telemetryBaseUrl: source.telemetryBaseUrl ?? "",
+      }))
+    )
+  );
+}
+
+function buildSelectedStreamStorageKey(
+  config: StreamingImageViewerConfig,
+  sources: StreamingImageSource[]
+): string | null {
+  if (sources.length <= 1) {
+    return null;
+  }
+  return buildNamespacedKey(
+    "robotick.streaming-image.selected-stream",
+    config.projectPath || "default-project",
+    buildStreamingImageSourcesStorageSignature(sources)
+  );
+}
+
+function readStoredSelectedStream(
+  storageKey: string | null,
+  sources: StreamingImageSource[]
+): string | null {
+  if (!storageKey) {
+    return null;
+  }
+  const stored = readStorageValue(storageKey)?.trim();
+  if (!stored || !sources.some((source) => source.id === stored)) {
+    return null;
+  }
+  return stored;
+}
+
+function writeStoredSelectedStream(streamId: string): void {
+  if (!activeSelectedStreamStorageKey) {
+    return;
+  }
+  setStorageValue(activeSelectedStreamStorageKey, streamId);
+}
+
+export function resolveStreamingImageSource(
+  config: StreamingImageViewerConfig,
+  selectedStreamOverride?: string
+): StreamingImageSource | null {
+  const sources = getStreamingImageSources(config);
+  if (sources.length === 0) {
+    return null;
+  }
+
+  const selectedStream =
+    selectedStreamOverride?.trim() || config.selectedStream?.trim();
+  return (
+    (selectedStream
+      ? sources.find((source) => source.id === selectedStream)
+      : null) ?? sources[0]
+  );
+}
+
+function resetSourceRuntimeState() {
+  pendingFrame = null;
+  lastFrameReceivedAtMs = 0;
+  lastFramePresentedAtMs = 0;
+  stallStateActive = false;
+  if (presentTimerId !== null && typeof clearTimeout === "function") {
+    clearTimeout(presentTimerId);
+    presentTimerId = null;
+  }
+  metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
+  setBlackFrame();
+}
+
+async function switchStreamingImageSource(streamId: string) {
+  const config = activeStreamingConfig;
+  if (!config) {
+    return;
+  }
+
+  const source = resolveStreamingImageSource(config, streamId);
+  if (!source) {
+    return;
+  }
+
+  writeStoredSelectedStream(source.id);
+  viewerSessionId += 1;
+  await subscribeToStreamingImageSource(source);
+}
+
+async function subscribeToStreamingImageSource(source: StreamingImageSource) {
+  const sessionId = viewerSessionId;
+  const telemetryBase = await resolveTelemetryBaseUrl(source);
+  if (sessionId !== viewerSessionId) {
+    return;
+  }
+
+  telemetryDispose?.();
+  telemetryDispose = null;
+  resetSourceRuntimeState();
+  ensureStreamSelector(activeStreamSources, source.id);
+
+  if (!telemetryBase) {
+    console.warn(
+      "[streaming-image] Unable to resolve telemetry base URL for viewer"
+    );
+    publishDebugState({ fieldPath: source.sourceField, streamId: source.id });
+    return;
+  }
+
+  metricsSourceLabel = `${telemetryBase} :: ${source.sourceField}`;
+  publishDebugState({
+    telemetryBase,
+    fieldPath: source.sourceField,
+    streamId: source.id,
+    frameRateHz: activeFrameRateHz,
+    telemetrySamplingRateHz: activeTelemetrySamplingRateHz,
+  });
+
+  console.info(
+    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${source.sourceField} @ ${activeTelemetrySamplingRateHz}Hz, presenting @ ${activeFrameRateHz}Hz`
+  );
+  telemetryDispose = subscribeTelemetry(
+    telemetryBase,
+    activeTelemetrySamplingRateHz,
+    {
+      callback: (model) => handleTelemetryFrame(model, source.sourceField),
+      error: (err) => {
+        console.warn(
+          `[streaming-image] Telemetry error for ${telemetryBase} (${source.sourceField})`,
+          err
+        );
+        noteTransportError();
+      },
+    }
+  );
+}
+
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
   resetRuntimeState();
   viewerSessionId += 1;
@@ -574,20 +984,21 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   }
 
   const streamingConfig = viewerConfig as StreamingImageViewerConfig;
-  const fieldPath = streamingConfig.sourceField?.trim();
-  if (!fieldPath) {
+  activeStreamingConfig = streamingConfig;
+  activeStreamSources = getStreamingImageSources(streamingConfig);
+  activeSelectedStreamStorageKey = buildSelectedStreamStorageKey(
+    streamingConfig,
+    activeStreamSources
+  );
+  const activeSource = resolveStreamingImageSource(
+    streamingConfig,
+    readStoredSelectedStream(activeSelectedStreamStorageKey, activeStreamSources) ??
+      undefined
+  );
+  if (!activeSource) {
     console.warn(
       "[streaming-image] Missing sourceField in viewer configuration"
     );
-    return;
-  }
-
-  const telemetryBase = await resolveTelemetryBaseUrl(streamingConfig);
-  if (!telemetryBase) {
-    console.warn(
-      "[streaming-image] Unable to resolve telemetry base URL for viewer"
-    );
-    setBlackFrame();
     return;
   }
 
@@ -601,6 +1012,8 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     frameRateHz,
     Math.ceil(frameRateHz * TELEMETRY_SAMPLING_MULTIPLIER)
   );
+  activeFrameRateHz = frameRateHz;
+  activeTelemetrySamplingRateHz = telemetrySamplingRateHz;
   metricsEnabled = streamingConfig.telemetryMetricsEnabled ?? true;
   metricsWindowMs = Math.max(
     5_000,
@@ -618,11 +1031,9 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
         DEFAULT_SURFACE_RECYCLE_INTERVAL_MS
     )
   );
-  metricsSourceLabel = `${telemetryBase} :: ${fieldPath}`;
   metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
   publishDebugState({
-    telemetryBase,
-    fieldPath,
+    fieldPath: activeSource.sourceField,
     frameRateHz,
     telemetrySamplingRateHz,
   });
@@ -633,20 +1044,9 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     cleanupStatsOverlay();
   }
   startMonitorLoop();
-
-  console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${fieldPath} @ ${telemetrySamplingRateHz}Hz, presenting @ ${frameRateHz}Hz`
-  );
-  telemetryDispose = subscribeTelemetry(telemetryBase, telemetrySamplingRateHz, {
-    callback: (model) => handleTelemetryFrame(model, fieldPath),
-    error: (err) => {
-      console.warn(
-        `[streaming-image] Telemetry error for ${telemetryBase} (${fieldPath})`,
-        err
-      );
-      noteTransportError();
-    },
-  });
+  ensureStreamSelector(activeStreamSources, activeSource.id);
+  writeStoredSelectedStream(activeSource.id);
+  await subscribeToStreamingImageSource(activeSource);
 }
 
 export async function uninit(): Promise<void> {
@@ -705,7 +1105,7 @@ function setBlackFrame() {
 }
 
 async function resolveTelemetryBaseUrl(
-  config: StreamingImageViewerConfig
+  config: StreamingImageSourceInput
 ): Promise<string | null> {
   const direct = config.telemetryBaseUrl?.trim();
   if (direct) return direct;
