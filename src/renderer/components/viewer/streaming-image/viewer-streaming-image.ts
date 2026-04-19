@@ -1,6 +1,7 @@
 // viewer-streaming-image.ts
 
 import type { ViewerConfig } from "../viewer-schema";
+import { decode as decodePng } from "fast-png";
 import {
   subscribeTelemetry,
   ITelemetryModel,
@@ -71,20 +72,26 @@ type PendingFrame = {
   mime: string;
   bytes: Uint8Array<ArrayBuffer>;
   receivedAtMs: number;
+  transform: StreamingImageTransform;
 };
+
+type StreamingImageTransform = "none" | "depth-preview";
 
 type StreamingImageSourceInput = {
   id?: string;
+  source?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
   sourceField?: string;
   telemetryBaseUrl?: string;
+  transform?: StreamingImageTransform;
 };
 
 type StreamingImageSource = Required<Pick<StreamingImageSourceInput, "id">> & {
   label: string;
   sourceField: string;
+  transform: StreamingImageTransform;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -112,6 +119,12 @@ type StreamingImageMetricsSummary = {
   transportErrors: number;
   stallEvents: number;
   cadence: ReturnType<typeof summarizeCadence>;
+};
+
+type DepthPreviewImageData = {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray<ArrayBuffer>;
 };
 
 export function extractStreamingImageBytes(
@@ -309,7 +322,7 @@ function ensureStreamSelector(
   if (
     streamSelectorElement &&
     streamSelectorElement.isConnected &&
-    streamSelectorElement.parentElement === viewerContainerElement
+    streamSelectorContainerElement?.parentElement === viewerContainerElement
   ) {
     streamSelectorElement.value = selectedStreamId;
     return;
@@ -458,7 +471,8 @@ function updateStatsOverlay(nowMs: number) {
 function queueFrame(
   mime: string,
   bytes: Uint8Array<ArrayBuffer>,
-  receivedAtMs: number
+  receivedAtMs: number,
+  transform: StreamingImageTransform
 ) {
   if (pendingFrame && metricsWindow) {
     metricsWindow.supersededFrames += 1;
@@ -467,6 +481,7 @@ function queueFrame(
     mime,
     bytes,
     receivedAtMs,
+    transform,
   };
   lastFrameReceivedAtMs = receivedAtMs;
   stallStateActive = false;
@@ -500,8 +515,7 @@ async function presentPendingFrame() {
     !activeCanvas ||
     !activeCanvasContext ||
     !pendingFrame ||
-    decodeInFlight ||
-    typeof createImageBitmap !== "function"
+    decodeInFlight
   ) {
     return;
   }
@@ -517,6 +531,28 @@ async function presentPendingFrame() {
       noteTransportError();
       return;
     }
+
+    if (frame.transform === "depth-preview") {
+      const preview = createDepthPreviewImageDataFromPngBytes(safeBytes);
+      if (preview) {
+        if (
+          sessionId !== viewerSessionId ||
+          !activeCanvas ||
+          !activeCanvasContext
+        ) {
+          return;
+        }
+        drawDepthPreviewImageData(activeCanvas, activeCanvasContext, preview);
+        notePresentedFrame(frame);
+        return;
+      }
+    }
+
+    if (typeof createImageBitmap !== "function") {
+      noteTransportError();
+      return;
+    }
+
     const blob = new Blob([safeBytes], { type: frame.mime });
     const bitmap = await createImageBitmap(blob);
     try {
@@ -537,15 +573,14 @@ async function presentPendingFrame() {
       }
 
       activeCanvasContext.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
-      activeCanvasContext.drawImage(bitmap, 0, 0);
+      drawBitmapWithTransform(
+        activeCanvas,
+        activeCanvasContext,
+        bitmap,
+        frame.transform
+      );
 
-      if (metricsWindow) {
-        if (lastFramePresentedAtMs > 0) {
-          metricsWindow.intervalsMs.push(frame.receivedAtMs - lastFramePresentedAtMs);
-        }
-        metricsWindow.presentedFrames += 1;
-      }
-      lastFramePresentedAtMs = frame.receivedAtMs;
+      notePresentedFrame(frame);
     } finally {
       bitmap.close();
     }
@@ -558,6 +593,182 @@ async function presentPendingFrame() {
       schedulePendingFramePresentation();
     }
   }
+}
+
+function notePresentedFrame(frame: PendingFrame) {
+  if (metricsWindow) {
+    if (lastFramePresentedAtMs > 0) {
+      metricsWindow.intervalsMs.push(frame.receivedAtMs - lastFramePresentedAtMs);
+    }
+    metricsWindow.presentedFrames += 1;
+  }
+  lastFramePresentedAtMs = frame.receivedAtMs;
+}
+
+function drawDepthPreviewImageData(
+  targetCanvas: HTMLCanvasElement,
+  targetContext: CanvasRenderingContext2D,
+  preview: DepthPreviewImageData
+) {
+  if (
+    targetCanvas.width !== preview.width ||
+    targetCanvas.height !== preview.height
+  ) {
+    targetCanvas.width = preview.width;
+    targetCanvas.height = preview.height;
+  }
+  targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  targetContext.putImageData(
+    new ImageData(preview.data, preview.width, preview.height),
+    0,
+    0
+  );
+}
+
+function drawBitmapWithTransform(
+  targetCanvas: HTMLCanvasElement,
+  targetContext: CanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  transform: StreamingImageTransform
+) {
+  if (transform === "none") {
+    targetContext.drawImage(bitmap, 0, 0);
+    return;
+  }
+
+  const scratchCanvas = document.createElement("canvas");
+  scratchCanvas.width = bitmap.width;
+  scratchCanvas.height = bitmap.height;
+  const scratchContext = scratchCanvas.getContext("2d", { alpha: false });
+  if (!scratchContext) {
+    targetContext.drawImage(bitmap, 0, 0);
+    return;
+  }
+
+  scratchContext.drawImage(bitmap, 0, 0);
+  const imageData = scratchContext.getImageData(
+    0,
+    0,
+    scratchCanvas.width,
+    scratchCanvas.height
+  );
+
+  if (transform === "depth-preview") {
+    applyDepthPreviewTransformToImageData(imageData);
+  }
+
+  targetCanvas.width = scratchCanvas.width;
+  targetCanvas.height = scratchCanvas.height;
+  targetContext.putImageData(imageData, 0, 0);
+}
+
+export function applyDepthPreviewTransformToImageData(
+  imageData: ImageData
+): ImageData {
+  const data = imageData.data;
+  let min = 255;
+  let max = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) {
+      continue;
+    }
+    const luminance = Math.round(
+      data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    );
+    if (luminance <= 0) {
+      continue;
+    }
+    min = Math.min(min, luminance);
+    max = Math.max(max, luminance);
+  }
+
+  const hasRange = max > min;
+  for (let i = 0; i < data.length; i += 4) {
+    const luminance = Math.round(
+      data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    );
+    const preview =
+      luminance <= 0
+        ? 0
+        : hasRange
+          ? Math.round(255 * (1 - (luminance - min) / (max - min)))
+          : 255;
+    data[i] = preview;
+    data[i + 1] = preview;
+    data[i + 2] = preview;
+  }
+
+  return imageData;
+}
+
+export function createDepthPreviewImageDataFromPngBytes(
+  bytes: Uint8Array<ArrayBuffer>
+): DepthPreviewImageData | null {
+  try {
+    const decoded = decodePng(bytes);
+    if (decoded.depth !== 16 || decoded.channels < 1) {
+      return null;
+    }
+
+    return createDepthPreviewImageDataFromSamples(
+      decoded.width,
+      decoded.height,
+      decoded.channels,
+      decoded.data
+    );
+  } catch (err) {
+    console.warn("[streaming-image] Failed to decode depth PNG", err);
+    return null;
+  }
+}
+
+export function createDepthPreviewImageDataFromSamples(
+  width: number,
+  height: number,
+  channels: number,
+  samples: Uint8Array | Uint8ClampedArray | Uint16Array
+): DepthPreviewImageData | null {
+  if (
+    width <= 0 ||
+    height <= 0 ||
+    channels <= 0 ||
+    samples.length < width * height * channels
+  ) {
+    return null;
+  }
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = 0;
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const depth = samples[pixelIndex * channels];
+    if (depth <= 0) {
+      continue;
+    }
+    min = Math.min(min, depth);
+    max = Math.max(max, depth);
+  }
+
+  const rgba = new Uint8ClampedArray(
+    width * height * 4
+  ) as Uint8ClampedArray<ArrayBuffer>;
+  const hasRange = Number.isFinite(min) && max > min;
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const depth = samples[pixelIndex * channels];
+    const preview =
+      depth <= 0
+        ? 0
+        : hasRange
+          ? Math.round(255 * (1 - (depth - min) / (max - min)))
+          : 255;
+    const outputIndex = pixelIndex * 4;
+    rgba[outputIndex] = preview;
+    rgba[outputIndex + 1] = preview;
+    rgba[outputIndex + 2] = preview;
+    rgba[outputIndex + 3] = 255;
+  }
+
+  return { width, height, data: rgba };
 }
 
 function sanitizeImageBytes(
@@ -742,6 +953,10 @@ function normalizeStreamingImageSource(
               typeof rawSource.telemetryModelName === "string"
                 ? rawSource.telemetryModelName
                 : undefined,
+            source:
+              typeof rawSource.source === "string"
+                ? rawSource.source
+                : undefined,
             sourceField:
               typeof rawSource.sourceField === "string"
                 ? rawSource.sourceField
@@ -750,10 +965,14 @@ function normalizeStreamingImageSource(
               typeof rawSource.telemetryBaseUrl === "string"
                 ? rawSource.telemetryBaseUrl
                 : undefined,
+            transform:
+              rawSource.transform === "depth-preview"
+                ? "depth-preview"
+                : "none",
           }
         : {};
 
-  const sourceField = sourceInput.sourceField?.trim();
+  const sourceField = (sourceInput.sourceField ?? sourceInput.source)?.trim();
   if (!sourceField) {
     return null;
   }
@@ -767,6 +986,7 @@ function normalizeStreamingImageSource(
     id: streamId,
     label: prettifyStreamLabel(streamId),
     sourceField: qualified.sourceField,
+    transform: sourceInput.transform ?? "none",
     sourceModel: sourceInput.sourceModel ?? qualified.sourceModel,
     modelName: sourceInput.modelName,
     telemetryModelName: sourceInput.telemetryModelName,
@@ -824,6 +1044,7 @@ function buildStreamingImageSourcesStorageSignature(
         telemetryModelName: source.telemetryModelName ?? "",
         sourceField: source.sourceField,
         telemetryBaseUrl: source.telemetryBaseUrl ?? "",
+        transform: source.transform,
       }))
     )
   );
@@ -947,7 +1168,8 @@ async function subscribeToStreamingImageSource(source: StreamingImageSource) {
     telemetryBase,
     activeTelemetrySamplingRateHz,
     {
-      callback: (model) => handleTelemetryFrame(model, source.sourceField),
+      callback: (model) =>
+        handleTelemetryFrame(model, source.sourceField, source.transform),
       error: (err) => {
         console.warn(
           `[streaming-image] Telemetry error for ${telemetryBase} (${source.sourceField})`,
@@ -1076,7 +1298,11 @@ export async function uninit(): Promise<void> {
  * @param model - Telemetry model to read the field from
  * @param fieldPath - Path to the telemetry field containing the image bytes
  */
-function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
+function handleTelemetryFrame(
+  model: ITelemetryModel,
+  fieldPath: string,
+  transform: StreamingImageTransform
+) {
   if (!activeCanvas) {
     return;
   }
@@ -1091,7 +1317,7 @@ function handleTelemetryFrame(model: ITelemetryModel, fieldPath: string) {
   }
 
   const mime = resolveStreamingImageMime(field.mime_type, bytes);
-  queueFrame(mime, bytes, Date.now());
+  queueFrame(mime, bytes, Date.now(), transform);
 }
 
 function setBlackFrame() {

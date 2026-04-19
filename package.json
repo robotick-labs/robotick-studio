@@ -51,6 +51,7 @@
   "dependencies": {
     "ansi_up": "^6.0.6",
     "cesium": "^1.134.1",
+    "fast-png": "^8.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",

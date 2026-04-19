@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { encode as encodePng } from "fast-png";
 
 const { subscribeTelemetry } = vi.hoisted(() => ({
   subscribeTelemetry: vi.fn(() => vi.fn()),
@@ -22,6 +23,9 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
 }));
 
 import {
+  applyDepthPreviewTransformToImageData,
+  createDepthPreviewImageDataFromPngBytes,
+  createDepthPreviewImageDataFromSamples,
   extractStreamingImageBytes,
   init,
   resolveStreamingImageSource,
@@ -145,6 +149,28 @@ describe("viewer-streaming-image stream selection", () => {
       id: "Head-Segmented",
       sourceModel: "barr-e-simulator",
       sourceField: "head_segmented_png.outputs.png_data",
+    });
+  });
+
+  it("resolves object-form streams with display transforms", () => {
+    const source = resolveStreamingImageSource({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-Depth",
+      streams: {
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
+        "Head-Depth": {
+          source: "barr-e-simulator.head_depth_png.outputs.png_data",
+          transform: "depth-preview",
+        },
+      },
+    });
+
+    expect(source).toMatchObject({
+      id: "Head-Depth",
+      sourceModel: "barr-e-simulator",
+      sourceField: "head_depth_png.outputs.png_data",
+      transform: "depth-preview",
     });
   });
 
@@ -287,6 +313,63 @@ describe("viewer-streaming-image stream selection", () => {
     expect(control?.textContent).toContain("Image Stream");
     expect(control?.style.background).toBe("rgba(15, 19, 31, 0.55)");
     expect(selector?.style.borderRadius).toBe("8px");
+  });
+});
+
+describe("viewer-streaming-image transforms", () => {
+  it("maps raw depth samples so near non-zero pixels become bright", () => {
+    const preview = createDepthPreviewImageDataFromSamples(
+      4,
+      1,
+      1,
+      new Uint16Array([0, 1000, 3000, 5000])
+    );
+
+    expect(Array.from(preview?.data ?? [])).toEqual([
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      128, 128, 128, 255,
+      0, 0, 0, 255,
+    ]);
+  });
+
+  it("decodes 16-bit grayscale PNGs as raw depth previews", () => {
+    const pngBytes = encodePng({
+      width: 4,
+      height: 1,
+      channels: 1,
+      depth: 16,
+      data: new Uint16Array([0, 1000, 3000, 5000]),
+    });
+
+    const preview = createDepthPreviewImageDataFromPngBytes(
+      pngBytes as Uint8Array<ArrayBuffer>
+    );
+
+    expect(Array.from(preview?.data ?? [])).toEqual([
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      128, 128, 128, 255,
+      0, 0, 0, 255,
+    ]);
+  });
+
+  it("maps depth previews so near non-zero pixels become bright", () => {
+    const imageData = {
+      data: new Uint8ClampedArray([
+        0, 0, 0, 255,
+        10, 10, 10, 255,
+        200, 200, 200, 255,
+      ]),
+    } as ImageData;
+
+    applyDepthPreviewTransformToImageData(imageData);
+
+    expect(Array.from(imageData.data)).toEqual([
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      0, 0, 0, 255,
+    ]);
   });
 });
 
