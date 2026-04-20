@@ -601,6 +601,7 @@ def test_ensure_docker_linux_arm64_image_reuses_local_latest_by_default(monkeypa
         "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
+    monkeypatch.setattr(docker_linux_module, "_docker_image_exists", lambda image: True)
 
     ensure_docker_linux_arm64_image(spec, dry_run=False)
 
@@ -726,6 +727,7 @@ def test_ensure_docker_linux_arm32_image_reuses_local_latest_by_default(monkeypa
         "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
+    monkeypatch.setattr(docker_linux_module, "_docker_image_exists", lambda image: True)
 
     ensure_docker_linux_arm32_image(spec, dry_run=False)
 
@@ -1003,6 +1005,7 @@ def test_ensure_docker_linux_x64_image_reuses_local_latest_by_default(monkeypatc
         "robotick.launcher.actions.launch.docker_linux.run_subprocess",
         lambda cmd: pull_calls.append(cmd),
     )
+    monkeypatch.setattr(docker_linux_module, "_docker_image_exists", lambda image: True)
 
     ensure_docker_linux_x64_image(spec, dry_run=False)
 
