@@ -93,6 +93,39 @@ Important details:
 
 See [docs/stage-contracts.md](docs/stage-contracts.md) for exact stage mapping and behavior.
 
+## Code Generation Selection
+
+By default, the `generate` stage emits the full standalone launcher shape:
+
+- `<model>_main.cpp`
+- `<model>_model.cpp`
+- `registry/generated_workload_registry.cpp`
+- `registry/generated_workload_deps.cmake`
+- generated project/component CMake files
+
+Models that embed Robotick inside another runtime can opt out of only the
+standalone artifacts they do not own. For example, a ROS2 package may own its
+own executable, `main()`, and `colcon` lifecycle while still using launcher for
+the model cpp and workload registry:
+
+```yaml
+runtime:
+  codegen:
+    generate_main_cpp: false
+    generate_project_cmake: false
+```
+
+Supported `runtime.codegen` keys are boolean values:
+
+- `generate_main_cpp`
+- `generate_model_cpp`
+- `generate_workload_registry`
+- `generate_project_cmake`
+- `generate_component_cmake`
+
+Generated files remain launcher-owned under `.launcher`; model source trees
+should include or compile them from there rather than copying them into source.
+
 ## License
 
 Apache 2.0
