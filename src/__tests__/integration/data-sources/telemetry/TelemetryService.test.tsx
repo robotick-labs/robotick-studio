@@ -79,11 +79,13 @@ describe("TelemetryServiceProvider", () => {
     const subscribeTelemetry = vi.fn(() => unsubscribe);
     const ensureLayout = vi.fn(async () => null);
     const setWorkloadInputFieldsData = vi.fn();
+    const setWorkloadInputConnectionState = vi.fn();
     const getLatestModel = vi.fn(() => null);
     const mockService = {
       subscribeTelemetry,
       ensureLayout,
       setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState,
       getLatestModel,
     };
 
@@ -109,11 +111,13 @@ describe("TelemetryServiceProvider", () => {
     const subscribeTelemetry = vi.fn(() => unsubscribe);
     const ensureLayout = vi.fn(async () => null);
     const setWorkloadInputFieldsData = vi.fn();
+    const setWorkloadInputConnectionState = vi.fn();
     const getLatestModel = vi.fn(() => null);
     const mockService = {
       subscribeTelemetry,
       ensureLayout,
       setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState,
       getLatestModel,
     };
 
@@ -148,11 +152,13 @@ describe("TelemetryServiceProvider", () => {
     });
     const ensureLayout = vi.fn(async () => null);
     const setWorkloadInputFieldsData = vi.fn();
+    const setWorkloadInputConnectionState = vi.fn();
     const getLatestModel = vi.fn(() => null);
     const mockService = {
       subscribeTelemetry,
       ensureLayout,
       setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState,
       getLatestModel,
     };
     const onValue = vi.fn();

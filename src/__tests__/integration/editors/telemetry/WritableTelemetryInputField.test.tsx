@@ -68,7 +68,13 @@ describe("WritableTelemetryInputField", () => {
     const telemetryService = {
       subscribeTelemetry: vi.fn(() => () => undefined),
       ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
       setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
       getLatestModel: vi.fn(() => null),
     };
 
@@ -142,6 +148,332 @@ describe("WritableTelemetryInputField", () => {
           root?.unmount();
         });
       }
+      container.remove();
+    }
+  });
+
+  it("suppresses an incoming connection before submitting a committed write", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid-1",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      writable_inputs_by_path: new Map([
+        [
+          "workload.inputs.enabled",
+          {
+            field_handle: 7,
+            field_path: "workload.inputs.enabled",
+            incoming_connection_handle: 11,
+            incoming_connection_enabled: true,
+          },
+        ],
+      ]),
+    };
+    let currentValue = true;
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "workload.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_enabled: true,
+      model,
+      getValue: () => currentValue,
+    };
+
+    const setWorkloadInputConnectionState = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: {},
+    }));
+    const setWorkloadInputFieldsData = vi.fn(async (_baseUrl, request) => {
+      const nextValue = request.writes?.[0]?.value;
+      if (typeof nextValue === "boolean") {
+        currentValue = nextValue;
+      }
+      return { ok: true, status: 200, body: {} };
+    });
+
+    const telemetryService = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
+      setWorkloadInputFieldsData,
+      setWorkloadInputConnectionState,
+      getLatestModel: vi.fn(() => model),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <WritableTelemetryInputField
+              field={field}
+              telemetryBaseUrl="http://example"
+            />
+          </TelemetryServiceProvider>,
+        );
+      });
+
+      const checkbox = container.querySelector(
+        "input[type='checkbox']",
+      ) as HTMLInputElement | null;
+      expect(checkbox).not.toBeNull();
+
+      act(() => {
+        checkbox?.click();
+      });
+      await settle();
+
+      expect(setWorkloadInputConnectionState).toHaveBeenCalledTimes(1);
+      expect(setWorkloadInputFieldsData).toHaveBeenCalledTimes(1);
+      expect(
+        setWorkloadInputConnectionState.mock.invocationCallOrder[0],
+      ).toBeLessThan(setWorkloadInputFieldsData.mock.invocationCallOrder[0]);
+      expect(currentValue).toBe(false);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("toggles incoming connection state from the lightning button", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid-1",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      writable_inputs_by_path: new Map([
+        [
+          "workload.inputs.enabled",
+          {
+            field_handle: 7,
+            field_path: "workload.inputs.enabled",
+            incoming_connection_handle: 11,
+            incoming_connection_enabled: true,
+          },
+        ],
+      ]),
+    };
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "workload.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_enabled: true,
+      model,
+      getValue: () => true,
+    };
+
+    const setWorkloadInputConnectionState = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, body: {} })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: {} });
+
+    const telemetryService = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
+      setWorkloadInputFieldsData: vi.fn(async () => ({ ok: true, status: 200, body: {} })),
+      setWorkloadInputConnectionState,
+      getLatestModel: vi
+        .fn()
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce(model)
+        .mockReturnValueOnce({
+          ...model,
+          writable_inputs_by_path: new Map([
+            [
+              "workload.inputs.enabled",
+              {
+                field_handle: 7,
+                field_path: "workload.inputs.enabled",
+                incoming_connection_handle: 11,
+                incoming_connection_enabled: false,
+              },
+            ],
+          ]),
+        }),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <WritableTelemetryInputField
+              field={field}
+              telemetryBaseUrl="http://example"
+            />
+          </TelemetryServiceProvider>,
+        );
+      });
+
+      const buttons = Array.from(container.querySelectorAll("button"));
+      const toggleButton = buttons.find(
+        (button) => button.getAttribute("aria-label") === "Suppress incoming connection for enabled",
+      ) as HTMLButtonElement | undefined;
+      expect(toggleButton).toBeDefined();
+
+      act(() => {
+        toggleButton?.click();
+      });
+      await settle();
+
+      expect(setWorkloadInputConnectionState).toHaveBeenCalledWith(
+        "http://example",
+        expect.objectContaining({
+          updates: [
+            expect.objectContaining({
+              field_handle: 7,
+              field_path: "workload.inputs.enabled",
+              enabled: false,
+            }),
+          ],
+        }),
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("refreshes writable metadata and retries stale incoming connection toggles", async () => {
+    const staleModel: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid-stale",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      writable_inputs_by_path: new Map([
+        [
+          "workload.inputs.enabled",
+          {
+            field_handle: 7,
+            field_path: "workload.inputs.enabled",
+            incoming_connection_handle: 11,
+            incoming_connection_enabled: true,
+          },
+        ],
+      ]),
+    };
+    const refreshedModel: ITelemetryModel = {
+      ...staleModel,
+      schemaSessionId: "sid-fresh",
+      writable_inputs_by_path: new Map([
+        [
+          "workload.inputs.enabled",
+          {
+            field_handle: 17,
+            field_path: "workload.inputs.enabled",
+            incoming_connection_handle: 21,
+            incoming_connection_enabled: true,
+          },
+        ],
+      ]),
+    };
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "workload.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_enabled: true,
+      model: staleModel,
+      getValue: () => true,
+    };
+
+    const setWorkloadInputConnectionState = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 412,
+        body: { error: "session_mismatch" },
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: {} });
+    const telemetryService = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => staleModel),
+      refreshLayout: vi.fn(async () => refreshedModel),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputConnectionState,
+      getLatestModel: vi.fn(() => staleModel),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <WritableTelemetryInputField
+              field={field}
+              telemetryBaseUrl="http://example"
+            />
+          </TelemetryServiceProvider>,
+        );
+      });
+
+      const toggleButton = Array.from(container.querySelectorAll("button")).find(
+        (button) =>
+          button.getAttribute("aria-label") ===
+          "Suppress incoming connection for enabled",
+      ) as HTMLButtonElement | undefined;
+      expect(toggleButton).toBeDefined();
+
+      act(() => {
+        toggleButton?.click();
+      });
+      await settle();
+
+      expect(telemetryService.refreshLayout).toHaveBeenCalledWith(
+        "http://example",
+      );
+      expect(setWorkloadInputConnectionState).toHaveBeenCalledTimes(2);
+      expect(setWorkloadInputConnectionState.mock.calls[1]?.[1]).toEqual(
+        expect.objectContaining({
+          engine_session_id: "sid-fresh",
+          updates: [
+            expect.objectContaining({
+              field_handle: 17,
+              field_path: "workload.inputs.enabled",
+              enabled: false,
+            }),
+          ],
+        }),
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
       container.remove();
     }
   });

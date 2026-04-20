@@ -104,6 +104,26 @@ describe("telemetry-store websocket", () => {
     unsubscribeSlow();
   });
 
+  it("allows near-30Hz frame cadence despite millisecond timer jitter", async () => {
+    const callback = vi.fn();
+
+    const unsubscribe = store.subscribeTelemetry("base", 30, {
+      callback,
+    });
+
+    emitLayout("base");
+    emitFrame("base", "sid", 2);
+
+    for (let frameSeq = 4; frameSeq <= 20; frameSeq += 2) {
+      await vi.advanceTimersByTimeAsync(32);
+      emitFrame("base", "sid", frameSeq);
+    }
+
+    expect(callback).toHaveBeenCalledTimes(10);
+
+    unsubscribe();
+  });
+
   it("delivers cached snapshots to late subscribers", async () => {
     const firstCb = vi.fn();
     const secondCb = vi.fn();

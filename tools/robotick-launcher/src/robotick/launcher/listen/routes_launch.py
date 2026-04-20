@@ -379,7 +379,6 @@ def _run_single_model_worker(
         str(base_dir),
         "--workspace-dir",
         str(base_dir),
-        "--no-pre",
     ]
 
     _set_model_run_status(model_id, "starting")

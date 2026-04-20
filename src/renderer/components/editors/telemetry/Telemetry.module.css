@@ -187,22 +187,53 @@
 
 .inputWriteRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   width: 100%;
   min-width: 0;
+  border-radius: 8px;
+  padding: 2px 6px;
+  margin: 1px 0;
+  position: relative;
+  overflow: visible;
+}
+
+.inputWriteRowHasConnection {
+  padding-left: 16px;
+}
+
+.inputWriteRowConnectionLocal {
+  border: 1px solid color-mix(in srgb, #d6a500 70%, transparent);
+  background: color-mix(in srgb, #d6a500 10%, transparent);
+}
+
+.inputWriteRowConnectionRemote {
+  border: 1px solid color-mix(in srgb, #1f9d3a 78%, transparent);
+  background: color-mix(in srgb, #1f9d3a 12%, transparent);
+}
+
+.inputWriteRowConnectionBoth {
+  border: 1px solid color-mix(in srgb, #b2b200 75%, transparent);
+  background: color-mix(in srgb, #b2b200 10%, transparent);
+}
+
+.inputWriteRowConnectionSuppressed {
+  border: 1px solid color-mix(in srgb, var(--app-panel-border) 80%, #d9d9d9);
+  background: color-mix(in srgb, var(--app-panel-soft) 65%, transparent);
 }
 
 .inputWriteLabelText,
 .inputWriteLabel {
   flex: 1 1 auto;
   min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .inputWriteControls {
   margin-left: auto;
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   flex: 0 0 auto;
 }
@@ -312,6 +343,61 @@
   flex: 0 0 22px;
   visibility: hidden;
   pointer-events: none;
+}
+
+.inputConnectionToggle {
+  border-radius: 999px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-panel-soft);
+  cursor: pointer;
+  line-height: 1;
+  flex: 0 0 16px;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-42.5%, -50%);
+  z-index: 1;
+  background-clip: padding-box;
+  font-family: "JetBrains Mono", SFMono-Regular, Consolas, monospace;
+  font-size: 0;
+}
+
+.inputConnectionGlyph {
+  display: block;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  transform: translate(0.15px, 0.3px);
+}
+
+.inputConnectionToggleLocal {
+  border: 1px solid #d6a500;
+  color: #fff27a;
+  background: color-mix(in srgb, #d6a500 18%, var(--app-surface-base));
+}
+
+.inputConnectionToggleRemote {
+  border: 1px solid #1f9d3a;
+  color: #7dff63;
+  background: color-mix(in srgb, #1f9d3a 22%, var(--app-surface-base));
+}
+
+.inputConnectionToggleBoth {
+  border: 1px solid #b2b200;
+  color: #d2d21a;
+  background: color-mix(in srgb, #b2b200 18%, var(--app-surface-base));
+}
+
+.inputConnectionToggleSuppressed {
+  border: 1px solid color-mix(in srgb, var(--app-panel-border) 80%, #d9d9d9);
+  color: var(--app-text-muted);
+  opacity: 0.7;
+  background: var(--app-surface-base);
 }
 
 .localConnectedCapsule,

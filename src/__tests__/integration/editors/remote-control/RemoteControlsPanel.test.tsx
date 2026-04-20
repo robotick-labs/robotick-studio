@@ -19,9 +19,17 @@ function makeTelemetryModel() {
     process_memory_used: 0,
     writable_inputs_by_path: new Map([
       [
-        "remote_control.inputs.use_web_inputs",
+        "spine_interface.inputs.angular_speed_norm",
         {
           field_handle: 1,
+          incoming_connection_handle: 101,
+        },
+      ],
+      [
+        "spine_interface.inputs.linear_speed_norm",
+        {
+          field_handle: 2,
+          incoming_connection_handle: 102,
         },
       ],
     ]),
@@ -43,7 +51,7 @@ describe("RemoteControlsPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("continues applying writes after remount without stale seq drops", async () => {
+  it("renders stick mode controls from Studio config and resolves their target telemetry layouts", async () => {
     const originalGetGamepads = Object.getOwnPropertyDescriptor(
       Navigator.prototype,
       "getGamepads"
@@ -53,140 +61,136 @@ describe("RemoteControlsPanel", () => {
       writable: true,
       value: () => [],
     });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+
     const container = document.createElement("div");
     document.body.appendChild(container);
-    let root: ReturnType<typeof createRoot> | null = null;
-    let remountRoot: ReturnType<typeof createRoot> | null = null;
+    const root = createRoot(container);
+    const projectModels = [
+      {
+        modelPath: "models/barr-e-spine.model.yaml",
+        modelShortName: "barr-e-spine",
+        modelName: "Barr.e Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
 
     try {
-      const unsubscribe = vi.fn();
-      let subscriber:
-        | {
-            callback: (model: any) => void;
-            error?: (error: unknown) => void;
-          }
-        | undefined;
-
-      const subscribeTelemetry = vi.fn(
-        (_baseUrl, _samplingRateHz, nextSubscriber) => {
-          subscriber = nextSubscriber;
-          return unsubscribe;
-        }
-      );
-
-      let liveModel: any = null;
-      const latestSeqByHandle = new Map<number, number>();
-      let appliedUseWebInputs: boolean | null = null;
-      const setWorkloadInputFieldsData = vi.fn(async (_baseUrl, request) => {
-        for (const write of request.writes ?? []) {
-          if (typeof write.field_handle !== "number") {
-            continue;
-          }
-          const previousSeq = latestSeqByHandle.get(write.field_handle) ?? 0;
-          const nextSeq =
-            typeof write.seq === "number" && Number.isFinite(write.seq)
-              ? write.seq
-              : previousSeq + 1;
-          if (nextSeq <= previousSeq) {
-            continue;
-          }
-          latestSeqByHandle.set(write.field_handle, nextSeq);
-          if (write.field_handle === 1 && typeof write.value === "boolean") {
-            appliedUseWebInputs = write.value;
-          }
-        }
-        return { ok: true, status: 200, body: {} };
-      });
-
-      const telemetryService = {
-        subscribeTelemetry,
-        ensureLayout: vi.fn(async () => null),
-        setWorkloadInputFieldsData,
-        getLatestModel: vi.fn(() => liveModel),
-      };
-
-      const renderPanel = () => (
-        <TelemetryServiceProvider service={telemetryService as any}>
-          <TestLauncherProviders>
-            <RemoteControlsPanel
-              config={{
-                telemetryBaseUrl: "http://example",
-                workloadName: "remote_control",
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
               }}
-            />
-          </TestLauncherProviders>
-        </TelemetryServiceProvider>
+            >
+              <RemoteControlsPanel
+                config={{
+                  sticks: {
+                    left: {
+                      selectedMode: "drive_wheels",
+                      modes: {
+                        none: {},
+                        drive_wheels: {
+                          shapeTransform: "CircleToSquare",
+                          deadZone: {
+                            x: 0.1,
+                            y: 0.1,
+                          },
+                          outputs: {
+                            x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                          },
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+
+      await settle();
+      await settle();
+      await settle();
+
+      expect(document.body.textContent).not.toContain("TAKEOVER");
+      expect(document.body.textContent).toContain("Left Stick");
+      expect(document.body.textContent).toContain("Drive Wheels");
+      expect(telemetryService.ensureLayout).toHaveBeenCalledWith(
+        "http://example-spine"
+      );
+      const suppressionUpdates =
+        telemetryService.setWorkloadInputConnectionState.mock.calls.flatMap(
+          ([, request]) => request.updates ?? []
+        );
+      expect(suppressionUpdates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.angular_speed_norm",
+            enabled: false,
+          }),
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.linear_speed_norm",
+            enabled: false,
+          }),
+        ])
       );
 
-      root = createRoot(container);
+      const select = document.body.querySelector("select");
+      expect(select).not.toBeNull();
       act(() => {
-        root?.render(renderPanel());
-      });
-
-      liveModel = makeTelemetryModel();
-      act(() => {
-        subscriber?.callback(liveModel);
+        select!.value = "none";
+        select!.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await settle();
-
-      const button = document.body.querySelector("button");
-      expect(button?.textContent).toContain("TAKEOVER");
-
-      act(() => {
-        button?.click();
-      });
-      await settle();
-      expect(appliedUseWebInputs).toBe(false);
-
-      act(() => {
-        button?.click();
-      });
-      await settle();
-      expect(appliedUseWebInputs).toBe(true);
-
-      act(() => {
-        root?.unmount();
-      });
-      root = null;
-
-      remountRoot = createRoot(container);
-      act(() => {
-        remountRoot?.render(renderPanel());
-      });
-
-      act(() => {
-        subscriber?.callback(liveModel);
-      });
       await settle();
 
-      const remountButton = document.body.querySelector("button");
-      act(() => {
-        remountButton?.click();
-      });
-      await settle();
-
-      expect(appliedUseWebInputs).toBe(false);
-
-      const hasClientSeq = setWorkloadInputFieldsData.mock.calls.some(
-        (_call: unknown[]) => {
-          const request = _call[1] as { writes?: Array<{ seq?: number }> };
-          return (request.writes ?? []).some((write) =>
-            Object.prototype.hasOwnProperty.call(write, "seq")
-          );
-        }
+      const releaseUpdates =
+        telemetryService.setWorkloadInputConnectionState.mock.calls.flatMap(
+          ([, request]) => request.updates ?? []
+        );
+      expect(releaseUpdates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.angular_speed_norm",
+            enabled: true,
+          }),
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.linear_speed_norm",
+            enabled: true,
+          }),
+        ])
       );
-      expect(hasClientSeq).toBe(false);
     } finally {
-      if (remountRoot) {
-        act(() => {
-          remountRoot?.unmount();
-        });
-      }
-      if (root) {
-        act(() => {
-          root?.unmount();
-        });
-      }
+      act(() => {
+        root.unmount();
+      });
       container.remove();
       if (originalGetGamepads) {
         Object.defineProperty(
@@ -197,6 +201,320 @@ describe("RemoteControlsPanel", () => {
       } else {
         delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
           .getGamepads;
+      }
+    }
+  });
+
+  it("restores selected stick modes after remount", async () => {
+    const originalGetGamepads = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "getGamepads"
+    );
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable: true,
+      writable: true,
+      value: () => [],
+    });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+    const projectModels = [
+      {
+        modelPath: "models/barr-e-spine.model.yaml",
+        modelShortName: "barr-e-spine",
+        modelName: "Barr.e Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
+    const config = {
+      sticks: {
+        left: {
+          selectedMode: "drive_wheels",
+          modes: {
+            none: {},
+            drive_wheels: {
+              shapeTransform: "CircleToSquare",
+              deadZone: {
+                x: 0.1,
+                y: 0.1,
+              },
+              outputs: {
+                x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
+                y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+              },
+            },
+          },
+        },
+      },
+    };
+    const renderPanel = (root: ReturnType<typeof createRoot>) => {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              projectPath="/robots/barr-e"
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
+              }}
+            >
+              <RemoteControlsPanel config={config} />
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+    };
+
+    const firstContainer = document.createElement("div");
+    document.body.appendChild(firstContainer);
+    const firstRoot = createRoot(firstContainer);
+    const secondContainer = document.createElement("div");
+    document.body.appendChild(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+    let firstRootMounted = false;
+    let secondRootMounted = false;
+
+    try {
+      renderPanel(firstRoot);
+      firstRootMounted = true;
+      await settle();
+      await settle();
+
+      const firstSelect = firstContainer.querySelector("select");
+      expect(firstSelect).not.toBeNull();
+      expect(firstSelect!.value).toBe("drive_wheels");
+
+      act(() => {
+        firstSelect!.value = "none";
+        firstSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settle();
+      expect(firstSelect!.value).toBe("none");
+
+      act(() => {
+        firstRoot.unmount();
+      });
+      firstRootMounted = false;
+
+      renderPanel(secondRoot);
+      secondRootMounted = true;
+      await settle();
+      await settle();
+
+      const secondSelect = secondContainer.querySelector("select");
+      expect(secondSelect).not.toBeNull();
+      expect(secondSelect!.value).toBe("none");
+    } finally {
+      act(() => {
+        if (firstRootMounted) {
+          firstRoot.unmount();
+        }
+        if (secondRootMounted) {
+          secondRoot.unmount();
+        }
+      });
+      firstContainer.remove();
+      secondContainer.remove();
+      if (originalGetGamepads) {
+        Object.defineProperty(
+          Navigator.prototype,
+          "getGamepads",
+          originalGetGamepads
+        );
+      } else {
+        delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
+          .getGamepads;
+      }
+    }
+  });
+
+  it("reasserts stick-mode suppression before writing moved stick values", async () => {
+    const originalGetGamepads = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "getGamepads"
+    );
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth"
+    );
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable: true,
+      writable: true,
+      value: () => [],
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 150,
+    });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const projectModels = [
+      {
+        modelPath: "models/barr-e-spine.model.yaml",
+        modelShortName: "barr-e-spine",
+        modelName: "Barr.e Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
+              }}
+            >
+              <RemoteControlsPanel
+                config={{
+                  sticks: {
+                    left: {
+                      selectedMode: "drive_wheels",
+                      modes: {
+                        drive_wheels: {
+                          shapeTransform: "CircleToSquare",
+                          deadZone: {
+                            x: 0.1,
+                            y: 0.1,
+                          },
+                          outputs: {
+                            x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                          },
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+
+      await settle();
+      await settle();
+      await settle();
+      telemetryService.setWorkloadInputConnectionState.mockClear();
+      telemetryService.setWorkloadInputFieldsData.mockClear();
+
+      const leftStick = document.querySelector(
+        '[data-testid="left-stick-area"]'
+      );
+      expect(leftStick).not.toBeNull();
+
+      act(() => {
+        leftStick!.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            clientX: 75,
+            clientY: 75,
+          })
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 105,
+            clientY: 60,
+          })
+        );
+      });
+      await settle();
+      await settle();
+
+      const suppressionUpdates =
+        telemetryService.setWorkloadInputConnectionState.mock.calls.flatMap(
+          ([, request]) => request.updates ?? []
+        );
+      expect(suppressionUpdates).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.angular_speed_norm",
+            enabled: false,
+          }),
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.linear_speed_norm",
+            enabled: false,
+          }),
+        ])
+      );
+      expect(telemetryService.setWorkloadInputFieldsData).toHaveBeenCalled();
+      expect(
+        telemetryService.setWorkloadInputConnectionState.mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        telemetryService.setWorkloadInputFieldsData.mock.invocationCallOrder[0]
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+      if (originalGetGamepads) {
+        Object.defineProperty(
+          Navigator.prototype,
+          "getGamepads",
+          originalGetGamepads
+        );
+      } else {
+        delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
+          .getGamepads;
+      }
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth
+        );
+      } else {
+        delete (HTMLElement.prototype as HTMLElement & { clientWidth?: unknown })
+          .clientWidth;
       }
     }
   });

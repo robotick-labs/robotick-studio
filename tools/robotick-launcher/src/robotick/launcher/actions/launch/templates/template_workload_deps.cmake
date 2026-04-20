@@ -7,6 +7,22 @@ endif()
 if(NOT DEFINED ROBOTICK_EXECUTABLE_TARGET)
   message(FATAL_ERROR "ROBOTICK_EXECUTABLE_TARGET must be set before including generated_workload_deps.cmake")
 endif()
+
+if(NOT DEFINED ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE)
+  set(ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE keyword)
+endif()
+
+if(NOT ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE MATCHES "^(keyword|plain)$")
+  message(FATAL_ERROR "ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE must be 'keyword' or 'plain'")
+endif()
+
+function(robotick_generated_target_link_libraries target)
+  if(ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE STREQUAL "plain")
+    target_link_libraries(${target} ${ARGN})
+  else()
+    target_link_libraries(${target} PRIVATE ${ARGN})
+  endif()
+endfunction()
 {% if workload_cmakes|length > 0 %}
 
 {# --- manual workload cmake includes --- #}
@@ -29,7 +45,7 @@ pkg_check_modules({{ prefix }} REQUIRED {{ module }})
 
 foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
   target_include_directories(${_target} PRIVATE {{ '${' ~ prefix ~ '_INCLUDE_DIRS}' }})
-  target_link_libraries(${_target} PRIVATE {{ '${' ~ prefix ~ '_LIBRARIES}' }})
+  robotick_generated_target_link_libraries(${_target} {{ '${' ~ prefix ~ '_LIBRARIES}' }})
 endforeach()
 
 {% endfor %}
@@ -58,7 +74,7 @@ endforeach()
 {# --- imported CMake targets (SDL2::SDL2, OpenCV::opencv, etc.) --- #}
 {% if link_targets|length > 0 %}
 foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
-  target_link_libraries(${_target} PRIVATE
+  robotick_generated_target_link_libraries(${_target}
 {% for t in link_targets %}    {{ t }}
 {% endfor %}  )
 endforeach()

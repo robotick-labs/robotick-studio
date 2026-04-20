@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTelemetryModel,
   type LayoutModel,
+  setWorkloadInputConnectionState,
   setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
 import { sendTelemetryWriteWs } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
@@ -109,6 +110,136 @@ describe("setWorkloadInputFieldsData", () => {
     expect(result.status).toBe(200);
   });
 
+});
+
+describe("setWorkloadInputConnectionState", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("posts connection suppression updates over REST", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          status: "processed",
+          updates: [
+            {
+              field_handle: 7,
+              incoming_connection_enabled: false,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputConnectionState("http://example", {
+      engine_session_id: "sid",
+      updates: [{ field_handle: 7, enabled: false }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://example/api/telemetry/set_workload_input_connection_state",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
+  it("retries connection suppression with the corrected engine session id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "session_mismatch",
+            engine_session_id: "sid-corrected",
+          }),
+          {
+            status: 412,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "processed" }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputConnectionState("http://example", {
+      engine_session_id: "sid-stale",
+      updates: [{ field_handle: 7, enabled: false }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+    expect(retryBody.engine_session_id).toBe("sid-corrected");
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
+  it("retries connection suppression on retryable REST failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "busy", retry_after_ms: 1 }), {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ status: "processed" }), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const requestPromise = setWorkloadInputConnectionState(
+        "http://example",
+        {
+          engine_session_id: "sid",
+          updates: [{ field_handle: 7, enabled: false }],
+        },
+        {
+          maxAttempts: 2,
+          baseRetryDelayMs: 1,
+          maxRetryDelayMs: 2,
+        },
+      );
+
+      await vi.runAllTimersAsync();
+      const result = await requestPromise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.ok).toBe(true);
+      expect(result.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("createTelemetryModel", () => {
@@ -352,5 +483,191 @@ describe("createTelemetryModel", () => {
       workloadsBufferDynamicBytes: 0,
       workloadsBufferTotalBytes: 2644,
     });
+  });
+
+  it("reads repeated dynamic struct fields through their instance-specific layout types", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 4096,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "first",
+          type: "ImageRefToJpegWorkload",
+          offset_within_container: 100,
+          stats_offset_within_container: 3000,
+          outputs: {
+            type: "ImageRefToJpegOutputs_A",
+            offset_within_container: 0,
+          },
+        },
+        {
+          name: "second",
+          type: "ImageRefToJpegWorkload",
+          offset_within_container: 200,
+          stats_offset_within_container: 3100,
+          outputs: {
+            type: "ImageRefToJpegOutputs_B",
+            offset_within_container: 0,
+          },
+        },
+      ],
+      types: [
+        { name: "uint8_t", size: 1 },
+        { name: "uint32_t", size: 4 },
+        { name: "WorkloadInstanceStats", size: 32 },
+        {
+          name: "ImageJpegByte",
+          size: 1,
+          mime_type: "image/jpeg",
+        },
+        {
+          name: "ImageRefToJpegOutputs_A",
+          size: 8,
+          fields: [
+            {
+              name: "jpeg_data",
+              type: "ImageJpegDynamic_A",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageRefToJpegOutputs_B",
+          size: 8,
+          fields: [
+            {
+              name: "jpeg_data",
+              type: "ImageJpegDynamic_B",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageJpegDynamic_A",
+          size: 8,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "ImageJpegByte",
+              offset_within_container: 1000,
+              element_count: 8,
+            },
+            {
+              name: "count",
+              type: "uint32_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "ImageJpegDynamic_B",
+          size: 8,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "ImageJpegByte",
+              offset_within_container: 2000,
+              element_count: 8,
+            },
+            {
+              name: "count",
+              type: "uint32_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const raw = new ArrayBuffer(4096);
+    const bytes = new Uint8Array(raw);
+    const view = new DataView(raw);
+    view.setUint32(100, 4, true);
+    view.setUint32(200, 4, true);
+    bytes.set([0xff, 0xd8, 0xaa, 0xd9], 1100);
+    bytes.set([0xff, 0xd8, 0xbb, 0xd9], 2200);
+
+    const model = createTelemetryModel(layout);
+    model.raw = raw;
+
+    const secondBuffer = model
+      .getField?.("second.outputs.jpeg_data.data_buffer")
+      ?.getValue() as Uint8Array | null;
+    expect(Array.from(secondBuffer?.slice(0, 4) ?? [])).toEqual([
+      0xff,
+      0xd8,
+      0xbb,
+      0xd9,
+    ]);
+
+    const secondJpegData = model
+      .getField?.("second.outputs.jpeg_data")
+      ?.getValue() as { data_buffer?: Uint8Array; count?: number } | null;
+    expect(secondJpegData?.count).toBe(4);
+    expect(Array.from(secondJpegData?.data_buffer?.slice(0, 4) ?? [])).toEqual([
+      0xff,
+      0xd8,
+      0xbb,
+      0xd9,
+    ]);
+  });
+
+  it("attaches incoming connection metadata to writable input fields", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "plain",
+          type: "PlainWorkload",
+          offset_within_container: 0,
+          stats_offset_within_container: 64,
+          inputs: {
+            type: "PlainInputs",
+            offset_within_container: 0,
+          },
+        },
+      ],
+      writable_inputs: [
+        {
+          field_handle: 11,
+          field_path: "plain.inputs.enabled",
+          type: "bool",
+          size: 1,
+          incoming_connection_handle: 21,
+          incoming_connection_path: "plain.inputs.enabled",
+          incoming_connection_enabled: true,
+        },
+      ],
+      types: [
+        { name: "bool", size: 1 },
+        { name: "WorkloadInstanceStats", size: 32 },
+        {
+          name: "PlainInputs",
+          size: 1,
+          fields: [
+            {
+              name: "enabled",
+              type: "bool",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const model = createTelemetryModel(layout);
+    const field = model.getField?.("plain.inputs.enabled");
+
+    expect(field?.writable_input_handle).toBe(11);
+    expect(field?.incoming_connection_handle).toBe(21);
+    expect(field?.incoming_connection_enabled).toBe(true);
   });
 });

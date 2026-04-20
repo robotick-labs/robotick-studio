@@ -16,6 +16,7 @@ import type {
   ITelemetryModel,
   ITelemetryStruct,
 } from "../../../../renderer/data-sources/telemetry";
+import { TelemetryServiceProvider } from "../../../../renderer/data-sources/telemetry";
 
 function render(node: React.ReactElement) {
   const container = document.createElement("div");
@@ -111,6 +112,70 @@ describe("TelemetryStructFields", () => {
       tree.renderAsync(<TelemetryStructFields struct={struct} />)
     ).resolves.not.toThrow();
     expect(tree.container.querySelector("img")).not.toBeNull();
+
+    tree.unmount();
+  });
+
+  it("renders connected writable inputs with editable controls", () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+    };
+
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "demo.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_enabled: true,
+      model,
+      getValue: () => true,
+    };
+
+    const struct: ITelemetryStruct = {
+      typeName: "Inputs",
+      offset: 0,
+      fields: [field],
+    };
+
+    const service = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => null),
+      setWorkloadInputFieldsData: vi.fn(async () => ({ ok: true, status: 200, body: {} })),
+      setWorkloadInputConnectionState: vi.fn(async () => ({ ok: true, status: 200, body: {} })),
+      getLatestModel: vi.fn(() => model),
+    };
+
+    const tree = render(
+      <TelemetryServiceProvider service={service as any}>
+        <TelemetryStructFields
+          struct={struct}
+          telemetryBaseUrl="http://example"
+          fieldConnectionHints={
+            new Map([
+              [
+                "demo.inputs.enabled",
+                {
+                  localIncomingFrom: ["demo.outputs.enabled"],
+                  remoteIncomingFrom: [],
+                  localOutgoingTo: [],
+                  remoteOutgoingTo: [],
+                },
+              ],
+            ])
+          }
+        />
+      </TelemetryServiceProvider>
+    );
+
+    expect(tree.container.querySelector("input[type='checkbox']")).not.toBeNull();
+    expect(tree.container.textContent).toContain("enabled");
 
     tree.unmount();
   });

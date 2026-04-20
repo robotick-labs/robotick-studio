@@ -43,17 +43,16 @@
   background: var(--app-panel-soft);
 }
 
-.virtualTree {
-  position: relative;
+.treeRows {
+  display: flex;
+  flex-direction: column;
   min-height: 100%;
 }
 
-.virtualRow {
-  position: absolute;
-  left: 0;
-  right: 0;
+.treeRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .node {
@@ -66,7 +65,7 @@
 
 .nodeRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
   gap: 4px;
 }

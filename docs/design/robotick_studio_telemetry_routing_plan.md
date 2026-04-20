@@ -20,7 +20,7 @@ Each model exposes its own telemetry server.
 
 One model may additionally run in telemetry gateway mode.
 
-For `Alf.e`, the initial gateway host is the Pi5-side `alf-e-rc` model.
+For `Alf.e`, the current gateway host is the Pi5-side `alf-e-face` model.
 
 That gives the runtime three layers:
 
@@ -38,9 +38,8 @@ Launcher remains a development tool. The finished robot runtime does not depend 
 The initial `Alf.e` split is:
 
 - Pi5/Linux:
-  - `alf-e-rc`
-  - `alf-e-sensing-visual`
   - `alf-e-face`
+  - `alf-e-sensing-visual`
 - CoreS3/ESP32:
   - `alf-e-spine`
 
@@ -53,7 +52,7 @@ Use this runtime split:
 - direct:
   - Pi5 ↔ CoreS3 engine/data traffic
 - gatewayed:
-  - desktop Studio ↔ `alf-e-rc` telemetry gateway
+  - desktop Studio ↔ `alf-e-face` telemetry gateway
 
 This means:
 
@@ -81,7 +80,7 @@ When a model runs in gateway mode, its telemetry server does two things:
 - serves its own local `/api/telemetry/...`
 - exposes proxied telemetry routes for discovered peer models
 
-For `Alf.e`, the initial gateway-capable model is `alf-e-rc`.
+For `Alf.e`, the gateway-capable model is `alf-e-face`.
 
 ## Discovery
 
@@ -163,11 +162,11 @@ The simplest first shape is likely:
 
 ```yaml
 telemetry:
-  port: 7102
+  port: 7103
   is_gateway: true
 ```
 
-The current `alf-e-rc` model is the natural first place to carry that role.
+The current `alf-e-face` model carries that role.
 
 ## Port Strategy
 
@@ -259,7 +258,7 @@ This keeps local behavior structurally close to real robot behavior.
 
 - each model has a telemetry server
 - one model may run in telemetry gateway mode
-- `alf-e-rc` is the initial gateway host for `Alf.e`
+- `alf-e-face` is the current gateway host for `Alf.e`
 - `RemoteEngineDiscoverer` should be extended and reused, not duplicated
 - robot-internal engine/data traffic stays direct
 - Studio talks to one runtime entrypoint instead of the full robot network

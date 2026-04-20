@@ -44,7 +44,6 @@ import {
   getConnectionHint,
   getConnectionKindFromHint,
   getConnectionTooltip,
-  isInputConnectionDriven,
 } from "../view/field-connections";
 
 type SectionKind = "inputs" | "outputs" | "config" | "stats";
@@ -75,8 +74,6 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
 const FILTER_DEBOUNCE_MS = 160;
 const TREE_REFRESH_INTERVAL_MS = 200;
 const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 5;
-const TREE_ROW_HEIGHT_PX = 28;
-const TREE_OVERSCAN_ROWS = 12;
 const TelemetrySampleRevisionContext = React.createContext(0);
 const TelemetryValueReaderContext = React.createContext<
   ((field: ITelemetryField) => unknown) | null
@@ -412,9 +409,6 @@ export default function TelemetryTreeViewer() {
     () => flattenTreeRows(rootNodes, expandedNodes),
     [expandedNodes, rootNodes]
   );
-  const visibleRange = useVirtualTreeWindow(treeViewportRef, flatRows.length);
-  const visibleRows = flatRows.slice(visibleRange.start, visibleRange.end);
-  const totalVirtualHeight = flatRows.length * TREE_ROW_HEIGHT_PX;
   const valueReader = useMemo(() => {
     const cache = new WeakMap<ITelemetryField, unknown>();
     return (field: ITelemetryField) => {
@@ -550,18 +544,11 @@ export default function TelemetryTreeViewer() {
           {rootNodes.length === 0 ? (
             <div className={styles.message}>No telemetry fields available.</div>
           ) : (
-            <div
-              className={styles.virtualTree}
-              style={{ height: `${totalVirtualHeight}px` }}
-            >
-              {visibleRows.map((row, index) => (
+            <div className={styles.treeRows}>
+              {flatRows.map((row) => (
                 <div
                   key={row.field.path}
-                  className={styles.virtualRow}
-                  style={{
-                    top: `${(visibleRange.start + index) * TREE_ROW_HEIGHT_PX}px`,
-                    height: `${TREE_ROW_HEIGHT_PX}px`,
-                  }}
+                  className={styles.treeRow}
                 >
                   <TreeRow
                     field={row.field}
@@ -651,64 +638,6 @@ function useElementActive(ref: React.RefObject<HTMLElement | null>): boolean {
   }, [ref]);
 
   return isDocumentVisible && isElementVisible;
-}
-
-function useVirtualTreeWindow(
-  ref: React.RefObject<HTMLElement | null>,
-  rowCount: number
-): { start: number; end: number } {
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
-
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      return;
-    }
-
-    const updateViewport = () => {
-      setViewport((prev) => {
-        const next = {
-          scrollTop: element.scrollTop,
-          height: element.clientHeight,
-        };
-        if (
-          prev.scrollTop === next.scrollTop &&
-          prev.height === next.height
-        ) {
-          return prev;
-        }
-        return next;
-      });
-    };
-
-    updateViewport();
-    element.addEventListener("scroll", updateViewport, { passive: true });
-    const resizeObserver =
-      typeof ResizeObserver === "function"
-        ? new ResizeObserver(() => updateViewport())
-        : null;
-    resizeObserver?.observe(element);
-
-    return () => {
-      element.removeEventListener("scroll", updateViewport);
-      resizeObserver?.disconnect();
-    };
-  }, [ref, rowCount]);
-
-  const start = Math.max(
-    0,
-    Math.floor(viewport.scrollTop / TREE_ROW_HEIGHT_PX) - TREE_OVERSCAN_ROWS
-  );
-  const end = Math.min(
-    rowCount,
-    Math.ceil((viewport.scrollTop + viewport.height) / TREE_ROW_HEIGHT_PX) +
-      TREE_OVERSCAN_ROWS
-  );
-
-  return {
-    start,
-    end: Math.max(start, end),
-  };
 }
 
 function flattenTreeRows(
@@ -845,14 +774,9 @@ const TreeRow = React.memo(function TreeRow({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const inputIsConnectionDriven = isInputConnectionDriven(
-    field.path,
-    connectionHint
-  );
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
-    !inputIsConnectionDriven &&
     !hasChildren;
 
   return (
@@ -992,14 +916,9 @@ const TreeNode = React.memo(function TreeNode({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const inputIsConnectionDriven = isInputConnectionDriven(
-    field.path,
-    connectionHint
-  );
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
-    !inputIsConnectionDriven &&
     !hasChildren;
 
   return (

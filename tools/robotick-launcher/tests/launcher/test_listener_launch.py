@@ -79,3 +79,62 @@ def test_broadcast_log_includes_elapsed_prefix(monkeypatch) -> None:
         f"{routes_launch.ANSI_BOLD_YELLOW}13:54:27.140{routes_launch.ANSI_RESET} | "
         f"{routes_launch.ANSI_DIM_CYAN}00:01:21.200{routes_launch.ANSI_RESET} [native:ALL] hello"
     ]
+
+
+def test_run_single_model_uses_full_run_pipeline(monkeypatch, tmp_path) -> None:
+    commands: list[list[str]] = []
+
+    class FakePopen:
+        pid = 1234
+        stdout: list[str] = []
+
+        def __init__(self, cmd, **kwargs):
+            commands.append(cmd)
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(
+        routes_launch.run_profile_module,
+        "_resolve_profile_model_target",
+        lambda project, base_dir, platform, model_id: "linux-x64",
+    )
+    monkeypatch.setattr(routes_launch.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(routes_launch, "current_profile", "local:barr-e-simulator")
+    monkeypatch.setattr(
+        routes_launch,
+        "current_project_path",
+        tmp_path / "barr-e.project.yaml",
+    )
+    monkeypatch.setattr(routes_launch, "current_run_started_at", 100.0)
+    monkeypatch.setattr(routes_launch, "process_handle", None)
+    routes_launch.current_status.clear()
+    routes_launch.current_status.update(
+        {
+            "status": "running",
+            "phase": "run",
+            "profile": "local:barr-e-simulator",
+            "models": {},
+        }
+    )
+
+    routes_launch._run_single_model_worker(
+        tmp_path / "barr-e.project.yaml",
+        "local",
+        "barr-e-simulator",
+    )
+
+    assert commands == [
+        [
+            "robotick-launcher",
+            "run",
+            "barr-e",
+            "barr-e-simulator",
+            "linux-x64",
+            "--base-dir",
+            str(tmp_path),
+            "--workspace-dir",
+            str(tmp_path),
+        ]
+    ]
+    assert "--no-pre" not in commands[0]

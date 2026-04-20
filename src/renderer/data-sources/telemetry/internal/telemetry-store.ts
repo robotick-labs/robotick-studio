@@ -3,6 +3,7 @@
  */
 import {
   createTelemetryModel,
+  fetchTelemetryLayout,
   type ITelemetryModel,
   type LayoutModel,
 } from "./telemetry-client";
@@ -55,11 +56,13 @@ export type TelemetryStore = {
     subscriber: SubscriberCallbacks
   ) => () => void;
   ensureLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
+  refreshLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
   reset: () => void;
 };
 
 const DEFAULT_LAYOUT_ENSURE_TIMEOUT_MS = 3000;
+const SUBSCRIBER_CADENCE_TOLERANCE_MS = 8;
 
 /**
  * Create a telemetry websocket store that manages subscriptions, per-base-url socket lifecycle,
@@ -139,10 +142,14 @@ export function createTelemetryStore(
     force = false
   ) {
     const now = Date.now();
+    const toleranceMs = Math.min(
+      SUBSCRIBER_CADENCE_TOLERANCE_MS,
+      subscriber.intervalMs * 0.1,
+    );
     if (
       force ||
       subscriber.lastNotified === 0 ||
-      now - subscriber.lastNotified >= subscriber.intervalMs
+      now - subscriber.lastNotified + toleranceMs >= subscriber.intervalMs
     ) {
       subscriber.lastNotified = now;
       subscriber.callback(model);
@@ -411,6 +418,17 @@ export function createTelemetryStore(
     });
   }
 
+  async function refreshLayout(baseUrl: string): Promise<ITelemetryModel | null> {
+    if (!baseUrl) {
+      return null;
+    }
+
+    const entry = getOrCreateEntry(baseUrl);
+    const layout = await fetchTelemetryLayout(baseUrl);
+    handleLayoutMessage(entry, layout);
+    return getOrCreateModel(entry);
+  }
+
   function getLatestModel(baseUrl: string): ITelemetryModel | null {
     const entry = stores.get(baseUrl);
     if (!entry) {
@@ -451,6 +469,7 @@ export function createTelemetryStore(
   return {
     subscribeTelemetry,
     ensureLayout,
+    refreshLayout,
     getLatestModel,
     reset,
   };
@@ -460,5 +479,6 @@ const defaultTelemetryStore = createTelemetryStore();
 
 export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
 export const ensureTelemetryLayout = defaultTelemetryStore.ensureLayout;
+export const refreshTelemetryLayout = defaultTelemetryStore.refreshLayout;
 export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

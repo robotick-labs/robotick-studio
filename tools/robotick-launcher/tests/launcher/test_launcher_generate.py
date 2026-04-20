@@ -13,6 +13,10 @@ from robotick.launcher.cli import create_app
 from robotick.launcher.actions.launch.generate_model_cpp import (
     prepare_codegen_model_data,
 )
+from robotick.launcher.actions.launch.generate import resolve_codegen_flags
+from robotick.launcher.actions.launch.generate_workloads_registry import (
+    emit_cmake_fragment,
+)
 
 runner = CliRunner()
 app = create_app()
@@ -61,9 +65,7 @@ def normalize_workload_paths(text: str) -> str:
 
 def normalize_engine_paths(text: str) -> str:
     pattern = re.compile(r"[^ \n\r\t]*tests/test_data/robotick/robotick-engine")
-    return pattern.sub(
-        "__ENGINE_ROOT__/tests/test_data/robotick/robotick-engine", text
-    )
+    return pattern.sub("__ENGINE_ROOT__/tests/test_data/robotick/robotick-engine", text)
 
 
 def _list_files(dir_path: Path):
@@ -104,7 +106,9 @@ def _normalized_fixture_files(dir_path: Path):
     for rel_path in _list_files(dir_path):
         if any(root in rel_path.parents or rel_path == root for root in ignored_paths):
             continue
-        if any(root in rel_path.parents or rel_path == root for root in component_roots):
+        if any(
+            root in rel_path.parents or rel_path == root for root in component_roots
+        ):
             continue
         normalized.append(rel_path)
     return normalized
@@ -259,6 +263,109 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert remote_models == []
     assert telemetry == {}
     assert telemetry_peers == []
+
+
+def test_resolve_codegen_flags_defaults_to_full_standalone_generation():
+    cfg = SimpleNamespace(model={})
+
+    assert resolve_codegen_flags(cfg) == {
+        "generate_main_cpp": True,
+        "generate_model_cpp": True,
+        "generate_workload_registry": True,
+        "generate_project_cmake": True,
+        "generate_component_cmake": True,
+    }
+
+
+def test_resolve_codegen_flags_allows_external_entrypoint_selection():
+    cfg = SimpleNamespace(
+        model={
+            "runtime": {
+                "codegen": {
+                    "generate_main_cpp": False,
+                    "generate_project_cmake": False,
+                    "generate_model_cpp": True,
+                    "generate_workload_registry": True,
+                }
+            }
+        }
+    )
+
+    assert resolve_codegen_flags(cfg) == {
+        "generate_main_cpp": False,
+        "generate_model_cpp": True,
+        "generate_workload_registry": True,
+        "generate_project_cmake": False,
+        "generate_component_cmake": True,
+    }
+
+
+def test_resolve_codegen_flags_rejects_non_boolean_values():
+    cfg = SimpleNamespace(
+        model={"runtime": {"codegen": {"generate_main_cpp": "false"}}}
+    )
+
+    with pytest.raises(ValueError, match="generate_main_cpp must be a boolean"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_explicit_null_values():
+    cfg = SimpleNamespace(
+        model={"runtime": {"codegen": {"generate_main_cpp": None}}}
+    )
+
+    with pytest.raises(ValueError, match="generate_main_cpp must be a boolean"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_non_mapping_runtime():
+    cfg = SimpleNamespace(model={"runtime": ""})
+
+    with pytest.raises(ValueError, match="runtime must be a mapping"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_non_mapping_codegen():
+    cfg = SimpleNamespace(model={"runtime": {"codegen": ""}})
+
+    with pytest.raises(ValueError, match=r"runtime\.codegen must be a mapping"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_unknown_codegen_keys():
+    cfg = SimpleNamespace(
+        model={"runtime": {"codegen": {"generate_ros_node": True}}}
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Unknown runtime\.codegen keys: generate_ros_node",
+    ):
+        resolve_codegen_flags(cfg)
+
+
+def test_workload_deps_cmake_allows_plain_link_signature_for_embedded_targets():
+    cmake = emit_cmake_fragment(
+        find_required=[],
+        link_targets=["OpenCV::opencv"],
+        idf_components=[],
+        host_apt=[],
+        pkg_config={"OPENCV": "opencv4"},
+        workload_cmakes=[],
+        include_dirs=[],
+    )
+
+    assert "ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE" in cmake
+    assert "target_link_libraries(${target} ${ARGN})" in cmake
+    assert "target_link_libraries(${target} PRIVATE ${ARGN})" in cmake
+    assert (
+        "robotick_generated_target_link_libraries(${_target} ${OPENCV_LIBRARIES})"
+        in cmake
+    )
+    assert (
+        "robotick_generated_target_link_libraries(${_target}\n    OpenCV::opencv"
+        in cmake
+    )
 
 
 def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):

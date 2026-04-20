@@ -154,8 +154,8 @@ def render_template(template_name: str, context: dict) -> str:
 
     Example:
         render_template("main.cpp", {
-            "model": "barr-e-rc",
-            "model_safe": "barr_e_rc",
+            "model": "barr-e-brain",
+            "model_safe": "barr_e_brain",
         })
     """
     try:
@@ -291,6 +291,7 @@ def run_subprocess(
     command = _resolve_command(command)
     preexec_setup = None
     if sys.platform.startswith("linux"):
+
         def preexec_setup():
             # Each launcher subprocess gets its own process group so Ctrl-C handling can
             # terminate the whole spawned tree, not just the immediate child.
@@ -308,19 +309,24 @@ def run_subprocess(
     effective_cwd = str(cwd) if cwd else os.getcwd()
     print(f"[Launcher] Launching in cwd: {effective_cwd}")
 
+    uses_pipe = stdout == subprocess.PIPE or stderr == subprocess.PIPE
+    bufsize = -1 if uses_pipe else 1
     proc = subprocess.Popen(
         command,
         cwd=str(cwd) if cwd else None,
         stdout=stdout,
         stderr=stderr,
         preexec_fn=preexec_setup,
-        bufsize=1,
+        bufsize=bufsize,
         env=env,
     )
 
     if wait:
         try:
-            proc.wait()
+            if uses_pipe:
+                proc.communicate()
+            else:
+                proc.wait()
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, command)
         except KeyboardInterrupt:
@@ -344,7 +350,9 @@ def run_subprocess(
             except subprocess.TimeoutExpired:
                 print("[dim red]Warning: subprocess did not exit after signal[/]")
             except Exception as e:
-                print(f"[dim red]Error while waiting for subprocess termination: {e}[/]")
+                print(
+                    f"[dim red]Error while waiting for subprocess termination: {e}[/]"
+                )
             if on_interrupt:
                 try:
                     # Some targets need explicit follow-up cleanup that a dead local process

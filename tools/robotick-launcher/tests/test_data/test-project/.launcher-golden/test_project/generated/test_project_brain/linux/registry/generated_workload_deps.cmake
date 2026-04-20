@@ -8,6 +8,22 @@ if(NOT DEFINED ROBOTICK_EXECUTABLE_TARGET)
   message(FATAL_ERROR "ROBOTICK_EXECUTABLE_TARGET must be set before including generated_workload_deps.cmake")
 endif()
 
+if(NOT DEFINED ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE)
+  set(ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE keyword)
+endif()
+
+if(NOT ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE MATCHES "^(keyword|plain)$")
+  message(FATAL_ERROR "ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE must be 'keyword' or 'plain'")
+endif()
+
+function(robotick_generated_target_link_libraries target)
+  if(ROBOTICK_GENERATED_LINK_LIBRARIES_SIGNATURE STREQUAL "plain")
+    target_link_libraries(${target} ${ARGN})
+  else()
+    target_link_libraries(${target} PRIVATE ${ARGN})
+  endif()
+endfunction()
+
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../../../../robotick/robotick-core-workloads/cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cmake")
 
 find_package(SDL2 2.0.14 REQUIRED)
@@ -19,7 +35,7 @@ foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
 endforeach()
 
 foreach(_target IN ITEMS ${ROBOTICK_MAIN_TARGET} ${ROBOTICK_EXECUTABLE_TARGET})
-  target_link_libraries(${_target} PRIVATE
+  robotick_generated_target_link_libraries(${_target}
     SDL2::SDL2
     ${OpenCV_LIBS}
     whisper
