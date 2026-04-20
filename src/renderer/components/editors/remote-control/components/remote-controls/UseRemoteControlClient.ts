@@ -58,6 +58,28 @@ export type RemoteControlStateKeysCallback = (
   meta: RemoteControlStateKeysMeta
 ) => void;
 
+const REMOTE_CONTROL_STATE_KEYS: RemoteControlStateKey[] = [
+  "left",
+  "right",
+  "left_trigger",
+  "right_trigger",
+  "a",
+  "b",
+  "x",
+  "y",
+  "left_bumper",
+  "right_bumper",
+  "back",
+  "start",
+  "guide",
+  "left_stick_button",
+  "right_stick_button",
+  "dpad_up",
+  "dpad_down",
+  "dpad_left",
+  "dpad_right",
+];
+
 type UseRemoteControlClientOptions = {
   leftArea: HTMLDivElement | null;
   leftKnob: HTMLDivElement | null;
@@ -69,6 +91,36 @@ type UseRemoteControlClientOptions = {
 
 function cloneState(state: RemoteControlState): RemoteControlState {
   return JSON.parse(JSON.stringify(state));
+}
+
+function createNeutralState(): RemoteControlState {
+  return {
+    left: { x: 0.0, y: 0.0 },
+    right: { x: 0.0, y: 0.0 },
+    left_trigger: 0.0,
+    right_trigger: 0.0,
+    a: false,
+    b: false,
+    x: false,
+    y: false,
+    left_bumper: false,
+    right_bumper: false,
+    back: false,
+    start: false,
+    guide: false,
+    left_stick_button: false,
+    right_stick_button: false,
+    dpad_up: false,
+    dpad_down: false,
+    dpad_left: false,
+    dpad_right: false,
+  };
+}
+
+function buildProgrammaticInputSources(): RemoteControlStateKeysMeta["inputSources"] {
+  return Object.fromEntries(
+    REMOTE_CONTROL_STATE_KEYS.map((key) => [key, "programmatic"])
+  ) as RemoteControlStateKeysMeta["inputSources"];
 }
 
 class RemoteControlClient {
@@ -101,27 +153,7 @@ class RemoteControlClient {
   }) {
     this.onStateKeys = options.onStateKeys;
     this.controlsEnabled = Boolean(options.enabled && this.onStateKeys);
-    this.joystickState = {
-      left: { x: 0.0, y: 0.0 },
-      right: { x: 0.0, y: 0.0 },
-      left_trigger: 0.0,
-      right_trigger: 0.0,
-      a: false,
-      b: false,
-      x: false,
-      y: false,
-      left_bumper: false,
-      right_bumper: false,
-      back: false,
-      start: false,
-      guide: false,
-      left_stick_button: false,
-      right_stick_button: false,
-      dpad_up: false,
-      dpad_down: false,
-      dpad_left: false,
-      dpad_right: false,
-    };
+    this.joystickState = createNeutralState();
     this.lastSentState = cloneState(this.joystickState);
 
     this.leftStick = this.createStick(
@@ -158,14 +190,28 @@ class RemoteControlClient {
   }
 
   setEmitter(onStateKeys: RemoteControlStateKeysCallback | null, enabled: boolean) {
-    this.onStateKeys = onStateKeys;
-    this.controlsEnabled = Boolean(enabled && this.onStateKeys);
-    if (!this.controlsEnabled) {
+    const nextControlsEnabled = Boolean(enabled && onStateKeys);
+    if (!nextControlsEnabled) {
+      const finalEmitter = onStateKeys ?? this.onStateKeys;
       this.leftStick.movePointerToCenter(true);
       this.rightStick.movePointerToCenter(true);
+      this.joystickState = createNeutralState();
+      this.lastSentState = cloneState(this.joystickState);
+      this.dirtyKeys.clear();
+      this.dirtySources.clear();
+      if (finalEmitter) {
+        finalEmitter(this.lastSentState, REMOTE_CONTROL_STATE_KEYS, {
+          inputSources: buildProgrammaticInputSources(),
+        });
+      }
+      this.onStateKeys = onStateKeys;
+      this.controlsEnabled = false;
       this.stopTickLoop();
       return;
     }
+
+    this.onStateKeys = onStateKeys;
+    this.controlsEnabled = true;
     this.sendFullState();
   }
 
@@ -646,31 +692,8 @@ class RemoteControlClient {
   private sendFullState() {
     const nextState = cloneState(this.joystickState);
     this.lastSentState = nextState;
-    const keys: RemoteControlStateKey[] = [
-      "left",
-      "right",
-      "left_trigger",
-      "right_trigger",
-      "a",
-      "b",
-      "x",
-      "y",
-      "left_bumper",
-      "right_bumper",
-      "back",
-      "start",
-      "guide",
-      "left_stick_button",
-      "right_stick_button",
-      "dpad_up",
-      "dpad_down",
-      "dpad_left",
-      "dpad_right",
-    ];
-    this.sendStateKeys(nextState, keys, {
-      inputSources: Object.fromEntries(
-        keys.map((key) => [key, "programmatic"])
-      ) as RemoteControlStateKeysMeta["inputSources"],
+    this.sendStateKeys(nextState, REMOTE_CONTROL_STATE_KEYS, {
+      inputSources: buildProgrammaticInputSources(),
     });
   }
 
@@ -699,8 +722,8 @@ export function useRemoteControlClient({
       leftKnob,
       rightArea,
       rightKnob,
-      onStateKeys: onStateKeys ?? null,
-      enabled,
+      onStateKeys: null,
+      enabled: false,
     });
     clientRef.current = client;
 
@@ -713,8 +736,6 @@ export function useRemoteControlClient({
     leftKnob,
     rightArea,
     rightKnob,
-    onStateKeys,
-    enabled,
   ]);
 
   useEffect(() => {

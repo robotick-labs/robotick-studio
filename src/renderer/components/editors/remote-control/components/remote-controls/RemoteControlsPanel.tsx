@@ -274,10 +274,7 @@ export default function RemoteControlsPanel({
       ),
     })
   );
-  const selectedModes =
-    persistedSelectedModes.storageKey === selectedModesStorageKey
-      ? persistedSelectedModes.selectedModes
-      : readStoredSelectedModes(selectedModesStorageKey, normalizedConfig);
+  const selectedModes = persistedSelectedModes.selectedModes;
 
   useEffect(() => {
     setPersistedSelectedModes((current) => {
@@ -562,7 +559,7 @@ export default function RemoteControlsPanel({
               } => write !== null);
 
             if (writes.length > 0) {
-              const result = await telemetryService.setWorkloadInputFieldsData(
+              let result = await telemetryService.setWorkloadInputFieldsData(
                 baseUrl,
                 {
                   engine_session_id: model.schemaSessionId,
@@ -572,6 +569,48 @@ export default function RemoteControlsPanel({
                   maxAttempts: 1,
                 }
               );
+              if (!result.ok && result.status === 412) {
+                const refreshedModel = await telemetryService.refreshLayout(baseUrl);
+                if (refreshedModel?.schemaSessionId) {
+                  model = refreshedModel;
+                  const retryWrites = writes
+                    .map((write) => {
+                      const writableMeta = getWritableMeta(
+                        refreshedModel,
+                        write.field_path
+                      );
+                      if (
+                        !writableMeta ||
+                        typeof writableMeta.field_handle !== "number"
+                      ) {
+                        return null;
+                      }
+                      return {
+                        field_handle: writableMeta.field_handle,
+                        field_path: write.field_path,
+                        value: write.value,
+                      };
+                    })
+                    .filter((write): write is {
+                      field_handle: number;
+                      field_path: string;
+                      value: boolean | number;
+                    } => write !== null);
+
+                  if (retryWrites.length > 0) {
+                    result = await telemetryService.setWorkloadInputFieldsData(
+                      baseUrl,
+                      {
+                        engine_session_id: refreshedModel.schemaSessionId,
+                        writes: retryWrites,
+                      },
+                      {
+                        maxAttempts: 1,
+                      }
+                    );
+                  }
+                }
+              }
               if (!result.ok) {
                 console.warn("setWorkloadInputFieldsData rejected", {
                   baseUrl,
@@ -650,6 +689,11 @@ export default function RemoteControlsPanel({
     },
     [flushPendingBaseUrlWork]
   );
+  const queuePendingWorkRef = useRef(queuePendingWork);
+
+  useEffect(() => {
+    queuePendingWorkRef.current = queuePendingWork;
+  }, [queuePendingWork]);
 
   const computeDesiredStates = useCallback(
     (
@@ -809,7 +853,7 @@ export default function RemoteControlsPanel({
         if (!desiredState.binding.telemetryBaseUrl) {
           continue;
         }
-        queuePendingWork(desiredState.binding.telemetryBaseUrl, {
+        queuePendingWorkRef.current(desiredState.binding.telemetryBaseUrl, {
           writeFieldPath: desiredState.binding.fieldPath,
           writeValue: typeof desiredState.value === "boolean" ? false : 0,
           enableFieldPath: heldSuppressedFieldsRef.current.has(fieldKey)
@@ -820,7 +864,7 @@ export default function RemoteControlsPanel({
       heldSuppressedFieldsRef.current.clear();
       lastDesiredStatesRef.current = new Map();
     };
-  }, [queuePendingWork]);
+  }, []);
 
   const controlsEnabled = resolvedTargetBaseUrls.length > 0;
 
@@ -944,7 +988,10 @@ function applyResolvedBindingsToMode(
   return {
     ...mode,
     outputs: Object.fromEntries(
-      Object.entries(mode.outputs).map(([axis, binding]) => [axis, resolveBinding(binding)])
+      Object.entries(mode.outputs).map(([axis, binding]) => [
+        axis,
+        binding ? resolveBinding(binding) : binding,
+      ])
     ),
   };
 }

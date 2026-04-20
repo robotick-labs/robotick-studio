@@ -354,9 +354,7 @@ export function WritableTelemetryInputField({
       return;
     }
 
-    const writableMeta = getWritableMeta();
-    const targetModel = writableMeta.targetModel;
-    const writableHandle = writableMeta.writableHandle;
+    let writableMeta = getWritableMeta();
     const connectionEnabled =
       optimisticConnectionEnabled ?? writableMeta.incomingConnectionEnabled;
     if (
@@ -367,8 +365,11 @@ export function WritableTelemetryInputField({
       if (!suppressed) {
         return;
       }
+      writableMeta = getWritableMeta();
     }
 
+    const targetModel = writableMeta.targetModel;
+    const writableHandle = writableMeta.writableHandle;
     if (!targetModel?.schemaSessionId || typeof writableHandle !== "number") {
       return;
     }

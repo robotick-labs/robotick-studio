@@ -66,9 +66,9 @@ def resolve_codegen_flags(config: Config) -> dict[str, bool]:
         raise ValueError(f"Unknown runtime.codegen keys: {unknown_keys_label}")
 
     for key in flags:
-        value = codegen_cfg.get(key)
-        if value is None:
+        if key not in codegen_cfg:
             continue
+        value = codegen_cfg[key]
         if not isinstance(value, bool):
             raise ValueError(f"Model runtime.codegen.{key} must be a boolean.")
         flags[key] = value

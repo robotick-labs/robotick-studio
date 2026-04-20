@@ -69,6 +69,7 @@ let viewerSessionId = 0;
 let surfaceCreatedAtMs = 0;
 let transformScratchCanvas: HTMLCanvasElement | null = null;
 let transformScratchContext: CanvasRenderingContext2D | null = null;
+let createImageBitmapUnavailableReported = false;
 
 type PendingFrame = {
   mime: string;
@@ -218,6 +219,7 @@ function resetRuntimeState() {
   surfaceCreatedAtMs = 0;
   transformScratchCanvas = null;
   transformScratchContext = null;
+  createImageBitmapUnavailableReported = false;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
     DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
@@ -388,7 +390,9 @@ function ensureStreamSelector(
 
   selector.value = selectedStreamId;
   selector.addEventListener("change", () => {
-    void switchStreamingImageSource(selector.value);
+    switchStreamingImageSource(selector.value).catch((error) => {
+      console.warn("[streaming-image] Failed to switch stream", error);
+    });
   });
   container.appendChild(labelText);
   container.appendChild(selector);
@@ -553,7 +557,7 @@ async function presentPendingFrame() {
     }
 
     if (typeof createImageBitmap !== "function") {
-      noteTransportError();
+      noteCreateImageBitmapUnavailable();
       return;
     }
 
@@ -817,6 +821,14 @@ function noteTransportError() {
   if (metricsWindow) {
     metricsWindow.transportErrors += 1;
   }
+}
+
+function noteCreateImageBitmapUnavailable() {
+  if (createImageBitmapUnavailableReported) {
+    return;
+  }
+  createImageBitmapUnavailableReported = true;
+  console.warn("[streaming-image] createImageBitmap is unavailable in this environment");
 }
 
 function maybeHandleStall(nowMs: number) {

@@ -107,10 +107,15 @@ export function parseTargetBinding(
   if (splitIndex <= 0 || splitIndex >= qualifiedPath.length - 1) {
     return null;
   }
+  const modelName = qualifiedPath.slice(0, splitIndex);
+  const fieldPath = qualifiedPath.slice(splitIndex + 1);
+  if (!modelName || fieldPath.split(".").some((segment) => !segment)) {
+    return null;
+  }
   return {
     qualifiedPath,
-    modelName: qualifiedPath.slice(0, splitIndex),
-    fieldPath: qualifiedPath.slice(splitIndex + 1),
+    modelName,
+    fieldPath,
   };
 }
 

@@ -4,6 +4,7 @@ import {
   applyShapeTransform,
   applyStickModeTransform,
   normalizeRemoteControlsConfig,
+  parseTargetBinding,
 } from "../../../../renderer/components/editors/remote-control/components/remote-controls/remote-control-config";
 
 describe("remote-control-config", () => {
@@ -51,6 +52,7 @@ describe("remote-control-config", () => {
     expect(config.buttons.left_stick_button?.fieldPath).toBe(
       "face_control.inputs.blink_request"
     );
+    expect(parseTargetBinding("barr-e-spine..inputs.linear_speed_norm")).toBeNull();
   });
 
   it("applies the CircleToSquare transform before per-axis dead-zones", () => {

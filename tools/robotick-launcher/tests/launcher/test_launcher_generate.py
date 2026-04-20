@@ -309,6 +309,15 @@ def test_resolve_codegen_flags_rejects_non_boolean_values():
         resolve_codegen_flags(cfg)
 
 
+def test_resolve_codegen_flags_rejects_explicit_null_values():
+    cfg = SimpleNamespace(
+        model={"runtime": {"codegen": {"generate_main_cpp": None}}}
+    )
+
+    with pytest.raises(ValueError, match="generate_main_cpp must be a boolean"):
+        resolve_codegen_flags(cfg)
+
+
 def test_resolve_codegen_flags_rejects_non_mapping_runtime():
     cfg = SimpleNamespace(model={"runtime": ""})
 
@@ -319,7 +328,7 @@ def test_resolve_codegen_flags_rejects_non_mapping_runtime():
 def test_resolve_codegen_flags_rejects_non_mapping_codegen():
     cfg = SimpleNamespace(model={"runtime": {"codegen": ""}})
 
-    with pytest.raises(ValueError, match="runtime.codegen must be a mapping"):
+    with pytest.raises(ValueError, match=r"runtime\.codegen must be a mapping"):
         resolve_codegen_flags(cfg)
 
 
@@ -328,7 +337,10 @@ def test_resolve_codegen_flags_rejects_unknown_codegen_keys():
         model={"runtime": {"codegen": {"generate_ros_node": True}}}
     )
 
-    with pytest.raises(ValueError, match="Unknown runtime.codegen keys: generate_ros_node"):
+    with pytest.raises(
+        ValueError,
+        match=r"Unknown runtime\.codegen keys: generate_ros_node",
+    ):
         resolve_codegen_flags(cfg)
 
 

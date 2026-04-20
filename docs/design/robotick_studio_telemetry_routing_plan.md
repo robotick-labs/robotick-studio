@@ -162,7 +162,7 @@ The simplest first shape is likely:
 
 ```yaml
 telemetry:
-  port: 7102
+  port: 7103
   is_gateway: true
 ```
 
