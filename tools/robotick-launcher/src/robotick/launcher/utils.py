@@ -309,7 +309,8 @@ def run_subprocess(
     effective_cwd = str(cwd) if cwd else os.getcwd()
     print(f"[Launcher] Launching in cwd: {effective_cwd}")
 
-    bufsize = -1 if stdout == subprocess.PIPE or stderr == subprocess.PIPE else 1
+    uses_pipe = stdout == subprocess.PIPE or stderr == subprocess.PIPE
+    bufsize = -1 if uses_pipe else 1
     proc = subprocess.Popen(
         command,
         cwd=str(cwd) if cwd else None,
@@ -322,7 +323,10 @@ def run_subprocess(
 
     if wait:
         try:
-            proc.wait()
+            if uses_pipe:
+                proc.communicate()
+            else:
+                proc.wait()
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, command)
         except KeyboardInterrupt:

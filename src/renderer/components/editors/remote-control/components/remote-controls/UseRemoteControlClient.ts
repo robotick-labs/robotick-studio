@@ -17,7 +17,7 @@ interface StickController {
     source?: RemoteControlInputSource
   ) => void;
   resetKnob: () => void;
-  movePointerToCenter: () => void;
+  movePointerToCenter: (force?: boolean) => void;
 }
 
 export type RemoteControlState = {
@@ -161,10 +161,8 @@ class RemoteControlClient {
     this.onStateKeys = onStateKeys;
     this.controlsEnabled = Boolean(enabled && this.onStateKeys);
     if (!this.controlsEnabled) {
-      this.moveStickVisual(this.leftStick, 0, 0);
-      this.moveStickVisual(this.rightStick, 0, 0);
-      this.leftStick.movePointerToCenter();
-      this.rightStick.movePointerToCenter();
+      this.leftStick.movePointerToCenter(true);
+      this.rightStick.movePointerToCenter(true);
       this.stopTickLoop();
       return;
     }
@@ -506,8 +504,13 @@ class RemoteControlClient {
     }
   }
 
-  private moveStickVisual(stick: StickController, x: number, y: number) {
-    if (!this.controlsEnabled) return;
+  private moveStickVisual(
+    stick: StickController,
+    x: number,
+    y: number,
+    force = false
+  ) {
+    if (!this.controlsEnabled && !force) return;
     const radius = stick.area.clientWidth / 2;
     stick.knob.style.transform = `translate(-50%, -50%) translate(${
       x * radius
@@ -575,14 +578,17 @@ class RemoteControlClient {
       resetKnob,
       movePointerToCenter: () => {},
     };
-    controller.movePointerToCenter = () => {
-      if (!this.controlsEnabled) return;
-      this.moveStickVisual(controller, 0, 0);
-      this.sendJoystickInput(topic, 0, 0, "programmatic");
-      if (!this.ticking) this.startTickLoop();
+    controller.movePointerToCenter = (force = false) => {
+      if (!this.controlsEnabled && !force) return;
+      this.moveStickVisual(controller, 0, 0, force);
+      const stateKey = topic === "left_stick" ? "left" : "right";
+      this.joystickState[stateKey] = { x: 0, y: 0 };
+      if (this.controlsEnabled) {
+        this.markDirty(stateKey, "programmatic");
+        if (!this.ticking) this.startTickLoop();
+      }
       if (updateLocalState) {
-        const local =
-          this.localState[topic === "left_stick" ? "left" : "right"];
+        const local = this.localState[stateKey];
         local.x = 0;
         local.y = 0;
       }

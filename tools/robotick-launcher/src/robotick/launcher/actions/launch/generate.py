@@ -46,12 +46,25 @@ def resolve_codegen_flags(config: Config) -> dict[str, bool]:
     owns the executable entrypoint, for example a ROS2 package.
     """
 
-    runtime = dict((config.model or {}).get("runtime") or {})
-    codegen_cfg = runtime.get("codegen") or {}
+    model = config.model or {}
+    runtime = model.get("runtime")
+    if runtime is None:
+        runtime = {}
+    elif not isinstance(runtime, dict):
+        raise ValueError("Model runtime must be a mapping when provided.")
+
+    codegen_cfg = runtime.get("codegen")
+    if codegen_cfg is None:
+        codegen_cfg = {}
     if not isinstance(codegen_cfg, dict):
         raise ValueError("Model runtime.codegen must be a mapping when provided.")
 
     flags = dict(_CODEGEN_FLAG_DEFAULTS)
+    unknown_keys = set(codegen_cfg) - set(flags)
+    if unknown_keys:
+        unknown_keys_label = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"Unknown runtime.codegen keys: {unknown_keys_label}")
+
     for key in flags:
         value = codegen_cfg.get(key)
         if value is None:

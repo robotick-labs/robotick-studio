@@ -181,6 +181,12 @@ export interface SetWorkloadInputConnectionStateResult {
   body: SetWorkloadInputConnectionStateResponseBody | null;
 }
 
+export interface SetWorkloadInputConnectionStateOptions {
+  maxAttempts?: number;
+  baseRetryDelayMs?: number;
+  maxRetryDelayMs?: number;
+}
+
 export async function fetchTelemetryLayout(base_url: string): Promise<LayoutModel> {
   const response = await fetch(
     buildUrl(base_url, "/api/telemetry/workloads_buffer/layout"),
@@ -287,41 +293,94 @@ export async function setWorkloadInputFieldsData(
 export async function setWorkloadInputConnectionState(
   base_url: string,
   request: SetWorkloadInputConnectionStateRequest,
+  options: SetWorkloadInputConnectionStateOptions = {},
 ): Promise<SetWorkloadInputConnectionStateResult> {
-  let response: Response;
-  try {
-    response = await fetch(
-      buildUrl(base_url, "/api/telemetry/set_workload_input_connection_state"),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request),
-      },
-    );
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      body: {
-        error: error instanceof Error ? error.message : "network_error",
-      },
-    };
-  }
-
-  let body: SetWorkloadInputConnectionStateResponseBody | null = null;
-  try {
-    body = (await response.json()) as SetWorkloadInputConnectionStateResponseBody;
-  } catch {
-    body = null;
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    body,
+  const currentRequest: SetWorkloadInputConnectionStateRequest = {
+    engine_session_id: request.engine_session_id,
+    updates: request.updates.map((update) => ({ ...update })),
   };
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+  const baseRetryDelayMs = Math.max(1, options.baseRetryDelayMs ?? 60);
+  const maxRetryDelayMs = Math.max(
+    baseRetryDelayMs,
+    options.maxRetryDelayMs ?? 500,
+  );
+
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    let response: Response;
+    try {
+      response = await fetch(
+        buildUrl(base_url, "/api/telemetry/set_workload_input_connection_state"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(currentRequest),
+        },
+      );
+    } catch (error) {
+      const body = {
+        error: error instanceof Error ? error.message : "network_error",
+      };
+      if (attempt >= maxAttempts) {
+        return { ok: false, status: 0, body };
+      }
+      await delay(
+        computeRetryDelayMs(attempt, 503, body, baseRetryDelayMs, maxRetryDelayMs),
+      );
+      continue;
+    }
+
+    let body: SetWorkloadInputConnectionStateResponseBody | null = null;
+    try {
+      body = (await response.json()) as SetWorkloadInputConnectionStateResponseBody;
+    } catch {
+      body = null;
+    }
+
+    if (response.ok) {
+      return {
+        ok: true,
+        status: response.status,
+        body,
+      };
+    }
+
+    const correctedSessionId = body?.engine_session_id;
+    if (
+      response.status === 412 &&
+      typeof correctedSessionId === "string" &&
+      correctedSessionId.length > 0 &&
+      correctedSessionId !== currentRequest.engine_session_id &&
+      attempt < maxAttempts
+    ) {
+      currentRequest.engine_session_id = correctedSessionId;
+      continue;
+    }
+
+    if (
+      (!RETRYABLE_WRITE_STATUS_CODES.has(response.status) &&
+        response.status !== 0) ||
+      attempt >= maxAttempts
+    ) {
+      return { ok: false, status: response.status, body };
+    }
+
+    await delay(
+      computeRetryDelayMs(
+        attempt,
+        response.status === 0 ? 503 : response.status,
+        body,
+        baseRetryDelayMs,
+        maxRetryDelayMs,
+      ),
+    );
+  }
+
+  return { ok: false, status: 0, body: { error: "unexpected_retry_exit" } };
 }
 
 // -----------------------------------------------------------------------------

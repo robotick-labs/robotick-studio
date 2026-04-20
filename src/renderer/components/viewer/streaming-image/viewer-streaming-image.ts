@@ -67,6 +67,8 @@ let lastFramePresentedAtMs = 0;
 let stallStateActive = false;
 let viewerSessionId = 0;
 let surfaceCreatedAtMs = 0;
+let transformScratchCanvas: HTMLCanvasElement | null = null;
+let transformScratchContext: CanvasRenderingContext2D | null = null;
 
 type PendingFrame = {
   mime: string;
@@ -214,6 +216,8 @@ function resetRuntimeState() {
   stallStateActive = false;
   decodeInFlight = false;
   surfaceCreatedAtMs = 0;
+  transformScratchCanvas = null;
+  transformScratchContext = null;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
     DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
@@ -636,15 +640,28 @@ function drawBitmapWithTransform(
     return;
   }
 
-  const scratchCanvas = document.createElement("canvas");
-  scratchCanvas.width = bitmap.width;
-  scratchCanvas.height = bitmap.height;
-  const scratchContext = scratchCanvas.getContext("2d", { alpha: false });
+  if (!transformScratchCanvas) {
+    transformScratchCanvas = document.createElement("canvas");
+  }
+  const scratchCanvas = transformScratchCanvas;
+  if (scratchCanvas.width !== bitmap.width) {
+    scratchCanvas.width = bitmap.width;
+    transformScratchContext = null;
+  }
+  if (scratchCanvas.height !== bitmap.height) {
+    scratchCanvas.height = bitmap.height;
+    transformScratchContext = null;
+  }
+
+  transformScratchContext =
+    transformScratchContext ?? scratchCanvas.getContext("2d", { alpha: false });
+  const scratchContext = transformScratchContext;
   if (!scratchContext) {
     targetContext.drawImage(bitmap, 0, 0);
     return;
   }
 
+  scratchContext.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
   scratchContext.drawImage(bitmap, 0, 0);
   const imageData = scratchContext.getImageData(
     0,

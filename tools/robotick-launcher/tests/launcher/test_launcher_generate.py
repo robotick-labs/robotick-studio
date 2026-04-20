@@ -309,6 +309,29 @@ def test_resolve_codegen_flags_rejects_non_boolean_values():
         resolve_codegen_flags(cfg)
 
 
+def test_resolve_codegen_flags_rejects_non_mapping_runtime():
+    cfg = SimpleNamespace(model={"runtime": ""})
+
+    with pytest.raises(ValueError, match="runtime must be a mapping"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_non_mapping_codegen():
+    cfg = SimpleNamespace(model={"runtime": {"codegen": ""}})
+
+    with pytest.raises(ValueError, match="runtime.codegen must be a mapping"):
+        resolve_codegen_flags(cfg)
+
+
+def test_resolve_codegen_flags_rejects_unknown_codegen_keys():
+    cfg = SimpleNamespace(
+        model={"runtime": {"codegen": {"generate_ros_node": True}}}
+    )
+
+    with pytest.raises(ValueError, match="Unknown runtime.codegen keys: generate_ros_node"):
+        resolve_codegen_flags(cfg)
+
+
 def test_workload_deps_cmake_allows_plain_link_signature_for_embedded_targets():
     cmake = emit_cmake_fragment(
         find_required=[],

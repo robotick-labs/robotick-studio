@@ -233,12 +233,16 @@ export function applyShapeTransform(
 }
 
 export function applyDeadZone(value: number, deadZone: number): number {
+  const normalizedDeadZone =
+    typeof deadZone === "number" && Number.isFinite(deadZone)
+      ? Math.max(0, Math.min(0.99, deadZone))
+      : 0;
   const magnitude = Math.abs(value);
-  if (magnitude <= deadZone) {
+  if (magnitude <= normalizedDeadZone) {
     return 0;
   }
   const sign = Math.sign(value) || 1;
-  return ((magnitude - deadZone) / (1 - deadZone)) * sign;
+  return ((magnitude - normalizedDeadZone) / (1 - normalizedDeadZone)) * sign;
 }
 
 export function applyStickModeTransform(

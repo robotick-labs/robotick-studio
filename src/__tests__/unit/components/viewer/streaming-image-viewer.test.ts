@@ -310,9 +310,9 @@ describe("viewer-streaming-image stream selection", () => {
     );
     const control = selector?.closest("label");
 
+    expect(selector).not.toBeNull();
+    expect(selector?.getAttribute("aria-label")).toBe("Image stream");
     expect(control?.textContent).toContain("Image Stream");
-    expect(control?.style.background).toBe("rgba(15, 19, 31, 0.55)");
-    expect(selector?.style.borderRadius).toBe("8px");
   });
 });
 

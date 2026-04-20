@@ -448,13 +448,13 @@ export default function RemoteControlsPanel({
     async (
       baseUrl: string,
       updates: Array<{ field_path: string; enabled: boolean }>
-    ) => {
+    ): Promise<ITelemetryModel | null> => {
       if (updates.length === 0) {
-        return;
+        return await getCurrentTelemetryModel(baseUrl);
       }
       let model = await getCurrentTelemetryModel(baseUrl);
       if (!model?.schemaSessionId) {
-        return;
+        return null;
       }
 
       let result = await telemetryService.setWorkloadInputConnectionState(baseUrl, {
@@ -478,7 +478,10 @@ export default function RemoteControlsPanel({
           status: result.status,
           body: result.body,
         });
+        return null;
       }
+
+      return model;
     },
     [getCurrentTelemetryModel, telemetryService]
   );
@@ -489,6 +492,7 @@ export default function RemoteControlsPanel({
         return;
       }
       inFlightBaseUrlsRef.current.add(baseUrl);
+      let deferRetry = false;
 
       try {
         while (true) {
@@ -497,20 +501,22 @@ export default function RemoteControlsPanel({
             return;
           }
 
-          const snapshot = clonePendingWork(queued);
           if (
-            snapshot.disableUpdates.size === 0 &&
-            snapshot.writes.size === 0 &&
-            snapshot.enableUpdates.size === 0
+            queued.disableUpdates.size === 0 &&
+            queued.writes.size === 0 &&
+            queued.enableUpdates.size === 0
           ) {
             return;
           }
-          pendingBaseUrlWorkRef.current.set(baseUrl, createEmptyPendingWork());
 
-          const model = await getCurrentTelemetryModel(baseUrl);
+          let model = await getCurrentTelemetryModel(baseUrl);
           if (!model?.schemaSessionId) {
-            continue;
+            deferRetry = true;
+            return;
           }
+
+          const snapshot = clonePendingWork(queued);
+          pendingBaseUrlWorkRef.current.set(baseUrl, createEmptyPendingWork());
 
           const disableFieldPaths = new Set(snapshot.disableUpdates.keys());
           for (const [fieldPath, write] of snapshot.writes.entries()) {
@@ -524,13 +530,16 @@ export default function RemoteControlsPanel({
           }
 
           if (disableFieldPaths.size > 0) {
-            await setConnectionStateWithRetry(
+            const updatedModel = await setConnectionStateWithRetry(
               baseUrl,
               Array.from(disableFieldPaths).map((field_path) => ({
                 field_path,
                 enabled: false,
               }))
             );
+            if (updatedModel?.schemaSessionId) {
+              model = updatedModel;
+            }
           }
 
           if (snapshot.writes.size > 0) {
@@ -588,6 +597,7 @@ export default function RemoteControlsPanel({
         inFlightBaseUrlsRef.current.delete(baseUrl);
         const queued = pendingBaseUrlWorkRef.current.get(baseUrl);
         if (
+          !deferRetry &&
           queued &&
           (queued.disableUpdates.size > 0 ||
             queued.writes.size > 0 ||

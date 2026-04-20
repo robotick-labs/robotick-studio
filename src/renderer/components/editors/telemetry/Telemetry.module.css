@@ -355,7 +355,6 @@
   justify-content: center;
   background: var(--app-panel-soft);
   cursor: pointer;
-  font-size: 9px;
   line-height: 1;
   flex: 0 0 16px;
   position: absolute;
@@ -364,7 +363,7 @@
   transform: translate(-42.5%, -50%);
   z-index: 1;
   background-clip: padding-box;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "JetBrains Mono", SFMono-Regular, Consolas, monospace;
   font-size: 0;
 }
 

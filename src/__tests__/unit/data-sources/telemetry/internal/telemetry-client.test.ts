@@ -154,6 +154,92 @@ describe("setWorkloadInputConnectionState", () => {
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
+
+  it("retries connection suppression with the corrected engine session id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "session_mismatch",
+            engine_session_id: "sid-corrected",
+          }),
+          {
+            status: 412,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "processed" }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setWorkloadInputConnectionState("http://example", {
+      engine_session_id: "sid-stale",
+      updates: [{ field_handle: 7, enabled: false }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+    expect(retryBody.engine_session_id).toBe("sid-corrected");
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
+  it("retries connection suppression on retryable REST failures", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "busy", retry_after_ms: 1 }), {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ status: "processed" }), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const requestPromise = setWorkloadInputConnectionState(
+        "http://example",
+        {
+          engine_session_id: "sid",
+          updates: [{ field_handle: 7, enabled: false }],
+        },
+        {
+          maxAttempts: 2,
+          baseRetryDelayMs: 1,
+          maxRetryDelayMs: 2,
+        },
+      );
+
+      await vi.runAllTimersAsync();
+      const result = await requestPromise;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.ok).toBe(true);
+      expect(result.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("createTelemetryModel", () => {

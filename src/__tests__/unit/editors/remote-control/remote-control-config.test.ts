@@ -63,6 +63,9 @@ describe("remote-control-config", () => {
 
     expect(applyDeadZone(0.05, 0.1)).toBe(0);
     expect(applyDeadZone(0.55, 0.1)).toBeCloseTo(0.5, 5);
+    expect(applyDeadZone(0.5, -0.5)).toBeCloseTo(0.5, 5);
+    expect(applyDeadZone(0.995, 1.5)).toBeCloseTo(0.5, 5);
+    expect(applyDeadZone(0.5, Number.NaN)).toBeCloseTo(0.5, 5);
 
     const transformed = applyStickModeTransform(
       { x: 0.5, y: 0.5 },

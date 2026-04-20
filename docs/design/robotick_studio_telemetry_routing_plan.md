@@ -40,7 +40,6 @@ The initial `Alf.e` split is:
 - Pi5/Linux:
   - `alf-e-face`
   - `alf-e-sensing-visual`
-  - `alf-e-face`
 - CoreS3/ESP32:
   - `alf-e-spine`
 

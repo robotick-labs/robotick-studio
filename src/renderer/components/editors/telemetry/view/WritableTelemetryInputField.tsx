@@ -267,7 +267,7 @@ export function WritableTelemetryInputField({
       return false;
     }
 
-    const writableMeta = getWritableMeta();
+    let writableMeta = getWritableMeta();
     if (
       !writableMeta.targetModel?.schemaSessionId ||
       typeof writableMeta.writableHandle !== "number" ||
@@ -290,6 +290,52 @@ export function WritableTelemetryInputField({
         ],
       },
     );
+    if (!result.ok && result.status === 412) {
+      const refreshedModel = await telemetryService.refreshLayout(telemetryBaseUrl);
+      const refreshedInput = refreshedModel?.writable_inputs_by_path?.get(field.path);
+      writableMeta = {
+        targetModel: refreshedModel ?? writableMeta.targetModel,
+        writableHandle:
+          refreshedInput?.field_handle ?? writableMeta.writableHandle,
+        incomingConnectionHandle:
+          refreshedInput?.incoming_connection_handle ??
+          writableMeta.incomingConnectionHandle,
+        incomingConnectionEnabled:
+          refreshedInput?.incoming_connection_enabled ??
+          writableMeta.incomingConnectionEnabled,
+      };
+
+      if (
+        writableMeta.targetModel?.schemaSessionId &&
+        typeof writableMeta.writableHandle === "number" &&
+        typeof writableMeta.incomingConnectionHandle === "number"
+      ) {
+        const retryResult = await telemetryService.setWorkloadInputConnectionState(
+          telemetryBaseUrl,
+          {
+            engine_session_id: writableMeta.targetModel.schemaSessionId,
+            updates: [
+              {
+                field_handle: writableMeta.writableHandle,
+                field_path: field.path,
+                enabled,
+              },
+            ],
+          },
+        );
+        if (retryResult.ok) {
+          return true;
+        }
+        setOptimisticConnectionEnabled(null);
+        console.warn("setWorkloadInputConnectionState rejected", {
+          fieldPath: field.path,
+          status: retryResult.status,
+          body: retryResult.body,
+        });
+        return false;
+      }
+    }
+
     if (!result.ok) {
       setOptimisticConnectionEnabled(null);
       console.warn("setWorkloadInputConnectionState rejected", {
