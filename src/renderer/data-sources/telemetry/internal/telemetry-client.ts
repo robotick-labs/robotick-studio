@@ -433,6 +433,8 @@ function readSingle(
       return safeRead(1, () => view.getUint8(offset) !== 0);
     case "int":
       return safeRead(4, () => view.getInt32(offset, true));
+    case "int32_t":
+      return safeRead(4, () => view.getInt32(offset, true));
     case "uint32_t":
       return safeRead(4, () => view.getUint32(offset, true));
     case "uint16_t":
@@ -482,6 +484,8 @@ function bytesPerPrimitive(type: string, mime_type: string): number {
     case "bool":
       return 1;
     case "int":
+      return 4;
+    case "int32_t":
       return 4;
     case "uint32_t":
       return 4;

@@ -1204,6 +1204,58 @@ def test_run_docker_linux_x64_execs_run_script_inside_keepalive_container(monkey
     assert "bash ./do_launcher_run.sh" in run_calls[0][24]
 
 
+def test_runtime_docker_commands_forward_marked_python_env(monkeypatch):
+    spec = _docker_linux_spec(
+        family="linux-x64",
+        image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
+        container_name="robotick-launcher-linux-x64-build-test",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
+    )
+    monkeypatch.setenv(
+        docker_linux_module.DOCKER_PYTHON_ENV_FORWARD_FLAG,
+        "1",
+    )
+    monkeypatch.setenv("PYTHONPATH", "/tmp/site-packages:/repo/robots/barr-e/python")
+    monkeypatch.setenv("ROBOTICK_PYTHON_VENV", "/tmp/venv")
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
+        lambda: 1234,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
+        lambda: 5678,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux._runtime_device_args",
+        lambda spec: [],
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux._runtime_group_add_args",
+        lambda spec: [],
+    )
+
+    run_command = docker_linux_module._docker_run_command(
+        spec,
+        "/tmp/repo/robots/proj",
+        "bash ./do_launcher_run.sh",
+    )
+    exec_command = docker_linux_module._docker_exec_command(
+        spec,
+        "/tmp/repo/robots/proj",
+        "bash ./do_launcher_run.sh",
+        include_launcher_python_env=True,
+    )
+
+    assert "-e" in run_command
+    assert "PYTHONPATH=/tmp/site-packages:/repo/robots/barr-e/python" in run_command
+    assert "ROBOTICK_PYTHON_VENV=/tmp/venv" in run_command
+    assert "PYTHONPATH=/tmp/site-packages:/repo/robots/barr-e/python" in exec_command
+    assert "ROBOTICK_PYTHON_VENV=/tmp/venv" in exec_command
+
+
 def test_prepare_runtime_shell_command_adds_alsa_bootstrap_for_local_runtime(monkeypatch):
     spec = _docker_linux_spec(
         family="linux-x64",

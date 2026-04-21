@@ -177,7 +177,9 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     model.use_remote_models(all_remote_models);
     {% endif %}
     {% if workloads %}
+    {% if config.model.root %}
     model.set_root_workload({{config.model.root}});
+    {% endif %}
     {% endif %}
     {% if telemetry and telemetry.port %}
     model.set_telemetry_port({{telemetry.port}});

@@ -13,6 +13,10 @@ import yaml
 from typer.models import OptionInfo
 
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
+from robotick.launcher.actions.launch.docker_linux import (
+    DOCKER_PYTHON_ENV_FORWARD_FLAG,
+    DOCKER_PYTHON_ENV_KEYS,
+)
 from robotick.launcher.utils import (
     find_local_process_ids_for_binary,
     get_launcher_paths,
@@ -62,6 +66,30 @@ def _find_local_process_ids_for_binary(
 
 def _stop_existing_local_process(binary_path: Path, *, dry_run: bool) -> None:
     stop_local_binary_process(binary_path, dry_run=dry_run)
+
+
+def _run_handler_with_python_env(run_handler, dry_run: bool, python_env: Optional[dict[str, str]]) -> None:
+    if not python_env:
+        run_handler(dry_run)
+        return
+
+    keys = (*DOCKER_PYTHON_ENV_KEYS, DOCKER_PYTHON_ENV_FORWARD_FLAG)
+    previous = {key: os.environ.get(key) for key in keys}
+    try:
+        for key in DOCKER_PYTHON_ENV_KEYS:
+            value = python_env.get(key)
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+        os.environ[DOCKER_PYTHON_ENV_FORWARD_FLAG] = "1"
+        run_handler(dry_run)
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def run(
@@ -119,7 +147,7 @@ def run(
         # Non-local runs use a one-model-at-a-time policy for the same binary path.
         if plan.run.stop_handler is not None:
             plan.run.stop_handler(dry_run)
-        plan.run.run_handler(dry_run)
+        _run_handler_with_python_env(plan.run.run_handler, dry_run, python_env)
         if dry_run:
             print("[yellow]⚠️ Dry run only — commands not executed.[/]")
         return

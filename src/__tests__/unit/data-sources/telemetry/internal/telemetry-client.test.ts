@@ -243,6 +243,49 @@ describe("setWorkloadInputConnectionState", () => {
 });
 
 describe("createTelemetryModel", () => {
+  it("decodes int32_t primitive fields", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 128,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "detector",
+          type: "DetectorWorkload",
+          offset_within_container: 16,
+          stats_offset_within_container: 96,
+          outputs: {
+            type: "DetectorOutputs",
+            offset_within_container: 0,
+          },
+        },
+      ],
+      types: [
+        { name: "int32_t", size: 4 },
+        { name: "WorkloadInstanceStats", size: 32 },
+        {
+          name: "DetectorOutputs",
+          size: 4,
+          fields: [
+            {
+              name: "class_id",
+              type: "int32_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+    const raw = new ArrayBuffer(128);
+    new DataView(raw).setInt32(16, -7, true);
+
+    const model = createTelemetryModel(layout);
+    model.raw = raw;
+
+    expect(model.getField?.("detector.outputs.class_id")?.getValue()).toBe(-7);
+  });
+
   it("computes per-workload static and dynamic workloads-buffer memory", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
@@ -251,15 +294,15 @@ describe("createTelemetryModel", () => {
       workloads: [
         {
           name: "jpeg",
-          type: "ImageRefToJpegWorkload",
+          type: "ImageRefToImageWorkload",
           offset_within_container: 100,
           stats_offset_within_container: 1000,
           config: {
-            type: "ImageRefToJpegConfig",
+            type: "ImageRefToImageConfig",
             offset_within_container: 16,
           },
           outputs: {
-            type: "ImageRefToJpegOutputs",
+            type: "ImageRefToImageOutputs",
             offset_within_container: 24,
           },
         },
@@ -283,11 +326,11 @@ describe("createTelemetryModel", () => {
         { name: "uint32_t", size: 4 },
         { name: "WorkloadInstanceStats", size: 32 },
         {
-          name: "ImageRefToJpegConfig",
+          name: "ImageRefToImageConfig",
           size: 8,
           fields: [
             {
-              name: "jpeg_data",
+              name: "image",
               type: "DynamicStructStorageVector_uint8_t_256",
               offset_within_container: 0,
               element_count: 1,
@@ -295,7 +338,7 @@ describe("createTelemetryModel", () => {
           ],
         },
         {
-          name: "ImageRefToJpegOutputs",
+          name: "ImageRefToImageOutputs",
           size: 12,
           fields: [
             {
@@ -493,21 +536,21 @@ describe("createTelemetryModel", () => {
       workloads: [
         {
           name: "first",
-          type: "ImageRefToJpegWorkload",
+          type: "ImageRefToImageWorkload",
           offset_within_container: 100,
           stats_offset_within_container: 3000,
           outputs: {
-            type: "ImageRefToJpegOutputs_A",
+            type: "ImageRefToImageOutputs_A",
             offset_within_container: 0,
           },
         },
         {
           name: "second",
-          type: "ImageRefToJpegWorkload",
+          type: "ImageRefToImageWorkload",
           offset_within_container: 200,
           stats_offset_within_container: 3100,
           outputs: {
-            type: "ImageRefToJpegOutputs_B",
+            type: "ImageRefToImageOutputs_B",
             offset_within_container: 0,
           },
         },
@@ -517,41 +560,41 @@ describe("createTelemetryModel", () => {
         { name: "uint32_t", size: 4 },
         { name: "WorkloadInstanceStats", size: 32 },
         {
-          name: "ImageJpegByte",
+          name: "ImageByte",
           size: 1,
           mime_type: "image/jpeg",
         },
         {
-          name: "ImageRefToJpegOutputs_A",
+          name: "ImageRefToImageOutputs_A",
           size: 8,
           fields: [
             {
-              name: "jpeg_data",
-              type: "ImageJpegDynamic_A",
+              name: "image",
+              type: "Image_A",
               offset_within_container: 0,
               element_count: 1,
             },
           ],
         },
         {
-          name: "ImageRefToJpegOutputs_B",
+          name: "ImageRefToImageOutputs_B",
           size: 8,
           fields: [
             {
-              name: "jpeg_data",
-              type: "ImageJpegDynamic_B",
+              name: "image",
+              type: "Image_B",
               offset_within_container: 0,
               element_count: 1,
             },
           ],
         },
         {
-          name: "ImageJpegDynamic_A",
+          name: "Image_A",
           size: 8,
           fields: [
             {
               name: "data_buffer",
-              type: "ImageJpegByte",
+              type: "ImageByte",
               offset_within_container: 1000,
               element_count: 8,
             },
@@ -564,12 +607,12 @@ describe("createTelemetryModel", () => {
           ],
         },
         {
-          name: "ImageJpegDynamic_B",
+          name: "Image_B",
           size: 8,
           fields: [
             {
               name: "data_buffer",
-              type: "ImageJpegByte",
+              type: "ImageByte",
               offset_within_container: 2000,
               element_count: 8,
             },
@@ -596,7 +639,7 @@ describe("createTelemetryModel", () => {
     model.raw = raw;
 
     const secondBuffer = model
-      .getField?.("second.outputs.jpeg_data.data_buffer")
+      .getField?.("second.outputs.image.data_buffer")
       ?.getValue() as Uint8Array | null;
     expect(Array.from(secondBuffer?.slice(0, 4) ?? [])).toEqual([
       0xff,
@@ -606,7 +649,7 @@ describe("createTelemetryModel", () => {
     ]);
 
     const secondJpegData = model
-      .getField?.("second.outputs.jpeg_data")
+      .getField?.("second.outputs.image")
       ?.getValue() as { data_buffer?: Uint8Array; count?: number } | null;
     expect(secondJpegData?.count).toBe(4);
     expect(Array.from(secondJpegData?.data_buffer?.slice(0, 4) ?? [])).toEqual([

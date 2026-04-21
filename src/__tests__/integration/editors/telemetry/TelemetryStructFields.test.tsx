@@ -83,9 +83,9 @@ describe("TelemetryStructFields", () => {
     };
 
     const field: ITelemetryField = {
-      name: "jpeg_data",
+      name: "image",
       type: "DynamicStructStorageVector<uint8_t>",
-      path: "outputs.jpeg_data.data_buffer",
+      path: "outputs.image.data_buffer",
       offset: 0,
       elementCount: 1,
       mime_type: "image/jpeg",
@@ -176,6 +176,74 @@ describe("TelemetryStructFields", () => {
 
     expect(tree.container.querySelector("input[type='checkbox']")).not.toBeNull();
     expect(tree.container.textContent).toContain("enabled");
+
+    tree.unmount();
+  });
+
+  it("renders encoded Image structs as image thumbnails", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+    };
+
+    const imageField: ITelemetryField = {
+      name: "image",
+      type: "Image",
+      path: "camera.outputs.image",
+      offset: 0,
+      elementCount: 1,
+      model,
+      fields: [
+        {
+          name: "metadata",
+          type: "ImageMetadata",
+          path: "camera.outputs.image.metadata",
+          offset: 0,
+          elementCount: 1,
+          model,
+          getValue: () => ({ pixel_format: 8 }),
+        },
+        {
+          name: "count",
+          type: "uint32_t",
+          path: "camera.outputs.image.count",
+          offset: 0,
+          elementCount: 1,
+          model,
+          getValue: () => 4,
+        },
+        {
+          name: "data_buffer",
+          type: "ImageByte",
+          path: "camera.outputs.image.data_buffer",
+          offset: 0,
+          elementCount: 8,
+          mime_type: "application/octet-stream",
+          model,
+          getValue: () => new Uint8Array([0xff, 0xd8, 0xaa, 0xd9]),
+        },
+      ],
+      getValue: () => ({
+        metadata: { pixel_format: 8 },
+        count: 4,
+        data_buffer: new Uint8Array([0xff, 0xd8, 0xaa, 0xd9, 0x00]),
+      }),
+    };
+    const struct: ITelemetryStruct = {
+      typeName: "Outputs",
+      offset: 0,
+      fields: [imageField],
+    };
+
+    const tree = render(<TelemetryStructFields struct={struct} />);
+    await expect(
+      tree.renderAsync(<TelemetryStructFields struct={struct} />)
+    ).resolves.not.toThrow();
+    expect(tree.container.querySelector("img")).not.toBeNull();
+    expect(URL.createObjectURL).toHaveBeenCalled();
 
     tree.unmount();
   });

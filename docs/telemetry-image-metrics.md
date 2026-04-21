@@ -15,7 +15,7 @@ Example:
 ```ts
 {
   sourceModel: "alf-e-sensing-visual",
-  sourceField: "camera.outputs.jpeg_data.data_buffer",
+  sourceField: "camera.outputs.image.data_buffer",
   telemetryPollingRateHz: 20,
   telemetryMetricsEnabled: true,
   telemetryMetricsWindowMs: 60000,

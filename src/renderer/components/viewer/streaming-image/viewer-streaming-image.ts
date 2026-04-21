@@ -76,13 +76,25 @@ type PendingFrame = {
   bytes: Uint8Array<ArrayBuffer>;
   receivedAtMs: number;
   transform: StreamingImageTransform;
+  detections: ObjectDetectionOverlay[];
 };
 
-type StreamingImageTransform = "none" | "depth-preview";
+type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
+
+export type ObjectDetectionOverlay = {
+  className: string;
+  confidence: number;
+  boxX1Norm: number;
+  boxY1Norm: number;
+  boxX2Norm: number;
+  boxY2Norm: number;
+};
 
 type StreamingImageSourceInput = {
   id?: string;
   source?: string;
+  detectionsSource?: string;
+  detections?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -95,6 +107,7 @@ type StreamingImageSource = Required<Pick<StreamingImageSourceInput, "id">> & {
   label: string;
   sourceField: string;
   transform: StreamingImageTransform;
+  detectionsSourceField?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -129,6 +142,27 @@ type DepthPreviewImageData = {
   height: number;
   data: Uint8ClampedArray<ArrayBuffer>;
 };
+
+type MaskPreviewImageData = {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray<ArrayBuffer>;
+};
+
+const MASK_PREVIEW_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
+  [255, 82, 82],
+  [77, 208, 225],
+  [255, 213, 79],
+  [129, 199, 132],
+  [179, 136, 255],
+  [255, 138, 101],
+  [79, 195, 247],
+  [240, 98, 146],
+  [174, 213, 129],
+  [186, 104, 200],
+  [255, 241, 118],
+  [100, 181, 246],
+];
 
 export function extractStreamingImageBytes(
   value: unknown
@@ -480,7 +514,8 @@ function queueFrame(
   mime: string,
   bytes: Uint8Array<ArrayBuffer>,
   receivedAtMs: number,
-  transform: StreamingImageTransform
+  transform: StreamingImageTransform,
+  detections: ObjectDetectionOverlay[] = []
 ) {
   if (pendingFrame && metricsWindow) {
     metricsWindow.supersededFrames += 1;
@@ -490,6 +525,7 @@ function queueFrame(
     bytes,
     receivedAtMs,
     transform,
+    detections,
   };
   lastFrameReceivedAtMs = receivedAtMs;
   stallStateActive = false;
@@ -551,6 +587,34 @@ async function presentPendingFrame() {
           return;
         }
         drawDepthPreviewImageData(activeCanvas, activeCanvasContext, preview);
+        drawObjectDetectionsOverlay(
+          activeCanvasContext,
+          activeCanvas.width,
+          activeCanvas.height,
+          frame.detections
+        );
+        notePresentedFrame(frame);
+        return;
+      }
+    }
+
+    if (frame.transform === "mask-preview") {
+      const preview = createMaskPreviewImageDataFromPngBytes(safeBytes);
+      if (preview) {
+        if (
+          sessionId !== viewerSessionId ||
+          !activeCanvas ||
+          !activeCanvasContext
+        ) {
+          return;
+        }
+        drawMaskPreviewImageData(activeCanvas, activeCanvasContext, preview);
+        drawObjectDetectionsOverlay(
+          activeCanvasContext,
+          activeCanvas.width,
+          activeCanvas.height,
+          frame.detections
+        );
         notePresentedFrame(frame);
         return;
       }
@@ -587,6 +651,12 @@ async function presentPendingFrame() {
         bitmap,
         frame.transform
       );
+      drawObjectDetectionsOverlay(
+        activeCanvasContext,
+        activeCanvas.width,
+        activeCanvas.height,
+        frame.detections
+      );
 
       notePresentedFrame(frame);
     } finally {
@@ -617,6 +687,26 @@ function drawDepthPreviewImageData(
   targetCanvas: HTMLCanvasElement,
   targetContext: CanvasRenderingContext2D,
   preview: DepthPreviewImageData
+) {
+  if (
+    targetCanvas.width !== preview.width ||
+    targetCanvas.height !== preview.height
+  ) {
+    targetCanvas.width = preview.width;
+    targetCanvas.height = preview.height;
+  }
+  targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  targetContext.putImageData(
+    new ImageData(preview.data, preview.width, preview.height),
+    0,
+    0
+  );
+}
+
+function drawMaskPreviewImageData(
+  targetCanvas: HTMLCanvasElement,
+  targetContext: CanvasRenderingContext2D,
+  preview: MaskPreviewImageData
 ) {
   if (
     targetCanvas.width !== preview.width ||
@@ -676,11 +766,135 @@ function drawBitmapWithTransform(
 
   if (transform === "depth-preview") {
     applyDepthPreviewTransformToImageData(imageData);
+  } else if (transform === "mask-preview") {
+    applyMaskPreviewTransformToImageData(imageData);
   }
 
   targetCanvas.width = scratchCanvas.width;
   targetCanvas.height = scratchCanvas.height;
   targetContext.putImageData(imageData, 0, 0);
+}
+
+export function extractObjectDetectionOverlays(
+  value: unknown
+): ObjectDetectionOverlay[] {
+  const rawDetections = extractRawObjectDetectionArray(value);
+  const detections: ObjectDetectionOverlay[] = [];
+
+  for (const rawDetection of rawDetections) {
+    if (!isPlainObject(rawDetection)) {
+      continue;
+    }
+
+    const boxX1Norm = readFiniteNumber(rawDetection.box_x1_norm);
+    const boxY1Norm = readFiniteNumber(rawDetection.box_y1_norm);
+    const boxX2Norm = readFiniteNumber(rawDetection.box_x2_norm);
+    const boxY2Norm = readFiniteNumber(rawDetection.box_y2_norm);
+    const confidence = readFiniteNumber(rawDetection.confidence) ?? 0;
+
+    if (
+      boxX1Norm === null ||
+      boxY1Norm === null ||
+      boxX2Norm === null ||
+      boxY2Norm === null
+    ) {
+      continue;
+    }
+
+    detections.push({
+      className: readDetectionClassName(rawDetection.class_name),
+      confidence,
+      boxX1Norm: clamp01(boxX1Norm),
+      boxY1Norm: clamp01(boxY1Norm),
+      boxX2Norm: clamp01(boxX2Norm),
+      boxY2Norm: clamp01(boxY2Norm),
+    });
+  }
+
+  return detections;
+}
+
+function extractRawObjectDetectionArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!isPlainObject(value)) {
+    return [];
+  }
+
+  const buffer = value.data_buffer;
+  if (!Array.isArray(buffer)) {
+    return [];
+  }
+
+  const count =
+    typeof value.count === "number" && Number.isFinite(value.count)
+      ? Math.max(0, Math.min(buffer.length, Math.trunc(value.count)))
+      : buffer.length;
+  return buffer.slice(0, count);
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function readDetectionClassName(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return "";
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+export function drawObjectDetectionsOverlay(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  detections: readonly ObjectDetectionOverlay[]
+) {
+  if (width <= 0 || height <= 0 || detections.length === 0) {
+    return;
+  }
+
+  context.save();
+  context.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 240));
+  context.font = `${Math.max(12, Math.round(height / 32))}px sans-serif`;
+  context.textBaseline = "top";
+
+  for (const detection of detections) {
+    const x1 = Math.round(Math.min(detection.boxX1Norm, detection.boxX2Norm) * width);
+    const y1 = Math.round(Math.min(detection.boxY1Norm, detection.boxY2Norm) * height);
+    const x2 = Math.round(Math.max(detection.boxX1Norm, detection.boxX2Norm) * width);
+    const y2 = Math.round(Math.max(detection.boxY1Norm, detection.boxY2Norm) * height);
+    const boxWidth = Math.max(1, x2 - x1);
+    const boxHeight = Math.max(1, y2 - y1);
+    const label = formatDetectionLabel(detection);
+    const labelWidth = Math.ceil(context.measureText(label).width) + 8;
+    const labelHeight = Math.max(16, Math.round(height / 28));
+    const labelY = y1 >= labelHeight ? y1 - labelHeight : y1;
+
+    context.strokeStyle = "#4dd0e1";
+    context.fillStyle = "rgba(0, 0, 0, 0.72)";
+    context.strokeRect(x1, y1, boxWidth, boxHeight);
+    context.fillRect(x1, labelY, Math.min(labelWidth, width - x1), labelHeight);
+    context.fillStyle = "#ffffff";
+    context.fillText(label, x1 + 4, labelY + 2);
+  }
+
+  context.restore();
+}
+
+function formatDetectionLabel(detection: ObjectDetectionOverlay): string {
+  const confidence = Math.round(clamp01(detection.confidence) * 100);
+  return detection.className
+    ? `${detection.className} ${confidence}%`
+    : `${confidence}%`;
 }
 
 export function applyDepthPreviewTransformToImageData(
@@ -718,6 +932,20 @@ export function applyDepthPreviewTransformToImageData(
     data[i] = preview;
     data[i + 1] = preview;
     data[i + 2] = preview;
+  }
+
+  return imageData;
+}
+
+export function applyMaskPreviewTransformToImageData(
+  imageData: ImageData
+): ImageData {
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const maskId = Math.round(
+      data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    );
+    applyMaskPreviewPixel(data, i, maskId);
   }
 
   return imageData;
@@ -790,6 +1018,75 @@ export function createDepthPreviewImageDataFromSamples(
   }
 
   return { width, height, data: rgba };
+}
+
+export function createMaskPreviewImageDataFromPngBytes(
+  bytes: Uint8Array<ArrayBuffer>
+): MaskPreviewImageData | null {
+  try {
+    const decoded = decodePng(bytes);
+    if (decoded.channels < 1 || (decoded.depth !== 8 && decoded.depth !== 16)) {
+      return null;
+    }
+
+    return createMaskPreviewImageDataFromSamples(
+      decoded.width,
+      decoded.height,
+      decoded.channels,
+      decoded.data
+    );
+  } catch (err) {
+    console.warn("[streaming-image] Failed to decode mask PNG", err);
+    return null;
+  }
+}
+
+export function createMaskPreviewImageDataFromSamples(
+  width: number,
+  height: number,
+  channels: number,
+  samples: Uint8Array | Uint8ClampedArray | Uint16Array
+): MaskPreviewImageData | null {
+  if (
+    width <= 0 ||
+    height <= 0 ||
+    channels <= 0 ||
+    samples.length < width * height * channels
+  ) {
+    return null;
+  }
+
+  const rgba = new Uint8ClampedArray(
+    width * height * 4
+  ) as Uint8ClampedArray<ArrayBuffer>;
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const maskId = samples[pixelIndex * channels];
+    applyMaskPreviewPixel(rgba, pixelIndex * 4, maskId);
+  }
+
+  return { width, height, data: rgba };
+}
+
+function applyMaskPreviewPixel(
+  data: Uint8ClampedArray,
+  outputIndex: number,
+  rawMaskId: number
+) {
+  const maskId = Math.max(0, Math.round(rawMaskId));
+  if (maskId === 0) {
+    data[outputIndex] = 0;
+    data[outputIndex + 1] = 0;
+    data[outputIndex + 2] = 0;
+    data[outputIndex + 3] = 255;
+    return;
+  }
+
+  const color =
+    MASK_PREVIEW_PALETTE[(maskId - 1) % MASK_PREVIEW_PALETTE.length];
+  data[outputIndex] = color[0];
+  data[outputIndex + 1] = color[1];
+  data[outputIndex + 2] = color[2];
+  data[outputIndex + 3] = 255;
 }
 
 function sanitizeImageBytes(
@@ -986,6 +1283,12 @@ function normalizeStreamingImageSource(
               typeof rawSource.source === "string"
                 ? rawSource.source
                 : undefined,
+            detectionsSource:
+              typeof rawSource.detectionsSource === "string"
+                ? rawSource.detectionsSource
+                : typeof rawSource.detections === "string"
+                  ? rawSource.detections
+                  : undefined,
             sourceField:
               typeof rawSource.sourceField === "string"
                 ? rawSource.sourceField
@@ -995,8 +1298,9 @@ function normalizeStreamingImageSource(
                 ? rawSource.telemetryBaseUrl
                 : undefined,
             transform:
-              rawSource.transform === "depth-preview"
-                ? "depth-preview"
+              rawSource.transform === "depth-preview" ||
+              rawSource.transform === "mask-preview"
+                ? rawSource.transform
                 : "none",
           }
         : {};
@@ -1011,11 +1315,16 @@ function normalizeStreamingImageSource(
     sourceInput.modelName ??
     sourceInput.sourceModel;
   const qualified = splitQualifiedFieldPath(sourceField, explicitModel);
+  const detectionsSource = sourceInput.detectionsSource?.trim();
+  const detectionsQualified = detectionsSource
+    ? splitQualifiedFieldPath(detectionsSource, qualified.sourceModel ?? explicitModel)
+    : null;
   return {
     id: streamId,
     label: prettifyStreamLabel(streamId),
     sourceField: qualified.sourceField,
     transform: sourceInput.transform ?? "none",
+    detectionsSourceField: detectionsQualified?.sourceField,
     sourceModel: sourceInput.sourceModel ?? qualified.sourceModel,
     modelName: sourceInput.modelName,
     telemetryModelName: sourceInput.telemetryModelName,
@@ -1072,6 +1381,7 @@ function buildStreamingImageSourcesStorageSignature(
         modelName: source.modelName ?? "",
         telemetryModelName: source.telemetryModelName ?? "",
         sourceField: source.sourceField,
+        detectionsSourceField: source.detectionsSourceField ?? "",
         telemetryBaseUrl: source.telemetryBaseUrl ?? "",
         transform: source.transform,
       }))
@@ -1198,7 +1508,7 @@ async function subscribeToStreamingImageSource(source: StreamingImageSource) {
     activeTelemetrySamplingRateHz,
     {
       callback: (model) =>
-        handleTelemetryFrame(model, source.sourceField, source.transform),
+        handleTelemetryFrame(model, source),
       error: (err) => {
         console.warn(
           `[streaming-image] Telemetry error for ${telemetryBase} (${source.sourceField})`,
@@ -1329,13 +1639,12 @@ export async function uninit(): Promise<void> {
  */
 function handleTelemetryFrame(
   model: ITelemetryModel,
-  fieldPath: string,
-  transform: StreamingImageTransform
+  source: StreamingImageSource
 ) {
   if (!activeCanvas) {
     return;
   }
-  const field = model.getField?.(fieldPath);
+  const field = model.getField?.(source.sourceField);
   if (!field) {
     return;
   }
@@ -1346,7 +1655,12 @@ function handleTelemetryFrame(
   }
 
   const mime = resolveStreamingImageMime(field.mime_type, bytes);
-  queueFrame(mime, bytes, Date.now(), transform);
+  const detections = source.detectionsSourceField
+    ? extractObjectDetectionOverlays(
+        model.getField?.(source.detectionsSourceField)?.getValue?.()
+      )
+    : [];
+  queueFrame(mime, bytes, Date.now(), source.transform, detections);
 }
 
 function setBlackFrame() {

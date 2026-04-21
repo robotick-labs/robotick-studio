@@ -24,8 +24,13 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
 
 import {
   applyDepthPreviewTransformToImageData,
+  applyMaskPreviewTransformToImageData,
   createDepthPreviewImageDataFromPngBytes,
   createDepthPreviewImageDataFromSamples,
+  createMaskPreviewImageDataFromPngBytes,
+  createMaskPreviewImageDataFromSamples,
+  drawObjectDetectionsOverlay,
+  extractObjectDetectionOverlays,
   extractStreamingImageBytes,
   init,
   resolveStreamingImageSource,
@@ -58,7 +63,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
-      sourceField: "camera.outputs.jpeg_data.data_buffer",
+      sourceField: "camera.outputs.image.data_buffer",
       frameRateHz: 33,
     });
 
@@ -77,7 +82,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
-      sourceField: "camera.outputs.jpeg_data.data_buffer",
+      sourceField: "camera.outputs.image.data_buffer",
       samplingRateHz: 24,
     });
 
@@ -96,7 +101,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       sourceModel: "alf-e-sensing-visual",
-      sourceField: "camera.outputs.jpeg_data.data_buffer",
+      sourceField: "camera.outputs.image.data_buffer",
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
@@ -137,18 +142,17 @@ describe("viewer-streaming-image stream selection", () => {
     const source = resolveStreamingImageSource({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      selectedStream: "Head-Segmented",
+      selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
-        "Head-Segmented":
-          "barr-e-simulator.head_segmented_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        Chase: "barr-e-simulator.chase_camera_jpeg.outputs.image",
       },
     });
 
     expect(source).toMatchObject({
-      id: "Head-Segmented",
+      id: "Head-RGB",
       sourceModel: "barr-e-simulator",
-      sourceField: "head_segmented_png.outputs.png_data",
+      sourceField: "head_rgb_png.outputs.image",
     });
   });
 
@@ -158,9 +162,9 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-Depth",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
         "Head-Depth": {
-          source: "barr-e-simulator.head_depth_png.outputs.png_data",
+          source: "barr-e-simulator.head_depth_png.outputs.image",
           transform: "depth-preview",
         },
       },
@@ -169,8 +173,52 @@ describe("viewer-streaming-image stream selection", () => {
     expect(source).toMatchObject({
       id: "Head-Depth",
       sourceModel: "barr-e-simulator",
-      sourceField: "head_depth_png.outputs.png_data",
+      sourceField: "head_depth_png.outputs.image",
       transform: "depth-preview",
+    });
+  });
+
+  it("resolves mask preview display transforms", () => {
+    const source = resolveStreamingImageSource({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-YOLO-Mask",
+      streams: {
+        "Head-YOLO-Mask": {
+          source: "barr-e-perception-visual.saved_mask_png.outputs.image",
+          transform: "mask-preview",
+        },
+      },
+    });
+
+    expect(source).toMatchObject({
+      id: "Head-YOLO-Mask",
+      sourceModel: "barr-e-perception-visual",
+      sourceField: "saved_mask_png.outputs.image",
+      transform: "mask-preview",
+    });
+  });
+
+  it("resolves object detection overlays for image streams", () => {
+    const source = resolveStreamingImageSource({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-YOLO-Bounds",
+      streams: {
+        "Head-YOLO-Bounds": {
+          source:
+            "barr-e-perception-visual.visual_perception_interface.outputs.head_rgb_image",
+          detectionsSource:
+            "barr-e-perception-visual.head_yolo.outputs.script.detections",
+        },
+      },
+    });
+
+    expect(source).toMatchObject({
+      id: "Head-YOLO-Bounds",
+      sourceModel: "barr-e-perception-visual",
+      sourceField: "visual_perception_interface.outputs.head_rgb_image",
+      detectionsSourceField: "head_yolo.outputs.script.detections",
     });
   });
 
@@ -180,14 +228,14 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Unknown",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
       },
     });
 
     expect(source).toMatchObject({
       id: "Head-RGB",
-      sourceField: "head_rgb_png.outputs.png_data",
+      sourceField: "head_rgb_png.outputs.image",
     });
   });
 
@@ -197,8 +245,8 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     });
@@ -233,7 +281,7 @@ describe("viewer-streaming-image stream selection", () => {
     const getField = vi.fn(() => ({ getValue }));
     callback({ getField });
 
-    expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.png_data");
+    expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
   });
 
   it("persists the selected stream across viewer reinitialisation", async () => {
@@ -243,8 +291,8 @@ describe("viewer-streaming-image stream selection", () => {
       projectPath: "/tmp/robotick-project",
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     };
@@ -290,7 +338,7 @@ describe("viewer-streaming-image stream selection", () => {
     const getField = vi.fn(() => ({ getValue }));
     callback({ getField });
 
-    expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.png_data");
+    expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
   });
 
   it("labels and frames the stream selector", async () => {
@@ -299,8 +347,8 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.png_data",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.png_data",
+        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     });
@@ -370,6 +418,138 @@ describe("viewer-streaming-image transforms", () => {
       255, 255, 255, 255,
       0, 0, 0, 255,
     ]);
+  });
+
+  it("maps raw mask samples to visible instance colours", () => {
+    const preview = createMaskPreviewImageDataFromSamples(
+      4,
+      1,
+      1,
+      new Uint8Array([0, 1, 2, 13])
+    );
+
+    expect(Array.from(preview?.data ?? [])).toEqual([
+      0, 0, 0, 255,
+      255, 82, 82, 255,
+      77, 208, 225, 255,
+      255, 82, 82, 255,
+    ]);
+  });
+
+  it("decodes 8-bit grayscale PNGs as mask previews", () => {
+    const pngBytes = encodePng({
+      width: 4,
+      height: 1,
+      channels: 1,
+      depth: 8,
+      data: new Uint8Array([0, 1, 2, 3]),
+    });
+
+    const preview = createMaskPreviewImageDataFromPngBytes(
+      pngBytes as Uint8Array<ArrayBuffer>
+    );
+
+    expect(Array.from(preview?.data ?? [])).toEqual([
+      0, 0, 0, 255,
+      255, 82, 82, 255,
+      77, 208, 225, 255,
+      255, 213, 79, 255,
+    ]);
+  });
+
+  it("maps decoded grayscale mask image data to visible instance colours", () => {
+    const imageData = {
+      data: new Uint8ClampedArray([
+        0, 0, 0, 255,
+        1, 1, 1, 255,
+        2, 2, 2, 255,
+      ]),
+    } as ImageData;
+
+    applyMaskPreviewTransformToImageData(imageData);
+
+    expect(Array.from(imageData.data)).toEqual([
+      0, 0, 0, 255,
+      255, 82, 82, 255,
+      77, 208, 225, 255,
+    ]);
+  });
+});
+
+describe("viewer-streaming-image detection overlays", () => {
+  it("extracts counted ObjectDetections telemetry vectors", () => {
+    const detections = extractObjectDetectionOverlays({
+      data_buffer: [
+        {
+          class_name: "chair",
+          confidence: 0.82,
+          box_x1_norm: 0.1,
+          box_y1_norm: 0.2,
+          box_x2_norm: 0.4,
+          box_y2_norm: 0.6,
+        },
+        {
+          class_name: "ignored",
+          confidence: 0.1,
+          box_x1_norm: 0,
+          box_y1_norm: 0,
+          box_x2_norm: 1,
+          box_y2_norm: 1,
+        },
+      ],
+      count: 1,
+    });
+
+    expect(detections).toEqual([
+      {
+        className: "chair",
+        confidence: 0.82,
+        boxX1Norm: 0.1,
+        boxY1Norm: 0.2,
+        boxX2Norm: 0.4,
+        boxY2Norm: 0.6,
+      },
+    ]);
+  });
+
+  it("draws detection boxes and labels onto a canvas context", () => {
+    const context = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      strokeRect: vi.fn(),
+      fillRect: vi.fn(),
+      fillText: vi.fn(),
+      measureText: vi.fn(() => ({ width: 64 })),
+      set lineWidth(value: number) {
+        void value;
+      },
+      set font(value: string) {
+        void value;
+      },
+      set textBaseline(value: CanvasTextBaseline) {
+        void value;
+      },
+      set strokeStyle(value: string) {
+        void value;
+      },
+      set fillStyle(value: string) {
+        void value;
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    drawObjectDetectionsOverlay(context, 640, 420, [
+      {
+        className: "chair",
+        confidence: 0.82,
+        boxX1Norm: 0.1,
+        boxY1Norm: 0.2,
+        boxX2Norm: 0.4,
+        boxY2Norm: 0.6,
+      },
+    ]);
+
+    expect(context.strokeRect).toHaveBeenCalledWith(64, 84, 192, 168);
+    expect(context.fillText).toHaveBeenCalledWith("chair 82%", 68, 70);
   });
 });
 
