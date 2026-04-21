@@ -26,21 +26,21 @@ describe("remote-control-config", () => {
                 y: 0.75,
               },
               outputs: {
-                x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
-                y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
               },
             },
           },
         },
       },
       buttons: {
-        left_stick_button: "barr-e-face.face_control.inputs.blink_request",
+        left_stick_button: "demo-robot-face.face_control.inputs.blink_request",
       },
     });
 
     expect(config.sticks.left?.selectedMode).toBe("drive_wheels");
     expect(config.sticks.left?.modes.drive_wheels.outputs.x?.modelName).toBe(
-      "barr-e-spine"
+      "demo-robot-spine"
     );
     expect(config.sticks.left?.modes.drive_wheels.outputs.y?.fieldPath).toBe(
       "spine_interface.inputs.linear_speed_norm"
@@ -52,7 +52,7 @@ describe("remote-control-config", () => {
     expect(config.buttons.left_stick_button?.fieldPath).toBe(
       "face_control.inputs.blink_request"
     );
-    expect(parseTargetBinding("barr-e-spine..inputs.linear_speed_norm")).toBeNull();
+    expect(parseTargetBinding("demo-robot-spine..inputs.linear_speed_norm")).toBeNull();
   });
 
   it("applies the CircleToSquare transform before per-axis dead-zones", () => {

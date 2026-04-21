@@ -36,10 +36,10 @@ class _FakeProc:
 
 
 def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -51,22 +51,22 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {"runtime": {"target_platform": "linux", "target_variant": "arm64"}}
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-spine.model.yaml").write_text(
+    (project_dir / "sample-robot-spine.model.yaml").write_text(
         yaml.safe_dump(
             {"runtime": {"target_platform": "esp32", "target_variant": "esp32s3_m5"}}
         ),
         encoding="utf-8",
     )
 
-    for model_id, target in (("alf-e-face", "linux"), ("alf-e-spine", "esp32")):
+    for model_id, target in (("sample-robot-face", "linux"), ("sample-robot-spine", "esp32")):
         binary_path = run_profile_module.get_launcher_paths(
-            "alf-e",
+            "sample-robot",
             model_id,
             target,
             project_dir,
@@ -108,15 +108,15 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
     monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
 
     result = run_profile_module.run_profile(
-        "alf-e",
+        "sample-robot",
         "native:ALL",
         base_dir=project_dir,
     )
 
     assert result["status"] == "ok"
     assert install_targets == ["linux", "esp32"]
-    assert ("linux", ("alf-e-face",)) in prepared_groups
-    assert ("esp32", ("alf-e-spine",)) in prepared_groups
+    assert ("linux", ("sample-robot-face",)) in prepared_groups
+    assert ("esp32", ("sample-robot-spine",)) in prepared_groups
 
     build_targets = {
         (cmd[2], cmd[3]): cmd[4]
@@ -132,18 +132,18 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
         cmd for cmd in launched_commands if len(cmd) >= 5 and cmd[1] == "deploy"
     ]
 
-    assert build_targets[("alf-e", "alf-e-face")] == "linux"
-    assert build_targets[("alf-e", "alf-e-spine")] == "esp32"
+    assert build_targets[("sample-robot", "sample-robot-face")] == "linux"
+    assert build_targets[("sample-robot", "sample-robot-spine")] == "esp32"
     assert deploy_commands == []
-    assert run_targets[("alf-e", "alf-e-face")] == "linux"
-    assert run_targets[("alf-e", "alf-e-spine")] == "esp32"
+    assert run_targets[("sample-robot", "sample-robot-face")] == "linux"
+    assert run_targets[("sample-robot", "sample-robot-spine")] == "esp32"
 
 
 def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -155,7 +155,7 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
@@ -184,22 +184,22 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
     monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
 
     result = run_profile_module.run_profile(
-        "alf-e",
-        "native:models/alf-e-face.model.yaml",
+        "sample-robot",
+        "native:models/sample-robot-face.model.yaml",
         base_dir=project_dir,
         run_after_build=False,
     )
 
     assert result["status"] == "build_completed"
     build_commands = [cmd for cmd in commands if len(cmd) >= 4 and cmd[1] == "build"]
-    assert build_commands[0][3] == "alf-e-face"
+    assert build_commands[0][3] == "sample-robot-face"
 
 
 def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -211,11 +211,11 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-simulator.model.yaml").write_text(
+    (project_dir / "sample-robot-simulator.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {"target_platform": "linux"},
@@ -225,9 +225,9 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
         encoding="utf-8",
     )
 
-    for model_id in ("alf-e-face", "alf-e-simulator"):
+    for model_id in ("sample-robot-face", "sample-robot-simulator"):
         binary_path = run_profile_module.get_launcher_paths(
-            "alf-e",
+            "sample-robot",
             model_id,
             "linux",
             project_dir,
@@ -259,25 +259,25 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
     monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
 
     result = run_profile_module.run_profile(
-        "alf-e",
+        "sample-robot",
         "native:ALL",
         base_dir=project_dir,
     )
 
     assert result["status"] == "ok"
-    assert result["launched"] == ["alf-e-face"]
-    assert result["skipped_auto_launch"] == ["alf-e-simulator"]
+    assert result["launched"] == ["sample-robot-face"]
+    assert result["skipped_auto_launch"] == ["sample-robot-simulator"]
 
     run_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "run"]
     assert len(run_commands) == 1
-    assert run_commands[0][3] == "alf-e-face"
+    assert run_commands[0][3] == "sample-robot-face"
 
 
 def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -289,7 +289,7 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-simulator.model.yaml").write_text(
+    (project_dir / "sample-robot-simulator.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {"target_platform": "linux"},
@@ -300,8 +300,8 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
     )
 
     binary_path = run_profile_module.get_launcher_paths(
-        "alf-e",
-        "alf-e-simulator",
+        "sample-robot",
+        "sample-robot-simulator",
         "linux",
         project_dir,
     )[2]
@@ -332,32 +332,32 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
     monkeypatch.setattr(run_profile_module, "run_subprocess", _fake_run_subprocess)
 
     result = run_profile_module.run_profile(
-        "alf-e",
-        "native:alf-e-simulator",
+        "sample-robot",
+        "native:sample-robot-simulator",
         base_dir=project_dir,
     )
 
     assert result["status"] == "ok"
-    assert result["launched"] == ["alf-e-simulator"]
+    assert result["launched"] == ["sample-robot-simulator"]
     assert result["skipped_auto_launch"] == []
 
     run_commands = [cmd for cmd in commands if len(cmd) >= 5 and cmd[1] == "run"]
     assert len(run_commands) == 1
-    assert run_commands[0][3] == "alf-e-simulator"
+    assert run_commands[0][3] == "sample-robot-simulator"
 
 
 def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump({}), encoding="utf-8"
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-spine.model.yaml").write_text(
+    (project_dir / "sample-robot-spine.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "esp32"}}),
         encoding="utf-8",
     )
@@ -377,18 +377,18 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     monkeypatch.setattr(
         run_profile_module,
         "_resolve_profile_model_ids",
-        lambda project_path, model_spec: ["alf-e-face", "alf-e-spine"],
+        lambda project_path, model_spec: ["sample-robot-face", "sample-robot-spine"],
     )
     monkeypatch.setattr(
         run_profile_module,
         "_resolve_profile_model_target",
         lambda project_name, base_dir, platform, model_id: "native"
-        if model_id == "alf-e-face"
+        if model_id == "sample-robot-face"
         else "local",
     )
 
     def _fake_resolve_target_plan(project, model, target, base_dir):
-        if model == "alf-e-face":
+        if model == "sample-robot-face":
             return TargetPlan(
                 project=project,
                 model=model,
@@ -425,28 +425,28 @@ def test_stop_profile_uses_target_specific_stop_handlers(monkeypatch, tmp_path):
     )
 
     result = run_profile_module.stop_profile(
-        "alf-e", "native:ALL", base_dir=project_dir
+        "sample-robot", "native:ALL", base_dir=project_dir
     )
 
     assert result["status"] == "stopped"
-    assert stop_calls == [("alf-e-face", False)]
+    assert stop_calls == [("sample-robot-face", False)]
     assert len(local_stop_calls) == 1
-    assert local_stop_calls[0][0].name == "alf-e-spine"
+    assert local_stop_calls[0][0].name == "sample-robot-spine"
 
 
 def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump({}), encoding="utf-8"
     )
-    (project_dir / "alf-e-brain.model.yaml").write_text(
+    (project_dir / "sample-robot-brain.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
 
-    helper_binary = tmp_path / "fake-barr-e-brain"
+    helper_binary = tmp_path / "fake-demo-robot-brain"
     shutil.copy2("/bin/sleep", helper_binary)
     helper_binary.chmod(0o755)
 
@@ -462,7 +462,7 @@ def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
     monkeypatch.setattr(
         run_profile_module,
         "_resolve_profile_model_ids",
-        lambda project_path, model_spec: ["alf-e-brain"],
+        lambda project_path, model_spec: ["sample-robot-brain"],
     )
     monkeypatch.setattr(
         run_profile_module,
@@ -513,10 +513,10 @@ def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
         assert Path(f"/proc/{child_pid}").exists()
 
         result = run_profile_module.stop_profile(
-            "alf-e",
+            "sample-robot",
             "native:ALL",
             base_dir=project_dir,
-            helper_pids={"alf-e-brain": helper_proc.pid},
+            helper_pids={"sample-robot-brain": helper_proc.pid},
         )
 
         assert result["status"] == "stopped"
@@ -545,10 +545,10 @@ def test_stop_profile_kills_local_helper_descendants(monkeypatch, tmp_path):
 
 
 def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
-    project_dir = tmp_path / "robots" / "alf-e"
+    project_dir = tmp_path / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -560,11 +560,11 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
-    (project_dir / "alf-e-sensing-visual.model.yaml").write_text(
+    (project_dir / "sample-robot-sensing-visual.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux"}}),
         encoding="utf-8",
     )
@@ -595,7 +595,7 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
     shared_key = (
         "remote-linux-project-sync",
         "paul@pi5",
-        "$HOME/dev/robotick/robots/alf-e",
+        "$HOME/dev/robotick/robots/sample-robot",
     )
 
     def _fake_resolve_target_plan(project, model, target, base_dir, config=None):
@@ -618,7 +618,7 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
     )
 
     result = run_profile_module.run_profile(
-        "alf-e",
+        "sample-robot",
         "native:ALL",
         base_dir=project_dir,
     )

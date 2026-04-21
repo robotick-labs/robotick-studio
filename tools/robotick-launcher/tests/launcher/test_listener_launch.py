@@ -22,7 +22,7 @@ def test_stop_clears_stale_launcher_status_snapshot(monkeypatch) -> None:
             "status": "stopped",
             "phase": "run",
             "profile": "native:ALL",
-            "models": {"alf-e-face": {"stage": "run", "status": "running"}},
+            "models": {"sample-robot-face": {"stage": "run", "status": "running"}},
         }
     )
 
@@ -100,11 +100,11 @@ def test_run_single_model_uses_full_run_pipeline(monkeypatch, tmp_path) -> None:
         lambda project, base_dir, platform, model_id: "linux-x64",
     )
     monkeypatch.setattr(routes_launch.subprocess, "Popen", FakePopen)
-    monkeypatch.setattr(routes_launch, "current_profile", "local:barr-e-simulator")
+    monkeypatch.setattr(routes_launch, "current_profile", "local:demo-robot-simulator")
     monkeypatch.setattr(
         routes_launch,
         "current_project_path",
-        tmp_path / "barr-e.project.yaml",
+        tmp_path / "demo-robot.project.yaml",
     )
     monkeypatch.setattr(routes_launch, "current_run_started_at", 100.0)
     monkeypatch.setattr(routes_launch, "process_handle", None)
@@ -113,23 +113,23 @@ def test_run_single_model_uses_full_run_pipeline(monkeypatch, tmp_path) -> None:
         {
             "status": "running",
             "phase": "run",
-            "profile": "local:barr-e-simulator",
+            "profile": "local:demo-robot-simulator",
             "models": {},
         }
     )
 
     routes_launch._run_single_model_worker(
-        tmp_path / "barr-e.project.yaml",
+        tmp_path / "demo-robot.project.yaml",
         "local",
-        "barr-e-simulator",
+        "demo-robot-simulator",
     )
 
     assert commands == [
         [
             "robotick-launcher",
             "run",
-            "barr-e",
-            "barr-e-simulator",
+            "demo-robot",
+            "demo-robot-simulator",
             "linux-x64",
             "--base-dir",
             str(tmp_path),

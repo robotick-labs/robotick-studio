@@ -15,8 +15,8 @@ app = create_app()
 
 
 def _make_paths(base_dir: Path):
-    project = "pip-e"
-    model = "pip-e-brain"
+    project = "example-bot"
+    model = "example-bot-brain"
     target = "linux"
     project_safe = project.replace("-", "_")
     model_safe = model.replace("-", "_")

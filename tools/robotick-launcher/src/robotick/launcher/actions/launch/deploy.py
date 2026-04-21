@@ -6,8 +6,8 @@ from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.utils import get_launcher_paths
 
 def deploy(
-    project: str = typer.Argument(..., help="Project name (e.g. 'barr_e')"),
-    model: str = typer.Argument(..., help="Model name (e.g. 'barr_e_brain')"),
+    project: str = typer.Argument(..., help="Project name (e.g. 'demo_robot')"),
+    model: str = typer.Argument(..., help="Model name (e.g. 'demo_robot_brain')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
     base_dir: Path = typer.Option(Path.cwd(), help="Base directory containing .launcher"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print commands without executing them"),

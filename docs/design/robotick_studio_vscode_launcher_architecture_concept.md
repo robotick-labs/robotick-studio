@@ -51,7 +51,7 @@ Defines the environment by pinning repos instead of raw paths. Every project fil
 - Each repo entry can target specific platforms so ESP32-only bits never land on desktop machines.
 - Target platform + Studio/Launcher prefs stay, but every build resolves from the pinned deps tree. Workload YAML keeps referencing relative paths within those repos.
 
-Each project owns its own `.launcher` directory that sits next to its `<project>.project.yaml` (e.g., `robots/pip-e/.launcher`). Inside that folder we namespace the project (`.launcher/<project_safe>`), keeping `deps/tooling/<tooling_id>`, `deps/runtime/<target>/<category>/<slug>`, the shared Python venv under `deps/python`, and per-model build artefacts under `.launcher/<project_safe>/generated/<model_safe>/<target_safe>`. Engine/workload/shared repos are cloned once per target today, but the next revision teaches `install-deps` to automatically cache obvious shared repos (engine source, workload packs, shared assets) per project—hydrating them under a `shared` directory and linking them into each target tree—so we avoid duplicate checkouts without losing determinism.
+Each project owns its own `.launcher` directory that sits next to its `<project>.project.yaml` (e.g., `robots/example-bot/.launcher`). Inside that folder we namespace the project (`.launcher/<project_safe>`), keeping `deps/tooling/<tooling_id>`, `deps/runtime/<target>/<category>/<slug>`, the shared Python venv under `deps/python`, and per-model build artefacts under `.launcher/<project_safe>/generated/<model_safe>/<target_safe>`. Engine/workload/shared repos are cloned once per target today, but the next revision teaches `install-deps` to automatically cache obvious shared repos (engine source, workload packs, shared assets) per project—hydrating them under a `shared` directory and linking them into each target tree—so we avoid duplicate checkouts without losing determinism.
 
 Result: clone the robot repo, run `./scripts/bootstrap.sh` (or platform equivalent), and the pinned world appears deterministically—toolchain included. A single monorepo can host multiple `<robot>.project.yaml` files, each with its own tooling pins, engine/workload graph, and bootstrap script; Studio simply loads the project file you select and hydrates the matching version set.
 
@@ -93,7 +93,7 @@ runtime:
 
 Multiple project files can live side-by-side inside the same repo, each with its own `tooling` pins and bootstrap path.
 
-Our first in-repo pilot is `robots/pip-e/pip-e.project.yaml` inside `robotick-knitware`. Pip‑E—an expressive balancing bot with a remote control spine and animated face—is our proving ground for the schema/bootstrapping flow. We’ll refactor it first, validate the tooling/runtime layout end-to-end, and then roll the pattern out to the other robots once everything feels solid.
+Our first in-repo pilot is `robots/example-bot/example-bot.project.yaml` inside `robotick-knitware`. ExampleBot is our proving ground for the schema/bootstrapping flow. We’ll refactor it first, validate the tooling/runtime layout end-to-end, and then roll the pattern out to other robots once everything feels solid.
 
 ---
 

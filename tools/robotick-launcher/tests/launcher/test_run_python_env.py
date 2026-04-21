@@ -72,13 +72,13 @@ def test_run_handler_with_python_env_marks_docker_forwarding(monkeypatch):
         handler,
         True,
         {
-            "PYTHONPATH": "/tmp/site-packages:/repo/robots/barr-e/python",
+            "PYTHONPATH": "/tmp/site-packages:/repo/robots/demo-robot/python",
             "ROBOTICK_PYTHON_VENV": "/tmp/venv",
         },
     )
 
     assert seen == {
-        "PYTHONPATH": "/tmp/site-packages:/repo/robots/barr-e/python",
+        "PYTHONPATH": "/tmp/site-packages:/repo/robots/demo-robot/python",
         "ROBOTICK_PYTHON_VENV": "/tmp/venv",
         "flag": "1",
     }

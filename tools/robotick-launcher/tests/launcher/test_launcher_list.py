@@ -68,9 +68,9 @@ def test_list_projects_cli():
 
 def test_list_projects_follow_symlinks(tmp_path):
     source_repo = tmp_path / "source_repo"
-    project_file = source_repo / "robots" / "pip-e" / "pip-e.project.yaml"
+    project_file = source_repo / "robots" / "example-bot" / "example-bot.project.yaml"
     project_file.parent.mkdir(parents=True)
-    project_file.write_text("# pip-e project\n")
+    project_file.write_text("# example-bot project\n")
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -78,33 +78,33 @@ def test_list_projects_follow_symlinks(tmp_path):
     symlink_repo.symlink_to(source_repo, target_is_directory=True)
 
     projects = list_projects(str(workspace))
-    assert "robotick-knitware/robots/pip-e/pip-e.project.yaml" in projects
+    assert "robotick-knitware/robots/example-bot/example-bot.project.yaml" in projects
 
 
 def test_list_projects_skips_launcher_directories(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    real_project = workspace / "robots" / "pip-e" / "pip-e.project.yaml"
+    real_project = workspace / "robots" / "example-bot" / "example-bot.project.yaml"
     real_project.parent.mkdir(parents=True)
-    real_project.write_text("# pip-e project\n")
+    real_project.write_text("# example-bot project\n")
 
-    launcher_project = workspace / ".launcher" / "pip_e" / "pip-e.project.yaml"
+    launcher_project = workspace / ".launcher" / "example_bot" / "example-bot.project.yaml"
     launcher_project.parent.mkdir(parents=True)
     launcher_project.write_text("# cached project\n")
 
     projects = list_projects(str(workspace))
-    assert "robots/pip-e/pip-e.project.yaml" in projects
+    assert "robots/example-bot/example-bot.project.yaml" in projects
     assert all(".launcher" not in entry for entry in projects)
 
 
 def test_list_projects_allows_launcher_when_root_inside(tmp_path):
-    launcher_root = tmp_path / ".launcher" / "pip_e"
-    launcher_project = launcher_root / "pip-e.project.yaml"
+    launcher_root = tmp_path / ".launcher" / "example_bot"
+    launcher_project = launcher_root / "example-bot.project.yaml"
     launcher_project.parent.mkdir(parents=True)
     launcher_project.write_text("# cached project\n")
 
     projects = list_projects(str(launcher_root))
-    assert projects == ["pip-e.project.yaml"]
+    assert projects == ["example-bot.project.yaml"]
 
 
 def test_list_project_models_accepts_relative_path(tmp_path):

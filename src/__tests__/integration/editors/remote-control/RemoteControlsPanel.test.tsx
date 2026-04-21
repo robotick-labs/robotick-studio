@@ -88,9 +88,9 @@ describe("RemoteControlsPanel", () => {
     const root = createRoot(container);
     const projectModels = [
       {
-        modelPath: "models/barr-e-spine.model.yaml",
-        modelShortName: "barr-e-spine",
-        modelName: "Barr.e Spine",
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
         telemetryPort: 7095,
         telemetryBaseUrl: "http://example-spine",
         data: {},
@@ -121,8 +121,8 @@ describe("RemoteControlsPanel", () => {
                             y: 0.1,
                           },
                           outputs: {
-                            x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
-                            y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                            x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
                           },
                         },
                       },
@@ -238,9 +238,9 @@ describe("RemoteControlsPanel", () => {
     };
     const projectModels = [
       {
-        modelPath: "models/barr-e-spine.model.yaml",
-        modelShortName: "barr-e-spine",
-        modelName: "Barr.e Spine",
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
         telemetryPort: 7095,
         telemetryBaseUrl: "http://example-spine",
         data: {},
@@ -259,8 +259,8 @@ describe("RemoteControlsPanel", () => {
                 y: 0.1,
               },
               outputs: {
-                x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
-                y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
               },
             },
           },
@@ -272,7 +272,7 @@ describe("RemoteControlsPanel", () => {
         root.render(
           <TelemetryServiceProvider service={telemetryService as any}>
             <TestLauncherProviders
-              projectPath="/robots/barr-e"
+              projectPath="/robots/demo-robot"
               serviceOverrides={{
                 getProjectModels: vi.fn(async () => projectModels as any),
                 refreshProjectModels: vi.fn(async () => projectModels as any),
@@ -393,9 +393,9 @@ describe("RemoteControlsPanel", () => {
     const root = createRoot(container);
     const projectModels = [
       {
-        modelPath: "models/barr-e-spine.model.yaml",
-        modelShortName: "barr-e-spine",
-        modelName: "Barr.e Spine",
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
         telemetryPort: 7095,
         telemetryBaseUrl: "http://example-spine",
         data: {},
@@ -425,8 +425,8 @@ describe("RemoteControlsPanel", () => {
                             y: 0.1,
                           },
                           outputs: {
-                            x: "barr-e-spine.spine_interface.inputs.angular_speed_norm",
-                            y: "barr-e-spine.spine_interface.inputs.linear_speed_norm",
+                            x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
                           },
                         },
                       },

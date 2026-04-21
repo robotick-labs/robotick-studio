@@ -10,8 +10,8 @@ from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
 def build(
-    project: str = typer.Argument(..., help="Project name (e.g. 'barr_e')"),
-    model: str = typer.Argument(..., help="Model name (e.g. 'barr_e_brain')"),
+    project: str = typer.Argument(..., help="Project name (e.g. 'demo_robot')"),
+    model: str = typer.Argument(..., help="Model name (e.g. 'demo_robot_brain')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Base directory containing .launcher (default: cwd)"

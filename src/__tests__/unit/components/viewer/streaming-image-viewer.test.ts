@@ -12,7 +12,7 @@ vi.mock("../../../../renderer/data-sources/telemetry", () => ({
 vi.mock("../../../../renderer/data-sources/launcher", () => ({
   ProjectData: {
     waitForProjectModelsLoaded: vi.fn(async () => ({
-      data: [{ modelShortName: "alf-e-sensing-visual" }],
+      data: [{ modelShortName: "sample-robot-sensing-visual" }],
       error: null,
     })),
     findModelDescriptorInState: vi.fn(() => ({
@@ -62,7 +62,7 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "alf-e-sensing-visual",
+      sourceModel: "sample-robot-sensing-visual",
       sourceField: "camera.outputs.image.data_buffer",
       frameRateHz: 33,
     });
@@ -81,7 +81,7 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "alf-e-sensing-visual",
+      sourceModel: "sample-robot-sensing-visual",
       sourceField: "camera.outputs.image.data_buffer",
       samplingRateHz: 24,
     });
@@ -100,7 +100,7 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "alf-e-sensing-visual",
+      sourceModel: "sample-robot-sensing-visual",
       sourceField: "camera.outputs.image.data_buffer",
     });
 
@@ -144,14 +144,14 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
-        Chase: "barr-e-simulator.chase_camera_jpeg.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
       },
     });
 
     expect(source).toMatchObject({
       id: "Head-RGB",
-      sourceModel: "barr-e-simulator",
+      sourceModel: "demo-robot-simulator",
       sourceField: "head_rgb_png.outputs.image",
     });
   });
@@ -162,9 +162,9 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-Depth",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
         "Head-Depth": {
-          source: "barr-e-simulator.head_depth_png.outputs.image",
+          source: "demo-robot-simulator.head_depth_png.outputs.image",
           transform: "depth-preview",
         },
       },
@@ -172,7 +172,7 @@ describe("viewer-streaming-image stream selection", () => {
 
     expect(source).toMatchObject({
       id: "Head-Depth",
-      sourceModel: "barr-e-simulator",
+      sourceModel: "demo-robot-simulator",
       sourceField: "head_depth_png.outputs.image",
       transform: "depth-preview",
     });
@@ -185,7 +185,7 @@ describe("viewer-streaming-image stream selection", () => {
       selectedStream: "Head-Mask",
       streams: {
         "Head-Mask": {
-          source: "barr-e-perception-visual.saved_mask.outputs.image",
+          source: "demo-robot-perception-visual.saved_mask.outputs.image",
           transform: "mask-preview",
         },
       },
@@ -193,7 +193,7 @@ describe("viewer-streaming-image stream selection", () => {
 
     expect(source).toMatchObject({
       id: "Head-Mask",
-      sourceModel: "barr-e-perception-visual",
+      sourceModel: "demo-robot-perception-visual",
       sourceField: "saved_mask.outputs.image",
       transform: "mask-preview",
     });
@@ -206,16 +206,16 @@ describe("viewer-streaming-image stream selection", () => {
       selectedStream: "Head-Detections",
       streams: {
         "Head-Detections": {
-          source: "barr-e-perception-visual.camera.outputs.image",
+          source: "demo-robot-perception-visual.camera.outputs.image",
           detectionsSource:
-            "barr-e-perception-visual.detector.outputs.detections",
+            "demo-robot-perception-visual.detector.outputs.detections",
         },
       },
     });
 
     expect(source).toMatchObject({
       id: "Head-Detections",
-      sourceModel: "barr-e-perception-visual",
+      sourceModel: "demo-robot-perception-visual",
       sourceField: "camera.outputs.image",
       detectionsSourceField: "detector.outputs.detections",
     });
@@ -227,8 +227,8 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Unknown",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
       },
     });
 
@@ -244,8 +244,8 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     });
@@ -290,8 +290,8 @@ describe("viewer-streaming-image stream selection", () => {
       projectPath: "/tmp/robotick-project",
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     };
@@ -346,8 +346,8 @@ describe("viewer-streaming-image stream selection", () => {
       models: [],
       selectedStream: "Head-RGB",
       streams: {
-        "Head-RGB": "barr-e-simulator.head_rgb_png.outputs.image",
-        "Head-Depth": "barr-e-simulator.head_depth_png.outputs.image",
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
     });

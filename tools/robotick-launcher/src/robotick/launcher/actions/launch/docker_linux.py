@@ -605,7 +605,7 @@ def _runtime_device_args(spec: DockerLinuxSpec) -> list[str]:
 
     The build-stage keepalive containers do not need host devices, but native
     local runtime models do. Without these mappings the auditory and visual
-    Barr.e workloads can start inside Docker yet fail immediately because ALSA
+    DemoBot workloads can start inside Docker yet fail immediately because ALSA
     and V4L cannot see the host's microphone/camera nodes.
     """
 

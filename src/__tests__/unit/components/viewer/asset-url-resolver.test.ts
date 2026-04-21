@@ -5,13 +5,13 @@ import { resolveViewerAssetUrl } from "../../../../renderer/components/viewer/as
 describe("resolveViewerAssetUrl", () => {
   it("maps project-relative paths to launcher project-assets URLs", () => {
     const url = resolveViewerAssetUrl(
-      "assets/barr-e-model.glb",
-      "/tmp/robots/barr-e/barr-e.project.yaml"
+      "assets/demo-robot-model.glb",
+      "/tmp/robots/demo-robot/demo-robot.project.yaml"
     );
 
-    expect(url).toContain("http://localhost:7081/query/project-assets/assets/barr-e-model.glb");
+    expect(url).toContain("http://localhost:7081/query/project-assets/assets/demo-robot-model.glb");
     expect(url).toContain(
-      "project_path=%2Ftmp%2Frobots%2Fbarr-e%2Fbarr-e.project.yaml"
+      "project_path=%2Ftmp%2Frobots%2Fdemo-robot%2Fdemo-robot.project.yaml"
     );
   });
 

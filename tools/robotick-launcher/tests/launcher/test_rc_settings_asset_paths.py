@@ -19,7 +19,7 @@ modules:
     config:
       models:
         - id: body
-          url: assets/barr-e-model.glb
+          url: assets/demo-robot-model.glb
 """.strip()
         + "\n",
         encoding="utf-8",
@@ -33,4 +33,4 @@ modules:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["modules"][0]["config"]["models"][0]["url"] == "assets/barr-e-model.glb"
+    assert payload["modules"][0]["config"]["models"][0]["url"] == "assets/demo-robot-model.glb"

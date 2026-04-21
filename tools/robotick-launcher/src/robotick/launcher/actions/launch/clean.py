@@ -50,8 +50,8 @@ def _remove_file(path: Path, dry_run: bool, label: str) -> None:
     help="Delete the generated launcher folder (.launcher/<project>/generated/<model>/<target>)",
 )
 def clean_generated(
-    project: str = typer.Argument(..., help="Project name (e.g. 'pip-e')"),
-    model: str = typer.Argument(..., help="Model name (e.g. 'pip-e-brain')"),
+    project: str = typer.Argument(..., help="Project name (e.g. 'example-bot')"),
+    model: str = typer.Argument(..., help="Model name (e.g. 'example-bot-brain')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Base directory containing the project/.launcher"
@@ -87,13 +87,13 @@ def _runtime_paths(
     help="Delete runtime dependency checkout (.launcher/<project>/deps/runtime/<target>)",
 )
 def clean_deps(
-    project: str = typer.Argument(..., help="Project name (e.g. 'pip-e')"),
+    project: str = typer.Argument(..., help="Project name (e.g. 'example-bot')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
     model: Optional[str] = typer.Option(
         None,
         "--model",
         "-m",
-        help="Model name (e.g. 'pip-e-brain') — required when --clean-generated is used",
+        help="Model name (e.g. 'example-bot-brain') — required when --clean-generated is used",
     ),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Base directory containing the project/.launcher"
@@ -123,8 +123,8 @@ def clean_deps(
     help="Delete runtime deps, generated artefacts, and related lockfiles for a model/target",
 )
 def clean_all(
-    project: str = typer.Argument(..., help="Project name (e.g. 'pip-e')"),
-    model: str = typer.Argument(..., help="Model name (e.g. 'pip-e-brain')"),
+    project: str = typer.Argument(..., help="Project name (e.g. 'example-bot')"),
+    model: str = typer.Argument(..., help="Model name (e.g. 'example-bot-brain')"),
     target: str = typer.Argument(..., help="Target name (e.g. 'linux')"),
     base_dir: Path = typer.Option(
         Path.cwd(), help="Base directory containing the project/.launcher"

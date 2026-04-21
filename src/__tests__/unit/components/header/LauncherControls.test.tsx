@@ -131,12 +131,12 @@ describe("LauncherControls", () => {
       status: "running" as LauncherStatus,
       reportedStatus: "running",
       launcherModels: {
-        "alf-e-face": { stage: "run", status: "running" },
-        "alf-e-spine": { stage: "run", status: "running" },
+        "sample-robot-face": { stage: "run", status: "running" },
+        "sample-robot-spine": { stage: "run", status: "running" },
       },
       modelHealth: {
-        "alf-e-face": { alive: true, loading: false, error: null },
-        "alf-e-spine": {
+        "sample-robot-face": { alive: true, loading: false, error: null },
+        "sample-robot-spine": {
           alive: false,
           loading: false,
           error: "flatlined",
@@ -147,9 +147,9 @@ describe("LauncherControls", () => {
 
     expect(container.textContent).toContain("Launcher Models");
     expect(container.textContent).toContain("Running");
-    expect(container.textContent).toContain("alf-e-face");
+    expect(container.textContent).toContain("sample-robot-face");
     expect(container.textContent).toContain("Not Running");
-    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("flatlined");
     unmount();
   });
@@ -163,16 +163,16 @@ describe("LauncherControls", () => {
       status: "running" as LauncherStatus,
       reportedStatus: "running",
       launcherModels: {
-        "alf-e-spine": { stage: "run", status: "succeeded" },
+        "sample-robot-spine": { stage: "run", status: "succeeded" },
       },
       modelHealth: {
-        "alf-e-spine": { alive: true, loading: false, error: null },
+        "sample-robot-spine": { alive: true, loading: false, error: null },
       },
     });
     const { container, unmount } = renderControl();
 
     expect(container.textContent).toContain("Running");
-    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("launched");
     expect(container.textContent).not.toContain("Not Running");
     unmount();
@@ -188,10 +188,10 @@ describe("LauncherControls", () => {
       reportedStatus: "running",
       isRobotAlive: true,
       launcherModels: {
-        "alf-e-spine": { stage: "run", status: "succeeded" },
+        "sample-robot-spine": { stage: "run", status: "succeeded" },
       },
       modelHealth: {
-        "alf-e-spine": {
+        "sample-robot-spine": {
           alive: true,
           loading: false,
           error: null,
@@ -202,7 +202,7 @@ describe("LauncherControls", () => {
     const { container, unmount } = renderControl();
 
     expect(container.textContent).toContain("Running");
-    expect(container.textContent).toContain("alf-e-spine");
+    expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("launched");
     expect(container.textContent).toContain("health unavailable");
     expect(container.textContent).not.toContain("Not Running");
@@ -214,8 +214,8 @@ describe("LauncherControls", () => {
       projectModels: {
         data: [
           {
-            modelShortName: "barr-e-simulator",
-            modelName: "Barr.e™ Simulator",
+            modelShortName: "demo-robot-simulator",
+            modelName: "DemoBot Simulator",
           },
         ],
         loading: false,
@@ -232,7 +232,7 @@ describe("LauncherControls", () => {
 
     const { container, unmount } = renderControl();
     expect(container.textContent).toContain("Not Running");
-    expect(container.textContent).toContain("barr-e-simulator");
+    expect(container.textContent).toContain("demo-robot-simulator");
     unmount();
   });
 
@@ -242,8 +242,8 @@ describe("LauncherControls", () => {
       projectModels: {
         data: [
           {
-            modelShortName: "barr-e-simulator",
-            modelName: "Barr.e™ Simulator",
+            modelShortName: "demo-robot-simulator",
+            modelName: "DemoBot Simulator",
           },
         ],
         loading: false,
@@ -259,7 +259,7 @@ describe("LauncherControls", () => {
 
     const { container, unmount } = renderControl();
     const button = container.querySelector(
-      'button[aria-label="Start barr-e-simulator"]'
+      'button[aria-label="Start demo-robot-simulator"]'
     ) as HTMLButtonElement | null;
     expect(button).not.toBeNull();
 
@@ -268,7 +268,7 @@ describe("LauncherControls", () => {
       await Promise.resolve();
     });
 
-    expect(runModel).toHaveBeenCalledWith("barr-e-simulator");
+    expect(runModel).toHaveBeenCalledWith("demo-robot-simulator");
     unmount();
   });
 
@@ -278,12 +278,12 @@ describe("LauncherControls", () => {
       projectModels: {
         data: [
           {
-            modelShortName: "barr-e-simulator",
-            modelName: "Barr.e™ Simulator",
+            modelShortName: "demo-robot-simulator",
+            modelName: "DemoBot Simulator",
           },
           {
-            modelShortName: "barr-e-spine",
-            modelName: "Barr.e™ Spine",
+            modelShortName: "demo-robot-spine",
+            modelName: "DemoBot Spine",
           },
         ],
         loading: false,
@@ -294,21 +294,21 @@ describe("LauncherControls", () => {
       ...baseContextValue,
       status: "running",
       reportedStatus: "running",
-      activeProfile: "local:barr-e-simulator",
+      activeProfile: "local:demo-robot-simulator",
       stopModel,
       launcherModels: {
-        "barr-e-simulator": { stage: "run", status: "running" },
-        "barr-e-spine": { stage: "run", status: "running" },
+        "demo-robot-simulator": { stage: "run", status: "running" },
+        "demo-robot-spine": { stage: "run", status: "running" },
       },
       modelHealth: {
-        "barr-e-simulator": { alive: true, loading: false, error: null },
-        "barr-e-spine": { alive: true, loading: false, error: null },
+        "demo-robot-simulator": { alive: true, loading: false, error: null },
+        "demo-robot-spine": { alive: true, loading: false, error: null },
       },
     });
 
     const { container, unmount } = renderControl();
     const button = container.querySelector(
-      'button[aria-label="Stop barr-e-simulator"]'
+      'button[aria-label="Stop demo-robot-simulator"]'
     ) as HTMLButtonElement | null;
     expect(button).not.toBeNull();
 
@@ -317,7 +317,7 @@ describe("LauncherControls", () => {
       await Promise.resolve();
     });
 
-    expect(stopModel).toHaveBeenCalledWith("barr-e-simulator");
+    expect(stopModel).toHaveBeenCalledWith("demo-robot-simulator");
     unmount();
   });
 
