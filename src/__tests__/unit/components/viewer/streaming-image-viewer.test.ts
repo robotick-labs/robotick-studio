@@ -182,19 +182,19 @@ describe("viewer-streaming-image stream selection", () => {
     const source = resolveStreamingImageSource({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      selectedStream: "Head-YOLO-Mask",
+      selectedStream: "Head-Mask",
       streams: {
-        "Head-YOLO-Mask": {
-          source: "barr-e-perception-visual.saved_mask_png.outputs.image",
+        "Head-Mask": {
+          source: "barr-e-perception-visual.saved_mask.outputs.image",
           transform: "mask-preview",
         },
       },
     });
 
     expect(source).toMatchObject({
-      id: "Head-YOLO-Mask",
+      id: "Head-Mask",
       sourceModel: "barr-e-perception-visual",
-      sourceField: "saved_mask_png.outputs.image",
+      sourceField: "saved_mask.outputs.image",
       transform: "mask-preview",
     });
   });
@@ -203,22 +203,21 @@ describe("viewer-streaming-image stream selection", () => {
     const source = resolveStreamingImageSource({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      selectedStream: "Head-YOLO-Bounds",
+      selectedStream: "Head-Detections",
       streams: {
-        "Head-YOLO-Bounds": {
-          source:
-            "barr-e-perception-visual.visual_perception_interface.outputs.head_rgb_image",
+        "Head-Detections": {
+          source: "barr-e-perception-visual.camera.outputs.image",
           detectionsSource:
-            "barr-e-perception-visual.head_yolo.outputs.script.detections",
+            "barr-e-perception-visual.detector.outputs.detections",
         },
       },
     });
 
     expect(source).toMatchObject({
-      id: "Head-YOLO-Bounds",
+      id: "Head-Detections",
       sourceModel: "barr-e-perception-visual",
-      sourceField: "visual_perception_interface.outputs.head_rgb_image",
-      detectionsSourceField: "head_yolo.outputs.script.detections",
+      sourceField: "camera.outputs.image",
+      detectionsSourceField: "detector.outputs.detections",
     });
   });
 
