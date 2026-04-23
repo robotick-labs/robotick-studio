@@ -38,6 +38,7 @@ import {
   init,
   renderObjectDetectionsOverlay,
   resolveStreamingImageSource,
+  resolveStreamingImageStream,
   resolveStreamingImageMime,
   uninit,
 } from "../../../../renderer/components/viewer/streaming-image/viewer-streaming-image";
@@ -225,6 +226,47 @@ describe("viewer-streaming-image stream selection", () => {
     });
   });
 
+  it("normalizes layered streams with blend modes and per-layer transforms", () => {
+    const stream = resolveStreamingImageStream({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-Composite",
+      streams: {
+        "Head-Composite": {
+          layers: [
+            "demo-robot-simulator.head_rgb_png.outputs.image",
+            {
+              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              transform: "mask-preview",
+              blendMode: "screen",
+              opacity: 0.65,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(stream).toMatchObject({
+      id: "Head-Composite",
+      layers: [
+        {
+          index: 0,
+          sourceModel: "demo-robot-simulator",
+          sourceField: "head_rgb_png.outputs.image",
+          transform: "none",
+        },
+        {
+          index: 1,
+          sourceModel: "demo-robot-perception-visual",
+          sourceField: "head_segmented_png.outputs.image",
+          transform: "mask-preview",
+          blendMode: "screen",
+          opacity: 0.65,
+        },
+      ],
+    });
+  });
+
   it("resolves cross-model object detection overlays for image streams", () => {
     const source = resolveStreamingImageSource({
       camera: { fov: 60, near: 0.1, far: 100 },
@@ -335,6 +377,34 @@ describe("viewer-streaming-image stream selection", () => {
     callback({ getField });
 
     expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
+  });
+
+  it("creates layered canvases and subscribes to each layer in composite streams", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-Composite",
+      streams: {
+        "Head-Composite": {
+          layers: [
+            "demo-robot-simulator.head_rgb_png.outputs.image",
+            {
+              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              transform: "mask-preview",
+              blendMode: "screen",
+              opacity: 0.65,
+            },
+          ],
+        },
+      },
+      frameRateHz: 30,
+    });
+
+    expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
+    expect(document.querySelectorAll('canvas[data-role="streaming-image-base"], canvas[data-role="streaming-image-overlay"]')).toHaveLength(2);
+    expect(
+      document.querySelector('[data-role="streaming-image-layer-stack"]')
+    ).not.toBeNull();
   });
 
   it("persists the selected stream across viewer reinitialisation", async () => {
