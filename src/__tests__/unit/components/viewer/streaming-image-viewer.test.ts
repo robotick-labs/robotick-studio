@@ -15,9 +15,12 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
       data: [{ modelShortName: "sample-robot-sensing-visual" }],
       error: null,
     })),
-    findModelDescriptorInState: vi.fn(() => ({
-      modelName: "Sensing - Visual",
-      telemetryBaseUrl: "http://example.test:7101",
+    findModelDescriptorInState: vi.fn((_state, modelName: string) => ({
+      modelName,
+      telemetryBaseUrl:
+        modelName === "sample-robot-sensing-visual"
+          ? "http://example.test:7101"
+          : `http://example.test/${modelName}`,
     })),
   },
 }));
@@ -25,14 +28,15 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
 import {
   applyDepthPreviewTransformToImageData,
   applyMaskPreviewTransformToImageData,
+  calculateContainedImageRect,
   createDepthPreviewImageDataFromPngBytes,
   createDepthPreviewImageDataFromSamples,
   createMaskPreviewImageDataFromPngBytes,
   createMaskPreviewImageDataFromSamples,
-  drawObjectDetectionsOverlay,
   extractObjectDetectionOverlays,
   extractStreamingImageBytes,
   init,
+  renderObjectDetectionsOverlay,
   resolveStreamingImageSource,
   resolveStreamingImageMime,
   uninit,
@@ -219,6 +223,56 @@ describe("viewer-streaming-image stream selection", () => {
       sourceField: "camera.outputs.image",
       detectionsSourceField: "detector.outputs.detections",
     });
+  });
+
+  it("resolves cross-model object detection overlays for image streams", () => {
+    const source = resolveStreamingImageSource({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-RGB Objects",
+      streams: {
+        "Head-RGB Objects": {
+          source: "demo-robot-simulator.head_rgb_png.outputs.image",
+          detectionsSource:
+            "demo-robot-perception-visual.detector.outputs.detections",
+        },
+      },
+    });
+
+    expect(source).toMatchObject({
+      id: "Head-RGB Objects",
+      sourceModel: "demo-robot-simulator",
+      sourceField: "head_rgb_png.outputs.image",
+      detectionsSourceModel: "demo-robot-perception-visual",
+      detectionsSourceField: "detector.outputs.detections",
+    });
+  });
+
+  it("subscribes to cross-model object detection overlays", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-RGB Objects",
+      streams: {
+        "Head-RGB Objects": {
+          source: "demo-robot-simulator.head_rgb_png.outputs.image",
+          detectionsSource:
+            "demo-robot-perception-visual.detector.outputs.detections",
+        },
+      },
+      frameRateHz: 30,
+    });
+
+    await vi.waitFor(() => {
+      expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
+    });
+
+    expect(subscribeTelemetry.mock.calls[0][0]).toBe(
+      "http://example.test/demo-robot-simulator"
+    );
+    expect(subscribeTelemetry.mock.calls[1][0]).toBe(
+      "http://example.test/demo-robot-perception-visual"
+    );
   });
 
   it("falls back to the first named stream when the selected stream is missing", () => {
@@ -511,32 +565,10 @@ describe("viewer-streaming-image detection overlays", () => {
     ]);
   });
 
-  it("draws detection boxes and labels onto a canvas context", () => {
-    const context = {
-      save: vi.fn(),
-      restore: vi.fn(),
-      strokeRect: vi.fn(),
-      fillRect: vi.fn(),
-      fillText: vi.fn(),
-      measureText: vi.fn(() => ({ width: 64 })),
-      set lineWidth(value: number) {
-        void value;
-      },
-      set font(value: string) {
-        void value;
-      },
-      set textBaseline(value: CanvasTextBaseline) {
-        void value;
-      },
-      set strokeStyle(value: string) {
-        void value;
-      },
-      set fillStyle(value: string) {
-        void value;
-      },
-    } as unknown as CanvasRenderingContext2D;
+  it("renders detection boxes and labels into a DOM overlay", () => {
+    const overlay = document.createElement("div");
 
-    drawObjectDetectionsOverlay(context, 640, 420, [
+    renderObjectDetectionsOverlay(overlay, [
       {
         className: "chair",
         confidence: 0.82,
@@ -547,8 +579,35 @@ describe("viewer-streaming-image detection overlays", () => {
       },
     ]);
 
-    expect(context.strokeRect).toHaveBeenCalledWith(64, 84, 192, 168);
-    expect(context.fillText).toHaveBeenCalledWith("chair 82%", 68, 70);
+    const box = overlay.querySelector<HTMLElement>(
+      '[data-role="object-detection-box"]'
+    );
+    const label = overlay.querySelector<HTMLElement>(
+      '[data-role="object-detection-label"]'
+    );
+
+    expect(box?.style.left).toBe("10%");
+    expect(box?.style.top).toBe("20%");
+    expect(box?.style.width).toBe("30%");
+    expect(box?.style.height).toBe("40%");
+    expect(label?.textContent).toBe("chair 82%");
+    expect(label?.style.background).toContain("var(--app-panel-backdrop");
+  });
+
+  it("aligns overlays to the contained image rect inside a wider canvas", () => {
+    const rect = calculateContainedImageRect(
+      640,
+      480,
+      { left: 10, top: 20, width: 800, height: 480 },
+      { left: 10, top: 20 }
+    );
+
+    expect(rect).toEqual({
+      left: 80,
+      top: 0,
+      width: 640,
+      height: 480,
+    });
   });
 });
 

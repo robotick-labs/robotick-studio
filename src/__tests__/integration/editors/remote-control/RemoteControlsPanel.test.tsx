@@ -43,6 +43,31 @@ async function settle() {
   });
 }
 
+async function waitForTimers(ms: number) {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, ms));
+  });
+}
+
+function createPointerEvent(
+  type: string,
+  init: MouseEventInit & {
+    pointerId?: number;
+    pointerType?: string;
+  } = {}
+) {
+  const event = new MouseEvent(type, init);
+  Object.defineProperty(event, "pointerId", {
+    configurable: true,
+    value: init.pointerId ?? 1,
+  });
+  Object.defineProperty(event, "pointerType", {
+    configurable: true,
+    value: init.pointerType ?? "mouse",
+  });
+  return event;
+}
+
 describe("RemoteControlsPanel", () => {
   afterEach(() => {
     resetTelemetryTestState();
@@ -366,6 +391,22 @@ describe("RemoteControlsPanel", () => {
       configurable: true,
       get: () => 150,
     });
+    const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+    const originalReleasePointerCapture =
+      HTMLElement.prototype.releasePointerCapture;
+    const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
+    const capturedPointers = new WeakMap<HTMLElement, Set<number>>();
+    HTMLElement.prototype.setPointerCapture = function (pointerId: number) {
+      const captured = capturedPointers.get(this) ?? new Set<number>();
+      captured.add(pointerId);
+      capturedPointers.set(this, captured);
+    };
+    HTMLElement.prototype.releasePointerCapture = function (pointerId: number) {
+      capturedPointers.get(this)?.delete(pointerId);
+    };
+    HTMLElement.prototype.hasPointerCapture = function (pointerId: number) {
+      return capturedPointers.get(this)?.has(pointerId) ?? false;
+    };
 
     const telemetryModel = makeTelemetryModel();
     const telemetryService = {
@@ -452,17 +493,21 @@ describe("RemoteControlsPanel", () => {
 
       act(() => {
         leftStick!.dispatchEvent(
-          new MouseEvent("mousedown", {
+          createPointerEvent("pointerdown", {
             bubbles: true,
             clientX: 75,
             clientY: 75,
+            button: 0,
+            pointerId: 1,
           })
         );
-        document.dispatchEvent(
-          new MouseEvent("mousemove", {
+        leftStick!.dispatchEvent(
+          createPointerEvent("pointermove", {
             bubbles: true,
             clientX: 105,
             clientY: 60,
+            button: 0,
+            pointerId: 1,
           })
         );
       });
@@ -515,6 +560,243 @@ describe("RemoteControlsPanel", () => {
       } else {
         delete (HTMLElement.prototype as HTMLElement & { clientWidth?: unknown })
           .clientWidth;
+      }
+      if (originalSetPointerCapture) {
+        HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            setPointerCapture?: unknown;
+          }
+        ).setPointerCapture;
+      }
+      if (originalReleasePointerCapture) {
+        HTMLElement.prototype.releasePointerCapture =
+          originalReleasePointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            releasePointerCapture?: unknown;
+          }
+        ).releasePointerCapture;
+      }
+      if (originalHasPointerCapture) {
+        HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            hasPointerCapture?: unknown;
+          }
+        ).hasPointerCapture;
+      }
+    }
+  });
+
+  it("recenters a dragged stick when the window loses focus before pointerup", async () => {
+    const originalGetGamepads = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "getGamepads"
+    );
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth"
+    );
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable: true,
+      writable: true,
+      value: () => [],
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 150,
+    });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+    const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+    const originalReleasePointerCapture =
+      HTMLElement.prototype.releasePointerCapture;
+    const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
+    const capturedPointers = new WeakMap<HTMLElement, Set<number>>();
+    HTMLElement.prototype.setPointerCapture = function (pointerId: number) {
+      const captured = capturedPointers.get(this) ?? new Set<number>();
+      captured.add(pointerId);
+      capturedPointers.set(this, captured);
+    };
+    HTMLElement.prototype.releasePointerCapture = function (pointerId: number) {
+      capturedPointers.get(this)?.delete(pointerId);
+    };
+    HTMLElement.prototype.hasPointerCapture = function (pointerId: number) {
+      return capturedPointers.get(this)?.has(pointerId) ?? false;
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const projectModels = [
+      {
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
+              }}
+            >
+              <RemoteControlsPanel
+                config={{
+                  sticks: {
+                    left: {
+                      selectedMode: "drive_wheels",
+                      modes: {
+                        drive_wheels: {
+                          outputs: {
+                            x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
+                          },
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+
+      await settle();
+      await settle();
+      telemetryService.setWorkloadInputFieldsData.mockClear();
+
+      const leftStick = document.querySelector(
+        '[data-testid="left-stick-area"]'
+      ) as HTMLElement | null;
+      expect(leftStick).not.toBeNull();
+
+      act(() => {
+        leftStick!.dispatchEvent(
+          createPointerEvent("pointerdown", {
+            bubbles: true,
+            clientX: 75,
+            clientY: 75,
+            button: 0,
+            pointerId: 4,
+          })
+        );
+        leftStick!.dispatchEvent(
+          createPointerEvent("pointermove", {
+            bubbles: true,
+            clientX: 120,
+            clientY: 45,
+            button: 0,
+            pointerId: 4,
+          })
+        );
+      });
+      await settle();
+
+      act(() => {
+        window.dispatchEvent(new Event("blur"));
+      });
+      await waitForTimers(80);
+
+      expect(telemetryService.setWorkloadInputFieldsData).toHaveBeenCalledTimes(2);
+      const lastRequest =
+        telemetryService.setWorkloadInputFieldsData.mock.calls.at(-1)?.[1];
+      expect(lastRequest?.writes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.angular_speed_norm",
+            value: 0,
+          }),
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.linear_speed_norm",
+            value: 0,
+          }),
+        ])
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+      if (originalGetGamepads) {
+        Object.defineProperty(
+          Navigator.prototype,
+          "getGamepads",
+          originalGetGamepads
+        );
+      } else {
+        delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
+          .getGamepads;
+      }
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth
+        );
+      } else {
+        delete (HTMLElement.prototype as HTMLElement & { clientWidth?: unknown })
+          .clientWidth;
+      }
+      if (originalSetPointerCapture) {
+        HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            setPointerCapture?: unknown;
+          }
+        ).setPointerCapture;
+      }
+      if (originalReleasePointerCapture) {
+        HTMLElement.prototype.releasePointerCapture =
+          originalReleasePointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            releasePointerCapture?: unknown;
+          }
+        ).releasePointerCapture;
+      }
+      if (originalHasPointerCapture) {
+        HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
+      } else {
+        delete (
+          HTMLElement.prototype as HTMLElement & {
+            hasPointerCapture?: unknown;
+          }
+        ).hasPointerCapture;
       }
     }
   });

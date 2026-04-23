@@ -43,6 +43,7 @@ let activeCanvas: HTMLCanvasElement | null = null;
 let activeCanvasContext: CanvasRenderingContext2D | null = null;
 let viewerContainerElement: HTMLElement | null = null;
 let statsOverlayElement: HTMLDivElement | null = null;
+let detectionsOverlayElement: HTMLDivElement | null = null;
 let streamSelectorContainerElement: HTMLLabelElement | null = null;
 let streamSelectorElement: HTMLSelectElement | null = null;
 let activeStreamingConfig: StreamingImageViewerConfig | null = null;
@@ -60,6 +61,8 @@ let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_FRAME_RATE_HZ);
 let activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
 let activeTelemetrySamplingRateHz =
   DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
+let detectionsTelemetryDispose: (() => void) | null = null;
+let latestDetections: ObjectDetectionOverlay[] = [];
 let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
@@ -108,6 +111,9 @@ type StreamingImageSource = Required<Pick<StreamingImageSourceInput, "id">> & {
   sourceField: string;
   transform: StreamingImageTransform;
   detectionsSourceField?: string;
+  detectionsSourceModel?: string;
+  detectionsTelemetryModelName?: string;
+  detectionsTelemetryBaseUrl?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -241,6 +247,7 @@ function createMetricsWindow(startedAtMs: number): MetricsWindow {
 
 function resetRuntimeState() {
   pendingFrame = null;
+  latestDetections = [];
   metricsWindow = null;
   metricsSourceLabel = "";
   activeStreamingConfig = null;
@@ -276,6 +283,7 @@ function publishDebugState(extra: Record<string, unknown> = {}) {
   globalHost.__robotickStreamingImageDebug = {
     metricsEnabled,
     hasOverlay: Boolean(statsOverlayElement),
+    hasDetectionsOverlay: Boolean(detectionsOverlayElement),
     hasCanvas: Boolean(activeCanvas),
     hasContainer: Boolean(viewerContainerElement),
     childCount: viewerContainerElement?.children.length ?? null,
@@ -302,12 +310,7 @@ function ensureStatsOverlay() {
   }
   cleanupStatsOverlay();
 
-  if (typeof window !== "undefined") {
-    const computed = window.getComputedStyle(viewerContainerElement).position;
-    if (!computed || computed === "static") {
-      viewerContainerElement.style.position = "relative";
-    }
-  }
+  ensureViewerContainerPositioned();
 
   const overlay = document.createElement("div");
   Object.assign(overlay.style, {
@@ -336,6 +339,60 @@ function cleanupStatsOverlay() {
   }
   statsOverlayElement = null;
   publishDebugState({ overlayCreated: false });
+}
+
+function ensureViewerContainerPositioned() {
+  if (!viewerContainerElement || typeof window === "undefined") {
+    return;
+  }
+
+  const computed = window.getComputedStyle(viewerContainerElement).position;
+  if (!computed || computed === "static") {
+    viewerContainerElement.style.position = "relative";
+  }
+}
+
+function ensureDetectionsOverlay() {
+  if (!viewerContainerElement) {
+    return null;
+  }
+  if (
+    detectionsOverlayElement &&
+    detectionsOverlayElement.isConnected &&
+    detectionsOverlayElement.parentElement === viewerContainerElement
+  ) {
+    return detectionsOverlayElement;
+  }
+
+  cleanupDetectionsOverlay();
+  ensureViewerContainerPositioned();
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.dataset.role = "object-detections-overlay";
+  Object.assign(overlay.style, {
+    position: "absolute",
+    inset: "0",
+    overflow: "hidden",
+    pointerEvents: "none",
+    zIndex: "998",
+    fontFamily: "var(--font-family-base, Inter, Segoe UI, system-ui, sans-serif)",
+    letterSpacing: "0",
+  });
+
+  detectionsOverlayElement = overlay;
+  viewerContainerElement.appendChild(overlay);
+  syncDetectionsOverlayBounds();
+  publishDebugState({ detectionsOverlayCreated: true });
+  return overlay;
+}
+
+function cleanupDetectionsOverlay() {
+  if (detectionsOverlayElement?.parentElement) {
+    detectionsOverlayElement.parentElement.removeChild(detectionsOverlayElement);
+  }
+  detectionsOverlayElement = null;
+  publishDebugState({ detectionsOverlayCreated: false });
 }
 
 function cleanupStreamSelector() {
@@ -587,12 +644,7 @@ async function presentPendingFrame() {
           return;
         }
         drawDepthPreviewImageData(activeCanvas, activeCanvasContext, preview);
-        drawObjectDetectionsOverlay(
-          activeCanvasContext,
-          activeCanvas.width,
-          activeCanvas.height,
-          frame.detections
-        );
+        updateObjectDetectionsOverlay(frame.detections);
         notePresentedFrame(frame);
         return;
       }
@@ -609,12 +661,7 @@ async function presentPendingFrame() {
           return;
         }
         drawMaskPreviewImageData(activeCanvas, activeCanvasContext, preview);
-        drawObjectDetectionsOverlay(
-          activeCanvasContext,
-          activeCanvas.width,
-          activeCanvas.height,
-          frame.detections
-        );
+        updateObjectDetectionsOverlay(frame.detections);
         notePresentedFrame(frame);
         return;
       }
@@ -651,12 +698,7 @@ async function presentPendingFrame() {
         bitmap,
         frame.transform
       );
-      drawObjectDetectionsOverlay(
-        activeCanvasContext,
-        activeCanvas.width,
-        activeCanvas.height,
-        frame.detections
-      );
+      updateObjectDetectionsOverlay(frame.detections);
 
       notePresentedFrame(frame);
     } finally {
@@ -852,42 +894,149 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-export function drawObjectDetectionsOverlay(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
+function updateObjectDetectionsOverlay(
   detections: readonly ObjectDetectionOverlay[]
 ) {
-  if (width <= 0 || height <= 0 || detections.length === 0) {
+  const overlay = ensureDetectionsOverlay();
+  if (!overlay) {
+    return;
+  }
+  syncDetectionsOverlayBounds();
+  renderObjectDetectionsOverlay(overlay, detections);
+}
+
+function clearObjectDetectionsOverlay() {
+  if (detectionsOverlayElement) {
+    syncDetectionsOverlayBounds();
+    renderObjectDetectionsOverlay(detectionsOverlayElement, []);
+  }
+}
+
+function syncDetectionsOverlayBounds() {
+  if (!viewerContainerElement || !activeCanvas || !detectionsOverlayElement) {
     return;
   }
 
-  context.save();
-  context.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 240));
-  context.font = `${Math.max(12, Math.round(height / 32))}px sans-serif`;
-  context.textBaseline = "top";
+  const bounds = calculateContainedImageRect(
+    activeCanvas.width,
+    activeCanvas.height,
+    activeCanvas.getBoundingClientRect(),
+    viewerContainerElement.getBoundingClientRect()
+  );
 
-  for (const detection of detections) {
-    const x1 = Math.round(Math.min(detection.boxX1Norm, detection.boxX2Norm) * width);
-    const y1 = Math.round(Math.min(detection.boxY1Norm, detection.boxY2Norm) * height);
-    const x2 = Math.round(Math.max(detection.boxX1Norm, detection.boxX2Norm) * width);
-    const y2 = Math.round(Math.max(detection.boxY1Norm, detection.boxY2Norm) * height);
-    const boxWidth = Math.max(1, x2 - x1);
-    const boxHeight = Math.max(1, y2 - y1);
-    const label = formatDetectionLabel(detection);
-    const labelWidth = Math.ceil(context.measureText(label).width) + 8;
-    const labelHeight = Math.max(16, Math.round(height / 28));
-    const labelY = y1 >= labelHeight ? y1 - labelHeight : y1;
+  Object.assign(detectionsOverlayElement.style, {
+    inset: "auto",
+    left: `${bounds.left}px`,
+    top: `${bounds.top}px`,
+    width: `${bounds.width}px`,
+    height: `${bounds.height}px`,
+  });
+}
 
-    context.strokeStyle = "#4dd0e1";
-    context.fillStyle = "rgba(0, 0, 0, 0.72)";
-    context.strokeRect(x1, y1, boxWidth, boxHeight);
-    context.fillRect(x1, labelY, Math.min(labelWidth, width - x1), labelHeight);
-    context.fillStyle = "#ffffff";
-    context.fillText(label, x1 + 4, labelY + 2);
+export function calculateContainedImageRect(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRect: Pick<DOMRectReadOnly, "left" | "top" | "width" | "height">,
+  containerRect: Pick<DOMRectReadOnly, "left" | "top">
+): { left: number; top: number; width: number; height: number } {
+  const targetWidth = Math.max(0, targetRect.width);
+  const targetHeight = Math.max(0, targetRect.height);
+  const left = targetRect.left - containerRect.left;
+  const top = targetRect.top - containerRect.top;
+
+  if (
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    targetWidth <= 0 ||
+    targetHeight <= 0
+  ) {
+    return {
+      left,
+      top,
+      width: targetWidth,
+      height: targetHeight,
+    };
   }
 
-  context.restore();
+  const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  return {
+    left: left + (targetWidth - width) / 2,
+    top: top + (targetHeight - height) / 2,
+    width,
+    height,
+  };
+}
+
+export function renderObjectDetectionsOverlay(
+  overlay: HTMLElement,
+  detections: readonly ObjectDetectionOverlay[]
+) {
+  overlay.replaceChildren();
+  if (detections.length === 0) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const detection of detections) {
+    const x1 = Math.min(detection.boxX1Norm, detection.boxX2Norm);
+    const y1 = Math.min(detection.boxY1Norm, detection.boxY2Norm);
+    const x2 = Math.max(detection.boxX1Norm, detection.boxX2Norm);
+    const y2 = Math.max(detection.boxY1Norm, detection.boxY2Norm);
+    const box = document.createElement("div");
+    box.dataset.role = "object-detection-box";
+    box.title = formatDetectionLabel(detection);
+    Object.assign(box.style, {
+      position: "absolute",
+      left: formatOverlayPercent(x1),
+      top: formatOverlayPercent(y1),
+      width: formatOverlayPercent(Math.max(0.001, x2 - x1)),
+      height: formatOverlayPercent(Math.max(0.001, y2 - y1)),
+      border: "2px solid var(--app-usage-positive, rgba(102, 204, 255, 1))",
+      borderRadius: "3px",
+      background: "rgba(102, 204, 255, 0.06)",
+      boxShadow:
+        "0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 14px rgba(102, 204, 255, 0.22)",
+    });
+
+    const label = document.createElement("div");
+    label.dataset.role = "object-detection-label";
+    label.textContent = formatDetectionLabel(detection);
+    const labelLeft = formatOverlayPercent(x1);
+    const labelTop = formatOverlayPercent(y1);
+    Object.assign(label.style, {
+      position: "absolute",
+      left: labelLeft,
+      top: y1 > 0.06 ? `calc(${labelTop} - 1.55rem)` : labelTop,
+      maxWidth: `calc(${formatOverlayPercent(1 - x1)} - 4px)`,
+      minHeight: "1.25rem",
+      padding: "2px 6px",
+      border: "1px solid var(--app-panel-border, rgba(255, 255, 255, 0.08))",
+      borderRadius: "4px",
+      background: "var(--app-panel-backdrop, rgba(7, 10, 18, 0.92))",
+      color: "var(--app-text-primary, rgba(245, 245, 245, 1))",
+      boxShadow: "0 6px 18px rgba(0, 0, 0, 0.28)",
+      backdropFilter: "var(--app-panel-blur, blur(14px))",
+      WebkitBackdropFilter: "var(--app-panel-blur, blur(14px))",
+      fontSize: "0.75rem",
+      fontWeight: "600",
+      lineHeight: "1.2",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+
+    fragment.appendChild(box);
+    fragment.appendChild(label);
+  }
+
+  overlay.appendChild(fragment);
+}
+
+function formatOverlayPercent(value: number): string {
+  const percentage = clamp01(value) * 100;
+  return `${Number(percentage.toFixed(3))}%`;
 }
 
 function formatDetectionLabel(detection: ObjectDetectionOverlay): string {
@@ -1181,6 +1330,7 @@ function startMonitorLoop() {
     }
     maybeHandleStall(nowMs);
     maybeRecycleSurface(nowMs);
+    syncDetectionsOverlayBounds();
     updateStatsOverlay(nowMs);
     flushMetricsWindow(nowMs);
   }, 250);
@@ -1196,6 +1346,7 @@ function recreateCanvasSurface() {
   nextCanvas.style.width = "100%";
   nextCanvas.style.height = "100%";
   nextCanvas.style.display = "block";
+  nextCanvas.style.objectFit = "contain";
   const nextContext = nextCanvas.getContext("2d", {
     alpha: false,
   });
@@ -1216,6 +1367,7 @@ function recreateCanvasSurface() {
   viewerContainerElement.appendChild(nextCanvas);
   activeCanvas = nextCanvas;
   activeCanvasContext = nextContext;
+  ensureDetectionsOverlay();
   surfaceCreatedAtMs = Date.now();
   setBlackFrame();
   return true;
@@ -1255,6 +1407,35 @@ function splitQualifiedFieldPath(
   return {
     sourceModel: trimmedField.slice(0, firstDotIndex),
     sourceField: trimmedField.slice(firstDotIndex + 1),
+  };
+}
+
+function splitOptionalQualifiedFieldPath(
+  sourceField: string,
+  fallbackSourceModel?: string
+): { sourceModel?: string; sourceField: string } {
+  const trimmedField = sourceField.trim();
+  const trimmedFallback = fallbackSourceModel?.trim();
+  if (trimmedFallback && trimmedField.startsWith(`${trimmedFallback}.`)) {
+    return splitQualifiedFieldPath(trimmedField, trimmedFallback);
+  }
+
+  const firstDotIndex = trimmedField.indexOf(".");
+  if (firstDotIndex <= 0 || firstDotIndex === trimmedField.length - 1) {
+    return {
+      sourceModel: trimmedFallback,
+      sourceField: trimmedField,
+    };
+  }
+
+  const possibleModelName = trimmedField.slice(0, firstDotIndex);
+  if (possibleModelName.includes("-")) {
+    return splitQualifiedFieldPath(trimmedField);
+  }
+
+  return {
+    sourceModel: trimmedFallback,
+    sourceField: trimmedField,
   };
 }
 
@@ -1315,9 +1496,14 @@ function normalizeStreamingImageSource(
     sourceInput.modelName ??
     sourceInput.sourceModel;
   const qualified = splitQualifiedFieldPath(sourceField, explicitModel);
+  const sourceModel =
+    sourceInput.sourceModel ??
+    sourceInput.modelName ??
+    sourceInput.telemetryModelName ??
+    qualified.sourceModel;
   const detectionsSource = sourceInput.detectionsSource?.trim();
   const detectionsQualified = detectionsSource
-    ? splitQualifiedFieldPath(detectionsSource, qualified.sourceModel ?? explicitModel)
+    ? splitOptionalQualifiedFieldPath(detectionsSource, sourceModel)
     : null;
   return {
     id: streamId,
@@ -1325,6 +1511,8 @@ function normalizeStreamingImageSource(
     sourceField: qualified.sourceField,
     transform: sourceInput.transform ?? "none",
     detectionsSourceField: detectionsQualified?.sourceField,
+    detectionsSourceModel: detectionsQualified?.sourceModel,
+    detectionsTelemetryModelName: detectionsQualified?.sourceModel,
     sourceModel: sourceInput.sourceModel ?? qualified.sourceModel,
     modelName: sourceInput.modelName,
     telemetryModelName: sourceInput.telemetryModelName,
@@ -1442,6 +1630,26 @@ export function resolveStreamingImageSource(
   );
 }
 
+function getSourceTelemetryModelName(source: StreamingImageSource): string | undefined {
+  return source.telemetryModelName ?? source.modelName ?? source.sourceModel;
+}
+
+function usesSeparateDetectionsTelemetry(source: StreamingImageSource): boolean {
+  if (!source.detectionsSourceField) {
+    return false;
+  }
+  if (source.detectionsTelemetryBaseUrl) {
+    return true;
+  }
+
+  const detectionsModelName = source.detectionsTelemetryModelName?.trim();
+  if (!detectionsModelName) {
+    return false;
+  }
+
+  return detectionsModelName !== getSourceTelemetryModelName(source)?.trim();
+}
+
 function resetSourceRuntimeState() {
   pendingFrame = null;
   lastFrameReceivedAtMs = 0;
@@ -1480,6 +1688,9 @@ async function subscribeToStreamingImageSource(source: StreamingImageSource) {
 
   telemetryDispose?.();
   telemetryDispose = null;
+  detectionsTelemetryDispose?.();
+  detectionsTelemetryDispose = null;
+  latestDetections = [];
   resetSourceRuntimeState();
   ensureStreamSelector(activeStreamSources, source.id);
 
@@ -1491,10 +1702,24 @@ async function subscribeToStreamingImageSource(source: StreamingImageSource) {
     return;
   }
 
+  const detectionsUsesSeparateTelemetry = usesSeparateDetectionsTelemetry(source);
+  const detectionsTelemetryBase = detectionsUsesSeparateTelemetry
+    ? await resolveTelemetryBaseUrl({
+        telemetryBaseUrl: source.detectionsTelemetryBaseUrl,
+        telemetryModelName: source.detectionsTelemetryModelName,
+        sourceModel: source.detectionsSourceModel,
+      })
+    : null;
+  if (sessionId !== viewerSessionId) {
+    return;
+  }
+
   metricsSourceLabel = `${telemetryBase} :: ${source.sourceField}`;
   publishDebugState({
     telemetryBase,
+    detectionsTelemetryBase,
     fieldPath: source.sourceField,
+    detectionsFieldPath: source.detectionsSourceField,
     streamId: source.id,
     frameRateHz: activeFrameRateHz,
     telemetrySamplingRateHz: activeTelemetrySamplingRateHz,
@@ -1518,6 +1743,40 @@ async function subscribeToStreamingImageSource(source: StreamingImageSource) {
       },
     }
   );
+
+  if (
+    source.detectionsSourceField &&
+    detectionsTelemetryBase &&
+    detectionsTelemetryBase !== telemetryBase
+  ) {
+    console.info(
+      `[streaming-image] Subscribing to detection overlays ${detectionsTelemetryBase} field ${source.detectionsSourceField} @ ${activeTelemetrySamplingRateHz}Hz`
+    );
+    detectionsTelemetryDispose = subscribeTelemetry(
+      detectionsTelemetryBase,
+      activeTelemetrySamplingRateHz,
+      {
+        callback: (model) => {
+          if (sessionId !== viewerSessionId) {
+            return;
+          }
+          latestDetections = extractObjectDetectionOverlays(
+            model.getField?.(source.detectionsSourceField!)?.getValue?.()
+          );
+          if (lastFramePresentedAtMs > 0) {
+            updateObjectDetectionsOverlay(latestDetections);
+          }
+        },
+        error: (err) => {
+          console.warn(
+            `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${source.detectionsSourceField})`,
+            err
+          );
+          noteTransportError();
+        },
+      }
+    );
+  }
 }
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
@@ -1618,6 +1877,7 @@ export async function uninit(): Promise<void> {
   activeCanvas = null;
   activeCanvasContext = null;
   cleanupStatsOverlay();
+  cleanupDetectionsOverlay();
   resetRuntimeState();
   if (viewerContainerElement) {
     viewerContainerElement.innerHTML = "";
@@ -1656,9 +1916,11 @@ function handleTelemetryFrame(
 
   const mime = resolveStreamingImageMime(field.mime_type, bytes);
   const detections = source.detectionsSourceField
-    ? extractObjectDetectionOverlays(
-        model.getField?.(source.detectionsSourceField)?.getValue?.()
-      )
+    ? usesSeparateDetectionsTelemetry(source)
+      ? latestDetections
+      : extractObjectDetectionOverlays(
+          model.getField?.(source.detectionsSourceField)?.getValue?.()
+        )
     : [];
   queueFrame(mime, bytes, Date.now(), source.transform, detections);
 }
@@ -1671,6 +1933,7 @@ function setBlackFrame() {
   }
   activeCanvasContext.fillStyle = "#000";
   activeCanvasContext.fillRect(0, 0, 1, 1);
+  clearObjectDetectionsOverlay();
 }
 
 async function resolveTelemetryBaseUrl(
