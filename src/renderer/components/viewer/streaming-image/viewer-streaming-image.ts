@@ -59,7 +59,11 @@ let activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
 let activeTelemetrySamplingRateHz =
   DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
 let detectionsTelemetryDispose: (() => void) | null = null;
+let fieldOfViewTelemetryDispose: (() => void) | null = null;
 let latestDetections: ObjectDetectionOverlay[] = [];
+let latestFieldOfViewRect: NormalizedRectOverlay | null = null;
+let lastRenderedDetections: ObjectDetectionOverlay[] = [];
+let lastRenderedFieldOfViewRect: NormalizedRectOverlay | null = null;
 let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
@@ -79,6 +83,7 @@ type PendingFrame = {
   receivedAtMs: number;
   transform: StreamingImageTransform;
   detections: ObjectDetectionOverlay[];
+  fieldOfViewRect: NormalizedRectOverlay | null;
 };
 
 type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
@@ -94,11 +99,22 @@ export type ObjectDetectionOverlay = {
   trackId?: number;
 };
 
+export type NormalizedRectOverlay = {
+  minXNorm: number;
+  minYNorm: number;
+  maxXNorm: number;
+  maxYNorm: number;
+};
+
+const OVERLAY_NUMERIC_EPSILON = 0.001;
+
 type StreamingImageSourceInput = {
   id?: string;
   source?: string;
   detectionsSource?: string;
   detections?: string;
+  fieldOfViewSource?: string;
+  fieldOfView?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -125,6 +141,10 @@ type StreamingImageLayer = Required<Pick<StreamingImageLayerInput, "id">> & {
   detectionsSourceModel?: string;
   detectionsTelemetryModelName?: string;
   detectionsTelemetryBaseUrl?: string;
+  fieldOfViewSourceField?: string;
+  fieldOfViewSourceModel?: string;
+  fieldOfViewTelemetryModelName?: string;
+  fieldOfViewTelemetryBaseUrl?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -269,6 +289,9 @@ function createMetricsWindow(startedAtMs: number): MetricsWindow {
 function resetRuntimeState() {
   pendingFrame = null;
   latestDetections = [];
+  latestFieldOfViewRect = null;
+  lastRenderedDetections = [];
+  lastRenderedFieldOfViewRect = null;
   metricsWindow = null;
   metricsSourceLabel = "";
   activeStreamingConfig = null;
@@ -311,6 +334,7 @@ function publishDebugState(extra: Record<string, unknown> = {}) {
     hasDetectionsOverlay: Boolean(detectionsOverlayElement),
     hasCanvas: Boolean(activeCanvas),
     hasContainer: Boolean(viewerContainerElement),
+    hasFieldOfViewRect: Boolean(latestFieldOfViewRect),
     childCount: viewerContainerElement?.children.length ?? null,
     pendingFrame: Boolean(pendingFrame),
     decodeInFlight,
@@ -597,7 +621,8 @@ function queueFrame(
   bytes: Uint8Array<ArrayBuffer>,
   receivedAtMs: number,
   transform: StreamingImageTransform,
-  detections: ObjectDetectionOverlay[] = []
+  detections: ObjectDetectionOverlay[] = [],
+  fieldOfViewRect: NormalizedRectOverlay | null = null
 ) {
   if (pendingFrame && metricsWindow) {
     metricsWindow.supersededFrames += 1;
@@ -608,6 +633,7 @@ function queueFrame(
     receivedAtMs,
     transform,
     detections,
+    fieldOfViewRect,
   };
   lastFrameReceivedAtMs = receivedAtMs;
   stallStateActive = false;
@@ -757,7 +783,7 @@ async function presentPendingFrame() {
     if (!rendered) {
       return;
     }
-    updateObjectDetectionsOverlay(frame.detections);
+    updateObjectDetectionsOverlay(frame.detections, frame.fieldOfViewRect);
     notePresentedFrame(frame);
   } catch (err) {
     console.warn("[streaming-image] Failed to decode frame", err);
@@ -883,28 +909,20 @@ export function extractObjectDetectionOverlays(
       continue;
     }
 
-    const boxX1Norm = readFiniteNumber(rawDetection.box_x1_norm);
-    const boxY1Norm = readFiniteNumber(rawDetection.box_y1_norm);
-    const boxX2Norm = readFiniteNumber(rawDetection.box_x2_norm);
-    const boxY2Norm = readFiniteNumber(rawDetection.box_y2_norm);
+    const boxNorm = readDetectionBoxNorm(rawDetection);
     const confidence = readFiniteNumber(rawDetection.confidence) ?? 0;
 
-    if (
-      boxX1Norm === null ||
-      boxY1Norm === null ||
-      boxX2Norm === null ||
-      boxY2Norm === null
-    ) {
+    if (!boxNorm) {
       continue;
     }
 
     detections.push({
       className: readDetectionClassName(rawDetection.class_name),
       confidence,
-      boxX1Norm: clamp01(boxX1Norm),
-      boxY1Norm: clamp01(boxY1Norm),
-      boxX2Norm: clamp01(boxX2Norm),
-      boxY2Norm: clamp01(boxY2Norm),
+      boxX1Norm: clamp01(boxNorm.x1),
+      boxY1Norm: clamp01(boxNorm.y1),
+      boxX2Norm: clamp01(boxNorm.x2),
+      boxY2Norm: clamp01(boxNorm.y2),
       trackId: readTrackId(rawDetection.track_id),
     });
   }
@@ -939,6 +957,78 @@ function readFiniteNumber(value: unknown): number | null {
   return value;
 }
 
+function readRectCorner(value: unknown): { x: number; y: number } | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const x = readFiniteNumber(value.x);
+  const y = readFiniteNumber(value.y);
+  if (x === null || y === null) {
+    return null;
+  }
+  return { x, y };
+}
+
+export function extractNormalizedRectOverlay(
+  value: unknown
+): NormalizedRectOverlay | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  const min = readRectCorner(value.min);
+  const max = readRectCorner(value.max);
+  if (!min || !max) {
+    return null;
+  }
+
+  return {
+    minXNorm: min.x,
+    minYNorm: min.y,
+    maxXNorm: max.x,
+    maxYNorm: max.y,
+  };
+}
+
+function readDetectionBoxNorm(
+  rawDetection: Record<string, unknown>
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  const rawBoxNorm = rawDetection.box_norm;
+  if (isPlainObject(rawBoxNorm)) {
+    const min = readRectCorner(rawBoxNorm.min);
+    const max = readRectCorner(rawBoxNorm.max);
+    if (min && max) {
+      return {
+        x1: min.x,
+        y1: min.y,
+        x2: max.x,
+        y2: max.y,
+      };
+    }
+  }
+
+  const boxX1Norm = readFiniteNumber(rawDetection.box_x1_norm);
+  const boxY1Norm = readFiniteNumber(rawDetection.box_y1_norm);
+  const boxX2Norm = readFiniteNumber(rawDetection.box_x2_norm);
+  const boxY2Norm = readFiniteNumber(rawDetection.box_y2_norm);
+  if (
+    boxX1Norm === null ||
+    boxY1Norm === null ||
+    boxX2Norm === null ||
+    boxY2Norm === null
+  ) {
+    return null;
+  }
+
+  return {
+    x1: boxX1Norm,
+    y1: boxY1Norm,
+    x2: boxX2Norm,
+    y2: boxY2Norm,
+  };
+}
+
 function readDetectionClassName(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -958,22 +1048,89 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+function roughlyEqual(
+  left: number,
+  right: number,
+  epsilon = OVERLAY_NUMERIC_EPSILON
+): boolean {
+  return Math.abs(left - right) <= epsilon;
+}
+
+export function normalizedRectOverlayEquals(
+  left: NormalizedRectOverlay | null | undefined,
+  right: NormalizedRectOverlay | null | undefined,
+  epsilon = OVERLAY_NUMERIC_EPSILON
+): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return (
+    roughlyEqual(left.minXNorm, right.minXNorm, epsilon) &&
+    roughlyEqual(left.minYNorm, right.minYNorm, epsilon) &&
+    roughlyEqual(left.maxXNorm, right.maxXNorm, epsilon) &&
+    roughlyEqual(left.maxYNorm, right.maxYNorm, epsilon)
+  );
+}
+
+export function objectDetectionOverlaysEqual(
+  left: readonly ObjectDetectionOverlay[],
+  right: readonly ObjectDetectionOverlay[],
+  epsilon = OVERLAY_NUMERIC_EPSILON
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftDetection = left[index];
+    const rightDetection = right[index];
+    if (
+      leftDetection.className !== rightDetection.className ||
+      leftDetection.trackId !== rightDetection.trackId ||
+      !roughlyEqual(leftDetection.confidence, rightDetection.confidence, epsilon) ||
+      !roughlyEqual(leftDetection.boxX1Norm, rightDetection.boxX1Norm, epsilon) ||
+      !roughlyEqual(leftDetection.boxY1Norm, rightDetection.boxY1Norm, epsilon) ||
+      !roughlyEqual(leftDetection.boxX2Norm, rightDetection.boxX2Norm, epsilon) ||
+      !roughlyEqual(leftDetection.boxY2Norm, rightDetection.boxY2Norm, epsilon)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function updateObjectDetectionsOverlay(
-  detections: readonly ObjectDetectionOverlay[]
+  detections: readonly ObjectDetectionOverlay[],
+  fieldOfViewRect: NormalizedRectOverlay | null = latestFieldOfViewRect
 ) {
   const overlay = ensureDetectionsOverlay();
   if (!overlay) {
     return;
   }
   syncDetectionsOverlayBounds();
-  renderObjectDetectionsOverlay(overlay, detections);
+  // Cross-model telemetry can arrive more frequently than presented image
+  // frames. Only rebuild the overlay DOM when the effective content actually
+  // changed, otherwise the mask visibly chatters despite stable source data.
+  if (
+    objectDetectionOverlaysEqual(detections, lastRenderedDetections) &&
+    normalizedRectOverlayEquals(fieldOfViewRect, lastRenderedFieldOfViewRect)
+  ) {
+    return;
+  }
+  renderObjectDetectionsOverlay(overlay, detections, fieldOfViewRect);
+  lastRenderedDetections = detections.map((detection) => ({ ...detection }));
+  lastRenderedFieldOfViewRect = fieldOfViewRect ? { ...fieldOfViewRect } : null;
 }
 
 function clearObjectDetectionsOverlay() {
   if (detectionsOverlayElement) {
     syncDetectionsOverlayBounds();
-    renderObjectDetectionsOverlay(detectionsOverlayElement, []);
+    renderObjectDetectionsOverlay(detectionsOverlayElement, [], null);
   }
+  lastRenderedDetections = [];
+  lastRenderedFieldOfViewRect = null;
 }
 
 function syncDetectionsOverlayBounds() {
@@ -1035,14 +1192,18 @@ export function calculateContainedImageRect(
 
 export function renderObjectDetectionsOverlay(
   overlay: HTMLElement,
-  detections: readonly ObjectDetectionOverlay[]
+  detections: readonly ObjectDetectionOverlay[],
+  fieldOfViewRect?: NormalizedRectOverlay | null
 ) {
   overlay.replaceChildren();
-  if (detections.length === 0) {
+  if (!fieldOfViewRect && detections.length === 0) {
     return;
   }
 
   const fragment = document.createDocumentFragment();
+  if (fieldOfViewRect) {
+    renderFieldOfViewMask(fragment, fieldOfViewRect);
+  }
   for (const detection of detections) {
     const x1 = Math.min(detection.boxX1Norm, detection.boxX2Norm);
     const y1 = Math.min(detection.boxY1Norm, detection.boxY2Norm);
@@ -1096,6 +1257,74 @@ export function renderObjectDetectionsOverlay(
   }
 
   overlay.appendChild(fragment);
+}
+
+function renderFieldOfViewMask(
+  fragment: DocumentFragment,
+  fieldOfViewRect: NormalizedRectOverlay
+) {
+  const x1 = Math.min(fieldOfViewRect.minXNorm, fieldOfViewRect.maxXNorm);
+  const y1 = Math.min(fieldOfViewRect.minYNorm, fieldOfViewRect.maxYNorm);
+  const x2 = Math.max(fieldOfViewRect.minXNorm, fieldOfViewRect.maxXNorm);
+  const y2 = Math.max(fieldOfViewRect.minYNorm, fieldOfViewRect.maxYNorm);
+
+  const masks: Array<{
+    role: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }> = [
+    { role: "field-of-view-mask-top", left: 0, top: 0, width: 1, height: y1 },
+    { role: "field-of-view-mask-bottom", left: 0, top: y2, width: 1, height: 1 - y2 },
+    {
+      role: "field-of-view-mask-left",
+      left: 0,
+      top: y1,
+      width: x1,
+      height: Math.max(0, y2 - y1),
+    },
+    {
+      role: "field-of-view-mask-right",
+      left: x2,
+      top: y1,
+      width: 1 - x2,
+      height: Math.max(0, y2 - y1),
+    },
+  ];
+
+  for (const mask of masks) {
+    if (mask.width <= 0 || mask.height <= 0) {
+      continue;
+    }
+    const element = document.createElement("div");
+    element.dataset.role = mask.role;
+    Object.assign(element.style, {
+      position: "absolute",
+      left: formatOverlayPercent(mask.left),
+      top: formatOverlayPercent(mask.top),
+      width: formatOverlayPercent(mask.width),
+      height: formatOverlayPercent(mask.height),
+      background: "rgba(44, 49, 58, 0.45)",
+      backdropFilter: "grayscale(0.45)",
+      WebkitBackdropFilter: "grayscale(0.45)",
+    });
+    fragment.appendChild(element);
+  }
+
+  const windowOutline = document.createElement("div");
+  windowOutline.dataset.role = "field-of-view-window";
+  Object.assign(windowOutline.style, {
+    position: "absolute",
+    left: formatOverlayPercent(x1),
+    top: formatOverlayPercent(y1),
+    width: formatOverlayPercent(Math.max(0.001, x2 - x1)),
+    height: formatOverlayPercent(Math.max(0.001, y2 - y1)),
+    border: "1px solid rgba(255, 255, 255, 0.5)",
+    boxShadow: "inset 0 0 0 1px rgba(0, 0, 0, 0.35)",
+    borderRadius: "4px",
+  });
+  fragment.appendChild(windowOutline);
 }
 
 function formatOverlayPercent(value: number): string {
@@ -1608,6 +1837,12 @@ function normalizeStreamingImageLayer(
                 : typeof rawLayer.detections === "string"
                   ? rawLayer.detections
                   : inherited?.detectionsSource,
+            fieldOfViewSource:
+              typeof rawLayer.fieldOfViewSource === "string"
+                ? rawLayer.fieldOfViewSource
+                : typeof rawLayer.fieldOfView === "string"
+                  ? rawLayer.fieldOfView
+                  : inherited?.fieldOfViewSource,
             sourceField:
               typeof rawLayer.sourceField === "string"
                 ? rawLayer.sourceField
@@ -1659,6 +1894,10 @@ function normalizeStreamingImageLayer(
   const detectionsQualified = detectionsSource
     ? splitOptionalQualifiedFieldPath(detectionsSource, sourceModel)
     : null;
+  const fieldOfViewSource = layerInput.fieldOfViewSource?.trim();
+  const fieldOfViewQualified = fieldOfViewSource
+    ? splitOptionalQualifiedFieldPath(fieldOfViewSource, sourceModel)
+    : null;
   return {
     id: `${streamId}:${layerIndex}`,
     index: layerIndex,
@@ -1671,6 +1910,9 @@ function normalizeStreamingImageLayer(
     detectionsSourceField: detectionsQualified?.sourceField,
     detectionsSourceModel: detectionsQualified?.sourceModel,
     detectionsTelemetryModelName: detectionsQualified?.sourceModel,
+    fieldOfViewSourceField: fieldOfViewQualified?.sourceField,
+    fieldOfViewSourceModel: fieldOfViewQualified?.sourceModel,
+    fieldOfViewTelemetryModelName: fieldOfViewQualified?.sourceModel,
     sourceModel: layerInput.sourceModel ?? qualified.sourceModel,
     modelName: layerInput.modelName,
     telemetryModelName: layerInput.telemetryModelName,
@@ -1705,6 +1947,12 @@ function normalizeStreamingImageStream(
           ? streamInput.detectionsSource
           : typeof streamInput.detections === "string"
             ? streamInput.detections
+            : undefined,
+      fieldOfViewSource:
+        typeof streamInput.fieldOfViewSource === "string"
+          ? streamInput.fieldOfViewSource
+          : typeof streamInput.fieldOfView === "string"
+            ? streamInput.fieldOfView
             : undefined,
       sourceField:
         typeof streamInput.sourceField === "string"
@@ -1792,9 +2040,15 @@ function buildStreamingImageSourcesStorageSignature(
           detectionsSourceModel: source.detectionsSourceModel ?? "",
           detectionsTelemetryModelName:
             source.detectionsTelemetryModelName ?? "",
+          fieldOfViewSourceField: source.fieldOfViewSourceField ?? "",
+          fieldOfViewSourceModel: source.fieldOfViewSourceModel ?? "",
+          fieldOfViewTelemetryModelName:
+            source.fieldOfViewTelemetryModelName ?? "",
           telemetryBaseUrl: source.telemetryBaseUrl ?? "",
           detectionsTelemetryBaseUrl:
             source.detectionsTelemetryBaseUrl ?? "",
+          fieldOfViewTelemetryBaseUrl:
+            source.fieldOfViewTelemetryBaseUrl ?? "",
           transform: source.transform,
           blendMode: source.blendMode,
           opacity: source.opacity,
@@ -1886,8 +2140,27 @@ function usesSeparateDetectionsTelemetry(source: StreamingImageLayer): boolean {
   return detectionsModelName !== getSourceTelemetryModelName(source)?.trim();
 }
 
+function usesSeparateFieldOfViewTelemetry(source: StreamingImageLayer): boolean {
+  if (!source.fieldOfViewSourceField) {
+    return false;
+  }
+  if (source.fieldOfViewTelemetryBaseUrl) {
+    return true;
+  }
+
+  const fieldOfViewModelName = source.fieldOfViewTelemetryModelName?.trim();
+  if (!fieldOfViewModelName) {
+    return false;
+  }
+
+  return fieldOfViewModelName !== getSourceTelemetryModelName(source)?.trim();
+}
+
 function resetSourceRuntimeState() {
   pendingFrame = null;
+  latestFieldOfViewRect = null;
+  lastRenderedDetections = [];
+  lastRenderedFieldOfViewRect = null;
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
@@ -1921,7 +2194,10 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
   telemetryDispose = null;
   detectionsTelemetryDispose?.();
   detectionsTelemetryDispose = null;
+  fieldOfViewTelemetryDispose?.();
+  fieldOfViewTelemetryDispose = null;
   latestDetections = [];
+  latestFieldOfViewRect = null;
   layeredFrameSequenceByLayerId.clear();
   resetSourceRuntimeState();
   activeStreamingStream = stream;
@@ -1938,10 +2214,20 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
               sourceModel: layer.detectionsSourceModel,
             })
           : null;
+      const fieldOfViewTelemetryBase =
+        layer.fieldOfViewSourceField && usesSeparateFieldOfViewTelemetry(layer)
+          ? await resolveTelemetryBaseUrl({
+              telemetryBaseUrl: layer.fieldOfViewTelemetryBaseUrl,
+              telemetryModelName: layer.fieldOfViewTelemetryModelName,
+              modelName: layer.fieldOfViewSourceModel,
+              sourceModel: layer.fieldOfViewSourceModel,
+            })
+          : null;
       return {
         layer,
         telemetryBase,
         detectionsTelemetryBase,
+        fieldOfViewTelemetryBase,
       };
     })
   );
@@ -2025,12 +2311,12 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
             if (sessionId !== viewerSessionId) {
               return;
             }
+            // Keep the latest overlay telemetry cached, but let the actual
+            // overlay presentation advance with the image stream so the mask
+            // cannot run ahead of the currently displayed frame.
             latestDetections = extractObjectDetectionOverlays(
               model.getField?.(layer.detectionsSourceField!)?.getValue?.()
             );
-            if (lastFramePresentedAtMs > 0) {
-              updateObjectDetectionsOverlay(latestDetections);
-            }
           },
           error: (err) => {
             console.warn(
@@ -2047,6 +2333,51 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     detectionsTelemetryDisposers.length > 0
       ? () => {
           for (const dispose of detectionsTelemetryDisposers) {
+            dispose();
+          }
+        }
+      : null;
+
+  const fieldOfViewTelemetryDisposers: Array<() => void> = [];
+  resolvedLayers.forEach(({ layer, fieldOfViewTelemetryBase }) => {
+    if (!layer.fieldOfViewSourceField || !fieldOfViewTelemetryBase) {
+      return;
+    }
+
+    console.info(
+      `[streaming-image] Subscribing to field-of-view overlays ${fieldOfViewTelemetryBase} field ${layer.fieldOfViewSourceField} @ ${activeTelemetrySamplingRateHz}Hz`
+    );
+    fieldOfViewTelemetryDisposers.push(
+      subscribeTelemetry(
+        fieldOfViewTelemetryBase,
+        activeTelemetrySamplingRateHz,
+        {
+          callback: (model) => {
+            if (sessionId !== viewerSessionId) {
+              return;
+            }
+            // Keep the latest overlay telemetry cached, but let the actual
+            // overlay presentation advance with the image stream so the mask
+            // cannot run ahead of the currently displayed frame.
+            latestFieldOfViewRect = extractNormalizedRectOverlay(
+              model.getField?.(layer.fieldOfViewSourceField!)?.getValue?.()
+            );
+          },
+          error: (err) => {
+            console.warn(
+              `[streaming-image] Telemetry error for field-of-view overlays ${fieldOfViewTelemetryBase} (${layer.fieldOfViewSourceField})`,
+              err
+            );
+            noteTransportError();
+          },
+        }
+      )
+    );
+  });
+  fieldOfViewTelemetryDispose =
+    fieldOfViewTelemetryDisposers.length > 0
+      ? () => {
+          for (const dispose of fieldOfViewTelemetryDisposers) {
             dispose();
           }
         }
@@ -2151,6 +2482,8 @@ export async function uninit(): Promise<void> {
   telemetryDispose = null;
   detectionsTelemetryDispose?.();
   detectionsTelemetryDispose = null;
+  fieldOfViewTelemetryDispose?.();
+  fieldOfViewTelemetryDispose = null;
   viewerSessionId += 1;
   activeCanvas = null;
   activeCanvasContext = null;
@@ -2200,6 +2533,13 @@ function handleTelemetryFrame(
           model.getField?.(source.detectionsSourceField)?.getValue?.()
         )
     : [];
+  const fieldOfViewRect = source.fieldOfViewSourceField
+    ? usesSeparateFieldOfViewTelemetry(source)
+      ? latestFieldOfViewRect
+      : extractNormalizedRectOverlay(
+          model.getField?.(source.fieldOfViewSourceField)?.getValue?.()
+        )
+    : null;
   const frame = {
     mime,
     bytes,
@@ -2235,8 +2575,13 @@ function handleTelemetryFrame(
         if (!rendered) {
           return;
         }
+        if (source.fieldOfViewSourceField) {
+          latestFieldOfViewRect = fieldOfViewRect;
+        }
         if (source.detectionsSourceField) {
-          updateObjectDetectionsOverlay(detections);
+          updateObjectDetectionsOverlay(detections, fieldOfViewRect);
+        } else if (source.fieldOfViewSourceField) {
+          updateObjectDetectionsOverlay([], fieldOfViewRect);
         }
         if (source.index === 0) {
           notePresentedFrame(frame);
@@ -2249,7 +2594,15 @@ function handleTelemetryFrame(
     return;
   }
 
-  queueFrame(mime, bytes, frame.receivedAtMs, source.transform, detections);
+  queueFrame(
+    mime,
+    bytes,
+    frame.receivedAtMs,
+    source.transform,
+    detections,
+    fieldOfViewRect
+  );
+  latestFieldOfViewRect = fieldOfViewRect;
 }
 
 function setBlackFrame() {
