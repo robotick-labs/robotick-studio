@@ -648,6 +648,7 @@ describe("viewer-streaming-image detection overlays", () => {
           box_y1_norm: 0.2,
           box_x2_norm: 0.4,
           box_y2_norm: 0.6,
+          track_id: 7,
         },
         {
           class_name: "ignored",
@@ -669,6 +670,7 @@ describe("viewer-streaming-image detection overlays", () => {
         boxY1Norm: 0.2,
         boxX2Norm: 0.4,
         boxY2Norm: 0.6,
+        trackId: 7,
       },
     ]);
   });
@@ -684,6 +686,7 @@ describe("viewer-streaming-image detection overlays", () => {
         boxY1Norm: 0.2,
         boxX2Norm: 0.4,
         boxY2Norm: 0.6,
+        trackId: 7,
       },
     ]);
 
@@ -698,7 +701,7 @@ describe("viewer-streaming-image detection overlays", () => {
     expect(box?.style.top).toBe("20%");
     expect(box?.style.width).toBe("30%");
     expect(box?.style.height).toBe("40%");
-    expect(label?.textContent).toBe("chair 82%");
+    expect(label?.textContent).toBe("chair #7 82%");
     expect(label?.style.background).toContain("var(--app-panel-backdrop");
   });
 

@@ -91,6 +91,7 @@ export type ObjectDetectionOverlay = {
   boxY1Norm: number;
   boxX2Norm: number;
   boxY2Norm: number;
+  trackId?: number;
 };
 
 type StreamingImageSourceInput = {
@@ -904,6 +905,7 @@ export function extractObjectDetectionOverlays(
       boxY1Norm: clamp01(boxY1Norm),
       boxX2Norm: clamp01(boxX2Norm),
       boxY2Norm: clamp01(boxY2Norm),
+      trackId: readTrackId(rawDetection.track_id),
     });
   }
 
@@ -942,6 +944,14 @@ function readDetectionClassName(value: unknown): string {
     return value;
   }
   return "";
+}
+
+function readTrackId(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const trackId = Math.trunc(value);
+  return trackId > 0 ? trackId : undefined;
 }
 
 function clamp01(value: number): number {
@@ -1095,9 +1105,11 @@ function formatOverlayPercent(value: number): string {
 
 function formatDetectionLabel(detection: ObjectDetectionOverlay): string {
   const confidence = Math.round(clamp01(detection.confidence) * 100);
+  const trackSuffix =
+    typeof detection.trackId === "number" ? ` #${detection.trackId}` : "";
   return detection.className
-    ? `${detection.className} ${confidence}%`
-    : `${confidence}%`;
+    ? `${detection.className}${trackSuffix} ${confidence}%`
+    : `${trackSuffix.trimStart()} ${confidence}%`.trim();
 }
 
 export function applyDepthPreviewTransformToImageData(
