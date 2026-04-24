@@ -15,11 +15,6 @@ import {
 import { summarizeCadence } from "./streaming-image-metrics";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  sourceModel?: string; // legacy
-  modelName?: string;
-  telemetryModelName?: string;
-  sourceField?: string;
-  telemetryBaseUrl?: string;
   selectedStream?: string;
   streams?: Record<string, unknown>;
   frameRateHz?: number;
@@ -76,6 +71,7 @@ let transformScratchCanvas: HTMLCanvasElement | null = null;
 let transformScratchContext: CanvasRenderingContext2D | null = null;
 let createImageBitmapUnavailableReported = false;
 let activeCompositeStreamMode = false;
+let layeredFrameSequenceByLayerId = new Map<string, number>();
 
 type PendingFrame = {
   mime: string;
@@ -287,6 +283,7 @@ function resetRuntimeState() {
   transformScratchContext = null;
   createImageBitmapUnavailableReported = false;
   activeCompositeStreamMode = false;
+  layeredFrameSequenceByLayerId = new Map<string, number>();
   activeCanvasStackElement = null;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
@@ -638,7 +635,9 @@ async function renderFrameToCanvas(
   targetCanvas: HTMLCanvasElement,
   targetContext: CanvasRenderingContext2D,
   frame: PendingFrame,
-  sessionId: number
+  sessionId: number,
+  layerId?: string,
+  frameSequence?: number
 ) : Promise<boolean> {
   const safeBytes = sanitizeImageBytes(frame.mime, frame.bytes);
   if (!safeBytes) {
@@ -650,7 +649,7 @@ async function renderFrameToCanvas(
     const preview = createDepthPreviewImageDataFromPngBytes(safeBytes);
     if (preview) {
       if (
-        sessionId !== viewerSessionId ||
+        !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
         !targetCanvas ||
         !targetContext
       ) {
@@ -665,7 +664,7 @@ async function renderFrameToCanvas(
     const preview = createMaskPreviewImageDataFromPngBytes(safeBytes);
     if (preview) {
       if (
-        sessionId !== viewerSessionId ||
+        !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
         !targetCanvas ||
         !targetContext
       ) {
@@ -685,7 +684,7 @@ async function renderFrameToCanvas(
   const bitmap = await createImageBitmap(blob);
   try {
     if (
-      sessionId !== viewerSessionId ||
+      !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
       !targetCanvas ||
       !targetContext
     ) {
@@ -1372,6 +1371,20 @@ function maybeRecycleSurface(nowMs: number) {
   }
 }
 
+function isCurrentLayerFrame(
+  sessionId: number,
+  layerId?: string,
+  frameSequence?: number
+): boolean {
+  if (sessionId !== viewerSessionId) {
+    return false;
+  }
+  if (!layerId || frameSequence === undefined) {
+    return true;
+  }
+  return layeredFrameSequenceByLayerId.get(layerId) === frameSequence;
+}
+
 function startMonitorLoop() {
   if (monitorIntervalId !== null || typeof setInterval !== "function") {
     return;
@@ -1730,10 +1743,7 @@ function normalizeStreamingImageStream(
 function getStreamingImageSources(
   config: StreamingImageViewerConfig
 ): StreamingImageStream[] {
-  const streamEntries = isPlainObject(config.streams)
-    ? Object.entries(config.streams)
-    : [];
-  const configuredSources = streamEntries
+  return (isPlainObject(config.streams) ? Object.entries(config.streams) : [])
     .map(([streamId, rawSource]) => {
       const trimmedStreamId = streamId.trim();
       return trimmedStreamId
@@ -1741,19 +1751,6 @@ function getStreamingImageSources(
         : null;
     })
     .filter((source): source is StreamingImageStream => source !== null);
-
-  if (configuredSources.length > 0) {
-    return configuredSources;
-  }
-
-  const legacySource = normalizeStreamingImageStream("default", {
-    sourceModel: config.sourceModel,
-    modelName: config.modelName,
-    telemetryModelName: config.telemetryModelName,
-    sourceField: config.sourceField,
-    telemetryBaseUrl: config.telemetryBaseUrl,
-  });
-  return legacySource ? [legacySource] : [];
 }
 
 function hashString(value: string): string {
@@ -1913,6 +1910,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
   detectionsTelemetryDispose?.();
   detectionsTelemetryDispose = null;
   latestDetections = [];
+  layeredFrameSequenceByLayerId.clear();
   resetSourceRuntimeState();
   activeStreamingStream = stream;
 
@@ -1961,6 +1959,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     telemetrySamplingRateHz: activeTelemetrySamplingRateHz,
   });
 
+  const telemetryDisposers: Array<() => void> = [];
   resolvedLayers.forEach(({ layer, telemetryBase }) => {
     if (!telemetryBase) {
       return;
@@ -1982,16 +1981,22 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
         },
       }
     );
-    if (layer === primaryLayer) {
-      telemetryDispose = dispose;
-    }
+    telemetryDisposers.push(dispose);
   });
+  telemetryDispose =
+    telemetryDisposers.length > 0
+      ? () => {
+          for (const dispose of telemetryDisposers) {
+            dispose();
+          }
+        }
+      : null;
 
+  const detectionsTelemetryDisposers: Array<() => void> = [];
   resolvedLayers.forEach(({ layer, detectionsTelemetryBase }) => {
     if (
       !layer.detectionsSourceField ||
-      !detectionsTelemetryBase ||
-      detectionsTelemetryDispose
+      !detectionsTelemetryBase
     ) {
       return;
     }
@@ -1999,31 +2004,41 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     console.info(
       `[streaming-image] Subscribing to detection overlays ${detectionsTelemetryBase} field ${layer.detectionsSourceField} @ ${activeTelemetrySamplingRateHz}Hz`
     );
-    detectionsTelemetryDispose = subscribeTelemetry(
-      detectionsTelemetryBase,
-      activeTelemetrySamplingRateHz,
-      {
-        callback: (model) => {
-          if (sessionId !== viewerSessionId) {
-            return;
-          }
-          latestDetections = extractObjectDetectionOverlays(
-            model.getField?.(layer.detectionsSourceField!)?.getValue?.()
-          );
-          if (lastFramePresentedAtMs > 0) {
-            updateObjectDetectionsOverlay(latestDetections);
-          }
-        },
-        error: (err) => {
-          console.warn(
-            `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${layer.detectionsSourceField})`,
-            err
-          );
-          noteTransportError();
-        },
-      }
+    detectionsTelemetryDisposers.push(
+      subscribeTelemetry(
+        detectionsTelemetryBase,
+        activeTelemetrySamplingRateHz,
+        {
+          callback: (model) => {
+            if (sessionId !== viewerSessionId) {
+              return;
+            }
+            latestDetections = extractObjectDetectionOverlays(
+              model.getField?.(layer.detectionsSourceField!)?.getValue?.()
+            );
+            if (lastFramePresentedAtMs > 0) {
+              updateObjectDetectionsOverlay(latestDetections);
+            }
+          },
+          error: (err) => {
+            console.warn(
+              `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${layer.detectionsSourceField})`,
+              err
+            );
+            noteTransportError();
+          },
+        }
+      )
     );
   });
+  detectionsTelemetryDispose =
+    detectionsTelemetryDisposers.length > 0
+      ? () => {
+          for (const dispose of detectionsTelemetryDisposers) {
+            dispose();
+          }
+        }
+      : null;
 }
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
@@ -2064,7 +2079,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   );
   if (!activeStream) {
     console.warn(
-      "[streaming-image] Missing sourceField in viewer configuration"
+      "[streaming-image] Missing streams configuration in viewer configuration"
     );
     return;
   }
@@ -2122,6 +2137,8 @@ export async function uninit(): Promise<void> {
   flushMetricsWindow(Date.now(), true);
   telemetryDispose?.();
   telemetryDispose = null;
+  detectionsTelemetryDispose?.();
+  detectionsTelemetryDispose = null;
   viewerSessionId += 1;
   activeCanvas = null;
   activeCanvasContext = null;
@@ -2191,7 +2208,17 @@ function handleTelemetryFrame(
       return;
     }
     const renderSessionId = viewerSessionId;
-    void renderFrameToCanvas(targetCanvas, targetContext, frame, renderSessionId)
+    const frameSequence =
+      (layeredFrameSequenceByLayerId.get(source.id) ?? 0) + 1;
+    layeredFrameSequenceByLayerId.set(source.id, frameSequence);
+    void renderFrameToCanvas(
+      targetCanvas,
+      targetContext,
+      frame,
+      renderSessionId,
+      source.id,
+      frameSequence
+    )
       .then((rendered) => {
         if (!rendered) {
           return;

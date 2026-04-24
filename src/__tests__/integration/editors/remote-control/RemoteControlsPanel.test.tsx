@@ -68,6 +68,57 @@ function createPointerEvent(
   return event;
 }
 
+function setupPointerCaptureShim(): () => void {
+  const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
+  const originalReleasePointerCapture =
+    HTMLElement.prototype.releasePointerCapture;
+  const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
+  const capturedPointers = new WeakMap<HTMLElement, Set<number>>();
+
+  HTMLElement.prototype.setPointerCapture = function (pointerId: number) {
+    const captured = capturedPointers.get(this) ?? new Set<number>();
+    captured.add(pointerId);
+    capturedPointers.set(this, captured);
+  };
+  HTMLElement.prototype.releasePointerCapture = function (pointerId: number) {
+    capturedPointers.get(this)?.delete(pointerId);
+  };
+  HTMLElement.prototype.hasPointerCapture = function (pointerId: number) {
+    return capturedPointers.get(this)?.has(pointerId) ?? false;
+  };
+
+  return () => {
+    if (originalSetPointerCapture) {
+      HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
+    } else {
+      delete (
+        HTMLElement.prototype as HTMLElement & {
+          setPointerCapture?: unknown;
+        }
+      ).setPointerCapture;
+    }
+    if (originalReleasePointerCapture) {
+      HTMLElement.prototype.releasePointerCapture =
+        originalReleasePointerCapture;
+    } else {
+      delete (
+        HTMLElement.prototype as HTMLElement & {
+          releasePointerCapture?: unknown;
+        }
+      ).releasePointerCapture;
+    }
+    if (originalHasPointerCapture) {
+      HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
+    } else {
+      delete (
+        HTMLElement.prototype as HTMLElement & {
+          hasPointerCapture?: unknown;
+        }
+      ).hasPointerCapture;
+    }
+  };
+}
+
 describe("RemoteControlsPanel", () => {
   afterEach(() => {
     resetTelemetryTestState();
@@ -391,22 +442,7 @@ describe("RemoteControlsPanel", () => {
       configurable: true,
       get: () => 150,
     });
-    const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
-    const originalReleasePointerCapture =
-      HTMLElement.prototype.releasePointerCapture;
-    const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
-    const capturedPointers = new WeakMap<HTMLElement, Set<number>>();
-    HTMLElement.prototype.setPointerCapture = function (pointerId: number) {
-      const captured = capturedPointers.get(this) ?? new Set<number>();
-      captured.add(pointerId);
-      capturedPointers.set(this, captured);
-    };
-    HTMLElement.prototype.releasePointerCapture = function (pointerId: number) {
-      capturedPointers.get(this)?.delete(pointerId);
-    };
-    HTMLElement.prototype.hasPointerCapture = function (pointerId: number) {
-      return capturedPointers.get(this)?.has(pointerId) ?? false;
-    };
+    const restorePointerCapture = setupPointerCaptureShim();
 
     const telemetryModel = makeTelemetryModel();
     const telemetryService = {
@@ -561,34 +597,7 @@ describe("RemoteControlsPanel", () => {
         delete (HTMLElement.prototype as HTMLElement & { clientWidth?: unknown })
           .clientWidth;
       }
-      if (originalSetPointerCapture) {
-        HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            setPointerCapture?: unknown;
-          }
-        ).setPointerCapture;
-      }
-      if (originalReleasePointerCapture) {
-        HTMLElement.prototype.releasePointerCapture =
-          originalReleasePointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            releasePointerCapture?: unknown;
-          }
-        ).releasePointerCapture;
-      }
-      if (originalHasPointerCapture) {
-        HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            hasPointerCapture?: unknown;
-          }
-        ).hasPointerCapture;
-      }
+      restorePointerCapture();
     }
   });
 
@@ -631,22 +640,7 @@ describe("RemoteControlsPanel", () => {
       })),
       getLatestModel: vi.fn(() => telemetryModel as any),
     };
-    const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
-    const originalReleasePointerCapture =
-      HTMLElement.prototype.releasePointerCapture;
-    const originalHasPointerCapture = HTMLElement.prototype.hasPointerCapture;
-    const capturedPointers = new WeakMap<HTMLElement, Set<number>>();
-    HTMLElement.prototype.setPointerCapture = function (pointerId: number) {
-      const captured = capturedPointers.get(this) ?? new Set<number>();
-      captured.add(pointerId);
-      capturedPointers.set(this, captured);
-    };
-    HTMLElement.prototype.releasePointerCapture = function (pointerId: number) {
-      capturedPointers.get(this)?.delete(pointerId);
-    };
-    HTMLElement.prototype.hasPointerCapture = function (pointerId: number) {
-      return capturedPointers.get(this)?.has(pointerId) ?? false;
-    };
+    const restorePointerCapture = setupPointerCaptureShim();
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -770,34 +764,7 @@ describe("RemoteControlsPanel", () => {
         delete (HTMLElement.prototype as HTMLElement & { clientWidth?: unknown })
           .clientWidth;
       }
-      if (originalSetPointerCapture) {
-        HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            setPointerCapture?: unknown;
-          }
-        ).setPointerCapture;
-      }
-      if (originalReleasePointerCapture) {
-        HTMLElement.prototype.releasePointerCapture =
-          originalReleasePointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            releasePointerCapture?: unknown;
-          }
-        ).releasePointerCapture;
-      }
-      if (originalHasPointerCapture) {
-        HTMLElement.prototype.hasPointerCapture = originalHasPointerCapture;
-      } else {
-        delete (
-          HTMLElement.prototype as HTMLElement & {
-            hasPointerCapture?: unknown;
-          }
-        ).hasPointerCapture;
-      }
+      restorePointerCapture();
     }
   });
 });

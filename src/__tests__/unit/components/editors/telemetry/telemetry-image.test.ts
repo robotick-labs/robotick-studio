@@ -70,4 +70,36 @@ describe("telemetry image helpers", () => {
     expect(isTelemetryImageField(imageField)).toBe(true);
     expect(extractTelemetryImagePayload(imageField)?.mime).toBe("image/png");
   });
+
+  it("treats explicit image MIME strings case-insensitively", () => {
+    const imageField = field({
+      mime_type: " Image/JPEG ",
+      getValue: () => new Uint8Array([0xff, 0xd8, 0xaa, 0xd9]),
+    });
+
+    expect(isTelemetryImageField(imageField)).toBe(true);
+    expect(extractTelemetryImagePayload(imageField)?.mime).toBe(" Image/JPEG ");
+  });
+
+  it("treats metadata pixel formats case-insensitively", () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xaa, 0xd9, 0x00]);
+    const imageField = field({
+      fields: [
+        field({ name: "metadata", path: "camera.outputs.image.metadata" }),
+        field({ name: "count", path: "camera.outputs.image.count" }),
+        field({
+          name: "data_buffer",
+          path: "camera.outputs.image.data_buffer",
+          type: "ImageByte",
+        }),
+      ],
+      getValue: () => ({
+        metadata: { pixel_format: " jpeg " },
+        count: 4,
+        data_buffer: bytes,
+      }),
+    });
+
+    expect(extractTelemetryImagePayload(imageField)?.mime).toBe("image/jpeg");
+  });
 });

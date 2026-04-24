@@ -14,7 +14,10 @@ type CountedByteValue = {
 };
 
 export function isImageMime(mime: string | undefined): boolean {
-  return typeof mime === "string" && mime.startsWith("image/");
+  return (
+    typeof mime === "string" &&
+    mime.trim().toLowerCase().startsWith("image/")
+  );
 }
 
 export function isTelemetryImageField(field: ITelemetryField): boolean {
@@ -94,10 +97,16 @@ function imageMimeFromMetadata(
   metadata: CountedByteValue["metadata"],
 ): string | null {
   const pixelFormat = metadata?.pixel_format;
-  if (pixelFormat === 8 || pixelFormat === "Jpeg") {
+  const normalizedPixelFormat =
+    typeof pixelFormat === "string" ? pixelFormat.trim().toLowerCase() : null;
+  if (
+    pixelFormat === 8 ||
+    normalizedPixelFormat === "jpeg" ||
+    normalizedPixelFormat === "jpg"
+  ) {
     return "image/jpeg";
   }
-  if (pixelFormat === 9 || pixelFormat === "Png") {
+  if (pixelFormat === 9 || normalizedPixelFormat === "png") {
     return "image/png";
   }
   return null;

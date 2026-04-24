@@ -67,8 +67,10 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "sample-robot-sensing-visual",
-      sourceField: "camera.outputs.image.data_buffer",
+      streams: {
+        Default:
+          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+      },
       frameRateHz: 33,
     });
 
@@ -86,8 +88,10 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "sample-robot-sensing-visual",
-      sourceField: "camera.outputs.image.data_buffer",
+      streams: {
+        Default:
+          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+      },
       samplingRateHz: 24,
     });
 
@@ -105,8 +109,10 @@ describe("viewer-streaming-image frame rate config", () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      sourceModel: "sample-robot-sensing-visual",
-      sourceField: "camera.outputs.image.data_buffer",
+      streams: {
+        Default:
+          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+      },
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledWith(
@@ -309,11 +315,12 @@ describe("viewer-streaming-image stream selection", () => {
       expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
     });
 
-    expect(subscribeTelemetry.mock.calls[0][0]).toBe(
-      "http://example.test/demo-robot-simulator"
-    );
-    expect(subscribeTelemetry.mock.calls[1][0]).toBe(
-      "http://example.test/demo-robot-perception-visual"
+    const subscribedUrls = subscribeTelemetry.mock.calls.map((call) => call[0]);
+    expect(subscribedUrls).toEqual(
+      expect.arrayContaining([
+        "http://example.test/demo-robot-simulator",
+        "http://example.test/demo-robot-perception-visual",
+      ])
     );
   });
 
@@ -405,6 +412,37 @@ describe("viewer-streaming-image stream selection", () => {
     expect(
       document.querySelector('[data-role="streaming-image-layer-stack"]')
     ).not.toBeNull();
+  });
+
+  it("disposes every layer subscription when the viewer unmounts", async () => {
+    const disposers: Array<ReturnType<typeof vi.fn>> = [];
+    subscribeTelemetry.mockImplementation(() => {
+      const dispose = vi.fn();
+      disposers.push(dispose);
+      return dispose;
+    });
+
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-Composite",
+      streams: {
+        "Head-Composite": {
+          layers: [
+            "demo-robot-simulator.head_rgb_png.outputs.image",
+            "demo-robot-perception-visual.head_segmented_png.outputs.image",
+          ],
+        },
+      },
+      frameRateHz: 30,
+    });
+
+    expect(disposers).toHaveLength(2);
+
+    await uninit();
+
+    expect(disposers[0]).toHaveBeenCalledTimes(1);
+    expect(disposers[1]).toHaveBeenCalledTimes(1);
   });
 
   it("persists the selected stream across viewer reinitialisation", async () => {

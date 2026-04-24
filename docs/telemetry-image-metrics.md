@@ -14,9 +14,11 @@ Example:
 
 ```ts
 {
-  sourceModel: "sample-robot-sensing-visual",
-  sourceField: "camera.outputs.image.data_buffer",
-  telemetryPollingRateHz: 20,
+  streams: {
+    Camera: "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+  },
+  selectedStream: "Camera",
+  frameRateHz: 20,
   telemetryMetricsEnabled: true,
   telemetryMetricsWindowMs: 60000,
   frameStallTimeoutMs: 2500

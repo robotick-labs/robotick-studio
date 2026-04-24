@@ -49,10 +49,13 @@ def test_prepare_project_docker_reuses_shared_base_when_no_project_specific_imag
         yaml.safe_dump({"runtime": {"target_platform": "linux", "target_variant": "x86_64"}})
     )
 
+    def collect_image_requirement_summary(*_args, **_kwargs):
+        return ([], [], [{"model": "demo-robot-brain"}])
+
     monkeypatch.setattr(
         prepare_project_docker_module,
         "_collect_image_requirement_summary",
-        lambda *args, **kwargs: ([], [], [{"model": "demo-robot-brain"}]),
+        collect_image_requirement_summary,
     )
 
     info = prepare_project_docker(
