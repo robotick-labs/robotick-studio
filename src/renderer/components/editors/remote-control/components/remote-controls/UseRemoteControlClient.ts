@@ -169,8 +169,7 @@ class RemoteControlClient {
       true
     );
 
-    this.setupTouchEvents();
-    this.setupMouseEvents();
+    this.setupPointerEvents();
     this.setupGamepadPolling();
     this.sendFullState();
   }
@@ -215,138 +214,118 @@ class RemoteControlClient {
     this.sendFullState();
   }
 
-  private setupTouchEvents() {
-    const activeTouches: Record<
+  private setupPointerEvents() {
+    const activePointers = new Map<
       number,
       { side: StickName; startX: number; startY: number }
-    > = {};
+    >();
 
-    const touchStartedInArea = (touch: Touch, area: HTMLDivElement) => {
-      const rect = area.getBoundingClientRect();
-      return (
-        touch.clientX >= rect.left &&
-        touch.clientX <= rect.right &&
-        touch.clientY >= rect.top &&
-        touch.clientY <= rect.bottom
-      );
-    };
+    const getStick = (side: StickName) =>
+      side === "left" ? this.leftStick : this.rightStick;
 
-    const onTouchStart = (e: TouchEvent) => {
-      this.allowReadGamePad = false;
-      if (!this.controlsEnabled) return;
-      for (const touch of Array.from(e.changedTouches)) {
-        if (touchStartedInArea(touch, this.leftStick.area)) {
-          activeTouches[touch.identifier] = {
-            side: "left",
-            startX: touch.clientX,
-            startY: touch.clientY,
-          };
-        } else if (touchStartedInArea(touch, this.rightStick.area)) {
-          activeTouches[touch.identifier] = {
-            side: "right",
-            startX: touch.clientX,
-            startY: touch.clientY,
-          };
-        }
+    const resetStick = (side: StickName) => {
+      const stick = getStick(side);
+      if (this.controlsEnabled) {
+        stick.resetKnob();
+      } else {
+        stick.movePointerToCenter(true);
       }
     };
 
-    const onTouchMove = (e: TouchEvent) => {
-      if (!this.controlsEnabled) return;
-      for (const touch of Array.from(e.changedTouches)) {
-        const data = activeTouches[touch.identifier];
-        if (!data) continue;
-        const dx = touch.clientX - data.startX;
-        const dy = touch.clientY - data.startY;
-        const stick = data.side === "left" ? this.leftStick : this.rightStick;
+    const clearPointer = (pointerId: number) => {
+      const data = activePointers.get(pointerId);
+      if (!data) return;
+      resetStick(data.side);
+      activePointers.delete(pointerId);
+      if (activePointers.size === 0) {
+        this.allowReadGamePad = true;
+      }
+    };
+
+    const cancelAllPointers = () => {
+      for (const pointerId of Array.from(activePointers.keys())) {
+        clearPointer(pointerId);
+      }
+      this.allowReadGamePad = true;
+    };
+
+    const bindStickEvents = (side: StickName, area: HTMLDivElement) => {
+      const onPointerDown = (e: PointerEvent) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        this.allowReadGamePad = false;
+        if (!this.controlsEnabled) return;
+        activePointers.set(e.pointerId, {
+          side,
+          startX: e.clientX,
+          startY: e.clientY,
+        });
+        area.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+      };
+
+      const onPointerMove = (e: PointerEvent) => {
+        const data = activePointers.get(e.pointerId);
+        if (!data || !this.controlsEnabled) return;
+        const stick = getStick(data.side);
+        const dx = e.clientX - data.startX;
+        const dy = e.clientY - data.startY;
         const rect = stick.area.getBoundingClientRect();
         const centerX = rect.left + stick.area.clientWidth / 2;
         const centerY = rect.top + stick.area.clientHeight / 2;
         stick.movePointer(centerX + dx, centerY + dy, "pointer");
+        e.preventDefault();
+      };
+
+      const onPointerEnd = (e: PointerEvent) => {
+        if (!activePointers.has(e.pointerId)) return;
+        clearPointer(e.pointerId);
+        if (area.hasPointerCapture?.(e.pointerId)) {
+          area.releasePointerCapture?.(e.pointerId);
+        }
+      };
+
+      area.addEventListener("pointerdown", onPointerDown);
+      area.addEventListener("pointermove", onPointerMove);
+      area.addEventListener("pointerup", onPointerEnd);
+      area.addEventListener("pointercancel", onPointerEnd);
+      area.addEventListener("lostpointercapture", onPointerEnd);
+
+      this.cleanup.push(() =>
+        area.removeEventListener("pointerdown", onPointerDown)
+      );
+      this.cleanup.push(() =>
+        area.removeEventListener("pointermove", onPointerMove)
+      );
+      this.cleanup.push(() =>
+        area.removeEventListener("pointerup", onPointerEnd)
+      );
+      this.cleanup.push(() =>
+        area.removeEventListener("pointercancel", onPointerEnd)
+      );
+      this.cleanup.push(() =>
+        area.removeEventListener("lostpointercapture", onPointerEnd)
+      );
+    };
+
+    bindStickEvents("left", this.leftStick.area);
+    bindStickEvents("right", this.rightStick.area);
+
+    const onWindowBlur = () => {
+      cancelAllPointers();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        cancelAllPointers();
       }
     };
 
-    const handleTouchEnd = (e: TouchEvent) => {
-      this.allowReadGamePad = true;
-      if (!this.controlsEnabled) return;
-      for (const touch of Array.from(e.changedTouches)) {
-        const data = activeTouches[touch.identifier];
-        if (!data) continue;
-        const stick = data.side === "left" ? this.leftStick : this.rightStick;
-        stick.resetKnob();
-        delete activeTouches[touch.identifier];
-      }
-    };
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
-    document.addEventListener("touchstart", onTouchStart);
-    document.addEventListener("touchmove", onTouchMove);
-    document.addEventListener("touchend", handleTouchEnd);
-    document.addEventListener("touchcancel", handleTouchEnd);
-
+    this.cleanup.push(() => window.removeEventListener("blur", onWindowBlur));
     this.cleanup.push(() =>
-      document.removeEventListener("touchstart", onTouchStart)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
     );
-    this.cleanup.push(() =>
-      document.removeEventListener("touchmove", onTouchMove)
-    );
-    this.cleanup.push(() =>
-      document.removeEventListener("touchend", handleTouchEnd)
-    );
-    this.cleanup.push(() =>
-      document.removeEventListener("touchcancel", handleTouchEnd)
-    );
-  }
-
-  private setupMouseEvents() {
-    let mouseActive: StickName | null = null;
-    let mouseStartX = 0;
-    let mouseStartY = 0;
-
-    const onMouseDown = (e: MouseEvent) => {
-      this.allowReadGamePad = false;
-      if (!this.controlsEnabled) return;
-      if (this.leftStick.area.contains(e.target as Node)) {
-        mouseActive = "left";
-        mouseStartX = e.clientX;
-        mouseStartY = e.clientY;
-      } else if (this.rightStick.area.contains(e.target as Node)) {
-        mouseActive = "right";
-        mouseStartX = e.clientX;
-        mouseStartY = e.clientY;
-      }
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!mouseActive) return;
-      if (!this.controlsEnabled) return;
-      const dx = e.clientX - mouseStartX;
-      const dy = e.clientY - mouseStartY;
-      const stick = mouseActive === "left" ? this.leftStick : this.rightStick;
-      const rect = stick.area.getBoundingClientRect();
-      const centerX = rect.left + stick.area.clientWidth / 2;
-      const centerY = rect.top + stick.area.clientHeight / 2;
-      stick.movePointer(centerX + dx, centerY + dy, "pointer");
-    };
-
-    const onMouseUp = () => {
-      this.allowReadGamePad = true;
-      if (!this.controlsEnabled) return;
-      if (mouseActive === "left") this.leftStick.resetKnob();
-      else if (mouseActive === "right") this.rightStick.resetKnob();
-      mouseActive = null;
-    };
-
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-
-    this.cleanup.push(() =>
-      document.removeEventListener("mousedown", onMouseDown)
-    );
-    this.cleanup.push(() =>
-      document.removeEventListener("mousemove", onMouseMove)
-    );
-    this.cleanup.push(() => document.removeEventListener("mouseup", onMouseUp));
   }
 
   private setupGamepadPolling() {

@@ -26,6 +26,10 @@ import {
   getConnectionKindFromHint,
   getConnectionTooltip,
 } from "./field-connections";
+import {
+  extractTelemetryImagePayload,
+  isTelemetryImageField,
+} from "../utils/telemetry-image";
 
 /**
  * Produce a human-readable string representation of a telemetry field's value.
@@ -113,20 +117,8 @@ export function TelemetryStructFields({
     const capsuleClass = getConnectionCapsuleClass(connectionKind);
     const tooltipText = getConnectionTooltip(f.path, connectionHint);
 
-    // Nested struct
-    if (f.fields && f.fields.length > 0) {
-      return (
-        <div key={f.path}>
-          <b>{label}</b>
-          <div key={f.path + "_children"} style={{ marginLeft: 10 }}>
-            {f.fields.map((child) => renderField(child))}
-          </div>
-        </div>
-      );
-    }
-
     // Image field
-    if (typeof f.mime_type === "string" && f.mime_type.startsWith("image/")) {
+    if (isTelemetryImageField(f)) {
       return (
         <ImageField
           key={f.path}
@@ -136,6 +128,18 @@ export function TelemetryStructFields({
           modelName={modelName}
           panelScope={floatingScope}
         />
+      );
+    }
+
+    // Nested struct
+    if (f.fields && f.fields.length > 0) {
+      return (
+        <div key={f.path}>
+          <b>{label}</b>
+          <div key={f.path + "_children"} style={{ marginLeft: 10 }}>
+            {f.fields.map((child) => renderField(child))}
+          </div>
+        </div>
       );
     }
 
@@ -183,16 +187,14 @@ function ImageField({
   modelName?: string;
   panelScope: string;
 }) {
-  const rawValue = field.getValue();
+  const imagePayload = extractTelemetryImagePayload(field);
   const path = field.path;
   const label = field.name;
-  const mime = field.mime_type;
 
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const hasValidImageData = rawValue instanceof Uint8Array;
-  const url = useBlobURL(hasValidImageData ? rawValue : null, mime);
+  const url = useBlobURL(imagePayload?.bytes ?? null, imagePayload?.mime);
 
-  if (!hasValidImageData) {
+  if (!imagePayload) {
     return <div>{label}: &lt;invalid image data&gt;</div>;
   }
 

@@ -15,11 +15,6 @@ import {
 import { summarizeCadence } from "./streaming-image-metrics";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  sourceModel?: string; // legacy
-  modelName?: string;
-  telemetryModelName?: string;
-  sourceField?: string;
-  telemetryBaseUrl?: string;
   selectedStream?: string;
   streams?: Record<string, unknown>;
   frameRateHz?: number;
@@ -41,12 +36,15 @@ const TELEMETRY_SAMPLING_MULTIPLIER = 4;
 let telemetryDispose: (() => void) | null = null;
 let activeCanvas: HTMLCanvasElement | null = null;
 let activeCanvasContext: CanvasRenderingContext2D | null = null;
+let activeCanvasStackElement: HTMLDivElement | null = null;
 let viewerContainerElement: HTMLElement | null = null;
 let statsOverlayElement: HTMLDivElement | null = null;
+let detectionsOverlayElement: HTMLDivElement | null = null;
 let streamSelectorContainerElement: HTMLLabelElement | null = null;
 let streamSelectorElement: HTMLSelectElement | null = null;
 let activeStreamingConfig: StreamingImageViewerConfig | null = null;
-let activeStreamSources: StreamingImageSource[] = [];
+let activeStreamSources: StreamingImageStream[] = [];
+let activeStreamingStream: StreamingImageStream | null = null;
 let activeSelectedStreamStorageKey: string | null = null;
 let decodeInFlight = false;
 let monitorIntervalId: number | null = null;
@@ -60,6 +58,8 @@ let maxPresentIntervalMs = Math.floor(1000 / DEFAULT_FRAME_RATE_HZ);
 let activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
 let activeTelemetrySamplingRateHz =
   DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
+let detectionsTelemetryDispose: (() => void) | null = null;
+let latestDetections: ObjectDetectionOverlay[] = [];
 let surfaceRecycleIntervalMs = DEFAULT_SURFACE_RECYCLE_INTERVAL_MS;
 let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
@@ -70,19 +70,34 @@ let surfaceCreatedAtMs = 0;
 let transformScratchCanvas: HTMLCanvasElement | null = null;
 let transformScratchContext: CanvasRenderingContext2D | null = null;
 let createImageBitmapUnavailableReported = false;
+let activeCompositeStreamMode = false;
+let layeredFrameSequenceByLayerId = new Map<string, number>();
 
 type PendingFrame = {
   mime: string;
   bytes: Uint8Array<ArrayBuffer>;
   receivedAtMs: number;
   transform: StreamingImageTransform;
+  detections: ObjectDetectionOverlay[];
 };
 
-type StreamingImageTransform = "none" | "depth-preview";
+type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
+type StreamingImageBlendMode = "normal" | "screen" | "multiply" | "plus-lighter";
+
+export type ObjectDetectionOverlay = {
+  className: string;
+  confidence: number;
+  boxX1Norm: number;
+  boxY1Norm: number;
+  boxX2Norm: number;
+  boxY2Norm: number;
+};
 
 type StreamingImageSourceInput = {
   id?: string;
   source?: string;
+  detectionsSource?: string;
+  detections?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
@@ -91,14 +106,38 @@ type StreamingImageSourceInput = {
   transform?: StreamingImageTransform;
 };
 
-type StreamingImageSource = Required<Pick<StreamingImageSourceInput, "id">> & {
+type StreamingImageLayerInput = StreamingImageSourceInput & {
+  blendMode?: StreamingImageBlendMode;
+  opacity?: number;
+  visible?: boolean;
+};
+
+type StreamingImageLayer = Required<Pick<StreamingImageLayerInput, "id">> & {
+  index: number;
   label: string;
   sourceField: string;
   transform: StreamingImageTransform;
+  blendMode: StreamingImageBlendMode;
+  opacity: number;
+  visible: boolean;
+  detectionsSourceField?: string;
+  detectionsSourceModel?: string;
+  detectionsTelemetryModelName?: string;
+  detectionsTelemetryBaseUrl?: string;
   sourceModel?: string;
   modelName?: string;
   telemetryModelName?: string;
   telemetryBaseUrl?: string;
+};
+
+type StreamingImageStreamInput = StreamingImageLayerInput & {
+  layers?: unknown[];
+};
+
+type StreamingImageStream = {
+  id: string;
+  label: string;
+  layers: StreamingImageLayer[];
 };
 
 type MetricsWindow = {
@@ -129,6 +168,27 @@ type DepthPreviewImageData = {
   height: number;
   data: Uint8ClampedArray<ArrayBuffer>;
 };
+
+type MaskPreviewImageData = {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray<ArrayBuffer>;
+};
+
+const MASK_PREVIEW_PALETTE: ReadonlyArray<readonly [number, number, number]> = [
+  [255, 82, 82],
+  [77, 208, 225],
+  [255, 213, 79],
+  [129, 199, 132],
+  [179, 136, 255],
+  [255, 138, 101],
+  [79, 195, 247],
+  [240, 98, 146],
+  [174, 213, 129],
+  [186, 104, 200],
+  [255, 241, 118],
+  [100, 181, 246],
+];
 
 export function extractStreamingImageBytes(
   value: unknown
@@ -207,10 +267,12 @@ function createMetricsWindow(startedAtMs: number): MetricsWindow {
 
 function resetRuntimeState() {
   pendingFrame = null;
+  latestDetections = [];
   metricsWindow = null;
   metricsSourceLabel = "";
   activeStreamingConfig = null;
   activeStreamSources = [];
+  activeStreamingStream = null;
   activeSelectedStreamStorageKey = null;
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
@@ -220,6 +282,9 @@ function resetRuntimeState() {
   transformScratchCanvas = null;
   transformScratchContext = null;
   createImageBitmapUnavailableReported = false;
+  activeCompositeStreamMode = false;
+  layeredFrameSequenceByLayerId = new Map<string, number>();
+  activeCanvasStackElement = null;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
     DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER;
@@ -242,6 +307,7 @@ function publishDebugState(extra: Record<string, unknown> = {}) {
   globalHost.__robotickStreamingImageDebug = {
     metricsEnabled,
     hasOverlay: Boolean(statsOverlayElement),
+    hasDetectionsOverlay: Boolean(detectionsOverlayElement),
     hasCanvas: Boolean(activeCanvas),
     hasContainer: Boolean(viewerContainerElement),
     childCount: viewerContainerElement?.children.length ?? null,
@@ -268,12 +334,7 @@ function ensureStatsOverlay() {
   }
   cleanupStatsOverlay();
 
-  if (typeof window !== "undefined") {
-    const computed = window.getComputedStyle(viewerContainerElement).position;
-    if (!computed || computed === "static") {
-      viewerContainerElement.style.position = "relative";
-    }
-  }
+  ensureViewerContainerPositioned();
 
   const overlay = document.createElement("div");
   Object.assign(overlay.style, {
@@ -304,6 +365,60 @@ function cleanupStatsOverlay() {
   publishDebugState({ overlayCreated: false });
 }
 
+function ensureViewerContainerPositioned() {
+  if (!viewerContainerElement || typeof window === "undefined") {
+    return;
+  }
+
+  const computed = window.getComputedStyle(viewerContainerElement).position;
+  if (!computed || computed === "static") {
+    viewerContainerElement.style.position = "relative";
+  }
+}
+
+function ensureDetectionsOverlay() {
+  if (!viewerContainerElement) {
+    return null;
+  }
+  if (
+    detectionsOverlayElement &&
+    detectionsOverlayElement.isConnected &&
+    detectionsOverlayElement.parentElement === viewerContainerElement
+  ) {
+    return detectionsOverlayElement;
+  }
+
+  cleanupDetectionsOverlay();
+  ensureViewerContainerPositioned();
+
+  const overlay = document.createElement("div");
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.dataset.role = "object-detections-overlay";
+  Object.assign(overlay.style, {
+    position: "absolute",
+    inset: "0",
+    overflow: "hidden",
+    pointerEvents: "none",
+    zIndex: "998",
+    fontFamily: "var(--font-family-base, Inter, Segoe UI, system-ui, sans-serif)",
+    letterSpacing: "0",
+  });
+
+  detectionsOverlayElement = overlay;
+  viewerContainerElement.appendChild(overlay);
+  syncDetectionsOverlayBounds();
+  publishDebugState({ detectionsOverlayCreated: true });
+  return overlay;
+}
+
+function cleanupDetectionsOverlay() {
+  if (detectionsOverlayElement?.parentElement) {
+    detectionsOverlayElement.parentElement.removeChild(detectionsOverlayElement);
+  }
+  detectionsOverlayElement = null;
+  publishDebugState({ detectionsOverlayCreated: false });
+}
+
 function cleanupStreamSelector() {
   if (streamSelectorContainerElement?.parentElement) {
     streamSelectorContainerElement.parentElement.removeChild(
@@ -317,7 +432,7 @@ function cleanupStreamSelector() {
 }
 
 function ensureStreamSelector(
-  sources: StreamingImageSource[],
+  sources: StreamingImageStream[],
   selectedStreamId: string
 ) {
   if (!viewerContainerElement || sources.length <= 1) {
@@ -480,7 +595,8 @@ function queueFrame(
   mime: string,
   bytes: Uint8Array<ArrayBuffer>,
   receivedAtMs: number,
-  transform: StreamingImageTransform
+  transform: StreamingImageTransform,
+  detections: ObjectDetectionOverlay[] = []
 ) {
   if (pendingFrame && metricsWindow) {
     metricsWindow.supersededFrames += 1;
@@ -490,6 +606,7 @@ function queueFrame(
     bytes,
     receivedAtMs,
     transform,
+    detections,
   };
   lastFrameReceivedAtMs = receivedAtMs;
   stallStateActive = false;
@@ -497,6 +614,102 @@ function queueFrame(
     metricsWindow.receivedFrames += 1;
   }
   schedulePendingFramePresentation();
+}
+
+function getLayerCanvas(layerIndex: number): HTMLCanvasElement | null {
+  if (!activeCompositeStreamMode) {
+    return layerIndex === 0 ? activeCanvas : null;
+  }
+  const canvas = activeCanvasStackElement?.children.item(layerIndex);
+  return canvas instanceof HTMLCanvasElement ? canvas : null;
+}
+
+function getLayerCanvasContext(
+  layerIndex: number
+): CanvasRenderingContext2D | null {
+  const canvas = getLayerCanvas(layerIndex);
+  return canvas?.getContext("2d", { alpha: false }) ?? null;
+}
+
+async function renderFrameToCanvas(
+  targetCanvas: HTMLCanvasElement,
+  targetContext: CanvasRenderingContext2D,
+  frame: PendingFrame,
+  sessionId: number,
+  layerId?: string,
+  frameSequence?: number
+) : Promise<boolean> {
+  const safeBytes = sanitizeImageBytes(frame.mime, frame.bytes);
+  if (!safeBytes) {
+    noteTransportError();
+    return false;
+  }
+
+  if (frame.transform === "depth-preview") {
+    const preview = createDepthPreviewImageDataFromPngBytes(safeBytes);
+    if (preview) {
+      if (
+        !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
+        !targetCanvas ||
+        !targetContext
+      ) {
+        return false;
+      }
+      drawDepthPreviewImageData(targetCanvas, targetContext, preview);
+      return true;
+    }
+  }
+
+  if (frame.transform === "mask-preview") {
+    const preview = createMaskPreviewImageDataFromPngBytes(safeBytes);
+    if (preview) {
+      if (
+        !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
+        !targetCanvas ||
+        !targetContext
+      ) {
+        return false;
+      }
+      drawMaskPreviewImageData(targetCanvas, targetContext, preview);
+      return true;
+    }
+  }
+
+  if (typeof createImageBitmap !== "function") {
+    noteCreateImageBitmapUnavailable();
+    return false;
+  }
+
+  const blob = new Blob([safeBytes], { type: frame.mime });
+  const bitmap = await createImageBitmap(blob);
+  try {
+    if (
+      !isCurrentLayerFrame(sessionId, layerId, frameSequence) ||
+      !targetCanvas ||
+      !targetContext
+    ) {
+      return false;
+    }
+
+    if (
+      targetCanvas.width !== bitmap.width ||
+      targetCanvas.height !== bitmap.height
+    ) {
+      targetCanvas.width = bitmap.width;
+      targetCanvas.height = bitmap.height;
+    }
+
+    targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+    drawBitmapWithTransform(
+      targetCanvas,
+      targetContext,
+      bitmap,
+      frame.transform
+    );
+    return true;
+  } finally {
+    bitmap.close();
+  }
 }
 
 function schedulePendingFramePresentation() {
@@ -534,64 +747,17 @@ async function presentPendingFrame() {
   decodeInFlight = true;
 
   try {
-    const safeBytes = sanitizeImageBytes(frame.mime, frame.bytes);
-    if (!safeBytes) {
-      noteTransportError();
+    const rendered = await renderFrameToCanvas(
+      activeCanvas,
+      activeCanvasContext,
+      frame,
+      sessionId
+    );
+    if (!rendered) {
       return;
     }
-
-    if (frame.transform === "depth-preview") {
-      const preview = createDepthPreviewImageDataFromPngBytes(safeBytes);
-      if (preview) {
-        if (
-          sessionId !== viewerSessionId ||
-          !activeCanvas ||
-          !activeCanvasContext
-        ) {
-          return;
-        }
-        drawDepthPreviewImageData(activeCanvas, activeCanvasContext, preview);
-        notePresentedFrame(frame);
-        return;
-      }
-    }
-
-    if (typeof createImageBitmap !== "function") {
-      noteCreateImageBitmapUnavailable();
-      return;
-    }
-
-    const blob = new Blob([safeBytes], { type: frame.mime });
-    const bitmap = await createImageBitmap(blob);
-    try {
-      if (
-        sessionId !== viewerSessionId ||
-        !activeCanvas ||
-        !activeCanvasContext
-      ) {
-        return;
-      }
-
-      if (
-        activeCanvas.width !== bitmap.width ||
-        activeCanvas.height !== bitmap.height
-      ) {
-        activeCanvas.width = bitmap.width;
-        activeCanvas.height = bitmap.height;
-      }
-
-      activeCanvasContext.clearRect(0, 0, activeCanvas.width, activeCanvas.height);
-      drawBitmapWithTransform(
-        activeCanvas,
-        activeCanvasContext,
-        bitmap,
-        frame.transform
-      );
-
-      notePresentedFrame(frame);
-    } finally {
-      bitmap.close();
-    }
+    updateObjectDetectionsOverlay(frame.detections);
+    notePresentedFrame(frame);
   } catch (err) {
     console.warn("[streaming-image] Failed to decode frame", err);
     noteTransportError();
@@ -617,6 +783,26 @@ function drawDepthPreviewImageData(
   targetCanvas: HTMLCanvasElement,
   targetContext: CanvasRenderingContext2D,
   preview: DepthPreviewImageData
+) {
+  if (
+    targetCanvas.width !== preview.width ||
+    targetCanvas.height !== preview.height
+  ) {
+    targetCanvas.width = preview.width;
+    targetCanvas.height = preview.height;
+  }
+  targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  targetContext.putImageData(
+    new ImageData(preview.data, preview.width, preview.height),
+    0,
+    0
+  );
+}
+
+function drawMaskPreviewImageData(
+  targetCanvas: HTMLCanvasElement,
+  targetContext: CanvasRenderingContext2D,
+  preview: MaskPreviewImageData
 ) {
   if (
     targetCanvas.width !== preview.width ||
@@ -676,11 +862,242 @@ function drawBitmapWithTransform(
 
   if (transform === "depth-preview") {
     applyDepthPreviewTransformToImageData(imageData);
+  } else if (transform === "mask-preview") {
+    applyMaskPreviewTransformToImageData(imageData);
   }
 
   targetCanvas.width = scratchCanvas.width;
   targetCanvas.height = scratchCanvas.height;
   targetContext.putImageData(imageData, 0, 0);
+}
+
+export function extractObjectDetectionOverlays(
+  value: unknown
+): ObjectDetectionOverlay[] {
+  const rawDetections = extractRawObjectDetectionArray(value);
+  const detections: ObjectDetectionOverlay[] = [];
+
+  for (const rawDetection of rawDetections) {
+    if (!isPlainObject(rawDetection)) {
+      continue;
+    }
+
+    const boxX1Norm = readFiniteNumber(rawDetection.box_x1_norm);
+    const boxY1Norm = readFiniteNumber(rawDetection.box_y1_norm);
+    const boxX2Norm = readFiniteNumber(rawDetection.box_x2_norm);
+    const boxY2Norm = readFiniteNumber(rawDetection.box_y2_norm);
+    const confidence = readFiniteNumber(rawDetection.confidence) ?? 0;
+
+    if (
+      boxX1Norm === null ||
+      boxY1Norm === null ||
+      boxX2Norm === null ||
+      boxY2Norm === null
+    ) {
+      continue;
+    }
+
+    detections.push({
+      className: readDetectionClassName(rawDetection.class_name),
+      confidence,
+      boxX1Norm: clamp01(boxX1Norm),
+      boxY1Norm: clamp01(boxY1Norm),
+      boxX2Norm: clamp01(boxX2Norm),
+      boxY2Norm: clamp01(boxY2Norm),
+    });
+  }
+
+  return detections;
+}
+
+function extractRawObjectDetectionArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!isPlainObject(value)) {
+    return [];
+  }
+
+  const buffer = value.data_buffer;
+  if (!Array.isArray(buffer)) {
+    return [];
+  }
+
+  const count =
+    typeof value.count === "number" && Number.isFinite(value.count)
+      ? Math.max(0, Math.min(buffer.length, Math.trunc(value.count)))
+      : buffer.length;
+  return buffer.slice(0, count);
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function readDetectionClassName(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return "";
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function updateObjectDetectionsOverlay(
+  detections: readonly ObjectDetectionOverlay[]
+) {
+  const overlay = ensureDetectionsOverlay();
+  if (!overlay) {
+    return;
+  }
+  syncDetectionsOverlayBounds();
+  renderObjectDetectionsOverlay(overlay, detections);
+}
+
+function clearObjectDetectionsOverlay() {
+  if (detectionsOverlayElement) {
+    syncDetectionsOverlayBounds();
+    renderObjectDetectionsOverlay(detectionsOverlayElement, []);
+  }
+}
+
+function syncDetectionsOverlayBounds() {
+  if (!viewerContainerElement || !activeCanvas || !detectionsOverlayElement) {
+    return;
+  }
+
+  const bounds = calculateContainedImageRect(
+    activeCanvas.width,
+    activeCanvas.height,
+    activeCanvas.getBoundingClientRect(),
+    viewerContainerElement.getBoundingClientRect()
+  );
+
+  Object.assign(detectionsOverlayElement.style, {
+    inset: "auto",
+    left: `${bounds.left}px`,
+    top: `${bounds.top}px`,
+    width: `${bounds.width}px`,
+    height: `${bounds.height}px`,
+  });
+}
+
+export function calculateContainedImageRect(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRect: Pick<DOMRectReadOnly, "left" | "top" | "width" | "height">,
+  containerRect: Pick<DOMRectReadOnly, "left" | "top">
+): { left: number; top: number; width: number; height: number } {
+  const targetWidth = Math.max(0, targetRect.width);
+  const targetHeight = Math.max(0, targetRect.height);
+  const left = targetRect.left - containerRect.left;
+  const top = targetRect.top - containerRect.top;
+
+  if (
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    targetWidth <= 0 ||
+    targetHeight <= 0
+  ) {
+    return {
+      left,
+      top,
+      width: targetWidth,
+      height: targetHeight,
+    };
+  }
+
+  const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  return {
+    left: left + (targetWidth - width) / 2,
+    top: top + (targetHeight - height) / 2,
+    width,
+    height,
+  };
+}
+
+export function renderObjectDetectionsOverlay(
+  overlay: HTMLElement,
+  detections: readonly ObjectDetectionOverlay[]
+) {
+  overlay.replaceChildren();
+  if (detections.length === 0) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const detection of detections) {
+    const x1 = Math.min(detection.boxX1Norm, detection.boxX2Norm);
+    const y1 = Math.min(detection.boxY1Norm, detection.boxY2Norm);
+    const x2 = Math.max(detection.boxX1Norm, detection.boxX2Norm);
+    const y2 = Math.max(detection.boxY1Norm, detection.boxY2Norm);
+    const box = document.createElement("div");
+    box.dataset.role = "object-detection-box";
+    box.title = formatDetectionLabel(detection);
+    Object.assign(box.style, {
+      position: "absolute",
+      left: formatOverlayPercent(x1),
+      top: formatOverlayPercent(y1),
+      width: formatOverlayPercent(Math.max(0.001, x2 - x1)),
+      height: formatOverlayPercent(Math.max(0.001, y2 - y1)),
+      border: "2px solid var(--app-usage-positive, rgba(102, 204, 255, 1))",
+      borderRadius: "3px",
+      background: "rgba(102, 204, 255, 0.06)",
+      boxShadow:
+        "0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 14px rgba(102, 204, 255, 0.22)",
+    });
+
+    const label = document.createElement("div");
+    label.dataset.role = "object-detection-label";
+    label.textContent = formatDetectionLabel(detection);
+    const labelLeft = formatOverlayPercent(x1);
+    const labelTop = formatOverlayPercent(y1);
+    Object.assign(label.style, {
+      position: "absolute",
+      left: labelLeft,
+      top: y1 > 0.06 ? `calc(${labelTop} - 1.55rem)` : labelTop,
+      maxWidth: `calc(${formatOverlayPercent(1 - x1)} - 4px)`,
+      minHeight: "1.25rem",
+      padding: "2px 6px",
+      border: "1px solid var(--app-panel-border, rgba(255, 255, 255, 0.08))",
+      borderRadius: "4px",
+      background: "var(--app-panel-backdrop, rgba(7, 10, 18, 0.92))",
+      color: "var(--app-text-primary, rgba(245, 245, 245, 1))",
+      boxShadow: "0 6px 18px rgba(0, 0, 0, 0.28)",
+      backdropFilter: "var(--app-panel-blur, blur(14px))",
+      WebkitBackdropFilter: "var(--app-panel-blur, blur(14px))",
+      fontSize: "0.75rem",
+      fontWeight: "600",
+      lineHeight: "1.2",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+
+    fragment.appendChild(box);
+    fragment.appendChild(label);
+  }
+
+  overlay.appendChild(fragment);
+}
+
+function formatOverlayPercent(value: number): string {
+  const percentage = clamp01(value) * 100;
+  return `${Number(percentage.toFixed(3))}%`;
+}
+
+function formatDetectionLabel(detection: ObjectDetectionOverlay): string {
+  const confidence = Math.round(clamp01(detection.confidence) * 100);
+  return detection.className
+    ? `${detection.className} ${confidence}%`
+    : `${confidence}%`;
 }
 
 export function applyDepthPreviewTransformToImageData(
@@ -718,6 +1135,20 @@ export function applyDepthPreviewTransformToImageData(
     data[i] = preview;
     data[i + 1] = preview;
     data[i + 2] = preview;
+  }
+
+  return imageData;
+}
+
+export function applyMaskPreviewTransformToImageData(
+  imageData: ImageData
+): ImageData {
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const maskId = Math.round(
+      data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    );
+    applyMaskPreviewPixel(data, i, maskId);
   }
 
   return imageData;
@@ -792,6 +1223,75 @@ export function createDepthPreviewImageDataFromSamples(
   return { width, height, data: rgba };
 }
 
+export function createMaskPreviewImageDataFromPngBytes(
+  bytes: Uint8Array<ArrayBuffer>
+): MaskPreviewImageData | null {
+  try {
+    const decoded = decodePng(bytes);
+    if (decoded.channels < 1 || (decoded.depth !== 8 && decoded.depth !== 16)) {
+      return null;
+    }
+
+    return createMaskPreviewImageDataFromSamples(
+      decoded.width,
+      decoded.height,
+      decoded.channels,
+      decoded.data
+    );
+  } catch (err) {
+    console.warn("[streaming-image] Failed to decode mask PNG", err);
+    return null;
+  }
+}
+
+export function createMaskPreviewImageDataFromSamples(
+  width: number,
+  height: number,
+  channels: number,
+  samples: Uint8Array | Uint8ClampedArray | Uint16Array
+): MaskPreviewImageData | null {
+  if (
+    width <= 0 ||
+    height <= 0 ||
+    channels <= 0 ||
+    samples.length < width * height * channels
+  ) {
+    return null;
+  }
+
+  const rgba = new Uint8ClampedArray(
+    width * height * 4
+  ) as Uint8ClampedArray<ArrayBuffer>;
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const maskId = samples[pixelIndex * channels];
+    applyMaskPreviewPixel(rgba, pixelIndex * 4, maskId);
+  }
+
+  return { width, height, data: rgba };
+}
+
+function applyMaskPreviewPixel(
+  data: Uint8ClampedArray,
+  outputIndex: number,
+  rawMaskId: number
+) {
+  const maskId = Math.max(0, Math.round(rawMaskId));
+  if (maskId === 0) {
+    data[outputIndex] = 0;
+    data[outputIndex + 1] = 0;
+    data[outputIndex + 2] = 0;
+    data[outputIndex + 3] = 255;
+    return;
+  }
+
+  const color =
+    MASK_PREVIEW_PALETTE[(maskId - 1) % MASK_PREVIEW_PALETTE.length];
+  data[outputIndex] = color[0];
+  data[outputIndex + 1] = color[1];
+  data[outputIndex + 2] = color[2];
+  data[outputIndex + 3] = 255;
+}
+
 function sanitizeImageBytes(
   mime: string,
   bytes: Uint8Array<ArrayBuffer>
@@ -856,7 +1356,6 @@ function maybeRecycleSurface(nowMs: number) {
   if (
     !viewerContainerElement ||
     !activeCanvas ||
-    !activeCanvasContext ||
     decodeInFlight ||
     pendingFrame ||
     surfaceRecycleIntervalMs <= 0 ||
@@ -865,7 +1364,25 @@ function maybeRecycleSurface(nowMs: number) {
   ) {
     return;
   }
-  recreateCanvasSurface();
+  if (activeCompositeStreamMode && activeStreamingStream) {
+    recreateCanvasSurface(activeStreamingStream.layers);
+  } else {
+    recreateCanvasSurface();
+  }
+}
+
+function isCurrentLayerFrame(
+  sessionId: number,
+  layerId?: string,
+  frameSequence?: number
+): boolean {
+  if (sessionId !== viewerSessionId) {
+    return false;
+  }
+  if (!layerId || frameSequence === undefined) {
+    return true;
+  }
+  return layeredFrameSequenceByLayerId.get(layerId) === frameSequence;
 }
 
 function startMonitorLoop() {
@@ -884,41 +1401,96 @@ function startMonitorLoop() {
     }
     maybeHandleStall(nowMs);
     maybeRecycleSurface(nowMs);
+    syncDetectionsOverlayBounds();
     updateStatsOverlay(nowMs);
     flushMetricsWindow(nowMs);
   }, 250);
 }
 
-function recreateCanvasSurface() {
+function recreateCanvasSurface(layers: StreamingImageLayer[] = []) {
   if (!viewerContainerElement) {
     return false;
   }
 
-  const nextCanvas = document.createElement("canvas");
-  nextCanvas.id = "camera-stream";
-  nextCanvas.style.width = "100%";
-  nextCanvas.style.height = "100%";
-  nextCanvas.style.display = "block";
-  const nextContext = nextCanvas.getContext("2d", {
-    alpha: false,
-  });
-  if (!nextContext) {
-    return false;
-  }
-
+  const isLayered = layers.length > 1;
   const previousCanvas = activeCanvas;
+  const previousStack = activeCanvasStackElement;
   if (previousCanvas?.parentElement === viewerContainerElement) {
     previousCanvas.width = 1;
     previousCanvas.height = 1;
-    viewerContainerElement.removeChild(previousCanvas);
+  }
+  if (previousStack?.parentElement === viewerContainerElement) {
+    previousStack.remove();
   } else if (viewerContainerElement.firstChild) {
     cleanupStatsOverlay();
     viewerContainerElement.textContent = "";
   }
 
-  viewerContainerElement.appendChild(nextCanvas);
+  let nextCanvas: HTMLCanvasElement | null = null;
+  let nextContext: CanvasRenderingContext2D | null = null;
+
+  if (isLayered) {
+    const stack = document.createElement("div");
+    stack.dataset.role = "streaming-image-layer-stack";
+    Object.assign(stack.style, {
+      position: "absolute",
+      inset: "0",
+      overflow: "hidden",
+      isolation: "isolate",
+    });
+    activeCanvasStackElement = stack;
+    viewerContainerElement.appendChild(stack);
+
+    for (let index = 0; index < layers.length; index += 1) {
+      const layer = layers[index];
+      const canvas = document.createElement("canvas");
+      canvas.dataset.role = index === 0 ? "streaming-image-base" : "streaming-image-overlay";
+      canvas.id = index === 0 ? "camera-stream" : `camera-stream-layer-${index}`;
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      canvas.style.display = layer.visible ? "block" : "none";
+      canvas.style.objectFit = "contain";
+      canvas.style.position = "absolute";
+      canvas.style.inset = "0";
+      canvas.style.zIndex = String(10 + index);
+      canvas.style.opacity = index === 0 ? "1" : String(layer.opacity);
+      canvas.style.mixBlendMode = index === 0 ? "normal" : layer.blendMode;
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) {
+        return false;
+      }
+      if (index === 0) {
+        nextCanvas = canvas;
+        nextContext = context;
+      }
+      stack.appendChild(canvas);
+    }
+  } else {
+    const canvas = document.createElement("canvas");
+    canvas.id = "camera-stream";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.style.display = "block";
+    canvas.style.objectFit = "contain";
+    const context = canvas.getContext("2d", {
+      alpha: false,
+    });
+    if (!context) {
+      return false;
+    }
+    viewerContainerElement.appendChild(canvas);
+    nextCanvas = canvas;
+    nextContext = context;
+    activeCanvasStackElement = null;
+  }
+
+  if (!nextCanvas || !nextContext) {
+    return false;
+  }
+
   activeCanvas = nextCanvas;
   activeCanvasContext = nextContext;
+  ensureDetectionsOverlay();
   surfaceCreatedAtMs = Date.now();
   setBlackFrame();
   return true;
@@ -961,95 +1533,224 @@ function splitQualifiedFieldPath(
   };
 }
 
-function normalizeStreamingImageSource(
-  streamId: string,
-  rawSource: unknown
-): StreamingImageSource | null {
-  const sourceInput: StreamingImageSourceInput =
-    typeof rawSource === "string"
-      ? { sourceField: rawSource }
-      : isPlainObject(rawSource)
-        ? {
-            sourceModel:
-              typeof rawSource.sourceModel === "string"
-                ? rawSource.sourceModel
-                : undefined,
-            modelName:
-              typeof rawSource.modelName === "string"
-                ? rawSource.modelName
-                : undefined,
-            telemetryModelName:
-              typeof rawSource.telemetryModelName === "string"
-                ? rawSource.telemetryModelName
-                : undefined,
-            source:
-              typeof rawSource.source === "string"
-                ? rawSource.source
-                : undefined,
-            sourceField:
-              typeof rawSource.sourceField === "string"
-                ? rawSource.sourceField
-                : undefined,
-            telemetryBaseUrl:
-              typeof rawSource.telemetryBaseUrl === "string"
-                ? rawSource.telemetryBaseUrl
-                : undefined,
-            transform:
-              rawSource.transform === "depth-preview"
-                ? "depth-preview"
-                : "none",
-          }
-        : {};
+function splitOptionalQualifiedFieldPath(
+  sourceField: string,
+  fallbackSourceModel?: string
+): { sourceModel?: string; sourceField: string } {
+  const trimmedField = sourceField.trim();
+  const trimmedFallback = fallbackSourceModel?.trim();
+  if (trimmedFallback && trimmedField.startsWith(`${trimmedFallback}.`)) {
+    return splitQualifiedFieldPath(trimmedField, trimmedFallback);
+  }
 
-  const sourceField = (sourceInput.sourceField ?? sourceInput.source)?.trim();
+  const firstDotIndex = trimmedField.indexOf(".");
+  if (firstDotIndex <= 0 || firstDotIndex === trimmedField.length - 1) {
+    return {
+      sourceModel: trimmedFallback,
+      sourceField: trimmedField,
+    };
+  }
+
+  const possibleModelName = trimmedField.slice(0, firstDotIndex);
+  if (possibleModelName.includes("-")) {
+    return splitQualifiedFieldPath(trimmedField);
+  }
+
+  return {
+    sourceModel: trimmedFallback,
+    sourceField: trimmedField,
+  };
+}
+
+function normalizeStreamingImageLayer(
+  streamId: string,
+  layerIndex: number,
+  rawLayer: unknown,
+  inherited?: Partial<StreamingImageLayerInput>
+): StreamingImageLayer | null {
+  const layerInput: StreamingImageLayerInput =
+    typeof rawLayer === "string"
+      ? { ...(inherited ?? {}), sourceField: rawLayer }
+      : isPlainObject(rawLayer)
+        ? {
+            ...(inherited ?? {}),
+            sourceModel:
+              typeof rawLayer.sourceModel === "string"
+                ? rawLayer.sourceModel
+                : inherited?.sourceModel,
+            modelName:
+              typeof rawLayer.modelName === "string"
+                ? rawLayer.modelName
+                : inherited?.modelName,
+            telemetryModelName:
+              typeof rawLayer.telemetryModelName === "string"
+                ? rawLayer.telemetryModelName
+                : inherited?.telemetryModelName,
+            source:
+              typeof rawLayer.source === "string"
+                ? rawLayer.source
+                : inherited?.source,
+            detectionsSource:
+              typeof rawLayer.detectionsSource === "string"
+                ? rawLayer.detectionsSource
+                : typeof rawLayer.detections === "string"
+                  ? rawLayer.detections
+                  : inherited?.detectionsSource,
+            sourceField:
+              typeof rawLayer.sourceField === "string"
+                ? rawLayer.sourceField
+                : inherited?.sourceField,
+            telemetryBaseUrl:
+              typeof rawLayer.telemetryBaseUrl === "string"
+                ? rawLayer.telemetryBaseUrl
+                : inherited?.telemetryBaseUrl,
+            transform:
+              rawLayer.transform === "depth-preview" ||
+              rawLayer.transform === "mask-preview"
+                ? rawLayer.transform
+                : inherited?.transform ?? "none",
+            blendMode:
+              rawLayer.blendMode === "screen" ||
+              rawLayer.blendMode === "multiply" ||
+              rawLayer.blendMode === "plus-lighter"
+                ? rawLayer.blendMode
+                : inherited?.blendMode ?? "normal",
+            opacity:
+              typeof rawLayer.opacity === "number" && Number.isFinite(rawLayer.opacity)
+                ? Math.max(0, Math.min(1, rawLayer.opacity))
+                : inherited?.opacity ?? 1,
+            visible:
+              typeof rawLayer.visible === "boolean"
+                ? rawLayer.visible
+                : inherited?.visible ?? true,
+          }
+        : {
+            ...(inherited ?? {}),
+          };
+
+  const sourceField = (layerInput.sourceField ?? layerInput.source)?.trim();
   if (!sourceField) {
     return null;
   }
 
   const explicitModel =
-    sourceInput.telemetryModelName ??
-    sourceInput.modelName ??
-    sourceInput.sourceModel;
+    layerInput.telemetryModelName ??
+    layerInput.modelName ??
+    layerInput.sourceModel;
   const qualified = splitQualifiedFieldPath(sourceField, explicitModel);
+  const sourceModel =
+    layerInput.sourceModel ??
+    layerInput.modelName ??
+    layerInput.telemetryModelName ??
+    qualified.sourceModel;
+  const detectionsSource = layerInput.detectionsSource?.trim();
+  const detectionsQualified = detectionsSource
+    ? splitOptionalQualifiedFieldPath(detectionsSource, sourceModel)
+    : null;
   return {
-    id: streamId,
-    label: prettifyStreamLabel(streamId),
+    id: `${streamId}:${layerIndex}`,
+    index: layerIndex,
+    label: layerIndex === 0 ? prettifyStreamLabel(streamId) : `${prettifyStreamLabel(streamId)} ${layerIndex + 1}`,
     sourceField: qualified.sourceField,
-    transform: sourceInput.transform ?? "none",
-    sourceModel: sourceInput.sourceModel ?? qualified.sourceModel,
-    modelName: sourceInput.modelName,
-    telemetryModelName: sourceInput.telemetryModelName,
-    telemetryBaseUrl: sourceInput.telemetryBaseUrl,
+    transform: layerInput.transform ?? "none",
+    blendMode: layerInput.blendMode ?? "normal",
+    opacity: layerInput.opacity ?? 1,
+    visible: layerInput.visible ?? true,
+    detectionsSourceField: detectionsQualified?.sourceField,
+    detectionsSourceModel: detectionsQualified?.sourceModel,
+    detectionsTelemetryModelName: detectionsQualified?.sourceModel,
+    sourceModel: layerInput.sourceModel ?? qualified.sourceModel,
+    modelName: layerInput.modelName,
+    telemetryModelName: layerInput.telemetryModelName,
+    telemetryBaseUrl: layerInput.telemetryBaseUrl,
   };
+}
+
+function normalizeStreamingImageStream(
+  streamId: string,
+  rawSource: unknown
+): StreamingImageStream | null {
+  if (isPlainObject(rawSource) && Array.isArray(rawSource.layers)) {
+    const streamInput = rawSource as StreamingImageStreamInput;
+    const rawLayers = Array.isArray(streamInput.layers) ? streamInput.layers : [];
+    const inherited: Partial<StreamingImageLayerInput> = {
+      sourceModel:
+        typeof streamInput.sourceModel === "string"
+          ? streamInput.sourceModel
+          : undefined,
+      modelName:
+        typeof streamInput.modelName === "string"
+          ? streamInput.modelName
+          : undefined,
+      telemetryModelName:
+        typeof streamInput.telemetryModelName === "string"
+          ? streamInput.telemetryModelName
+          : undefined,
+      source:
+        typeof streamInput.source === "string" ? streamInput.source : undefined,
+      detectionsSource:
+        typeof streamInput.detectionsSource === "string"
+          ? streamInput.detectionsSource
+          : typeof streamInput.detections === "string"
+            ? streamInput.detections
+            : undefined,
+      sourceField:
+        typeof streamInput.sourceField === "string"
+          ? streamInput.sourceField
+          : undefined,
+      telemetryBaseUrl:
+        typeof streamInput.telemetryBaseUrl === "string"
+          ? streamInput.telemetryBaseUrl
+          : undefined,
+      transform:
+        streamInput.transform === "depth-preview" ||
+        streamInput.transform === "mask-preview"
+          ? streamInput.transform
+          : "none",
+      blendMode:
+        streamInput.blendMode === "screen" ||
+        streamInput.blendMode === "multiply" ||
+        streamInput.blendMode === "plus-lighter"
+          ? streamInput.blendMode
+          : "normal",
+      opacity:
+        typeof streamInput.opacity === "number" && Number.isFinite(streamInput.opacity)
+          ? Math.max(0, Math.min(1, streamInput.opacity))
+          : 1,
+      visible:
+        typeof streamInput.visible === "boolean" ? streamInput.visible : true,
+    };
+    const layers = rawLayers
+      .map((layer, index) => normalizeStreamingImageLayer(streamId, index, layer, inherited))
+      .filter((layer): layer is StreamingImageLayer => layer !== null);
+    if (layers.length === 0) {
+      return null;
+    }
+    if (layers.length === 1) {
+      layers[0].id = streamId;
+    }
+    return { id: streamId, label: prettifyStreamLabel(streamId), layers };
+  }
+
+  const singleLayer = normalizeStreamingImageLayer(streamId, 0, rawSource);
+  if (singleLayer) {
+    singleLayer.id = streamId;
+    return { id: streamId, label: prettifyStreamLabel(streamId), layers: [singleLayer] };
+  }
+  return null;
 }
 
 function getStreamingImageSources(
   config: StreamingImageViewerConfig
-): StreamingImageSource[] {
-  const streamEntries = isPlainObject(config.streams)
-    ? Object.entries(config.streams)
-    : [];
-  const configuredSources = streamEntries
+): StreamingImageStream[] {
+  return (isPlainObject(config.streams) ? Object.entries(config.streams) : [])
     .map(([streamId, rawSource]) => {
       const trimmedStreamId = streamId.trim();
       return trimmedStreamId
-        ? normalizeStreamingImageSource(trimmedStreamId, rawSource)
+        ? normalizeStreamingImageStream(trimmedStreamId, rawSource)
         : null;
     })
-    .filter((source): source is StreamingImageSource => source !== null);
-
-  if (configuredSources.length > 0) {
-    return configuredSources;
-  }
-
-  const legacySource = normalizeStreamingImageSource("default", {
-    sourceModel: config.sourceModel,
-    modelName: config.modelName,
-    telemetryModelName: config.telemetryModelName,
-    sourceField: config.sourceField,
-    telemetryBaseUrl: config.telemetryBaseUrl,
-  });
-  return legacySource ? [legacySource] : [];
+    .filter((source): source is StreamingImageStream => source !== null);
 }
 
 function hashString(value: string): string {
@@ -1062,26 +1763,39 @@ function hashString(value: string): string {
 }
 
 function buildStreamingImageSourcesStorageSignature(
-  sources: StreamingImageSource[]
+  sources: StreamingImageStream[]
 ): string {
   return hashString(
     JSON.stringify(
-      sources.map((source) => ({
-        id: source.id,
-        sourceModel: source.sourceModel ?? "",
-        modelName: source.modelName ?? "",
-        telemetryModelName: source.telemetryModelName ?? "",
-        sourceField: source.sourceField,
-        telemetryBaseUrl: source.telemetryBaseUrl ?? "",
-        transform: source.transform,
-      }))
+      sources.flatMap((stream) =>
+        stream.layers.map((source) => ({
+          streamId: stream.id,
+          id: source.id,
+          index: source.index,
+          sourceModel: source.sourceModel ?? "",
+          modelName: source.modelName ?? "",
+          telemetryModelName: source.telemetryModelName ?? "",
+          sourceField: source.sourceField,
+          detectionsSourceField: source.detectionsSourceField ?? "",
+          detectionsSourceModel: source.detectionsSourceModel ?? "",
+          detectionsTelemetryModelName:
+            source.detectionsTelemetryModelName ?? "",
+          telemetryBaseUrl: source.telemetryBaseUrl ?? "",
+          detectionsTelemetryBaseUrl:
+            source.detectionsTelemetryBaseUrl ?? "",
+          transform: source.transform,
+          blendMode: source.blendMode,
+          opacity: source.opacity,
+          visible: source.visible,
+        }))
+      )
     )
   );
 }
 
 function buildSelectedStreamStorageKey(
   config: StreamingImageViewerConfig,
-  sources: StreamingImageSource[]
+  sources: StreamingImageStream[]
 ): string | null {
   if (sources.length <= 1) {
     return null;
@@ -1095,7 +1809,7 @@ function buildSelectedStreamStorageKey(
 
 function readStoredSelectedStream(
   storageKey: string | null,
-  sources: StreamingImageSource[]
+  sources: StreamingImageStream[]
 ): string | null {
   if (!storageKey) {
     return null;
@@ -1117,7 +1831,15 @@ function writeStoredSelectedStream(streamId: string): void {
 export function resolveStreamingImageSource(
   config: StreamingImageViewerConfig,
   selectedStreamOverride?: string
-): StreamingImageSource | null {
+): StreamingImageLayer | null {
+  const stream = resolveStreamingImageStream(config, selectedStreamOverride);
+  return stream?.layers[0] ?? null;
+}
+
+export function resolveStreamingImageStream(
+  config: StreamingImageViewerConfig,
+  selectedStreamOverride?: string
+): StreamingImageStream | null {
   const sources = getStreamingImageSources(config);
   if (sources.length === 0) {
     return null;
@@ -1130,6 +1852,26 @@ export function resolveStreamingImageSource(
       ? sources.find((source) => source.id === selectedStream)
       : null) ?? sources[0]
   );
+}
+
+function getSourceTelemetryModelName(source: StreamingImageLayer): string | undefined {
+  return source.telemetryModelName ?? source.modelName ?? source.sourceModel;
+}
+
+function usesSeparateDetectionsTelemetry(source: StreamingImageLayer): boolean {
+  if (!source.detectionsSourceField) {
+    return false;
+  }
+  if (source.detectionsTelemetryBaseUrl) {
+    return true;
+  }
+
+  const detectionsModelName = source.detectionsTelemetryModelName?.trim();
+  if (!detectionsModelName) {
+    return false;
+  }
+
+  return detectionsModelName !== getSourceTelemetryModelName(source)?.trim();
 }
 
 function resetSourceRuntimeState() {
@@ -1151,63 +1893,152 @@ async function switchStreamingImageSource(streamId: string) {
     return;
   }
 
-  const source = resolveStreamingImageSource(config, streamId);
-  if (!source) {
+  const stream = resolveStreamingImageStream(config, streamId);
+  if (!stream) {
     return;
   }
 
-  writeStoredSelectedStream(source.id);
+  writeStoredSelectedStream(stream.id);
   viewerSessionId += 1;
-  await subscribeToStreamingImageSource(source);
+  await subscribeToStreamingImageStream(stream);
 }
 
-async function subscribeToStreamingImageSource(source: StreamingImageSource) {
+async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
   const sessionId = viewerSessionId;
-  const telemetryBase = await resolveTelemetryBaseUrl(source);
+  telemetryDispose?.();
+  telemetryDispose = null;
+  detectionsTelemetryDispose?.();
+  detectionsTelemetryDispose = null;
+  latestDetections = [];
+  layeredFrameSequenceByLayerId.clear();
+  resetSourceRuntimeState();
+  activeStreamingStream = stream;
+
+  const resolvedLayers = await Promise.all(
+    stream.layers.map(async (layer) => {
+      const telemetryBase = await resolveTelemetryBaseUrl(layer);
+      const detectionsTelemetryBase =
+        layer.detectionsSourceField && usesSeparateDetectionsTelemetry(layer)
+          ? await resolveTelemetryBaseUrl({
+              telemetryBaseUrl: layer.detectionsTelemetryBaseUrl,
+              telemetryModelName: layer.detectionsTelemetryModelName,
+              modelName: layer.detectionsSourceModel,
+              sourceModel: layer.detectionsSourceModel,
+            })
+          : null;
+      return {
+        layer,
+        telemetryBase,
+        detectionsTelemetryBase,
+      };
+    })
+  );
   if (sessionId !== viewerSessionId) {
     return;
   }
 
-  telemetryDispose?.();
-  telemetryDispose = null;
-  resetSourceRuntimeState();
-  ensureStreamSelector(activeStreamSources, source.id);
-
-  if (!telemetryBase) {
+  const primaryLayer = stream.layers[0];
+  const primaryTelemetryBase = resolvedLayers[0]?.telemetryBase ?? null;
+  if (!primaryTelemetryBase) {
     console.warn(
       "[streaming-image] Unable to resolve telemetry base URL for viewer"
     );
-    publishDebugState({ fieldPath: source.sourceField, streamId: source.id });
+    publishDebugState({ fieldPath: primaryLayer.sourceField, streamId: stream.id });
     return;
   }
 
-  metricsSourceLabel = `${telemetryBase} :: ${source.sourceField}`;
+  activeCompositeStreamMode = stream.layers.length > 1;
+  recreateCanvasSurface(stream.layers);
+  ensureStreamSelector(activeStreamSources, stream.id);
+  metricsSourceLabel = `${primaryTelemetryBase} :: ${primaryLayer.sourceField}`;
   publishDebugState({
-    telemetryBase,
-    fieldPath: source.sourceField,
-    streamId: source.id,
+    telemetryBase: primaryTelemetryBase,
+    fieldPath: primaryLayer.sourceField,
+    streamId: stream.id,
     frameRateHz: activeFrameRateHz,
     telemetrySamplingRateHz: activeTelemetrySamplingRateHz,
   });
 
-  console.info(
-    `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${source.sourceField} @ ${activeTelemetrySamplingRateHz}Hz, presenting @ ${activeFrameRateHz}Hz`
-  );
-  telemetryDispose = subscribeTelemetry(
-    telemetryBase,
-    activeTelemetrySamplingRateHz,
-    {
-      callback: (model) =>
-        handleTelemetryFrame(model, source.sourceField, source.transform),
-      error: (err) => {
-        console.warn(
-          `[streaming-image] Telemetry error for ${telemetryBase} (${source.sourceField})`,
-          err
-        );
-        noteTransportError();
-      },
+  const telemetryDisposers: Array<() => void> = [];
+  resolvedLayers.forEach(({ layer, telemetryBase }) => {
+    if (!telemetryBase) {
+      return;
     }
-  );
+    console.info(
+      `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${layer.sourceField} @ ${activeTelemetrySamplingRateHz}Hz, presenting @ ${activeFrameRateHz}Hz`
+    );
+    const dispose = subscribeTelemetry(
+      telemetryBase,
+      activeTelemetrySamplingRateHz,
+      {
+        callback: (model) => handleTelemetryFrame(model, layer),
+        error: (err) => {
+          console.warn(
+            `[streaming-image] Telemetry error for ${telemetryBase} (${layer.sourceField})`,
+            err
+          );
+          noteTransportError();
+        },
+      }
+    );
+    telemetryDisposers.push(dispose);
+  });
+  telemetryDispose =
+    telemetryDisposers.length > 0
+      ? () => {
+          for (const dispose of telemetryDisposers) {
+            dispose();
+          }
+        }
+      : null;
+
+  const detectionsTelemetryDisposers: Array<() => void> = [];
+  resolvedLayers.forEach(({ layer, detectionsTelemetryBase }) => {
+    if (
+      !layer.detectionsSourceField ||
+      !detectionsTelemetryBase
+    ) {
+      return;
+    }
+
+    console.info(
+      `[streaming-image] Subscribing to detection overlays ${detectionsTelemetryBase} field ${layer.detectionsSourceField} @ ${activeTelemetrySamplingRateHz}Hz`
+    );
+    detectionsTelemetryDisposers.push(
+      subscribeTelemetry(
+        detectionsTelemetryBase,
+        activeTelemetrySamplingRateHz,
+        {
+          callback: (model) => {
+            if (sessionId !== viewerSessionId) {
+              return;
+            }
+            latestDetections = extractObjectDetectionOverlays(
+              model.getField?.(layer.detectionsSourceField!)?.getValue?.()
+            );
+            if (lastFramePresentedAtMs > 0) {
+              updateObjectDetectionsOverlay(latestDetections);
+            }
+          },
+          error: (err) => {
+            console.warn(
+              `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${layer.detectionsSourceField})`,
+              err
+            );
+            noteTransportError();
+          },
+        }
+      )
+    );
+  });
+  detectionsTelemetryDispose =
+    detectionsTelemetryDisposers.length > 0
+      ? () => {
+          for (const dispose of detectionsTelemetryDisposers) {
+            dispose();
+          }
+        }
+      : null;
 }
 
 export async function init(viewerConfig: ViewerConfig): Promise<void> {
@@ -1241,17 +2072,18 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     streamingConfig,
     activeStreamSources
   );
-  const activeSource = resolveStreamingImageSource(
+  const activeStream = resolveStreamingImageStream(
     streamingConfig,
     readStoredSelectedStream(activeSelectedStreamStorageKey, activeStreamSources) ??
       undefined
   );
-  if (!activeSource) {
+  if (!activeStream) {
     console.warn(
-      "[streaming-image] Missing sourceField in viewer configuration"
+      "[streaming-image] Missing streams configuration in viewer configuration"
     );
     return;
   }
+  const activeSource = activeStream.layers[0];
 
   const legacyFrameRateHz =
     streamingConfig.maxPresentRateHz ?? streamingConfig.samplingRateHz;
@@ -1285,6 +2117,7 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
   publishDebugState({
     fieldPath: activeSource.sourceField,
+    streamId: activeStream.id,
     frameRateHz,
     telemetrySamplingRateHz,
   });
@@ -1295,19 +2128,22 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
     cleanupStatsOverlay();
   }
   startMonitorLoop();
-  ensureStreamSelector(activeStreamSources, activeSource.id);
-  writeStoredSelectedStream(activeSource.id);
-  await subscribeToStreamingImageSource(activeSource);
+  ensureStreamSelector(activeStreamSources, activeStream.id);
+  writeStoredSelectedStream(activeStream.id);
+  await subscribeToStreamingImageStream(activeStream);
 }
 
 export async function uninit(): Promise<void> {
   flushMetricsWindow(Date.now(), true);
   telemetryDispose?.();
   telemetryDispose = null;
+  detectionsTelemetryDispose?.();
+  detectionsTelemetryDispose = null;
   viewerSessionId += 1;
   activeCanvas = null;
   activeCanvasContext = null;
   cleanupStatsOverlay();
+  cleanupDetectionsOverlay();
   resetRuntimeState();
   if (viewerContainerElement) {
     viewerContainerElement.innerHTML = "";
@@ -1329,13 +2165,12 @@ export async function uninit(): Promise<void> {
  */
 function handleTelemetryFrame(
   model: ITelemetryModel,
-  fieldPath: string,
-  transform: StreamingImageTransform
+  source: StreamingImageLayer
 ) {
   if (!activeCanvas) {
     return;
   }
-  const field = model.getField?.(fieldPath);
+  const field = model.getField?.(source.sourceField);
   if (!field) {
     return;
   }
@@ -1346,21 +2181,91 @@ function handleTelemetryFrame(
   }
 
   const mime = resolveStreamingImageMime(field.mime_type, bytes);
-  queueFrame(mime, bytes, Date.now(), transform);
+  const detections = source.detectionsSourceField
+    ? usesSeparateDetectionsTelemetry(source)
+      ? latestDetections
+      : extractObjectDetectionOverlays(
+          model.getField?.(source.detectionsSourceField)?.getValue?.()
+        )
+    : [];
+  const frame = {
+    mime,
+    bytes,
+    receivedAtMs: Date.now(),
+    transform: source.transform,
+    detections,
+  };
+  lastFrameReceivedAtMs = frame.receivedAtMs;
+  stallStateActive = false;
+  if (metricsWindow) {
+    metricsWindow.receivedFrames += 1;
+  }
+
+  if (activeCompositeStreamMode) {
+    const targetCanvas = getLayerCanvas(source.index);
+    const targetContext = getLayerCanvasContext(source.index);
+    if (!targetCanvas || !targetContext) {
+      return;
+    }
+    const renderSessionId = viewerSessionId;
+    const frameSequence =
+      (layeredFrameSequenceByLayerId.get(source.id) ?? 0) + 1;
+    layeredFrameSequenceByLayerId.set(source.id, frameSequence);
+    void renderFrameToCanvas(
+      targetCanvas,
+      targetContext,
+      frame,
+      renderSessionId,
+      source.id,
+      frameSequence
+    )
+      .then((rendered) => {
+        if (!rendered) {
+          return;
+        }
+        if (source.detectionsSourceField) {
+          updateObjectDetectionsOverlay(detections);
+        }
+        if (source.index === 0) {
+          notePresentedFrame(frame);
+        }
+      })
+      .catch((err) => {
+        console.warn("[streaming-image] Failed to decode layered frame", err);
+        noteTransportError();
+      });
+    return;
+  }
+
+  queueFrame(mime, bytes, frame.receivedAtMs, source.transform, detections);
 }
 
 function setBlackFrame() {
-  if (!activeCanvas || !activeCanvasContext) return;
-  if (activeCanvas.width !== 1 || activeCanvas.height !== 1) {
-    activeCanvas.width = 1;
-    activeCanvas.height = 1;
+  const canvases = activeCompositeStreamMode
+    ? Array.from(
+        activeCanvasStackElement?.querySelectorAll("canvas") ?? []
+      )
+    : activeCanvas
+      ? [activeCanvas]
+      : [];
+
+  for (const canvas of canvases) {
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) {
+      continue;
+    }
+    if (canvas.width !== 1 || canvas.height !== 1) {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+    context.fillStyle = "#000";
+    context.fillRect(0, 0, 1, 1);
   }
-  activeCanvasContext.fillStyle = "#000";
-  activeCanvasContext.fillRect(0, 0, 1, 1);
+  clearObjectDetectionsOverlay();
 }
 
 async function resolveTelemetryBaseUrl(
-  config: StreamingImageSourceInput
+  config: StreamingImageLayerInput
 ): Promise<string | null> {
   const direct = config.telemetryBaseUrl?.trim();
   if (direct) return direct;

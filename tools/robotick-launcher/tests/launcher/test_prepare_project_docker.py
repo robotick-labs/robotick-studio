@@ -40,26 +40,29 @@ def test_project_cache_materialize_shell_quotes_paths():
 def test_prepare_project_docker_reuses_shared_base_when_no_project_specific_image_deps(
     tmp_path, monkeypatch
 ):
-    base_dir = tmp_path / "robots" / "barr-e"
+    base_dir = tmp_path / "robots" / "demo-robot"
     base_dir.mkdir(parents=True)
-    (base_dir / "barr-e.project.yaml").write_text(
+    (base_dir / "demo-robot.project.yaml").write_text(
         yaml.safe_dump({"runtime": {"engine": {"local_path": "../engine"}}})
     )
-    (base_dir / "barr-e-brain.model.yaml").write_text(
+    (base_dir / "demo-robot-brain.model.yaml").write_text(
         yaml.safe_dump({"runtime": {"target_platform": "linux", "target_variant": "x86_64"}})
     )
+
+    def collect_image_requirement_summary(*_args, **_kwargs):
+        return ([], [], [{"model": "demo-robot-brain"}])
 
     monkeypatch.setattr(
         prepare_project_docker_module,
         "_collect_image_requirement_summary",
-        lambda *args, **kwargs: ([], [], [{"model": "barr-e-brain"}]),
+        collect_image_requirement_summary,
     )
 
     info = prepare_project_docker(
-        "barr-e",
+        "demo-robot",
         base_dir,
         target="linux",
-        models=["barr-e-brain"],
+        models=["demo-robot-brain"],
     )
 
     assert info is not None

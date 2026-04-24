@@ -45,7 +45,7 @@ function makeWorkload(
 ): ITelemetryWorkload {
   return {
     name: "jpeg",
-    type: "ImageRefToJpegWorkload",
+    type: "ImageRefToImageWorkload",
     workloadsBufferTotalBytes: 278528,
     workloadsBufferStaticBytes: 16384,
     workloadsBufferDynamicBytes: 262144,
@@ -57,7 +57,7 @@ describe("TelemetryWorkload", () => {
   it("shows total, static, and dynamic memory when dynamic storage is used", () => {
     const tree = renderRow(<TelemetryWorkload w={makeWorkload()} />);
 
-    expect(tree.container.textContent).toContain("ImageRefToJpegWorkload");
+    expect(tree.container.textContent).toContain("ImageRefToImageWorkload");
     expect(tree.container.textContent).toContain("Memory: 278,528 bytes total");
     expect(tree.container.textContent).toContain(
       "16,384 bytes static, 262,144 bytes dynamic",

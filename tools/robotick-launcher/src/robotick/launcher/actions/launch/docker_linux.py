@@ -32,6 +32,8 @@ from robotick.launcher.utils import get_launcher_paths, run_subprocess
 X64_TARGET_VARIANTS = {"", "x64", "x86_64", "amd64", "native"}
 ARM64_TARGET_VARIANTS = {"arm64", "aarch64"}
 ARM32_TARGET_VARIANTS = {"arm32", "armhf", "armv7", "armv7hf"}
+DOCKER_PYTHON_ENV_FORWARD_FLAG = "ROBOTICK_LAUNCHER_FORWARD_DOCKER_PYTHON_ENV"
+DOCKER_PYTHON_ENV_KEYS = ("PYTHONPATH", "ROBOTICK_PYTHON_VENV")
 
 
 @dataclass(frozen=True)
@@ -296,6 +298,7 @@ def run_docker_linux(spec: DockerLinuxSpec, *, dry_run: bool) -> None:
             f"{shlex.quote(spec.container_binary_path)}; "
             "fi"
         ),
+        include_launcher_python_env=True,
     )
     _run_docker_exec(run_cmd, dry_run=dry_run)
 
@@ -519,6 +522,8 @@ def _docker_exec_command(
     spec: DockerLinuxSpec,
     working_dir: str,
     shell_command: str,
+    *,
+    include_launcher_python_env: bool = False,
 ) -> list[str]:
     """Build a docker exec command that preserves host file ownership."""
 
@@ -529,6 +534,7 @@ def _docker_exec_command(
         _resolve_docker_exec_user(),
         "-e",
         "HOME=/tmp/robotick-home",
+        *(_launcher_python_env_args() if include_launcher_python_env else []),
         "-w",
         working_dir,
         spec.container_name,
@@ -559,6 +565,7 @@ def _docker_run_command(
         "HOME=/tmp/robotick-home",
         "-e",
         "XDG_RUNTIME_DIR=/tmp/robotick-xdg-runtime",
+        *_launcher_python_env_args(),
         "-v",
         f"{spec.local_repo_root}:{spec.container_workspace_root}",
         *_runtime_device_args(spec),
@@ -569,6 +576,18 @@ def _docker_run_command(
         "-lc",
         runtime_shell_command,
     ]
+
+
+def _launcher_python_env_args() -> list[str]:
+    if os.environ.get(DOCKER_PYTHON_ENV_FORWARD_FLAG) != "1":
+        return []
+
+    args: list[str] = []
+    for key in DOCKER_PYTHON_ENV_KEYS:
+        value = os.environ.get(key)
+        if value:
+            args.extend(["-e", f"{key}={value}"])
+    return args
 
 
 def _run_docker_exec(command: list[str], *, dry_run: bool) -> None:
@@ -586,7 +605,7 @@ def _runtime_device_args(spec: DockerLinuxSpec) -> list[str]:
 
     The build-stage keepalive containers do not need host devices, but native
     local runtime models do. Without these mappings the auditory and visual
-    Barr.e workloads can start inside Docker yet fail immediately because ALSA
+    DemoBot workloads can start inside Docker yet fail immediately because ALSA
     and V4L cannot see the host's microphone/camera nodes.
     """
 

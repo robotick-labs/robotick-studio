@@ -84,7 +84,7 @@ def _docker_linux_spec(
 
 def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "alf-e"
+    project_dir = repo_root / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
 
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
@@ -94,7 +94,7 @@ def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
     (repo_root / "robotick" / "robotick-core-workloads" / "cpp" / "src").mkdir(
         parents=True
     )
-    (repo_root / "robots" / "barr-e" / "cpp" / "src").mkdir(parents=True)
+    (repo_root / "robots" / "demo-robot" / "cpp" / "src").mkdir(parents=True)
 
     project_yaml = {
         "runtime": {
@@ -103,8 +103,8 @@ def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
             },
             "workload_sources": [
                 {
-                    "id": "barr-e-workloads",
-                    "local_path": "${PROJECT_DIR}/../barr-e",
+                    "id": "demo-robot-workloads",
+                    "local_path": "${PROJECT_DIR}/../demo-robot",
                     "root_paths": ["cpp/include", "cpp/src"],
                 },
                 {
@@ -115,8 +115,8 @@ def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
             ],
         }
     }
-    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -131,17 +131,17 @@ def test_load_remote_linux_spec_resolves_remote_paths_and_root_paths(tmp_path):
         )
     )
 
-    spec = load_remote_linux_spec("alf-e", "alf-e-face", "linux", project_dir)
+    spec = load_remote_linux_spec("sample-robot", "sample-robot-face", "linux", project_dir)
 
     assert spec is not None
     assert spec.host == "raspberrypi.local"
     assert spec.remote_repo_root == "$HOME/dev/robotick/robotick-knitware"
-    assert spec.remote_project_dir.endswith("/robots/alf-e")
+    assert spec.remote_project_dir.endswith("/robots/sample-robot")
     sync_remotes = {sync.remote_path for sync in spec.sync_paths}
-    assert "$HOME/dev/robotick/robotick-knitware/robots/barr-e/cpp/src" in sync_remotes
-    assert "$HOME/dev/robotick/robotick-knitware/robots/barr-e" not in sync_remotes
+    assert "$HOME/dev/robotick/robotick-knitware/robots/demo-robot/cpp/src" in sync_remotes
+    assert "$HOME/dev/robotick/robotick-knitware/robots/demo-robot" not in sync_remotes
     assert (
-        "$HOME/dev/robotick/robotick-knitware/robots/barr-e/cpp/include"
+        "$HOME/dev/robotick/robotick-knitware/robots/demo-robot/cpp/include"
         not in sync_remotes
     )
 
@@ -186,10 +186,10 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
         target_variant="arm64",
         local_project_dir=Path("/tmp/local-project"),
         remote_repo_root="$HOME/dev/robotick/robotick-knitware",
-        remote_project_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e",
-        remote_working_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e",
-        remote_launcher_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux",
-        remote_binary_path="$HOME/dev/robotick/robotick-knitware/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        remote_project_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot",
+        remote_working_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot",
+        remote_launcher_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux",
+        remote_binary_path="$HOME/dev/robotick/robotick-knitware/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
         sync_paths=(),
     )
 
@@ -206,8 +206,8 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
     ssh_cmd, on_interrupt = calls[0]
     assert ssh_cmd[:2] == ["ssh", "raspberrypi.local"]
     assert "LD_LIBRARY_PATH=" in ssh_cmd[2]
-    assert "/generated/alf_e_face/linux/build/robotick_engine/cpp:" in ssh_cmd[2]
-    assert "/generated/alf_e_face/linux/build:$LD_LIBRARY_PATH" in ssh_cmd[2]
+    assert "/generated/sample_robot_face/linux/build/robotick_engine/cpp:" in ssh_cmd[2]
+    assert "/generated/sample_robot_face/linux/build:$LD_LIBRARY_PATH" in ssh_cmd[2]
     assert "trap cleanup INT TERM HUP EXIT" in ssh_cmd[2]
     assert "child_pid=$!" in ssh_cmd[2]
     assert 'kill -TERM "$child_pid"' in ssh_cmd[2]
@@ -216,7 +216,7 @@ def test_run_remote_linux_wraps_child_process_and_exports_library_path(monkeypat
 
 def test_load_docker_linux_spec_uses_model_scoped_container_name(tmp_path):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "pip-e"
+    project_dir = repo_root / "robots" / "example-bot"
     project_dir.mkdir(parents=True)
 
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
@@ -228,12 +228,12 @@ def test_load_docker_linux_spec_uses_model_scoped_container_name(tmp_path):
             },
         }
     }
-    (project_dir / "pip-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
-    (project_dir / "pip-e-brain.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
-    (project_dir / "pip-e-face.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
+    (project_dir / "example-bot.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "example-bot-brain.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
+    (project_dir / "example-bot-face.model.yaml").write_text(yaml.safe_dump({"runtime": {}}))
 
-    brain_spec = load_docker_linux_spec("pip-e", "pip-e-brain", "linux", project_dir)
-    face_spec = load_docker_linux_spec("pip-e", "pip-e-face", "linux", project_dir)
+    brain_spec = load_docker_linux_spec("example-bot", "example-bot-brain", "linux", project_dir)
+    face_spec = load_docker_linux_spec("example-bot", "example-bot-face", "linux", project_dir)
 
     assert brain_spec is not None
     assert face_spec is not None
@@ -327,10 +327,10 @@ def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
         target_variant="arm64",
         local_project_dir=Path("/tmp/local-project"),
         remote_repo_root="$HOME/dev/robotick/robotick-knitware",
-        remote_project_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e",
-        remote_working_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e",
-        remote_launcher_dir="$HOME/dev/robotick/robotick-knitware/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux",
-        remote_binary_path="$HOME/dev/robotick/robotick-knitware/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        remote_project_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot",
+        remote_working_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot",
+        remote_launcher_dir="$HOME/dev/robotick/robotick-knitware/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux",
+        remote_binary_path="$HOME/dev/robotick/robotick-knitware/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
         sync_paths=(),
     )
 
@@ -346,12 +346,12 @@ def test_stop_remote_linux_process_kills_existing_binary(monkeypatch):
     assert ssh_cmd[:2] == ["ssh", "raspberrypi.local"]
     assert "pkill -TERM -f" in ssh_cmd[2]
     assert "pkill -KILL -f" in ssh_cmd[2]
-    assert "alf-e-face" in ssh_cmd[2]
+    assert "sample-robot-face" in ssh_cmd[2]
 
 
 def test_stop_existing_local_process_uses_binary_path(monkeypatch):
     binary_path = Path(
-        "/tmp/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face"
+        "/tmp/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face"
     )
     stop_calls: list[tuple[Path, bool]] = []
 
@@ -443,7 +443,7 @@ def test_run_dry_run_local_path_does_not_launch_binary(monkeypatch, tmp_path):
 
 def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_path):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "alf-e"
+    project_dir = repo_root / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
 
@@ -454,8 +454,8 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
             },
         }
     }
-    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -467,7 +467,7 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
         )
     )
 
-    spec = load_docker_linux_arm64_spec("alf-e", "alf-e-face", "linux", project_dir)
+    spec = load_docker_linux_arm64_spec("sample-robot", "sample-robot-face", "linux", project_dir)
 
     assert spec is not None
     assert spec.dockerfile.name == "robotick-debian12-cross-linux-arm64.Dockerfile"
@@ -481,7 +481,7 @@ def test_load_docker_linux_arm64_spec_points_at_shared_engine_dockerfile(tmp_pat
     )
     assert spec.container_name.startswith("robotick-launcher-linux-arm64-build-")
     assert spec.container_launcher_dir.endswith(
-        "/robots/alf-e/.launcher/alf_e/generated/alf_e_face/linux"
+        "/robots/sample-robot/.launcher/sample_robot/generated/sample_robot_face/linux"
     )
 
 
@@ -491,8 +491,8 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm64:latest",
         dockerfile="/tmp/robotick-debian12-cross-linux-arm64.Dockerfile",
         container_name="robotick-launcher-linux-arm64-build-test",
-        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
+        binary_path="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
     )
     ensure_calls: list[tuple[DockerLinuxArm64Spec, bool]] = []
     run_calls: list[list[str]] = []
@@ -530,7 +530,7 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm64-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps && mkdir -p /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -540,7 +540,7 @@ def test_build_docker_linux_arm64_execs_inside_keepalive_container(monkeypatch):
             "-e",
             "HOME=/tmp/robotick-home",
             "-w",
-            "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+            "/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
             "robotick-launcher-linux-arm64-build-test",
             "bash",
             "-lc",
@@ -592,8 +592,8 @@ def test_ensure_docker_linux_arm64_image_reuses_local_latest_by_default(monkeypa
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm64:latest",
         dockerfile="/tmp/robotick-debian12-cross-linux-arm64.Dockerfile",
         container_name="robotick-launcher-linux-arm64-build-test",
-        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
+        binary_path="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
     )
     pull_calls: list[list[str]] = []
 
@@ -610,7 +610,7 @@ def test_ensure_docker_linux_arm64_image_reuses_local_latest_by_default(monkeypa
 
 def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_path):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "alf-e"
+    project_dir = repo_root / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
 
@@ -621,8 +621,8 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
             },
         }
     }
-    (project_dir / "alf-e.project.yaml").write_text(yaml.safe_dump(project_yaml))
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(yaml.safe_dump(project_yaml))
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -634,7 +634,7 @@ def test_load_docker_linux_arm32_spec_points_at_shared_engine_dockerfile(tmp_pat
         )
     )
 
-    spec = load_docker_linux_arm32_spec("alf-e", "alf-e-face", "linux", project_dir)
+    spec = load_docker_linux_arm32_spec("sample-robot", "sample-robot-face", "linux", project_dir)
 
     assert spec is not None
     assert spec.dockerfile == (
@@ -654,8 +654,8 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
         dockerfile="/tmp/robotick-debian12-cross-linux-arm32.Dockerfile",
         container_name="robotick-launcher-linux-arm32-build-test",
-        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
+        binary_path="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
     )
     ensure_calls: list[tuple[DockerLinuxArm32Spec, bool]] = []
     run_calls: list[list[str]] = []
@@ -693,7 +693,7 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
             "robotick-launcher-linux-arm32-build-test",
             "bash",
             "-lc",
-            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && mkdir -p /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/deps/; fi",
+            "if [[ -d /opt/robotick/project-target-cache/deps ]]; then rm -rf /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps && mkdir -p /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps && cp -a /opt/robotick/project-target-cache/deps/. /tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/deps/; fi",
         ],
         [
             "docker",
@@ -703,7 +703,7 @@ def test_build_docker_linux_arm32_execs_inside_keepalive_container(monkeypatch):
             "-e",
             "HOME=/tmp/robotick-home",
             "-w",
-            "/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
+            "/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
             "robotick-launcher-linux-arm32-build-test",
             "bash",
             "-lc",
@@ -718,8 +718,8 @@ def test_ensure_docker_linux_arm32_image_reuses_local_latest_by_default(monkeypa
         image_name="ghcr.io/robotick-labs/robotick-debian12-cross-linux-arm32:latest",
         dockerfile="/tmp/robotick-debian12-cross-linux-arm32.Dockerfile",
         container_name="robotick-launcher-linux-arm32-build-test",
-        launcher_dir="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux",
-        binary_path="/tmp/repo/.launcher/alf_e/generated/alf_e_face/linux/build/alf-e-face",
+        launcher_dir="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux",
+        binary_path="/tmp/repo/.launcher/sample_robot/generated/sample_robot_face/linux/build/sample-robot-face",
     )
     pull_calls: list[list[str]] = []
 
@@ -738,11 +738,11 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
     tmp_path,
 ):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "alf-e"
+    project_dir = repo_root / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -753,7 +753,7 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
             }
         )
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -765,7 +765,7 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi5_models(
         )
     )
 
-    plan = resolve_target_plan("alf-e", "alf-e-face", "linux", project_dir)
+    plan = resolve_target_plan("sample-robot", "sample-robot-face", "linux", project_dir)
 
     assert plan.build.strategy == CONTAINER_STRATEGY
     assert plan.deploy.strategy == REMOTE_STRATEGY
@@ -776,11 +776,11 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(
     tmp_path,
 ):
     repo_root = tmp_path / "repo"
-    project_dir = repo_root / "robots" / "alf-e"
+    project_dir = repo_root / "robots" / "sample-robot"
     project_dir.mkdir(parents=True)
     (repo_root / "robotick" / "robotick-engine").mkdir(parents=True)
 
-    (project_dir / "alf-e.project.yaml").write_text(
+    (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -791,7 +791,7 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(
             }
         )
     )
-    (project_dir / "alf-e-face.model.yaml").write_text(
+    (project_dir / "sample-robot-face.model.yaml").write_text(
         yaml.safe_dump(
             {
                 "runtime": {
@@ -803,7 +803,7 @@ def test_resolve_target_plan_prefers_docker_build_and_remote_run_for_pi2_models(
         )
     )
 
-    plan = resolve_target_plan("alf-e", "alf-e-face", "linux", project_dir)
+    plan = resolve_target_plan("sample-robot", "sample-robot-face", "linux", project_dir)
 
     assert plan.build.strategy == CONTAINER_STRATEGY
     assert plan.deploy.strategy == REMOTE_STRATEGY
@@ -1202,6 +1202,58 @@ def test_run_docker_linux_x64_execs_run_script_inside_keepalive_container(monkey
         in run_calls[0][24]
     )
     assert "bash ./do_launcher_run.sh" in run_calls[0][24]
+
+
+def test_runtime_docker_commands_forward_marked_python_env(monkeypatch):
+    spec = _docker_linux_spec(
+        family="linux-x64",
+        image_name="ghcr.io/robotick-labs/robotick-ubuntu24.04-native-linux:latest",
+        dockerfile="/tmp/robotick-ubuntu24.04-native-linux.Dockerfile",
+        container_name="robotick-launcher-linux-x64-build-test",
+        launcher_dir="/tmp/repo/.launcher/proj/generated/proj_face/linux",
+        binary_path="/tmp/repo/.launcher/proj/generated/proj_face/linux/build/proj-face",
+        supports_runtime=True,
+    )
+    monkeypatch.setenv(
+        docker_linux_module.DOCKER_PYTHON_ENV_FORWARD_FLAG,
+        "1",
+    )
+    monkeypatch.setenv("PYTHONPATH", "/tmp/site-packages:/repo/robots/demo-robot/python")
+    monkeypatch.setenv("ROBOTICK_PYTHON_VENV", "/tmp/venv")
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux.os.getuid",
+        lambda: 1234,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux.os.getgid",
+        lambda: 5678,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux._runtime_device_args",
+        lambda spec: [],
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.actions.launch.docker_linux._runtime_group_add_args",
+        lambda spec: [],
+    )
+
+    run_command = docker_linux_module._docker_run_command(
+        spec,
+        "/tmp/repo/robots/proj",
+        "bash ./do_launcher_run.sh",
+    )
+    exec_command = docker_linux_module._docker_exec_command(
+        spec,
+        "/tmp/repo/robots/proj",
+        "bash ./do_launcher_run.sh",
+        include_launcher_python_env=True,
+    )
+
+    assert "-e" in run_command
+    assert "PYTHONPATH=/tmp/site-packages:/repo/robots/demo-robot/python" in run_command
+    assert "ROBOTICK_PYTHON_VENV=/tmp/venv" in run_command
+    assert "PYTHONPATH=/tmp/site-packages:/repo/robots/demo-robot/python" in exec_command
+    assert "ROBOTICK_PYTHON_VENV=/tmp/venv" in exec_command
 
 
 def test_prepare_runtime_shell_command_adds_alsa_bootstrap_for_local_runtime(monkeypatch):

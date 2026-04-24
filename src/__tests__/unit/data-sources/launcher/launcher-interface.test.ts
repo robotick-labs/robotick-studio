@@ -58,43 +58,43 @@ describe("launcher-interface gateway telemetry resolution", () => {
       const modelPath = url.searchParams.get("model_path");
 
       if (path === "/query/list-project-models") {
-        expect(projectPath).toBe("/tmp/alf-e");
+        expect(projectPath).toBe("/tmp/sample-robot");
         return createJsonResponse([
-          "models/alf-e-face.model.yaml",
-          "models/alf-e-spine.model.yaml",
+          "models/sample-robot-face.model.yaml",
+          "models/sample-robot-spine.model.yaml",
         ]);
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-face.model.yaml"
+        modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
         );
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-spine.model.yaml"
+        modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
         );
       }
 
       if (path === "/api/telemetry-gateway/models") {
         expect(url.origin).toBe("http://192.168.5.16:7103");
         return createJsonResponse({
-          gateway_model_id: "alf-e-face",
+          gateway_model_id: "sample-robot-face",
           models: [
             {
-              model_id: "alf-e-face",
-              telemetry_path: "/api/telemetry-gateway/alf-e-face",
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
             },
             {
-              model_id: "alf-e-spine",
-              telemetry_path: "/api/telemetry-gateway/alf-e-spine",
+              model_id: "sample-robot-spine",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-spine",
             },
           ],
         });
@@ -108,16 +108,16 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const launcherInterface =
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
-    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+    const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
     const byName = new Map(
       models.map((model) => [model.modelShortName, model]),
     );
 
-    expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-face",
+    expect(byName.get("sample-robot-face")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
     );
-    expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-spine",
+    expect(byName.get("sample-robot-spine")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-spine",
     );
   });
 
@@ -129,26 +129,26 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
       if (path === "/query/list-project-models") {
         return createJsonResponse([
-          "models/alf-e-face.model.yaml",
-          "models/alf-e-spine.model.yaml",
+          "models/sample-robot-face.model.yaml",
+          "models/sample-robot-spine.model.yaml",
         ]);
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-face.model.yaml"
+        modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
         );
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-spine.model.yaml"
+        modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
         );
       }
 
@@ -170,16 +170,16 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const launcherInterface =
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
-    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+    const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
     const byName = new Map(
       models.map((model) => [model.modelShortName, model]),
     );
 
-    expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-face",
+    expect(byName.get("sample-robot-face")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
     );
-    expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
-      "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-spine",
+    expect(byName.get("sample-robot-spine")?.telemetryBaseUrl).toBe(
+      "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-spine",
     );
   });
 
@@ -198,41 +198,41 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
       if (path === "/query/list-project-models") {
         return createJsonResponse([
-          "models/alf-e-face.model.yaml",
-          "models/alf-e-spine.model.yaml",
+          "models/sample-robot-face.model.yaml",
+          "models/sample-robot-spine.model.yaml",
         ]);
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-face.model.yaml"
+        modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
         );
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-spine.model.yaml"
+        modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
         );
       }
 
       if (path === "/api/telemetry-gateway/models") {
         expect(url.origin).toBe("http://localhost:7103");
         return createJsonResponse({
-          gateway_model_id: "alf-e-face",
+          gateway_model_id: "sample-robot-face",
           models: [
             {
-              model_id: "alf-e-face",
-              telemetry_path: "/api/telemetry-gateway/alf-e-face",
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
             },
             {
-              model_id: "alf-e-spine",
-              telemetry_path: "/api/telemetry-gateway/alf-e-spine",
+              model_id: "sample-robot-spine",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-spine",
             },
           ],
         });
@@ -246,16 +246,16 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const launcherInterface =
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
-    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+    const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
     const byName = new Map(
       models.map((model) => [model.modelShortName, model]),
     );
 
-    expect(byName.get("alf-e-face")?.telemetryBaseUrl).toBe(
-      "http://localhost:7103/api/telemetry-gateway/alf-e-face",
+    expect(byName.get("sample-robot-face")?.telemetryBaseUrl).toBe(
+      "http://localhost:7103/api/telemetry-gateway/sample-robot-face",
     );
-    expect(byName.get("alf-e-spine")?.telemetryBaseUrl).toBe(
-      "http://localhost:7103/api/telemetry-gateway/alf-e-spine",
+    expect(byName.get("sample-robot-spine")?.telemetryBaseUrl).toBe(
+      "http://localhost:7103/api/telemetry-gateway/sample-robot-spine",
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:7103/api/telemetry-gateway/models",
@@ -279,38 +279,38 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
       if (path === "/query/list-project-models") {
         return createJsonResponse([
-          "models/alf-e-face.model.yaml",
-          "models/alf-e-spine.model.yaml",
+          "models/sample-robot-face.model.yaml",
+          "models/sample-robot-spine.model.yaml",
         ]);
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-face.model.yaml"
+        modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
         );
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-spine.model.yaml"
+        modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
         );
       }
 
       if (path === "/api/telemetry-gateway/models") {
         return createJsonResponse({
-          gateway_model_id: "alf-e-face",
+          gateway_model_id: "sample-robot-face",
           models: [
             {
-              model_id: "alf-e-face",
-              telemetry_path: "/api/telemetry-gateway/alf-e-face",
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
             },
-            { model_id: "alf-e-spine", telemetry_path: "/api/telemetry-gateway/alf-e-spine" },
+            { model_id: "sample-robot-spine", telemetry_path: "/api/telemetry-gateway/sample-robot-spine" },
           ],
         });
       }
@@ -323,20 +323,20 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const launcherInterface =
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
-    const nativeModels = await launcherInterface.getProjectModels("/tmp/alf-e");
+    const nativeModels = await launcherInterface.getProjectModels("/tmp/sample-robot");
     expect(
-      nativeModels.find((model) => model.modelShortName === "alf-e-spine")
+      nativeModels.find((model) => model.modelShortName === "sample-robot-spine")
         ?.telemetryBaseUrl,
-    ).toBe("http://192.168.5.16:7103/api/telemetry-gateway/alf-e-spine");
+    ).toBe("http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-spine");
 
     launcherProfile = "local:ALL";
     launcherInterface.default.setLauncherProfile("local:ALL");
 
-    const localModels = await launcherInterface.getProjectModels("/tmp/alf-e");
+    const localModels = await launcherInterface.getProjectModels("/tmp/sample-robot");
     expect(
-      localModels.find((model) => model.modelShortName === "alf-e-spine")
+      localModels.find((model) => model.modelShortName === "sample-robot-spine")
         ?.telemetryBaseUrl,
-    ).toBe("http://localhost:7103/api/telemetry-gateway/alf-e-spine");
+    ).toBe("http://localhost:7103/api/telemetry-gateway/sample-robot-spine");
     expect(setStorageValue).toHaveBeenCalledWith(
       "robotick-studio.launcherProfile",
       "local:ALL",
@@ -349,11 +349,11 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
     expect(
       launcherInterface.buildUrl(
-        "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-face",
+        "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
         "/api/telemetry/workloads_buffer/layout",
       ),
     ).toBe(
-      "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-face/workloads_buffer/layout",
+      "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face/workloads_buffer/layout",
     );
   });
 
@@ -363,10 +363,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
     expect(
       launcherInterface.buildWebSocketUrl(
-        "http://192.168.5.16:7103/api/telemetry-gateway/alf-e-face",
+        "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
         "/api/telemetry/ws",
       ),
-    ).toBe("ws://192.168.5.16:7103/api/telemetry-gateway/alf-e-face/ws");
+    ).toBe("ws://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face/ws");
   });
 
   it("resolves stored project basenames to absolute project paths before run requests", async () => {
@@ -375,13 +375,13 @@ describe("launcher-interface gateway telemetry resolution", () => {
         const url = new URL(String(input));
 
         if (url.pathname === "/query/list-projects") {
-          return createJsonResponse(["robots/alf-e/alf-e.project.yaml"]);
+          return createJsonResponse(["robots/sample-robot/sample-robot.project.yaml"]);
         }
 
         if (url.pathname === "/launcher/run") {
           expect(init?.method).toBe("POST");
           expect(url.searchParams.get("project_path")).toBe(
-            "/workspace/robots/alf-e/alf-e.project.yaml",
+            "/workspace/robots/sample-robot/sample-robot.project.yaml",
           );
           expect(url.searchParams.get("profile")).toBe("native:ALL");
           return createJsonResponse({ status: "launching" });
@@ -404,7 +404,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
     await launcherInterface.requestLauncherRun(
-      "alf-e.project.yaml",
+      "sample-robot.project.yaml",
       "native:ALL",
     );
 
@@ -418,15 +418,15 @@ describe("launcher-interface gateway telemetry resolution", () => {
       const modelPath = url.searchParams.get("model_path");
 
       if (path === "/query/list-project-models") {
-        return createJsonResponse(["models/alf-e-spine.model.yaml"]);
+        return createJsonResponse(["models/sample-robot-spine.model.yaml"]);
       }
 
       if (
         path === "/query/get-model" &&
-        modelPath === "models/alf-e-spine.model.yaml"
+        modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("Alf.e Spine", 7104, "10.42.0.2", {
+          createModel("SampleBot Spine", 7104, "10.42.0.2", {
             preferredSampleRateHz: 7.5,
           }),
         );
@@ -440,7 +440,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const launcherInterface =
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
-    const models = await launcherInterface.refreshProjectModels("/tmp/alf-e");
+    const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
 
     expect(models).toHaveLength(1);
     expect(models[0]?.preferredTelemetrySampleRateHz).toBe(7.5);

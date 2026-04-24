@@ -30,6 +30,7 @@ import {
   formatEnumArrayPreview,
   formatEnumNumber,
 } from "../utils/telemetry-formatters";
+import { extractTelemetryImagePayload } from "../utils/telemetry-image";
 import {
   deriveWorkloadStats,
   formatDurationMs,
@@ -688,6 +689,10 @@ function useTelemetryValueReader() {
 }
 
 function formatNodeSummary(field: ITelemetryField, hasChildren: boolean): string {
+  const imagePayload = extractTelemetryImagePayload(field);
+  if (imagePayload) {
+    return `<image ${imagePayload.bytes.byteLength} bytes>`;
+  }
   if (field.elementCount > 1) {
     return `[${field.elementCount} items]`;
   }

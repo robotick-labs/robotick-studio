@@ -14,6 +14,10 @@ import {
 } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
 import { useBlobURL } from "../view/telemetry-image-blobs";
+import {
+  extractTelemetryImagePayload,
+  isTelemetryImageField,
+} from "../utils/telemetry-image";
 import styles from "./TelemetryImageViewer.module.css";
 import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
 import {
@@ -243,10 +247,10 @@ export default function TelemetryImageViewer() {
     return model.getField(fieldPath) ?? null;
   }, [model, fieldPath]);
 
-  const value = field?.getValue();
+  const imagePayload = extractTelemetryImagePayload(field);
   const blobUrl = useBlobURL(
-    value instanceof Uint8Array ? value : null,
-    field?.mime_type
+    imagePayload?.bytes ?? null,
+    imagePayload?.mime
   );
 
   const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -352,17 +356,17 @@ function collectImageFields(
 ): void {
   for (const field of fields) {
     if (out.length >= MAX_FIELD_OPTIONS) return;
-    if (field.fields && field.fields.length > 0) {
-      collectImageFields(field.fields, out, seen);
-      continue;
-    }
     if (seen.has(field.path)) continue;
-    if (field.mime_type && field.mime_type.startsWith("image/")) {
+    if (isTelemetryImageField(field)) {
       seen.add(field.path);
       out.push({
         path: field.path,
         label: formatFieldLabel(field.path),
       });
+      continue;
+    }
+    if (field.fields && field.fields.length > 0) {
+      collectImageFields(field.fields, out, seen);
     }
   }
 }
@@ -383,7 +387,7 @@ function getStruct(
 
 function hasImageField(fields: ITelemetryField[]): boolean {
   for (const field of fields) {
-    if (field.mime_type && field.mime_type.startsWith("image/")) {
+    if (isTelemetryImageField(field)) {
       return true;
     }
     if (field.fields && field.fields.length > 0) {

@@ -472,7 +472,7 @@ def test_prepare_codegen_model_data_preserves_remote_mode_and_channel():
             "workloads": [],
             "remote_models": [
                 {
-                    "name": "alf-e-spine",
+                    "name": "sample-robot-spine",
                     "mode": "IP",
                     "channel": "10.42.0.2",
                     "connections": [
@@ -490,15 +490,15 @@ def test_prepare_codegen_model_data_preserves_remote_mode_and_channel():
 
     assert remote_models == [
         {
-            "name": "alf-e-spine",
-            "name_safe": "alf_e_spine",
+            "name": "sample-robot-spine",
+            "name_safe": "sample_robot_spine",
             "mode": "IP",
             "channel": "10.42.0.2",
             "connections": [
                 {
                     "from": "rc.outputs.x",
                     "to_remote": "spine.inputs.x",
-                    "var_name": "alf_e_spine_conn_rc_outputs_x__to__spine_inputs_x",
+                    "var_name": "sample_robot_spine_conn_rc_outputs_x__to__spine_inputs_x",
                 }
             ],
         }

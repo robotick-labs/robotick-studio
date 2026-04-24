@@ -154,6 +154,10 @@
             "name": "hide_cursor",
             "type": "bool",
             "default_value": "false"
+          },
+          {
+            "name": "max_output_bytes",
+            "type": "uint32_t"
           }
         ]
       },
@@ -171,7 +175,7 @@
         "fields": [
           {
             "name": "face_png_data",
-            "type": "ImagePng256k"
+            "type": "ImagePngDynamic"
           }
         ]
       }
@@ -228,6 +232,10 @@
             "name": "viewport_height",
             "type": "int",
             "default_value": "128"
+          },
+          {
+            "name": "max_output_bytes",
+            "type": "uint32_t"
           },
           {
             "name": "log_scale",
@@ -297,7 +305,7 @@
         "fields": [
           {
             "name": "visualization_png",
-            "type": "ImagePng128k"
+            "type": "ImagePngDynamic"
           }
         ]
       }
@@ -404,6 +412,10 @@
           {
             "name": "render_mode",
             "type": "RenderMode"
+          },
+          {
+            "name": "max_output_bytes",
+            "type": "uint32_t"
           }
         ]
       },
@@ -467,7 +479,7 @@
           },
           {
             "name": "display_png",
-            "type": "ImagePng64k"
+            "type": "ImagePngDynamic"
           }
         ]
       }
@@ -527,24 +539,41 @@
     }
   },
   {
-    "name": "ImageRefToJpegWorkload",
+    "name": "ImageRefToImageWorkload",
     "source": {
       "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/ImageRefToJpegWorkload.cpp"
+      "path_from_root": "cpp/src/robotick/workloads/sensors/ImageRefToImageWorkload.cpp"
     },
     "structs": {
       "config": {
-        "name": "ImageRefToJpegConfig",
+        "name": "ImageRefToImageConfig",
         "fields": [
+          {
+            "name": "output_storage_kind",
+            "type": "ImageStorageKind"
+          },
+          {
+            "name": "output_pixel_format",
+            "type": "ImagePixelFormat"
+          },
           {
             "name": "jpeg_quality",
             "type": "int",
             "default_value": "80"
+          },
+          {
+            "name": "fallback_jpeg_quality",
+            "type": "int",
+            "default_value": "60"
+          },
+          {
+            "name": "max_output_bytes",
+            "type": "uint32_t"
           }
         ]
       },
       "inputs": {
-        "name": "ImageRefToJpegInputs",
+        "name": "ImageRefToImageInputs",
         "fields": [
           {
             "name": "image",
@@ -553,11 +582,61 @@
         ]
       },
       "outputs": {
-        "name": "ImageRefToJpegOutputs",
+        "name": "ImageRefToImageOutputs",
         "fields": [
           {
-            "name": "jpeg_data",
-            "type": "ImageJpeg256k"
+            "name": "image",
+            "type": "Image"
+          },
+          {
+            "name": "actual_jpeg_quality_used",
+            "type": "uint8_t",
+            "default_value": "0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "ImageToImageRefWorkload",
+    "source": {
+      "workload_root": "test_data/robotick/robotick-core-workloads",
+      "path_from_root": "cpp/src/robotick/workloads/sensors/ImageToImageRefWorkload.cpp"
+    },
+    "structs": {
+      "config": {
+        "name": "ImageToImageRefConfig",
+        "fields": [
+          {
+            "name": "output_stream_id",
+            "type": "uint32_t",
+            "default_value": "1"
+          },
+          {
+            "name": "max_input_bytes",
+            "type": "uint32_t"
+          },
+          {
+            "name": "decoded_pixel_format",
+            "type": "ImagePixelFormat"
+          }
+        ]
+      },
+      "inputs": {
+        "name": "ImageToImageRefInputs",
+        "fields": [
+          {
+            "name": "image",
+            "type": "Image"
+          }
+        ]
+      },
+      "outputs": {
+        "name": "ImageToImageRefOutputs",
+        "fields": [
+          {
+            "name": "image",
+            "type": "ImageRef"
           }
         ]
       }
@@ -809,6 +888,10 @@
             "name": "texture_height",
             "type": "uint32_t",
             "default_value": "480"
+          },
+          {
+            "name": "max_output_bytes",
+            "type": "uint32_t"
           }
         ]
       },
@@ -827,7 +910,7 @@
         "fields": [
           {
             "name": "png_data",
-            "type": "ImagePng256k"
+            "type": "ImagePngDynamic"
           },
           {
             "name": "frame_count",

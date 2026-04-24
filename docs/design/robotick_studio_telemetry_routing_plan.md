@@ -1,6 +1,6 @@
 # Robotick Studio Telemetry Routing Plan
 
-This plan defines how Robotick Studio reaches a multi-device robot such as `Alf.e` for telemetry, including both read and write flows, where a desktop runs Studio, a Pi5 hosts the Linux-side models, and a CoreS3 hosts the spine.
+This plan defines how Robotick Studio reaches a multi-device robot such as `SampleBot` for telemetry, including both read and write flows, where a desktop runs Studio, a Pi5 hosts the Linux-side models, and a CoreS3 hosts the spine.
 
 ## Goal
 
@@ -20,7 +20,7 @@ Each model exposes its own telemetry server.
 
 One model may additionally run in telemetry gateway mode.
 
-For `Alf.e`, the current gateway host is the Pi5-side `alf-e-face` model.
+For `SampleBot`, the current gateway host is the Pi5-side `sample-robot-face` model.
 
 That gives the runtime three layers:
 
@@ -33,15 +33,15 @@ That gives the runtime three layers:
 
 Launcher remains a development tool. The finished robot runtime does not depend on a launcher-owned proxy layer.
 
-## `Alf.e` Topology
+## `SampleBot` Topology
 
-The initial `Alf.e` split is:
+The initial `SampleBot` split is:
 
 - Pi5/Linux:
-  - `alf-e-face`
-  - `alf-e-sensing-visual`
+  - `sample-robot-face`
+  - `sample-robot-sensing-visual`
 - CoreS3/ESP32:
-  - `alf-e-spine`
+  - `sample-robot-spine`
 
 The Pi5 also hosts a private Wi-Fi hotspot for the CoreS3 while remaining connected to the main network for desktop access.
 
@@ -52,7 +52,7 @@ Use this runtime split:
 - direct:
   - Pi5 ↔ CoreS3 engine/data traffic
 - gatewayed:
-  - desktop Studio ↔ `alf-e-face` telemetry gateway
+  - desktop Studio ↔ `sample-robot-face` telemetry gateway
 
 This means:
 
@@ -80,7 +80,7 @@ When a model runs in gateway mode, its telemetry server does two things:
 - serves its own local `/api/telemetry/...`
 - exposes proxied telemetry routes for discovered peer models
 
-For `Alf.e`, the gateway-capable model is `alf-e-face`.
+For `SampleBot`, the gateway-capable model is `sample-robot-face`.
 
 ## Discovery
 
@@ -166,7 +166,7 @@ telemetry:
   is_gateway: true
 ```
 
-The current `alf-e-face` model carries that role.
+The current `sample-robot-face` model carries that role.
 
 ## Port Strategy
 
@@ -258,7 +258,7 @@ This keeps local behavior structurally close to real robot behavior.
 
 - each model has a telemetry server
 - one model may run in telemetry gateway mode
-- `alf-e-face` is the current gateway host for `Alf.e`
+- `sample-robot-face` is the current gateway host for `SampleBot`
 - `RemoteEngineDiscoverer` should be extended and reused, not duplicated
 - robot-internal engine/data traffic stays direct
 - Studio talks to one runtime entrypoint instead of the full robot network

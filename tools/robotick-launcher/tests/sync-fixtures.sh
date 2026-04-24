@@ -5,9 +5,9 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIXTURES_ROOT="$ROOT/tools/robotick-launcher/tests/test_data/robotick"
 
 ENGINE_URL="${ROBOTICK_LAUNCHER_FIXTURE_ENGINE_URL:-https://github.com/robotick-labs/robotick-engine.git}"
-ENGINE_REF="${ROBOTICK_LAUNCHER_FIXTURE_ENGINE_REF:-c5daa0a2e0dbf1b37a873f664ee23f036baf056a}"
+ENGINE_REF="${ROBOTICK_LAUNCHER_FIXTURE_ENGINE_REF:-dev}"
 CORE_WORKLOADS_URL="${ROBOTICK_LAUNCHER_FIXTURE_CORE_WORKLOADS_URL:-https://github.com/robotick-labs/robotick-core-workloads.git}"
-CORE_WORKLOADS_REF="${ROBOTICK_LAUNCHER_FIXTURE_CORE_WORKLOADS_REF:-868a6f914bf62eed7818466f24e51fe214dd7633}"
+CORE_WORKLOADS_REF="${ROBOTICK_LAUNCHER_FIXTURE_CORE_WORKLOADS_REF:-dev}"
 
 sync_repo() {
   local name="$1"
