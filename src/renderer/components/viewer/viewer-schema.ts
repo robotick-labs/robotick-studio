@@ -136,6 +136,8 @@ export interface ModelConfig {
 export interface ViewerConfig {
   container?: HTMLElement | null; // DOM parent; defaults to document.body
   projectPath?: string;
+  workspaceId?: string;
+  panelId?: string;
   backgroundColor?: string; // "#ffffff"
   fog?: FogConfig | null;
   addGroundPlane?: boolean;

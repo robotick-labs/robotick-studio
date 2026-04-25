@@ -505,6 +505,55 @@ describe("viewer-streaming-image stream selection", () => {
     expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
   });
 
+  it("persists the selected stream per panel instance", async () => {
+    const config = {
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      projectPath: "/tmp/robotick-project",
+      workspaceId: "remote-control-workspace",
+      selectedStream: "Head-RGB",
+      streams: {
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
+      },
+      frameRateHz: 30,
+    };
+
+    await init({ ...config, panelId: "panel-a" });
+
+    const firstSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(firstSelector?.value).toBe("Head-RGB");
+
+    firstSelector!.value = "Head-Depth";
+    firstSelector!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => {
+      expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
+    });
+
+    await uninit();
+    subscribeTelemetry.mockClear();
+
+    await init({ ...config, panelId: "panel-b" });
+
+    const secondSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(secondSelector?.value).toBe("Head-RGB");
+
+    await uninit();
+    subscribeTelemetry.mockClear();
+
+    await init({ ...config, panelId: "panel-a" });
+
+    const restoredSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(restoredSelector?.value).toBe("Head-Depth");
+  });
+
   it("labels and frames the stream selector", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
