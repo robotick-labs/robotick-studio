@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RemoteControlsPanel from "../../../../renderer/components/editors/remote-control/components/remote-controls/RemoteControlsPanel";
+import { PanelInstanceProvider } from "../../../../renderer/components/workspaces/PanelInstanceContext";
 import { TelemetryServiceProvider } from "../../../../renderer/data-sources/telemetry";
 import {
   resetLauncherDataTestState,
@@ -411,6 +412,174 @@ describe("RemoteControlsPanel", () => {
       });
       firstContainer.remove();
       secondContainer.remove();
+      if (originalGetGamepads) {
+        Object.defineProperty(
+          Navigator.prototype,
+          "getGamepads",
+          originalGetGamepads
+        );
+      } else {
+        delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
+          .getGamepads;
+      }
+    }
+  });
+
+  it("stores selected stick modes per panel instance", async () => {
+    const originalGetGamepads = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "getGamepads"
+    );
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable: true,
+      writable: true,
+      value: () => [],
+    });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+    const projectModels = [
+      {
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
+    const config = {
+      sticks: {
+        left: {
+          selectedMode: "drive_wheels",
+          modes: {
+            none: {},
+            drive_wheels: {
+              shapeTransform: "CircleToSquare",
+              deadZone: {
+                x: 0.1,
+                y: 0.1,
+              },
+              outputs: {
+                x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
+              },
+            },
+          },
+        },
+      },
+    };
+    const renderPanel = (
+      root: ReturnType<typeof createRoot>,
+      panelId: string
+    ) => {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              projectPath="/robots/demo-robot"
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
+              }}
+            >
+              <PanelInstanceProvider
+                workspaceId="remote-control-workspace"
+                panelId={panelId}
+              >
+                <RemoteControlsPanel config={config} />
+              </PanelInstanceProvider>
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+    };
+
+    const firstContainer = document.createElement("div");
+    document.body.appendChild(firstContainer);
+    const firstRoot = createRoot(firstContainer);
+    const secondContainer = document.createElement("div");
+    document.body.appendChild(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+    const remountContainer = document.createElement("div");
+    document.body.appendChild(remountContainer);
+    const remountRoot = createRoot(remountContainer);
+    let firstRootMounted = false;
+    let secondRootMounted = false;
+    let remountRootMounted = false;
+
+    try {
+      renderPanel(firstRoot, "panel-a");
+      firstRootMounted = true;
+      await settle();
+      await settle();
+
+      const firstSelect = firstContainer.querySelector("select");
+      expect(firstSelect).not.toBeNull();
+      expect(firstSelect!.value).toBe("drive_wheels");
+
+      act(() => {
+        firstSelect!.value = "none";
+        firstSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settle();
+      expect(firstSelect!.value).toBe("none");
+
+      renderPanel(secondRoot, "panel-b");
+      secondRootMounted = true;
+      await settle();
+      await settle();
+
+      const secondSelect = secondContainer.querySelector("select");
+      expect(secondSelect).not.toBeNull();
+      expect(secondSelect!.value).toBe("drive_wheels");
+
+      act(() => {
+        firstRoot.unmount();
+      });
+      firstRootMounted = false;
+
+      renderPanel(remountRoot, "panel-a");
+      remountRootMounted = true;
+      await settle();
+      await settle();
+
+      const remountSelect = remountContainer.querySelector("select");
+      expect(remountSelect).not.toBeNull();
+      expect(remountSelect!.value).toBe("none");
+    } finally {
+      act(() => {
+        if (firstRootMounted) {
+          firstRoot.unmount();
+        }
+        if (secondRootMounted) {
+          secondRoot.unmount();
+        }
+        if (remountRootMounted) {
+          remountRoot.unmount();
+        }
+      });
+      firstContainer.remove();
+      secondContainer.remove();
+      remountContainer.remove();
       if (originalGetGamepads) {
         Object.defineProperty(
           Navigator.prototype,

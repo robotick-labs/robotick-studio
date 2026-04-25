@@ -26,6 +26,7 @@ import {
   readStorageValue,
   setStorageValue,
 } from "../../../../../services/storage";
+import { usePanelInstance } from "../../../../workspaces/PanelInstanceContext";
 
 type DesiredFieldState = {
   binding: ResolvedTargetBinding;
@@ -150,6 +151,21 @@ function buildSelectedModesStorageSignature(
 
 function buildSelectedModesStorageKey(
   projectPath: string,
+  config: NormalizedRemoteControlsConfig,
+  workspaceId: string,
+  panelId: string
+): string {
+  return buildNamespacedKey(
+    "robotick.remote-controls.selected-modes",
+    projectPath || "default-project",
+    workspaceId || "workspace",
+    panelId || "default",
+    buildSelectedModesStorageSignature(config)
+  );
+}
+
+function buildLegacySelectedModesStorageKey(
+  projectPath: string,
   config: NormalizedRemoteControlsConfig
 ): string {
   return buildNamespacedKey(
@@ -161,10 +177,13 @@ function buildSelectedModesStorageKey(
 
 function readStoredSelectedModes(
   storageKey: string,
-  config: NormalizedRemoteControlsConfig
+  config: NormalizedRemoteControlsConfig,
+  legacyStorageKey?: string
 ): SelectedModesState {
   const defaults = buildSelectedModesDefaults(config);
-  const raw = readStorageValue(storageKey);
+  const raw = readStorageValue(storageKey) ?? (
+    legacyStorageKey ? readStorageValue(legacyStorageKey) : null
+  );
   if (!raw) {
     return defaults;
   }
@@ -252,6 +271,9 @@ export default function RemoteControlsPanel({
   const { projectPath } = Project.Context.use();
   const { findModelByName } = ProjectData.use();
   const telemetryService = useTelemetryService();
+  const panelInstance = usePanelInstance();
+  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
+  const panelIdentifier = panelInstance.panelId ?? "default";
   const [leftAreaEl, setLeftAreaEl] = useState<HTMLDivElement | null>(null);
   const [leftKnobEl, setLeftKnobEl] = useState<HTMLDivElement | null>(null);
   const [rightAreaEl, setRightAreaEl] = useState<HTMLDivElement | null>(null);
@@ -262,7 +284,17 @@ export default function RemoteControlsPanel({
     [config]
   );
   const selectedModesStorageKey = useMemo(
-    () => buildSelectedModesStorageKey(projectPath, normalizedConfig),
+    () =>
+      buildSelectedModesStorageKey(
+        projectPath,
+        normalizedConfig,
+        workspaceIdentifier,
+        panelIdentifier
+      ),
+    [normalizedConfig, panelIdentifier, projectPath, workspaceIdentifier]
+  );
+  const legacySelectedModesStorageKey = useMemo(
+    () => buildLegacySelectedModesStorageKey(projectPath, normalizedConfig),
     [normalizedConfig, projectPath]
   );
   const [persistedSelectedModes, setPersistedSelectedModes] =
@@ -270,7 +302,8 @@ export default function RemoteControlsPanel({
       storageKey: selectedModesStorageKey,
       selectedModes: readStoredSelectedModes(
         selectedModesStorageKey,
-        normalizedConfig
+        normalizedConfig,
+        legacySelectedModesStorageKey
       ),
     })
   );
@@ -285,11 +318,12 @@ export default function RemoteControlsPanel({
         storageKey: selectedModesStorageKey,
         selectedModes: readStoredSelectedModes(
           selectedModesStorageKey,
-          normalizedConfig
+          normalizedConfig,
+          legacySelectedModesStorageKey
         ),
       };
     });
-  }, [normalizedConfig, selectedModesStorageKey]);
+  }, [legacySelectedModesStorageKey, normalizedConfig, selectedModesStorageKey]);
 
   useEffect(() => {
     if (persistedSelectedModes.storageKey !== selectedModesStorageKey) {
