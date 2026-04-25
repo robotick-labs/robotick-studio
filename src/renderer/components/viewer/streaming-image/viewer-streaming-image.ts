@@ -86,10 +86,7 @@ type PendingFrame = {
   fieldOfViewRect: NormalizedRectOverlay | null;
 };
 
-type StreamingImageTransform =
-  | "none"
-  | "depth-preview"
-  | "mask-preview";
+type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
 type StreamingImageBlendMode =
   | "normal"
   | "screen"
@@ -1901,9 +1898,9 @@ function normalizeStreamingImageLayer(
                 ? rawLayer.telemetryBaseUrl
                 : inherited?.telemetryBaseUrl,
             transform:
-              (typeof rawLayer.transform === "string" &&
-                (rawLayer.transform === "depth-preview" ||
-                  rawLayer.transform === "mask-preview"))
+              typeof rawLayer.transform === "string" &&
+              (rawLayer.transform === "depth-preview" ||
+                rawLayer.transform === "mask-preview")
                 ? rawLayer.transform
                 : (inherited?.transform ?? "none"),
             blendMode:
@@ -2019,9 +2016,9 @@ function normalizeStreamingImageStream(
           ? streamInput.telemetryBaseUrl
           : undefined,
       transform:
-        (typeof streamInput.transform === "string" &&
-          (streamInput.transform === "depth-preview" ||
-            streamInput.transform === "mask-preview"))
+        typeof streamInput.transform === "string" &&
+        (streamInput.transform === "depth-preview" ||
+          streamInput.transform === "mask-preview")
           ? streamInput.transform
           : "none",
       blendMode:
