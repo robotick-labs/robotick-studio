@@ -15,8 +15,7 @@ type CountedByteValue = {
 
 export function isImageMime(mime: string | undefined): boolean {
   return (
-    typeof mime === "string" &&
-    mime.trim().toLowerCase().startsWith("image/")
+    typeof mime === "string" && mime.trim().toLowerCase().startsWith("image/")
   );
 }
 
@@ -35,7 +34,9 @@ export function extractTelemetryImagePayload(
   }
 
   const value = field.getValue?.();
-  const explicitMime = isImageMime(field.mime_type) ? field.mime_type : undefined;
+  const explicitMime = isImageMime(field.mime_type)
+    ? field.mime_type
+    : undefined;
 
   if (value instanceof Uint8Array) {
     const mime = explicitMime ?? inferMimeFromBytes(value);
@@ -133,4 +134,68 @@ function inferMimeFromBytes(bytes: Uint8Array): string | null {
   }
 
   return null;
+}
+
+export function getTelemetryImagePayloadSignature(
+  payload: TelemetryImagePayload,
+): string {
+  return `${payload.mime}:${hashBytes(payload.bytes)}`;
+}
+
+export function sanitizeTelemetryImageBytes(
+  mime: string,
+  bytes: Uint8Array,
+): Uint8Array | null {
+  if (!mime.toLowerCase().includes("jpeg")) {
+    return bytes;
+  }
+
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return null;
+  }
+
+  const finalIndex = bytes.length - 1;
+  if (bytes[finalIndex - 1] === 0xff && bytes[finalIndex] === 0xd9) {
+    return bytes;
+  }
+
+  for (let i = bytes.length - 2; i >= 0; i -= 1) {
+    if (bytes[i] === 0xff && bytes[i + 1] === 0xd9) {
+      return bytes.subarray(0, i + 2);
+    }
+  }
+
+  return null;
+}
+
+export async function tryDecodeTelemetryImageBytes(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<boolean> {
+  const safeBytes = sanitizeTelemetryImageBytes(mime, bytes);
+  if (!safeBytes) {
+    return false;
+  }
+
+  if (typeof createImageBitmap !== "function") {
+    return false;
+  }
+
+  try {
+    const blob = new Blob([safeBytes], { type: mime });
+    const bitmap = await createImageBitmap(blob);
+    bitmap.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hashBytes(bytes: Uint8Array): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i += 1) {
+    h ^= bytes[i];
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(16);
 }

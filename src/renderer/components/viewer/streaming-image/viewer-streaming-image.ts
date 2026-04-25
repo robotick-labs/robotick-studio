@@ -6,6 +6,7 @@ import {
   subscribeTelemetry,
   ITelemetryModel,
 } from "../../../data-sources/telemetry";
+import { sanitizeTelemetryImageBytes } from "../../editors/telemetry/utils/telemetry-image";
 import { ProjectData } from "../../../data-sources/launcher";
 import {
   buildNamespacedKey,
@@ -673,7 +674,7 @@ async function renderFrameToCanvas(
   layerId?: string,
   frameSequence?: number,
 ): Promise<boolean> {
-  const safeBytes = sanitizeImageBytes(frame.mime, frame.bytes);
+  const safeBytes = sanitizeTelemetryImageBytes(frame.mime, frame.bytes);
   if (!safeBytes) {
     noteTransportError();
     return false;
@@ -1565,31 +1566,6 @@ function applyMaskPreviewPixel(
   data[outputIndex + 1] = color[1];
   data[outputIndex + 2] = color[2];
   data[outputIndex + 3] = 255;
-}
-
-function sanitizeImageBytes(
-  mime: string,
-  bytes: Uint8Array<ArrayBuffer>,
-): Uint8Array<ArrayBuffer> | null {
-  if (!mime.toLowerCase().includes("jpeg")) {
-    return bytes;
-  }
-
-  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
-    return null;
-  }
-  const finalIndex = bytes.length - 1;
-  if (bytes[finalIndex - 1] === 0xff && bytes[finalIndex] === 0xd9) {
-    return bytes;
-  }
-
-  for (let i = bytes.length - 2; i >= 0; i -= 1) {
-    if (bytes[i] === 0xff && bytes[i + 1] === 0xd9) {
-      return bytes.subarray(0, i + 2);
-    }
-  }
-
-  return null;
 }
 
 function noteTransportError() {

@@ -13,10 +13,12 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
-import { useBlobURL } from "../view/telemetry-image-blobs";
+import { getOrCreateBlobURL } from "../view/telemetry-image-blobs";
 import {
   extractTelemetryImagePayload,
+  getTelemetryImagePayloadSignature,
   isTelemetryImageField,
+  tryDecodeTelemetryImageBytes,
 } from "../utils/telemetry-image";
 import styles from "./TelemetryImageViewer.module.css";
 import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
@@ -248,10 +250,49 @@ export default function TelemetryImageViewer() {
   }, [model, fieldPath]);
 
   const imagePayload = extractTelemetryImagePayload(field);
-  const blobUrl = useBlobURL(
-    imagePayload?.bytes ?? null,
-    imagePayload?.mime
-  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const latestValidPayloadKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!imagePayload) {
+      latestValidPayloadKeyRef.current = null;
+      setPreviewUrl(null);
+      return;
+    }
+
+    const payloadKey = getTelemetryImagePayloadSignature(imagePayload);
+    if (payloadKey === latestValidPayloadKeyRef.current) {
+      return;
+    }
+
+    void (async () => {
+      const valid = await tryDecodeTelemetryImageBytes(
+        imagePayload.bytes,
+        imagePayload.mime,
+      );
+      if (isCancelled) {
+        return;
+      }
+      if (!valid) {
+        console.warn(
+          "[telemetry-image-viewer] Failed to decode telemetry image payload; keeping last valid preview.",
+        );
+        return;
+      }
+      latestValidPayloadKeyRef.current = payloadKey;
+      setPreviewUrl(
+        getOrCreateBlobURL(imagePayload.bytes, imagePayload.mime),
+      );
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [imagePayload]);
+
+  const blobUrl = previewUrl;
 
   const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const modelPath = event.target.value;
