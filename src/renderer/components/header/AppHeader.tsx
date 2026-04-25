@@ -392,6 +392,16 @@ export function AppHeader() {
       <div
         className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}
       >
+        {showWindowControls ? (
+          <button
+            type="button"
+            className={styles.createWindowButton}
+            aria-label="Create window"
+            data-window-interactive="true"
+          >
+            + Create Window
+          </button>
+        ) : null}
         {showWindowControls && studioProcessStatsLabel ? (
           <span
             className={[styles.studioProcessStats, noDragClass]

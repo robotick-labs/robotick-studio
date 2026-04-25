@@ -470,18 +470,42 @@ export function PanelLayout({
 
   return (
     <FloatingPanelsScopeProvider scope={workspaceId}>
-      <div className={styles.panelLayout}>
-        <PanelNodeView
-          node={layout}
-          maximizedPanelId={maximizedPanelId}
-          editorOptions={editorOptions}
-          onContextMenu={handleContextMenu}
-          onAssign={onAssign}
-          onToggleMaximize={onToggleMaximize}
-          onSplit={onSplit}
-          onResizeSplit={onResizeSplit}
-          workspaceId={workspaceId}
-        />
+      <div className={styles.panelLayoutShell}>
+        <div className={styles.layoutTabs} aria-label="Workspace layout tabs">
+          <button
+            type="button"
+            className={`${styles.layoutTab} ${styles.layoutTabActive}`}
+          >
+            Default
+          </button>
+          <button
+            type="button"
+            className={styles.layoutTab}
+          >
+            Auditory
+          </button>
+          <button
+            type="button"
+            className={styles.layoutTabAdd}
+            aria-label="Create layout tab"
+            title="Create layout tab"
+          >
+            +
+          </button>
+        </div>
+        <div className={styles.panelLayout}>
+          <PanelNodeView
+            node={layout}
+            maximizedPanelId={maximizedPanelId}
+            editorOptions={editorOptions}
+            onContextMenu={handleContextMenu}
+            onAssign={onAssign}
+            onToggleMaximize={onToggleMaximize}
+            onSplit={onSplit}
+            onResizeSplit={onResizeSplit}
+            workspaceId={workspaceId}
+          />
+        </div>
       </div>
       <FloatingPanelLayer scope={workspaceId} editorEntries={editorEntries} />
     </FloatingPanelsScopeProvider>

@@ -1,8 +1,74 @@
+.panelLayoutShell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+}
+
+.layoutTabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 8px 0;
+  border-bottom: 1px solid var(--app-panel-border);
+  background: rgba(10, 18, 34, 0.42);
+  margin-bottom: -1px;
+  z-index: 1;
+}
+
+.layoutTab,
+.layoutTabAdd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  margin-bottom: 0;
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.layoutTab {
+  min-width: 92px;
+  padding: 0 12px;
+  border-radius: 7px 7px 0 0;
+}
+
+.layoutTabActive {
+  background: rgba(12, 147, 225, 0.36);
+  color: white;
+}
+
+.layoutTabAdd {
+  width: 28px;
+  padding: 0;
+  border-radius: 7px 7px 0 0;
+  font-size: 1rem;
+}
+
+.layoutTab:hover,
+.layoutTab:focus-visible,
+.layoutTabAdd:hover,
+.layoutTabAdd:focus-visible {
+  color: var(--app-text-primary);
+  background: rgba(12, 147, 225, 0.3);
+  outline: none;
+}
+
 .panelLayout {
   display: flex;
   flex: 1;
   min-height: 0;
   border: 1px solid var(--app-panel-border);
+  border-top-color: rgba(12, 147, 225, 0.42);
+  border-top-width: 1px;
   width: 100%;
   height: 100%;
 }

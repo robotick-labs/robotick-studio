@@ -227,7 +227,7 @@
   white-space: nowrap;
   color: #eee;
   text-decoration: none;
-  background: #1d2436;
+  background: rgba(12, 147, 225, 0.2);
   padding: 6px 10px;
   border-radius: 10px;
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
@@ -235,7 +235,7 @@
 
 .navLink:hover,
 .navLink:focus {
-  background: rgba(12, 147, 225, 0.2);
+  background: rgba(12, 147, 225, 0.3);
   color: white;
   box-shadow: 0 0 6px rgba(12, 147, 225, 0.3);
 }
@@ -278,6 +278,31 @@
   font-size: 0.76rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.createWindowButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  margin-right: 0.45rem;
+  border-radius: 8px;
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.createWindowButton:hover,
+.createWindowButton:focus-visible {
+  border: none;
+  background: rgba(12, 147, 225, 0.3);
+  color: white;
+  outline: none;
 }
 
 @media (max-width: 1550px) {
