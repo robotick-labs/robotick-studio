@@ -209,6 +209,7 @@ export type WritableTelemetryInputFieldProps = {
   className?: string;
   capsuleClassName?: string;
   tooltipText?: string | null;
+  labelContextMenu?: React.MouseEventHandler<HTMLElement>;
   readCurrentValue?: (field: TelemetryField) => unknown;
   formatCurrentValue?: (field: TelemetryField) => string;
 };
@@ -219,6 +220,7 @@ export function WritableTelemetryInputField({
   className,
   capsuleClassName,
   tooltipText,
+  labelContextMenu,
   readCurrentValue,
   formatCurrentValue = defaultFormatCurrentValue,
 }: WritableTelemetryInputFieldProps) {
@@ -681,7 +683,12 @@ export function WritableTelemetryInputField({
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
         {connectionToggle}
-        <span className={styles.inputWriteLabelText}>{field.name}:</span>
+        <span
+          className={styles.inputWriteLabelText}
+          onContextMenu={labelContextMenu}
+        >
+          {field.name}:
+        </span>
         <span className={styles.inputWriteControls}>
           <label className={styles.inputWriteCheckboxLabel}>
             <input
@@ -704,7 +711,10 @@ export function WritableTelemetryInputField({
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
         {connectionToggle}
-        <span className={styles.inputWriteLabelText}>
+        <span
+          className={styles.inputWriteLabelText}
+          onContextMenu={labelContextMenu}
+        >
           {field.name}: {currentValue}
         </span>
         <span className={styles.inputWriteControls}>
@@ -742,7 +752,7 @@ export function WritableTelemetryInputField({
     return (
       <div className={rowClassName} title={tooltipText ?? undefined}>
         {connectionToggle}
-        <span className={styles.inputWriteLabel}>
+        <span className={styles.inputWriteLabel} onContextMenu={labelContextMenu}>
           <span>{field.name}:</span>
           <span>{currentValue}</span>
         </span>
@@ -815,7 +825,10 @@ export function WritableTelemetryInputField({
   return (
     <div className={rowClassName} title={tooltipText ?? undefined}>
       {connectionToggle}
-      <span className={styles.inputWriteLabelText}>
+      <span
+        className={styles.inputWriteLabelText}
+        onContextMenu={labelContextMenu}
+      >
         {field.name}: {currentValue}
       </span>
       <span className={styles.inputWriteControls}>
