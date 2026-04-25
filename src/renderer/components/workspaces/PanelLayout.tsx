@@ -12,6 +12,7 @@ import type { PanelContextMenuState } from "./PanelContextMenu";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PanelInstanceProvider } from "./PanelInstanceContext";
+import { GenericDialog } from "../dialog/GenericDialog";
 import styles from "./PanelLayout.module.css";
 import { addWindowEventListener } from "../../utils/domEnvironment";
 import {
@@ -37,19 +38,41 @@ type PanelSplitNode = {
 type PanelNode = PanelLeafNode | PanelSplitNode;
 
 const STORAGE_PREFIX = "panelLayout:";
+const LAYOUT_TABS_STORAGE_PREFIX = "workspace-layout-tabs:";
+const DEFAULT_WINDOW_SCOPE = "main";
+const DEFAULT_LAYOUT_TAB_ID = "default";
+const DEFAULT_LAYOUT_TAB_NAME = "Default";
 const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.05;
 const MAX_RATIO = 0.85;
 
 type PanelLayoutProps = {
   workspaceId: string;
+  workspaceLabel?: string;
   defaultEditorId: string;
   allowedEditors?: string[];
+  windowScope?: string;
 };
 
 type EditorOption = {
   id: string;
   label: string;
+};
+
+type WorkspaceLayoutTab = {
+  id: string;
+  name: string;
+};
+
+type WorkspaceLayoutTabsState = {
+  storageKey: string;
+  tabs: WorkspaceLayoutTab[];
+  activeTabId: string;
+};
+
+type PanelLayoutState = {
+  storageKey: string;
+  node: PanelNode;
 };
 
 let panelIdCounter = 0;
@@ -69,9 +92,58 @@ function generatePanelId() {
   return `panel-${panelIdCounter}`;
 }
 
+function generateLayoutTabId() {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `layout-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function clampRatio(value: number) {
   if (Number.isNaN(value) || !Number.isFinite(value)) return DEFAULT_RATIO;
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
+}
+
+function getLayoutTabsStorageKey(windowScope: string, workspaceId: string) {
+  return `${LAYOUT_TABS_STORAGE_PREFIX}${windowScope}:${workspaceId}`;
+}
+
+function getPanelLayoutStorageKey(
+  windowScope: string,
+  workspaceId: string,
+  layoutTabId: string
+) {
+  return `${STORAGE_PREFIX}${windowScope}:${workspaceId}:${layoutTabId}`;
+}
+
+function getFloatingPanelScope(
+  windowScope: string,
+  workspaceId: string,
+  layoutTabId: string
+) {
+  return `${windowScope}:${workspaceId}:${layoutTabId}`;
+}
+
+function getDefaultLayoutTabName(workspaceLabel?: string): string {
+  const label = workspaceLabel?.trim();
+  return label
+    ? `${label} | ${DEFAULT_LAYOUT_TAB_NAME}`
+    : DEFAULT_LAYOUT_TAB_NAME;
+}
+
+function createDefaultLayoutTab(workspaceLabel?: string): WorkspaceLayoutTab {
+  return {
+    id: DEFAULT_LAYOUT_TAB_ID,
+    name: getDefaultLayoutTabName(workspaceLabel),
+  };
+}
+
+function getNewLayoutTabName(index: number, workspaceLabel?: string): string {
+  const label = workspaceLabel?.trim();
+  return label ? `${label} | New Layout ${index}` : `New Layout ${index}`;
 }
 
 function createLeaf(editorId: string): PanelLeafNode {
@@ -91,6 +163,81 @@ function nodeContains(node: PanelNode, panelId: string): boolean {
 function countLeaves(node: PanelNode): number {
   if (node.kind === "leaf") return 1;
   return countLeaves(node.children[0]) + countLeaves(node.children[1]);
+}
+
+function sanitizeLayoutTabs(
+  raw: unknown,
+  storageKey: string,
+  workspaceLabel?: string
+): WorkspaceLayoutTabsState {
+  const fallback = createDefaultLayoutTab(workspaceLabel);
+  const defaultTabName = getDefaultLayoutTabName(workspaceLabel);
+  if (!raw || typeof raw !== "object") {
+    return {
+      storageKey,
+      tabs: [fallback],
+      activeTabId: fallback.id,
+    };
+  }
+  const data = raw as Record<string, unknown>;
+  const rawTabs = Array.isArray(data.tabs) ? data.tabs : [];
+  const seen = new Set<string>();
+  const tabs = rawTabs
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const tab = item as Record<string, unknown>;
+      const id = typeof tab.id === "string" ? tab.id.trim() : "";
+      const rawName = typeof tab.name === "string" ? tab.name.trim() : "";
+      if (!id || seen.has(id)) {
+        return null;
+      }
+      seen.add(id);
+      return {
+        id,
+        name: rawName || defaultTabName,
+      };
+    })
+    .filter((item): item is WorkspaceLayoutTab => item !== null);
+  const resolvedTabs = tabs.length > 0 ? tabs : [fallback];
+  const activeTabId =
+    typeof data.activeTabId === "string" &&
+    resolvedTabs.some((tab) => tab.id === data.activeTabId)
+      ? data.activeTabId
+      : resolvedTabs[0].id;
+  return {
+    storageKey,
+    tabs: resolvedTabs,
+    activeTabId,
+  };
+}
+
+function loadLayoutTabs(
+  storageKey: string,
+  workspaceLabel?: string
+): WorkspaceLayoutTabsState {
+  try {
+    const raw = readStorageValue(storageKey);
+    if (!raw) {
+      return sanitizeLayoutTabs(null, storageKey, workspaceLabel);
+    }
+    return sanitizeLayoutTabs(JSON.parse(raw), storageKey, workspaceLabel);
+  } catch {
+    return sanitizeLayoutTabs(null, storageKey, workspaceLabel);
+  }
+}
+
+function saveLayoutTabs(state: WorkspaceLayoutTabsState) {
+  try {
+    setStorageValue(
+      state.storageKey,
+      JSON.stringify({
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
+      })
+    );
+  } catch {
+    // Ignore write failures (e.g., storage disabled)
+  }
 }
 
 /**
@@ -163,12 +310,15 @@ function sanitizeNode(
  * @returns A sanitized PanelNode representing the workspace layout, or a single-leaf node using `fallbackEditorId` if the stored layout is missing or invalid
  */
 function loadLayout(
-  workspaceId: string,
+  storageKey: string,
   fallbackEditorId: string,
-  allowedEditors: Set<string>
+  allowedEditors: Set<string>,
+  legacyStorageKey?: string
 ): PanelNode {
   try {
-    const raw = readStorageValue(`${STORAGE_PREFIX}${workspaceId}`);
+    const raw = readStorageValue(storageKey) ?? (
+      legacyStorageKey ? readStorageValue(legacyStorageKey) : null
+    );
     if (!raw) {
       return createLeaf(fallbackEditorId);
     }
@@ -188,9 +338,9 @@ function loadLayout(
  *
  * @remarks
  * Write failures (for example, when storage is unavailable or disabled) are ignored. */
-function saveLayout(workspaceId: string, layout: PanelNode) {
+function saveLayout(storageKey: string, layout: PanelNode) {
   try {
-    setStorageValue(`${STORAGE_PREFIX}${workspaceId}`, JSON.stringify(layout));
+    setStorageValue(storageKey, JSON.stringify(layout));
   } catch {
     // Ignore write failures (e.g., storage disabled)
   }
@@ -301,8 +451,10 @@ function updateSplitRatio(
  */
 export function PanelLayout({
   workspaceId,
+  workspaceLabel,
   defaultEditorId,
   allowedEditors,
+  windowScope = DEFAULT_WINDOW_SCOPE,
 }: PanelLayoutProps) {
   const editorEntries = React.useMemo(() => {
     const entries = listEditorEntries();
@@ -336,20 +488,146 @@ export function PanelLayout({
     ? defaultEditorId
     : editorEntries[0].id;
 
-  const [layout, setLayout] = React.useState<PanelNode>(() =>
-    loadLayout(workspaceId, fallbackEditorId, allowedIdSet)
+  const layoutTabsStorageKey = React.useMemo(
+    () => getLayoutTabsStorageKey(windowScope, workspaceId),
+    [windowScope, workspaceId]
+  );
+  const legacyPanelLayoutStorageKey = React.useMemo(
+    () => `${STORAGE_PREFIX}${workspaceId}`,
+    [workspaceId]
+  );
+  const [layoutTabsState, setLayoutTabsState] =
+    React.useState<WorkspaceLayoutTabsState>(() =>
+      loadLayoutTabs(layoutTabsStorageKey, workspaceLabel)
+    );
+  const activeLayoutTabId =
+    layoutTabsState.storageKey === layoutTabsStorageKey
+      ? layoutTabsState.activeTabId
+      : DEFAULT_LAYOUT_TAB_ID;
+  const visibleLayoutTabs =
+    layoutTabsState.storageKey === layoutTabsStorageKey
+      ? layoutTabsState.tabs
+      : [createDefaultLayoutTab(workspaceLabel)];
+  const panelLayoutStorageKey = React.useMemo(
+    () =>
+      getPanelLayoutStorageKey(windowScope, workspaceId, activeLayoutTabId),
+    [windowScope, workspaceId, activeLayoutTabId]
+  );
+  const floatingPanelScope = React.useMemo(
+    () => getFloatingPanelScope(windowScope, workspaceId, activeLayoutTabId),
+    [windowScope, workspaceId, activeLayoutTabId]
+  );
+  const [layoutState, setLayoutState] = React.useState<PanelLayoutState>(() => ({
+    storageKey: panelLayoutStorageKey,
+    node: loadLayout(
+      panelLayoutStorageKey,
+      fallbackEditorId,
+      allowedIdSet,
+      activeLayoutTabId === DEFAULT_LAYOUT_TAB_ID
+        ? legacyPanelLayoutStorageKey
+        : undefined
+    ),
+  }));
+  const layout = layoutState.node;
+  const layoutReady = layoutState.storageKey === panelLayoutStorageKey;
+  const setCurrentLayout = React.useCallback(
+    (updater: (current: PanelNode) => PanelNode) => {
+      setLayoutState((current) => {
+        if (current.storageKey !== panelLayoutStorageKey) {
+          return current;
+        }
+        return {
+          storageKey: current.storageKey,
+          node: updater(current.node),
+        };
+      });
+    },
+    [panelLayoutStorageKey]
   );
   const [maximizedPanelId, setMaximizedPanelId] = React.useState<string | null>(
     null
   );
+  const [editingLayoutTab, setEditingLayoutTab] = React.useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [draggingLayoutTabId, setDraggingLayoutTabId] =
+    React.useState<string | null>(null);
+  const [layoutTabDropIndicator, setLayoutTabDropIndicator] = React.useState<{
+    targetId: string;
+    position: "before" | "after";
+  } | null>(null);
+  const [layoutTabPendingClose, setLayoutTabPendingClose] =
+    React.useState<WorkspaceLayoutTab | null>(null);
+  const draggingLayoutTabIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    setLayout(loadLayout(workspaceId, fallbackEditorId, allowedIdSet));
+    const nextTabs = loadLayoutTabs(layoutTabsStorageKey, workspaceLabel);
+    setLayoutTabsState(nextTabs);
+    const nextPanelLayoutStorageKey = getPanelLayoutStorageKey(
+      windowScope,
+      workspaceId,
+      nextTabs.activeTabId
+    );
+    setLayoutState({
+      storageKey: nextPanelLayoutStorageKey,
+      node: loadLayout(
+        nextPanelLayoutStorageKey,
+        fallbackEditorId,
+        allowedIdSet,
+        nextTabs.activeTabId === DEFAULT_LAYOUT_TAB_ID
+          ? legacyPanelLayoutStorageKey
+          : undefined
+      ),
+    });
     setMaximizedPanelId(null);
-  }, [workspaceId, fallbackEditorId, allowedIdsKey]);
+  }, [
+    allowedIdsKey,
+    fallbackEditorId,
+    layoutTabsStorageKey,
+    legacyPanelLayoutStorageKey,
+    windowScope,
+    workspaceLabel,
+    workspaceId,
+  ]);
 
   React.useEffect(() => {
-    saveLayout(workspaceId, layout);
-  }, [workspaceId, layout]);
+    if (layoutState.storageKey === panelLayoutStorageKey) {
+      return;
+    }
+    setLayoutState({
+      storageKey: panelLayoutStorageKey,
+      node: loadLayout(
+        panelLayoutStorageKey,
+        fallbackEditorId,
+        allowedIdSet,
+        activeLayoutTabId === DEFAULT_LAYOUT_TAB_ID
+          ? legacyPanelLayoutStorageKey
+          : undefined
+      ),
+    });
+    setMaximizedPanelId(null);
+  }, [
+    activeLayoutTabId,
+    allowedIdsKey,
+    fallbackEditorId,
+    layoutState.storageKey,
+    legacyPanelLayoutStorageKey,
+    panelLayoutStorageKey,
+  ]);
+
+  React.useEffect(() => {
+    if (layoutTabsState.storageKey !== layoutTabsStorageKey) {
+      return;
+    }
+    saveLayoutTabs(layoutTabsState);
+  }, [layoutTabsState, layoutTabsStorageKey]);
+
+  React.useEffect(() => {
+    if (!layoutReady) {
+      return;
+    }
+    saveLayout(layoutState.storageKey, layoutState.node);
+  }, [layoutReady, layoutState]);
 
   React.useEffect(() => {
     if (maximizedPanelId && !nodeContains(layout, maximizedPanelId)) {
@@ -357,9 +635,27 @@ export function PanelLayout({
     }
   }, [layout, maximizedPanelId]);
 
+  React.useEffect(() => {
+    if (
+      editingLayoutTab &&
+      !visibleLayoutTabs.some((tab) => tab.id === editingLayoutTab.id)
+    ) {
+      setEditingLayoutTab(null);
+    }
+  }, [editingLayoutTab, visibleLayoutTabs]);
+
+  React.useEffect(() => {
+    if (
+      layoutTabPendingClose &&
+      !visibleLayoutTabs.some((tab) => tab.id === layoutTabPendingClose.id)
+    ) {
+      setLayoutTabPendingClose(null);
+    }
+  }, [layoutTabPendingClose, visibleLayoutTabs]);
+
   const onSplit = React.useCallback(
     (panelId: string, direction: "horizontal" | "vertical", ratio: number) => {
-      setLayout((current) =>
+      setCurrentLayout((current) =>
         updateNode(current, panelId, (leaf) => ({
           id: leaf.id,
           kind: "split",
@@ -369,52 +665,232 @@ export function PanelLayout({
         }))
       );
     },
-    []
+    [setCurrentLayout]
   );
 
   const onAssign = React.useCallback((panelId: string, editorId: string) => {
-    setLayout((current) =>
+    setCurrentLayout((current) =>
       updateNode(current, panelId, (leaf) => ({
         ...leaf,
         editorId,
       }))
     );
-  }, []);
+  }, [setCurrentLayout]);
 
   const onClosePanel = React.useCallback((panelId: string) => {
-    setLayout((current) => {
+    setCurrentLayout((current) => {
       const result = removePanel(current, panelId);
       if (!result) {
         return current;
       }
       return result;
     });
-  }, []);
+  }, [setCurrentLayout]);
 
   const onToggleMaximize = React.useCallback((panelId: string) => {
     setMaximizedPanelId((current) => (current === panelId ? null : panelId));
   }, []);
 
   const onResizeSplit = React.useCallback((splitId: string, ratio: number) => {
-    setLayout((current) => updateSplitRatio(current, splitId, ratio));
-  }, []);
+    setCurrentLayout((current) => updateSplitRatio(current, splitId, ratio));
+  }, [setCurrentLayout]);
 
   const resetLayout = React.useCallback(() => {
     const fresh = createLeaf(fallbackEditorId);
-    removeStorageValue(`${STORAGE_PREFIX}${workspaceId}`);
-    setLayout(fresh);
+    removeStorageValue(panelLayoutStorageKey);
+    setLayoutState({
+      storageKey: panelLayoutStorageKey,
+      node: fresh,
+    });
     setMaximizedPanelId(null);
-  }, [fallbackEditorId, workspaceId]);
+  }, [fallbackEditorId, panelLayoutStorageKey]);
+
+  const handleSelectLayoutTab = React.useCallback(
+    (tabId: string) => {
+      setLayoutTabsState((current) => {
+        if (
+          current.storageKey !== layoutTabsStorageKey ||
+          !current.tabs.some((tab) => tab.id === tabId)
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          activeTabId: tabId,
+        };
+      });
+    },
+    [layoutTabsStorageKey]
+  );
+
+  const handleAddLayoutTab = React.useCallback(() => {
+    setLayoutTabsState((current) => {
+      if (current.storageKey !== layoutTabsStorageKey) {
+        return current;
+      }
+      const id = generateLayoutTabId();
+      const nextIndex = current.tabs.length + 1;
+      const tab = {
+        id,
+        name: getNewLayoutTabName(nextIndex, workspaceLabel),
+      };
+      return {
+        ...current,
+        tabs: [...current.tabs, tab],
+        activeTabId: id,
+      };
+    });
+  }, [layoutTabsStorageKey, workspaceLabel]);
+
+  const commitLayoutTabRename = React.useCallback(() => {
+    setEditingLayoutTab((editing) => {
+      if (!editing) {
+        return null;
+      }
+      const trimmedName = editing.name.trim();
+      if (!trimmedName) {
+        return null;
+      }
+      setLayoutTabsState((current) => {
+        if (current.storageKey !== layoutTabsStorageKey) {
+          return current;
+        }
+        return {
+          ...current,
+          tabs: current.tabs.map((tab) =>
+            tab.id === editing.id ? { ...tab, name: trimmedName } : tab
+          ),
+        };
+      });
+      return null;
+    });
+  }, [layoutTabsStorageKey]);
+
+  const cancelLayoutTabRename = React.useCallback(() => {
+    setEditingLayoutTab(null);
+  }, []);
+
+  const handleCloseLayoutTab = React.useCallback(
+    (tab: WorkspaceLayoutTab) => {
+      if (visibleLayoutTabs.length <= 1) {
+        return;
+      }
+      setLayoutTabPendingClose(tab);
+    },
+    [visibleLayoutTabs.length]
+  );
+
+  const confirmCloseLayoutTab = React.useCallback(() => {
+    const closingTab = layoutTabPendingClose;
+    if (!closingTab) {
+      return;
+    }
+    setLayoutTabsState((current) => {
+      if (current.storageKey !== layoutTabsStorageKey) {
+        return current;
+      }
+      if (current.tabs.length <= 1) {
+        return current;
+      }
+      const closingIndex = current.tabs.findIndex(
+        (tab) => tab.id === closingTab.id
+      );
+      if (closingIndex === -1) {
+        return current;
+      }
+      const nextTabs = current.tabs.filter((tab) => tab.id !== closingTab.id);
+      const nextActiveTabId =
+        current.activeTabId === closingTab.id
+          ? nextTabs[Math.min(closingIndex, nextTabs.length - 1)].id
+          : current.activeTabId;
+      removeStorageValue(
+        getPanelLayoutStorageKey(windowScope, workspaceId, closingTab.id)
+      );
+      return {
+        ...current,
+        tabs: nextTabs,
+        activeTabId: nextActiveTabId,
+      };
+    });
+    setLayoutTabPendingClose(null);
+    setEditingLayoutTab(null);
+  }, [layoutTabPendingClose, layoutTabsStorageKey, windowScope, workspaceId]);
+
+  const handleLayoutTabDragStart = React.useCallback(
+    (tabId: string, event: React.DragEvent<HTMLElement>) => {
+      draggingLayoutTabIdRef.current = tabId;
+      setDraggingLayoutTabId(tabId);
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", tabId);
+      }
+    },
+    []
+  );
+
+  const clearLayoutTabDrag = React.useCallback(() => {
+    draggingLayoutTabIdRef.current = null;
+    setDraggingLayoutTabId(null);
+    setLayoutTabDropIndicator(null);
+  }, []);
+
+  const getLayoutTabDropPosition = React.useCallback(
+    (event: React.DragEvent<HTMLElement>): "before" | "after" => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      return event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    },
+    []
+  );
+
+  const handleLayoutTabDrop = React.useCallback(
+    (targetTabId: string, event: React.DragEvent<HTMLElement>) => {
+      event.preventDefault();
+      const position = getLayoutTabDropPosition(event);
+      const sourceTabId =
+        draggingLayoutTabIdRef.current ||
+        event.dataTransfer?.getData("text/plain");
+      clearLayoutTabDrag();
+      if (!sourceTabId || sourceTabId === targetTabId) {
+        return;
+      }
+      setLayoutTabsState((current) => {
+        if (current.storageKey !== layoutTabsStorageKey) {
+          return current;
+        }
+        const sourceIndex = current.tabs.findIndex(
+          (tab) => tab.id === sourceTabId
+        );
+        const targetIndex = current.tabs.findIndex(
+          (tab) => tab.id === targetTabId
+        );
+        if (sourceIndex === -1 || targetIndex === -1) {
+          return current;
+        }
+        const nextTabs = [...current.tabs];
+        const [movedTab] = nextTabs.splice(sourceIndex, 1);
+        const adjustedTargetIndex =
+          sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        const insertIndex =
+          position === "after" ? adjustedTargetIndex + 1 : adjustedTargetIndex;
+        nextTabs.splice(insertIndex, 0, movedTab);
+        return {
+          ...current,
+          tabs: nextTabs,
+        };
+      });
+    },
+    [clearLayoutTabDrag, getLayoutTabDropPosition, layoutTabsStorageKey]
+  );
 
   const handleCreateFloatingPanel = React.useCallback(
     (editorId?: string) => {
       const targetEditor =
         editorId && allowedIdSet.has(editorId) ? editorId : fallbackEditorId;
-      spawnFloatingPanel(workspaceId, {
+      spawnFloatingPanel(floatingPanelScope, {
         editorId: targetEditor,
       });
     },
-    [allowedIdSet, fallbackEditorId, workspaceId]
+    [allowedIdSet, fallbackEditorId, floatingPanelScope]
   );
 
   const { showPanelMenu } = useContextMenu();
@@ -469,26 +945,124 @@ export function PanelLayout({
   );
 
   return (
-    <FloatingPanelsScopeProvider scope={workspaceId}>
+    <FloatingPanelsScopeProvider scope={floatingPanelScope}>
       <div className={styles.panelLayoutShell}>
         <div className={styles.layoutTabs} aria-label="Workspace layout tabs">
-          <button
-            type="button"
-            className={`${styles.layoutTab} ${styles.layoutTabActive}`}
-          >
-            Default
-          </button>
-          <button
-            type="button"
-            className={styles.layoutTab}
-          >
-            Auditory
-          </button>
+          {visibleLayoutTabs.map((tab) => {
+            const isActive =
+              layoutTabsState.storageKey === layoutTabsStorageKey &&
+              tab.id === activeLayoutTabId;
+            const isEditing = editingLayoutTab?.id === tab.id;
+            const isDragging = draggingLayoutTabId === tab.id;
+            const dropPosition =
+              layoutTabDropIndicator?.targetId === tab.id
+                ? layoutTabDropIndicator.position
+                : null;
+            if (isEditing) {
+              return (
+                <input
+                  key={tab.id}
+                  className={`${styles.layoutTab} ${styles.layoutTabInput}`}
+                  value={editingLayoutTab.name}
+                  aria-label="Rename layout tab"
+                  autoFocus
+                  onChange={(event) =>
+                    setEditingLayoutTab({
+                      id: tab.id,
+                      name: event.target.value,
+                    })
+                  }
+                  onBlur={commitLayoutTabRename}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitLayoutTabRename();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelLayoutTabRename();
+                    }
+                  }}
+                />
+              );
+            }
+            return (
+              <div
+                key={tab.id}
+                role="button"
+                tabIndex={0}
+                className={[
+                  styles.layoutTab,
+                  isActive ? styles.layoutTabActive : "",
+                  isDragging ? styles.layoutTabDragging : "",
+                  dropPosition === "before" ? styles.layoutTabDropBefore : "",
+                  dropPosition === "after" ? styles.layoutTabDropAfter : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-pressed={isActive}
+                draggable
+                onClick={() => handleSelectLayoutTab(tab.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleSelectLayoutTab(tab.id);
+                  }
+                }}
+                onDoubleClick={() =>
+                  setEditingLayoutTab({ id: tab.id, name: tab.name })
+                }
+                onDragStart={(event) =>
+                  handleLayoutTabDragStart(tab.id, event)
+                }
+                onDragEnd={clearLayoutTabDrag}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (draggingLayoutTabIdRef.current === tab.id) {
+                    setLayoutTabDropIndicator(null);
+                    return;
+                  }
+                  setLayoutTabDropIndicator({
+                    targetId: tab.id,
+                    position: getLayoutTabDropPosition(event),
+                  });
+                }}
+                onDragLeave={() => {
+                  setLayoutTabDropIndicator((current) =>
+                    current?.targetId === tab.id ? null : current
+                  );
+                }}
+                onDrop={(event) => handleLayoutTabDrop(tab.id, event)}
+              >
+                <span className={styles.layoutTabLabel}>{tab.name}</span>
+                <button
+                  type="button"
+                  className={styles.layoutTabClose}
+                  aria-label={`Close layout tab ${tab.name}`}
+                  title={
+                    visibleLayoutTabs.length <= 1
+                      ? "At least one layout tab is required"
+                      : "Close layout tab"
+                  }
+                  disabled={visibleLayoutTabs.length <= 1}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCloseLayoutTab(tab);
+                  }}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  draggable={false}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
           <button
             type="button"
             className={styles.layoutTabAdd}
             aria-label="Create layout tab"
             title="Create layout tab"
+            onClick={handleAddLayoutTab}
           >
             +
           </button>
@@ -507,7 +1081,34 @@ export function PanelLayout({
           />
         </div>
       </div>
-      <FloatingPanelLayer scope={workspaceId} editorEntries={editorEntries} />
+      <FloatingPanelLayer
+        scope={floatingPanelScope}
+        editorEntries={editorEntries}
+      />
+      {layoutTabPendingClose ? (
+        <GenericDialog
+          title="Close layout tab?"
+          message={
+            <>
+              This will remove <code>{layoutTabPendingClose.name}</code> and
+              its saved panel arrangement.
+            </>
+          }
+          onClose={() => setLayoutTabPendingClose(null)}
+          actions={[
+            {
+              label: "Cancel",
+              onClick: () => setLayoutTabPendingClose(null),
+              autoFocus: true,
+            },
+            {
+              label: "Close tab",
+              variant: "primary",
+              onClick: confirmCloseLayoutTab,
+            },
+          ]}
+        />
+      ) : null}
     </FloatingPanelsScopeProvider>
   );
 }

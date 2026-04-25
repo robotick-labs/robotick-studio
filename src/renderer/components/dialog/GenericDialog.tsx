@@ -6,6 +6,7 @@ export type DialogAction = {
   onClick: () => void;
   variant?: "primary" | "secondary";
   disabled?: boolean;
+  autoFocus?: boolean;
 };
 
 interface GenericDialogProps {
@@ -74,6 +75,7 @@ export function GenericDialog({
                 }
                 onClick={action.onClick}
                 disabled={action.disabled}
+                autoFocus={action.autoFocus}
               >
                 {action.label}
               </button>

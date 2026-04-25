@@ -23,6 +23,7 @@ export function WorkspaceView({ workspace }: WorkspaceViewProps) {
     <div className={styles.workspaceShell}>
       <PanelLayout
         workspaceId={workspace.id}
+        workspaceLabel={workspace.label}
         defaultEditorId={workspace.editor}
       />
     </div>

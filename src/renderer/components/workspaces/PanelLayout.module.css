@@ -37,13 +37,90 @@
 
 .layoutTab {
   min-width: 92px;
-  padding: 0 12px;
+  padding: 0 5px 0 12px;
   border-radius: 7px 7px 0 0;
+  cursor: grab;
+  position: relative;
+  gap: 8px;
+}
+
+.layoutTab:active {
+  cursor: grabbing;
 }
 
 .layoutTabActive {
   background: rgba(12, 147, 225, 0.36);
   color: white;
+}
+
+.layoutTabDragging {
+  opacity: 0.58;
+}
+
+.layoutTabLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layoutTabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.layoutTabClose:hover:not(:disabled),
+.layoutTabClose:focus-visible:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  outline: none;
+}
+
+.layoutTabClose:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.layoutTabDropBefore::before,
+.layoutTabDropAfter::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+
+.layoutTabDropBefore::before {
+  left: -3px;
+}
+
+.layoutTabDropAfter::after {
+  right: -3px;
+}
+
+.layoutTabInput {
+  min-width: 132px;
+  color: white;
+  background: rgba(12, 147, 225, 0.36);
+  outline: none;
+}
+
+.layoutTabInput::selection {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .layoutTabAdd {
