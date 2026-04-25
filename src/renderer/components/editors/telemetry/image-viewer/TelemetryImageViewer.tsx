@@ -55,7 +55,6 @@ const STORAGE_KEYS = {
   field: "robotick-studio.telemetry.image.field",
 };
 
-
 /**
  * Render a panel that lets users pick a telemetry model, workload, and image field, and previews the latest image telemetry.
  *
@@ -67,31 +66,38 @@ export default function TelemetryImageViewer() {
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
   const fallbackPanelIdRef = useRef<string | undefined>(undefined);
+
   if (!fallbackPanelIdRef.current) {
     fallbackPanelIdRef.current = createPanelInstanceId();
   }
-  const panelInstanceId =
-    panelInstance.panelId ?? fallbackPanelIdRef.current;
+
+  const panelInstanceId = panelInstance.panelId ?? fallbackPanelIdRef.current;
   const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
+
   const buildPanelKey = useCallback(
     (base: string) =>
       buildNamespacedKey(base, workspaceIdentifier, panelInstanceId),
     [workspaceIdentifier, panelInstanceId]
   );
+
   const readPreference = useCallback(
     (base: string) => {
       const primaryKey = buildPanelKey(base);
       const { value, key } = getFirstAvailableValue([primaryKey, base]);
+
       if (value !== null && key && key !== primaryKey) {
         setStorageValue(primaryKey, value);
       }
+
       return value;
     },
     [buildPanelKey]
   );
+
   const persistPreference = useCallback(
     (base: string, value: string | undefined) => {
       const key = buildPanelKey(base);
+
       if (value === undefined) {
         removeStorageValue(key);
       } else {
@@ -100,6 +106,7 @@ export default function TelemetryImageViewer() {
     },
     [buildPanelKey]
   );
+
   const storedLocalSettings = useMemo<PanelSettings>(
     () => ({
       modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
@@ -108,19 +115,25 @@ export default function TelemetryImageViewer() {
     }),
     [readPreference]
   );
+
   const [localSettings, setLocalSettings] =
     useState<PanelSettings>(storedLocalSettings);
-  const persistLocalSettings = useCallback((next: Partial<PanelSettings>) => {
-    if ("modelPath" in next) {
-      persistPreference(STORAGE_KEYS.model, next.modelPath);
-    }
-    if ("workloadName" in next) {
-      persistPreference(STORAGE_KEYS.workload, next.workloadName);
-    }
-    if ("fieldPath" in next) {
-      persistPreference(STORAGE_KEYS.field, next.fieldPath);
-    }
-  }, [persistPreference]);
+
+  const persistLocalSettings = useCallback(
+    (next: Partial<PanelSettings>) => {
+      if ("modelPath" in next) {
+        persistPreference(STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadName" in next) {
+        persistPreference(STORAGE_KEYS.workload, next.workloadName);
+      }
+      if ("fieldPath" in next) {
+        persistPreference(STORAGE_KEYS.field, next.fieldPath);
+      }
+    },
+    [persistPreference]
+  );
+
   const updateSettings = useCallback(
     (next: Partial<PanelSettings>) => {
       if (panel) {
@@ -128,12 +141,15 @@ export default function TelemetryImageViewer() {
       } else {
         setLocalSettings((prev) => ({ ...prev, ...next }));
       }
+
       persistLocalSettings(next);
     },
     [panel, persistLocalSettings]
   );
+
   const settings =
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
+
   const { projectModels } = ProjectData.use();
 
   const modelOptions = projectModels.data;
@@ -165,17 +181,26 @@ export default function TelemetryImageViewer() {
   const samplingRateHz = selectedModel?.preferredTelemetrySampleRateHz ?? 20;
 
   const { model } = useTelemetryStream(telemetryBaseUrl, samplingRateHz);
+
   const schemaSessionId = model?.schemaSessionId ?? "";
   const previousSchemaSessionIdRef = useRef<string>("");
   const workloads = model?.workloads ?? [];
+  const hasTelemetrySchema = !!model && !!schemaSessionId && workloads.length > 0;
+
   const workloadName =
     settings.workloadName && settings.workloadName.length > 0
       ? settings.workloadName
-      : workloads[0]?.name ?? "";
+      : hasTelemetrySchema
+        ? workloads[0]?.name ?? ""
+        : "";
+
   const fieldPath = settings.fieldPath ?? "";
+
   const workloadsWithImages = useMemo(() => {
     const set = new Set<string>();
+
     if (!model) return set;
+
     for (const workload of workloads) {
       for (const section of SECTION_KEYS) {
         const struct = getStruct(workload, section);
@@ -185,67 +210,85 @@ export default function TelemetryImageViewer() {
         }
       }
     }
+
     return set;
   }, [model, workloads]);
+
   const filteredWorkloads = workloads.filter((w) =>
     workloadsWithImages.has(w.name)
   );
+
   const availableWorkloads =
     filteredWorkloads.length > 0 ? filteredWorkloads : workloads;
+
   const workloadsToScan = workloadName
     ? availableWorkloads.filter((w) => w.name === workloadName)
     : availableWorkloads;
+
   const imageFieldOptions = useMemo(() => {
-    if (!model || workloadsToScan.length === 0) return [];
+    if (!hasTelemetrySchema || workloadsToScan.length === 0) return [];
+
     const options: ImageFieldOption[] = [];
     const seen = new Set<string>();
+
     for (const workload of workloadsToScan) {
       for (const section of SECTION_KEYS) {
         const struct = getStruct(workload, section);
         collectImageFields(struct?.fields ?? [], options, seen);
+
         if (options.length >= MAX_FIELD_OPTIONS) {
           return options.sort((a, b) => a.label.localeCompare(b.label));
         }
       }
     }
+
     return options.sort((a, b) => a.label.localeCompare(b.label));
-  }, [model, workloadsToScan]);
+  }, [hasTelemetrySchema, workloadsToScan]);
 
   useEffect(() => {
-    if (!schemaSessionId) return;
+    if (!hasTelemetrySchema) return;
+
     if (!previousSchemaSessionIdRef.current) {
       previousSchemaSessionIdRef.current = schemaSessionId;
       return;
     }
+
     if (previousSchemaSessionIdRef.current === schemaSessionId) return;
+
     previousSchemaSessionIdRef.current = schemaSessionId;
-    updateSettings({
-      workloadName: undefined,
-      fieldPath: undefined,
-    });
-  }, [schemaSessionId, updateSettings]);
+
+    // Do not clear saved combo selections here. A schema refresh/reconnect should
+    // not be treated as user intent to forget the selected workload/field.
+    // The validation effects below will only replace them once a real schema
+    // proves they are unavailable.
+  }, [hasTelemetrySchema, schemaSessionId]);
 
   useEffect(() => {
+    if (!hasTelemetrySchema) return;
+    if (availableWorkloads.length === 0) return;
+
+    if (!availableWorkloads.some((w) => w.name === workloadName)) {
+      updateSettings({ workloadName: availableWorkloads[0].name });
+    }
+  }, [hasTelemetrySchema, availableWorkloads, workloadName, updateSettings]);
+
+  useEffect(() => {
+    if (!hasTelemetrySchema) return;
     if (imageFieldOptions.length === 0) return;
+
     if (
       !fieldPath ||
       !imageFieldOptions.some((option) => option.path === fieldPath)
     ) {
       updateSettings({ fieldPath: imageFieldOptions[0].path });
     }
-  }, [fieldPath, imageFieldOptions, updateSettings]);
-
-  useEffect(() => {
-    if (availableWorkloads.length === 0) return;
-    if (!availableWorkloads.some((w) => w.name === workloadName)) {
-      updateSettings({ workloadName: availableWorkloads[0].name });
-    }
-  }, [availableWorkloads, workloadName, updateSettings]);
+  }, [hasTelemetrySchema, fieldPath, imageFieldOptions, updateSettings]);
 
   const field = useMemo(() => {
     if (!model || !fieldPath || typeof model.getField !== "function") {
       return null;
     }
+
     return model.getField(fieldPath) ?? null;
   }, [model, fieldPath]);
 
@@ -263,6 +306,7 @@ export default function TelemetryImageViewer() {
     }
 
     const payloadKey = getTelemetryImagePayloadSignature(imagePayload);
+
     if (payloadKey === latestValidPayloadKeyRef.current) {
       return;
     }
@@ -270,21 +314,22 @@ export default function TelemetryImageViewer() {
     void (async () => {
       const valid = await tryDecodeTelemetryImageBytes(
         imagePayload.bytes,
-        imagePayload.mime,
+        imagePayload.mime
       );
+
       if (isCancelled) {
         return;
       }
+
       if (!valid) {
         console.warn(
-          "[telemetry-image-viewer] Failed to decode telemetry image payload; keeping last valid preview.",
+          "[telemetry-image-viewer] Failed to decode telemetry image payload; keeping last valid preview."
         );
         return;
       }
+
       latestValidPayloadKeyRef.current = payloadKey;
-      setPreviewUrl(
-        getOrCreateBlobURL(imagePayload.bytes, imagePayload.mime),
-      );
+      setPreviewUrl(getOrCreateBlobURL(imagePayload.bytes, imagePayload.mime));
     })();
 
     return () => {
@@ -299,6 +344,7 @@ export default function TelemetryImageViewer() {
     const descriptor = modelOptions.find(
       (model) => model.modelPath === modelPath
     );
+
     updateSettings({
       modelPath,
       modelName: descriptor?.modelName,
@@ -345,13 +391,14 @@ export default function TelemetryImageViewer() {
             ))}
           </select>
         </div>
+
         <div className={styles.control}>
           <label htmlFor="image-workload">Workload</label>
           <select
             id="image-workload"
             value={workloadName}
             onChange={handleWorkloadChange}
-            disabled={availableWorkloads.length === 0}
+            disabled={!hasTelemetrySchema || availableWorkloads.length === 0}
           >
             {availableWorkloads.map((workload) => (
               <option value={workload.name} key={workload.name}>
@@ -360,12 +407,14 @@ export default function TelemetryImageViewer() {
             ))}
           </select>
         </div>
+
         <div className={styles.control}>
           <label htmlFor="image-field">Field</label>
           <select
             id="image-field"
             value={fieldPath}
             onChange={handleFieldSelection}
+            disabled={!hasTelemetrySchema || imageFieldOptions.length === 0}
           >
             {imageFieldOptions.map((option) => (
               <option key={option.path} value={option.path}>
@@ -375,14 +424,17 @@ export default function TelemetryImageViewer() {
           </select>
         </div>
       </div>
+
       <div className={styles.preview}>
         {blobUrl ? (
           <img src={blobUrl} alt={field?.path ?? "telemetry-image"} />
         ) : (
           <div className={styles.message}>
-            {workloads.length === 0
-              ? "Waiting for telemetry…"
-              : "Select a field with image telemetry."}
+            {!hasTelemetrySchema
+              ? "Waiting for telemetry schema…"
+              : workloads.length === 0
+                ? "Waiting for telemetry…"
+                : "Select a field with image telemetry."}
           </div>
         )}
       </div>
@@ -398,6 +450,7 @@ function collectImageFields(
   for (const field of fields) {
     if (out.length >= MAX_FIELD_OPTIONS) return;
     if (seen.has(field.path)) continue;
+
     if (isTelemetryImageField(field)) {
       seen.add(field.path);
       out.push({
@@ -406,6 +459,7 @@ function collectImageFields(
       });
       continue;
     }
+
     if (field.fields && field.fields.length > 0) {
       collectImageFields(field.fields, out, seen);
     }
@@ -431,11 +485,13 @@ function hasImageField(fields: ITelemetryField[]): boolean {
     if (isTelemetryImageField(field)) {
       return true;
     }
+
     if (field.fields && field.fields.length > 0) {
       if (hasImageField(field.fields)) {
         return true;
       }
     }
   }
+
   return false;
 }
