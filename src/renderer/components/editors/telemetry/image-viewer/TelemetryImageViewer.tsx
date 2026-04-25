@@ -322,9 +322,6 @@ export default function TelemetryImageViewer() {
       }
 
       if (!valid) {
-        console.warn(
-          "[telemetry-image-viewer] Failed to decode telemetry image payload; keeping last valid preview."
-        );
         return;
       }
 
