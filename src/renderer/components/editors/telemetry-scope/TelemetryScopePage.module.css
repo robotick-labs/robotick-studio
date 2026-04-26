@@ -1,0 +1,290 @@
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+.traceBand,
+.settingsBand {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control,
+.controlWide,
+.controlNarrow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.control label,
+.controlWide label,
+.controlNarrow label,
+.control span,
+.controlWide span,
+.controlNarrow span {
+  font-weight: 600;
+  color: var(--app-text-muted);
+}
+
+.control select,
+.control input,
+.controlWide select,
+.controlWide input,
+.controlNarrow select,
+.controlNarrow input {
+  background: var(--app-input-background);
+  border: 1px solid var(--app-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--app-text-primary);
+  font-size: 0.9rem;
+}
+
+.control input:disabled,
+.controlWide input:disabled,
+.controlNarrow input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.preview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 8px;
+  background: var(--app-panel-overlay);
+  backdrop-filter: var(--app-panel-blur);
+  overflow: hidden;
+}
+
+.plotSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.legend {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(340px, calc(100% - 20px));
+}
+
+.legendRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(10, 16, 22, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+}
+
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.legendLabel {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legendValue {
+  font-variant-numeric: tabular-nums;
+}
+
+.statusBar {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  color: var(--app-text-muted);
+  font-size: 0.78rem;
+}
+
+.message {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-message-text);
+  font-size: 0.9rem;
+}
+
+.expandToggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.expandToggleBottom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
+.chevron {
+  display: inline-block;
+  transition: transform 0.18s ease;
+}
+
+.chevronExpanded {
+  transform: rotate(180deg);
+}
+
+.expandedPanel {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.traceArray {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.traceRow {
+  display: block;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.traceFields {
+  display: grid;
+  grid-template-columns:
+    34px
+    minmax(120px, 0.9fr)
+    minmax(120px, 0.9fr)
+    minmax(105px, 0.7fr)
+    minmax(200px, 1.5fr)
+    84px
+    auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  color: var(--app-text-primary);
+  font-size: 0.85rem;
+}
+
+.toggle input {
+  margin: 0;
+}
+
+.colorInput {
+  min-width: 72px;
+  height: 34px;
+  padding: 3px;
+}
+
+.removeButton,
+.addButton,
+.clearButton {
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.removeButton {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  font-size: 1rem;
+  line-height: 1;
+  align-self: end;
+}
+
+.addButton,
+.clearButton {
+  padding: 6px 10px;
+  align-self: flex-start;
+}
+
+.fieldsFooter {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.fieldsFooter .expandToggleBottom {
+  justify-self: start;
+}
+
+.fieldsFooter .addButton {
+  justify-self: center;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.toggleRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .traceFields {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .traceFields {
+    grid-template-columns: 1fr;
+  }
+}

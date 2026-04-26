@@ -21,6 +21,9 @@ editors:
   - id: telemetry-tree-viewer
     label: Telemetry Tree Viewer
     module: ./components/editors/telemetry/tree-viewer/TelemetryTreeViewer.tsx
+  - id: telemetry-scope
+    label: Telemetry Scope
+    module: ./components/editors/telemetry-scope/TelemetryScopePage.tsx
   - id: terminal
     label: Terminal
     module: ./components/editors/terminal/TerminalPage.tsx
