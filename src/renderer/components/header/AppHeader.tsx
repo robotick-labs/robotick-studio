@@ -15,6 +15,7 @@ import { isStandaloneElectron } from "../../utils/environment";
 import { addDocumentEventListener } from "../../utils/domEnvironment";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import type { RobotickStudioProcessStats } from "../../types/robotick-globals";
+import { isPrimaryWindowSession } from "../../utils/windowSession";
 import styles from "./styles/AppHeader.module.css";
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
@@ -81,6 +82,9 @@ export function AppHeader() {
   const [usesNativeFrame, setUsesNativeFrame] = useState<boolean>(() =>
     getUsesNativeWindowFrame()
   );
+  const [isPrimaryWindow, setIsPrimaryWindow] = useState<boolean>(() =>
+    isPrimaryWindowSession()
+  );
   const [studioProcessStatsLabel, setStudioProcessStatsLabel] =
     useState<string | null>(null);
   const [leftMenuOpen, setLeftMenuOpen] = useState(false);
@@ -89,6 +93,7 @@ export function AppHeader() {
     // Ensure we re-check once after hydration so we pick up the preload bridge
     // even if the first render happened before window.robotick was available.
     setUsesNativeFrame(getUsesNativeWindowFrame());
+    setIsPrimaryWindow(isPrimaryWindowSession());
   }, []);
   const showWindowControls = isStandalone && !usesNativeFrame;
   const noDragClass = isStandalone ? styles.noDrag : "";
@@ -260,6 +265,12 @@ export function AppHeader() {
   const handleNavigate = () => {
     closeMenus();
   };
+  const handleCreateWindow = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.robotick?.windowControls?.createWindow?.(window.location.href);
+  };
 
   return (
     <header ref={headerRef} className={headerClassName}>
@@ -308,7 +319,7 @@ export function AppHeader() {
             >
               <div className={styles.projectPickerSlot}>
                 <span className={styles.menuLabelText}>Project</span>
-                <ProjectPicker />
+                {isPrimaryWindow ? <ProjectPicker /> : null}
               </div>
               <div className={styles.menuLinks}>
                 {renderLinks(grouped.projectSelect, handleNavigate)}
@@ -326,7 +337,7 @@ export function AppHeader() {
           <div className={styles.navLinks}>
             {renderLinks(grouped.projectSelect)}
           </div>
-          <ProjectPicker />
+          {isPrimaryWindow ? <ProjectPicker /> : null}
         </div>
 
         <div className={styles.navMenuDev}>
@@ -334,14 +345,16 @@ export function AppHeader() {
         </div>
 
         <div className={styles.navMenuTest}>
-          <div className={styles.navSubmenuControl}>
-            <div className={styles.profilePickerSlot}>
-              <ProfilePicker />
+          {isPrimaryWindow ? (
+            <div className={styles.navSubmenuControl}>
+              <div className={styles.profilePickerSlot}>
+                <ProfilePicker />
+              </div>
+              <div className={styles.launcherControlsSlot}>
+                <LauncherControls />
+              </div>
             </div>
-            <div className={styles.launcherControlsSlot}>
-              <LauncherControls />
-            </div>
-          </div>
+          ) : null}
           <div className={styles.navSubmenuPages}>
             <div className={styles.navSubmenuPagesLinks}>
               {renderLinks(grouped.test)}
@@ -392,12 +405,13 @@ export function AppHeader() {
       <div
         className={[styles.headerRight, noDragClass].filter(Boolean).join(" ")}
       >
-        {showWindowControls ? (
+        {showWindowControls && isPrimaryWindow ? (
           <button
             type="button"
             className={styles.createWindowButton}
             aria-label="Create window"
             data-window-interactive="true"
+            onClick={handleCreateWindow}
           >
             + Create Window
           </button>

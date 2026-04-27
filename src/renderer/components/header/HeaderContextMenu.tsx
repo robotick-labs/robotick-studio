@@ -5,6 +5,7 @@ import {
   addWindowEventListener,
   getViewportSize,
 } from "../../utils/domEnvironment";
+import { shouldConfirmCloseChildWindow } from "../../utils/windowSession";
 
 type HeaderContextMenuProps = {
   x: number;
@@ -106,6 +107,15 @@ export function HeaderContextMenu({ x, y, onClose }: HeaderContextMenuProps) {
       <button
         className={styles.contextMenuItem}
         onClick={() => {
+          if (
+            shouldConfirmCloseChildWindow() &&
+            !window.confirm(
+              "Are you sure you want to close this window, and not just minimise it?"
+            )
+          ) {
+            onClose();
+            return;
+          }
           api.close();
           onClose();
         }}

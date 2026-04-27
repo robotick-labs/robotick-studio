@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+const WINDOW_SCOPE_ARG_PREFIX = "--robotick-window-scope=";
+const WINDOW_PRIMARY_ARG_PREFIX = "--robotick-window-primary=";
+
 type RendererErrorReport = {
   type: "error" | "unhandledrejection";
   message: string;
@@ -88,6 +91,15 @@ function installRendererErrorForwarding() {
   });
 }
 
+function readArgument(prefix: string): string | undefined {
+  const arg = process.argv.find((entry) => entry.startsWith(prefix));
+  if (!arg) {
+    return undefined;
+  }
+  const value = arg.slice(prefix.length).trim();
+  return value.length > 0 ? value : undefined;
+}
+
 const expose = () => {
   installRendererErrorForwarding();
 
@@ -105,6 +117,11 @@ const expose = () => {
           ipcRenderer.invoke("robotick-window-command", { command: "restore" }),
         close: () =>
           ipcRenderer.invoke("robotick-window-command", { command: "close" }),
+        createWindow: (seedUrl?: string) =>
+          ipcRenderer.invoke("robotick-window-command", {
+            command: "createWindow",
+            seedUrl,
+          }),
         toggleMaximize: () =>
           ipcRenderer.invoke("robotick-window-command", {
             command: "toggleMaximize",
@@ -226,6 +243,9 @@ const expose = () => {
       appTitle: "Robotick Studio",
       cesiumToken,
       usesNativeWindowFrame,
+      windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
+      isPrimaryWindow:
+        (readArgument(WINDOW_PRIMARY_ARG_PREFIX) ?? "1") !== "0",
       workspaceRoot:
         process.env.ROBOTICK_PROJECT_DIR ??
         process.env.ROBOTICK_WORKSPACE_ROOT,

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getWindow } from "../../utils/domEnvironment";
 import type { RobotickWindowControls } from "../../types/robotick-globals";
+import { shouldConfirmCloseChildWindow } from "../../utils/windowSession";
 import styles from "./styles/WindowControls.module.css";
 
 export type WindowControlsAPI = RobotickWindowControls;
@@ -84,6 +85,18 @@ export function WindowControls(props: WindowControlsProps = {}) {
     return null;
   }
 
+  const handleClose = () => {
+    if (
+      shouldConfirmCloseChildWindow() &&
+      !window.confirm(
+        "Are you sure you want to close this window, and not just minimise it?"
+      )
+    ) {
+      return;
+    }
+    api.close();
+  };
+
   return (
     <div
       className={styles.windowControls}
@@ -113,7 +126,7 @@ export function WindowControls(props: WindowControlsProps = {}) {
         type="button"
         className={`${styles.button} ${styles.buttonClose}`}
         aria-label="Close"
-        onClick={() => api.close()}
+        onClick={handleClose}
       >
         <span className={styles.iconClose} />
       </button>

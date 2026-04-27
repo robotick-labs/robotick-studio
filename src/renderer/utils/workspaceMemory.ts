@@ -1,6 +1,12 @@
 import { readStorageValue, setStorageValue } from "../services/storage";
 
 const LAST_WORKSPACE_PREFIX = "robotick:last-workspace:";
+const PRIMARY_WINDOW_SCOPE = "primary";
+
+type WorkspaceMemoryOptions = {
+  windowScope?: string;
+  isPrimaryWindow?: boolean;
+};
 
 /**
  * Builds the storage key used to remember the last workspace for a specific project or globally.
@@ -16,6 +22,13 @@ function getWorkspaceKey(projectPath?: string): string {
   return `${LAST_WORKSPACE_PREFIX}${encoded}`;
 }
 
+function getScopedWorkspaceKey(windowScope: string, projectPath?: string): string {
+  const suffix = projectPath
+    ? encodeURIComponent(projectPath)
+    : "global";
+  return `${LAST_WORKSPACE_PREFIX}${windowScope}:${suffix}`;
+}
+
 /**
  * Persist the last-used workspace path for a given project.
  *
@@ -26,10 +39,20 @@ function getWorkspaceKey(projectPath?: string): string {
  */
 export function rememberWorkspacePath(
   projectPath: string | undefined,
-  workspacePath: string
+  workspacePath: string,
+  options: WorkspaceMemoryOptions = {}
 ): void {
   try {
-    setStorageValue(getWorkspaceKey(projectPath), workspacePath);
+    const isPrimaryWindow = options.isPrimaryWindow !== false;
+    if (isPrimaryWindow) {
+      setStorageValue(getWorkspaceKey(projectPath), workspacePath);
+      return;
+    }
+    const scopedKey = getScopedWorkspaceKey(
+      options.windowScope ?? PRIMARY_WINDOW_SCOPE,
+      projectPath
+    );
+    setStorageValue(scopedKey, workspacePath);
   } catch (error) {
     console.warn("[workspace-memory] Failed to persist workspace path", error);
   }
@@ -42,10 +65,19 @@ export function rememberWorkspacePath(
  * @returns The stored workspace path if available, `null` if none could be read or an error occurred
  */
 export function loadRememberedWorkspacePath(
-  projectPath: string | undefined
+  projectPath: string | undefined,
+  options: WorkspaceMemoryOptions = {}
 ): string | null {
   try {
-    return readStorageValue(getWorkspaceKey(projectPath));
+    const isPrimaryWindow = options.isPrimaryWindow !== false;
+    if (isPrimaryWindow) {
+      return readStorageValue(getWorkspaceKey(projectPath));
+    }
+    const scopedKey = getScopedWorkspaceKey(
+      options.windowScope ?? PRIMARY_WINDOW_SCOPE,
+      projectPath
+    );
+    return readStorageValue(scopedKey);
   } catch (error) {
     console.warn("[workspace-memory] Failed to load workspace path", error);
     return null;

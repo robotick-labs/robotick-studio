@@ -12,6 +12,10 @@ import { WorkspaceView } from "./components/workspaces/WorkspaceView";
 import { reportViewDiagnostics } from "./utils/viewDiagnostics";
 import { useProjectContext } from "./data-sources/launcher/internal/ProjectContext";
 import { loadRememberedWorkspacePath } from "./utils/workspaceMemory";
+import {
+  getWindowScope,
+  isPrimaryWindowSession,
+} from "./utils/windowSession";
 
 export const resolvedWorkspaces = WorkspacesConfig;
 
@@ -82,7 +86,10 @@ function getFallbackWorkspacePath(): string {
 }
 
 function resolveRememberedWorkspace(projectPath: string | undefined): string {
-  const remembered = loadRememberedWorkspacePath(projectPath);
+  const remembered = loadRememberedWorkspacePath(projectPath, {
+    windowScope: getWindowScope(),
+    isPrimaryWindow: isPrimaryWindowSession(),
+  });
   if (
     remembered &&
     resolvedWorkspaces.some((workspace) => workspace.path === remembered)
