@@ -61,6 +61,13 @@
   font-weight: bold;
 }
 
+.engineStats {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px 20px;
+}
+
 .tableContainer {
   background: var(--app-panel-backdrop);
   border-radius: 10px;

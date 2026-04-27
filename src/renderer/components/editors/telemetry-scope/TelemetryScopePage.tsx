@@ -89,6 +89,14 @@ type PlotTrace = TraceConfig & {
   seamMarkers: number[];
 };
 
+type ModelTimingAnchor = {
+  anchorMs: number;
+  lastEngineTimeMs: number | null;
+  sessionId: string;
+  calibrationSampleCount: number;
+  calibrationAnchorSumMs: number;
+};
+
 type TraceScrubKind = "scale" | "offset";
 
 type TraceScrubState = {
@@ -124,6 +132,7 @@ const PLOT_PADDING = { top: 24, right: 16, bottom: 28, left: 18 };
 const DEFAULT_SAMPLE_RATE_HZ = 20;
 const GENERATOR_SAMPLE_COUNT = 256;
 const RESUME_SEAM_MS = 120;
+const MODEL_TIMING_ANCHOR_WARMUP_SAMPLES = 16;
 
 function createTraceId(): string {
   if (
@@ -506,6 +515,24 @@ function coerceScalarValue(field: ITelemetryField): number | null {
   return null;
 }
 
+function getEngineSampleTimeMs(model: ITelemetryModel): number | null {
+  if (typeof model.getField !== "function") return null;
+
+  const timeNow = Number(model.getField("engine.clock.time_now")?.getValue?.());
+  if (Number.isFinite(timeNow) && timeNow >= 0) {
+    return timeNow * 1000;
+  }
+
+  const timeNowNs = Number(
+    model.getField("engine.clock.time_now_ns")?.getValue?.()
+  );
+  if (Number.isFinite(timeNowNs) && timeNowNs >= 0) {
+    return timeNowNs / 1_000_000;
+  }
+
+  return null;
+}
+
 function parseTraceTransformValue(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -629,6 +656,7 @@ export default function TelemetryScopePage() {
   const historiesRef = useRef<Record<string, SamplePoint[]>>({});
   const settingsRef = useRef(settings);
   const modelOptionsRef = useRef(modelOptions);
+  const modelTimingRef = useRef<Record<string, ModelTimingAnchor>>({});
   const pauseGapTraceIdsRef = useRef<Set<string>>(new Set());
   const freezeTimeMsRef = useRef<number | null>(settings.freeze ? performance.now() : null);
   const traceScrubRef = useRef<TraceScrubState | null>(null);
@@ -657,6 +685,7 @@ export default function TelemetryScopePage() {
   useEffect(() => {
     setSettings(readScopePanelSettings(storageKeys));
     historiesRef.current = {};
+    modelTimingRef.current = {};
   }, [storageKeys]);
 
   useEffect(() => {
@@ -746,10 +775,49 @@ export default function TelemetryScopePage() {
     };
   }, [selectedModelOptions, telemetryService]);
 
+  function getAlignedModelSampleTimeMs(modelPath: string, model: ITelemetryModel): number {
+    const engineTimeMs = getEngineSampleTimeMs(model);
+    if (engineTimeMs === null) {
+      return performance.now();
+    }
+
+    const sessionId = model.schemaSessionId ?? "";
+    const uiNowMs = performance.now();
+    const current = modelTimingRef.current[modelPath];
+    const didSessionChange = !!current && sessionId !== current.sessionId;
+    const didClockRewind =
+      !!current &&
+      current.lastEngineTimeMs !== null &&
+      engineTimeMs + 0.5 < current.lastEngineTimeMs;
+
+    if (!current || didSessionChange || didClockRewind) {
+      const instantAnchorMs = uiNowMs - engineTimeMs;
+      const next: ModelTimingAnchor = {
+        anchorMs: instantAnchorMs,
+        lastEngineTimeMs: engineTimeMs,
+        sessionId,
+        calibrationSampleCount: 1,
+        calibrationAnchorSumMs: instantAnchorMs,
+      };
+      modelTimingRef.current[modelPath] = next;
+      return engineTimeMs + next.anchorMs;
+    }
+
+    if (current.calibrationSampleCount < MODEL_TIMING_ANCHOR_WARMUP_SAMPLES) {
+      const instantAnchorMs = uiNowMs - engineTimeMs;
+      current.calibrationAnchorSumMs += instantAnchorMs;
+      current.calibrationSampleCount += 1;
+      current.anchorMs = current.calibrationAnchorSumMs / current.calibrationSampleCount;
+    }
+
+    current.lastEngineTimeMs = engineTimeMs;
+    return engineTimeMs + current.anchorMs;
+  }
+
   function sampleTelemetryModel(modelPath: string, model: ITelemetryModel) {
     const current = settingsRef.current;
     if (current.freeze) return;
-    const now = performance.now();
+    const now = getAlignedModelSampleTimeMs(modelPath, model);
     const horizonMs = parseWindowSeconds(current.windowSeconds) * 1000;
     let changed = false;
 
@@ -762,16 +830,23 @@ export default function TelemetryScopePage() {
       const value = coerceScalarValue(field);
       if (value === null) continue;
       const series = historiesRef.current[trace.id] ?? [];
+      if (
+        series.length > 0 &&
+        now + RESUME_SEAM_MS < series[series.length - 1].timeMs
+      ) {
+        historiesRef.current[trace.id] = [];
+      }
+      const stableSeries = historiesRef.current[trace.id] ?? [];
       const breakBefore =
-        pauseGapTraceIdsRef.current.has(trace.id) && series.length > 0;
-      series.push({
+        pauseGapTraceIdsRef.current.has(trace.id) && stableSeries.length > 0;
+      stableSeries.push({
         timeMs: now,
         value,
         breakBefore,
         seamBefore: breakBefore,
       });
       pauseGapTraceIdsRef.current.delete(trace.id);
-      historiesRef.current[trace.id] = series.filter(
+      historiesRef.current[trace.id] = stableSeries.filter(
         (point) => now - point.timeMs <= horizonMs
       );
       changed = true;
@@ -813,10 +888,28 @@ export default function TelemetryScopePage() {
     return map;
   }, [modelOptions, modelsByPath, settings.traces]);
 
-  const plotNowMs =
-    settings.freeze && freezeTimeMsRef.current !== null
-      ? freezeTimeMsRef.current
-      : performance.now();
+  const getLatestTraceSampleTimeMs = (traces: ReadonlyArray<TraceConfig>) => {
+    let latestTimeMs: number | null = null;
+    for (const trace of traces) {
+      if (!isFieldTrace(trace)) continue;
+      const series = historiesRef.current[trace.id];
+      if (!series || series.length === 0) continue;
+      const lastPoint = series[series.length - 1];
+      if (!lastPoint || !Number.isFinite(lastPoint.timeMs)) continue;
+      if (latestTimeMs === null || lastPoint.timeMs > latestTimeMs) {
+        latestTimeMs = lastPoint.timeMs;
+      }
+    }
+    return latestTimeMs;
+  };
+
+  const plotNowMs = (() => {
+    if (settings.freeze && freezeTimeMsRef.current !== null) {
+      return freezeTimeMsRef.current;
+    }
+    const latestSampleTime = getLatestTraceSampleTimeMs(settings.traces);
+    return latestSampleTime ?? performance.now();
+  })();
   const effectiveWindowSeconds = parseWindowSeconds(settings.windowSeconds);
 
   const traces = useMemo<PlotTrace[]>(() => {
@@ -1027,9 +1120,14 @@ export default function TelemetryScopePage() {
   };
 
   const updateFreeze = (freeze: boolean) => {
+    const getTimelineNowMs = (): number => {
+      const latestSampleTime = getLatestTraceSampleTimeMs(settingsRef.current.traces);
+      return latestSampleTime ?? performance.now();
+    };
+
     if (!freeze && settingsRef.current.freeze) {
       const frozenAt = freezeTimeMsRef.current;
-      const now = performance.now();
+      const now = getTimelineNowMs();
       if (frozenAt !== null) {
         const pausedDurationMs = Math.max(0, now - frozenAt);
         const shiftMs = Math.max(0, pausedDurationMs - RESUME_SEAM_MS);
@@ -1048,7 +1146,7 @@ export default function TelemetryScopePage() {
         settingsRef.current.traces.map((trace) => trace.id)
       );
     }
-    freezeTimeMsRef.current = freeze ? performance.now() : null;
+    freezeTimeMsRef.current = freeze ? getTimelineNowMs() : null;
     updateSettings({ freeze });
   };
 

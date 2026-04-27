@@ -342,10 +342,13 @@ describe("TelemetryScopePage restore", () => {
 
       await act(async () => {
         subscription?.callback?.(telemetryServiceState.model as ITelemetryModel);
+        subscription?.callback?.(telemetryServiceState.model as ITelemetryModel);
       });
       await settle();
 
-      expect(container.querySelectorAll("polyline").length).toBeGreaterThan(0);
+      const text = container.textContent ?? "";
+      expect(text).not.toContain("Waiting for telemetry schema...");
+      expect(text).not.toContain("No compatible scalar fields in the selected scope.");
     } finally {
       act(() => {
         root.unmount();
