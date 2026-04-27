@@ -20,6 +20,27 @@ export interface CanvasSize {
   height: number;
 }
 
+type EdgeVisibilityMode =
+  | "none"
+  | "selected-node"
+  | "selected-model"
+  | "expanded-models"
+  | "all";
+
+export interface RenderDisplayOptions {
+  selectedNodeId: string | null;
+  edgeVisibilityMode: EdgeVisibilityMode;
+  focusDimming: boolean;
+  expandedModelIds: string[];
+}
+
+const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
+  selectedNodeId: null,
+  edgeVisibilityMode: "selected-model",
+  focusDimming: true,
+  expandedModelIds: [],
+};
+
 export class SvgView {
   constructor(
     private svg: SVGSVGElement,
@@ -27,11 +48,38 @@ export class SvgView {
     private router: ConnectionRouter
   ) {}
 
-  render(doc: GraphDoc): void {
+  render(
+    doc: GraphDoc,
+    displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS
+  ): void {
+    const resolvedOptions = {
+      ...DEFAULT_RENDER_DISPLAY_OPTIONS,
+      ...displayOptions,
+    };
+    const selectedNodeId = resolvedOptions.selectedNodeId;
+    const selectedModelId =
+      selectedNodeId != null
+        ? doc.getNode(selectedNodeId)?.meta?.modelId ?? null
+        : null;
+    const visibleEdges = this.computeVisibleEdges(doc, resolvedOptions, selectedModelId);
+    const relatedNodeIds = this.computeRelatedNodeIds(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions.edgeVisibilityMode
+    );
+
     // Step 1: render all content first
     this.renderSectionLabels(doc.sections);
-    this.renderNodes(doc);
-    this.renderEdges(doc);
+    this.renderNodes(doc, selectedNodeId, relatedNodeIds, resolvedOptions.focusDimming);
+    this.renderEdges(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions
+    );
     this.drawPlusButtons(doc);
 
     // Step 2: measure actual bounding box
@@ -80,15 +128,17 @@ export class SvgView {
         label.classList.add("label");
         label.setAttribute("x", String(marginX + 10));
         label.setAttribute("y", String(y + 20));
-        label.textContent = `Thread ${i + 1}`;
+        label.textContent = section.hasSequencedGroup
+          ? `Thread ${i + 1} · Step chain`
+          : `Thread ${i + 1}`;
         this.layers.swim.appendChild(label);
       }
     }
   }
 
   private renderSectionLabels(sections: Section[]): void {
-    Array.from(this.svg.querySelectorAll("text.model-label")).forEach((n) =>
-      n.remove()
+    Array.from(this.svg.querySelectorAll("text.model-label, text.model-meta-label")).forEach(
+      (n) => n.remove()
     );
     for (const s of sections) {
       const text = document.createElementNS(
@@ -100,6 +150,15 @@ export class SvgView {
       text.classList.add("model-label");
       text.textContent = s.modelId;
       this.svg.appendChild(text);
+
+      const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      meta.setAttribute("x", String(marginX + 230));
+      meta.setAttribute("y", String(s.labelY));
+      meta.classList.add("model-meta-label");
+      const rootType = s.rootType ?? "Workload";
+      const sequenceLabel = s.hasSequencedGroup ? "Sequence: on" : "Sequence: off";
+      meta.textContent = `Root: ${rootType} | Threads: ${s.laneCount} | ${sequenceLabel}`;
+      this.svg.appendChild(meta);
     }
   }
 
@@ -132,6 +191,13 @@ export class SvgView {
       // Fit label to available width (account for left padding ~10 and a little right padding)
       const maxTextWidth = Math.max(0, n.w - 20);
       this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+    }
+    g.classList.remove("is-structural-group", "is-selected", "is-dimmed");
+    if (
+      n.workload?.type === "SyncedGroupWorkload" ||
+      n.workload?.type === "SequencedGroupWorkload"
+    ) {
+      g.classList.add("is-structural-group");
     }
     return g;
   }
@@ -176,14 +242,31 @@ export class SvgView {
     textEl.setAttribute("title", full); // show full label on hover
   }
 
-  private renderNodes(doc: GraphDoc): void {
+  private renderNodes(
+    doc: GraphDoc,
+    selectedNodeId: string | null,
+    relatedNodeIds: Set<string>,
+    focusDimming: boolean
+  ): void {
     for (const n of doc.nodes.values()) {
       const g = this.ensureNode(n);
       g.setAttribute("transform", `translate(${n.x},${n.y})`);
+      if (selectedNodeId && n.id === selectedNodeId) {
+        g.classList.add("is-selected");
+      }
+      if (focusDimming && selectedNodeId && !relatedNodeIds.has(n.id)) {
+        g.classList.add("is-dimmed");
+      }
     }
   }
 
-  private renderEdges(doc: GraphDoc): void {
+  private renderEdges(
+    doc: GraphDoc,
+    visibleEdgeKeys: Set<string>,
+    selectedNodeId: string | null,
+    selectedModelId: string | null,
+    displayOptions: RenderDisplayOptions
+  ): void {
     this.layers.edges.replaceChildren();
 
     const edges = this.router.routeAll(doc.edges, (id: string) =>
@@ -207,11 +290,134 @@ export class SvgView {
       );
       visiblePath.setAttribute("d", e.path);
       visiblePath.classList.add("connection", ...e.classList);
+      const from = e.from;
+      const to = e.to;
+      const edgeKey = this.edgeKey(from, to);
+      const isVisible = visibleEdgeKeys.has(edgeKey);
+      const fromNode = doc.getNode(from);
+      const toNode = doc.getNode(to);
+      const touchesSelectedNode =
+        selectedNodeId != null && (from === selectedNodeId || to === selectedNodeId);
+      const touchesSelectedModel =
+        selectedModelId != null &&
+        (fromNode?.meta?.modelId === selectedModelId ||
+          toNode?.meta?.modelId === selectedModelId);
+      const shouldDim =
+        displayOptions.focusDimming &&
+        selectedNodeId != null &&
+        !touchesSelectedNode &&
+        !(
+          displayOptions.edgeVisibilityMode === "selected-model" &&
+          touchesSelectedModel
+        );
+
+      if (!isVisible) {
+        g.classList.add("is-hidden");
+      } else if (shouldDim) {
+        g.classList.add("is-dimmed");
+      }
 
       g.appendChild(hoverPath);
       g.appendChild(visiblePath);
       this.layers.edges.appendChild(g);
     }
+  }
+
+  private computeVisibleEdges(
+    doc: GraphDoc,
+    displayOptions: RenderDisplayOptions,
+    selectedModelId: string | null
+  ): Set<string> {
+    const visible = new Set<string>();
+    const selectedNodeId = displayOptions.selectedNodeId;
+    const expandedModels = new Set(displayOptions.expandedModelIds);
+
+    for (const edge of doc.edges) {
+      const key = this.edgeKey(edge.from, edge.to);
+
+      if (displayOptions.edgeVisibilityMode === "all") {
+        visible.add(key);
+        continue;
+      }
+
+      if (displayOptions.edgeVisibilityMode === "none") {
+        continue;
+      }
+
+      if (displayOptions.edgeVisibilityMode === "expanded-models") {
+        if (expandedModels.size === 0) {
+          continue;
+        }
+        const fromNode = doc.getNode(edge.from);
+        const toNode = doc.getNode(edge.to);
+        if (
+          (fromNode?.meta?.modelId && expandedModels.has(fromNode.meta.modelId)) ||
+          (toNode?.meta?.modelId && expandedModels.has(toNode.meta.modelId))
+        ) {
+          visible.add(key);
+        }
+        continue;
+      }
+
+      if (displayOptions.edgeVisibilityMode === "selected-node") {
+        if (!selectedNodeId) {
+          continue;
+        }
+        if (edge.from === selectedNodeId || edge.to === selectedNodeId) {
+          visible.add(key);
+        }
+        continue;
+      }
+
+      if (displayOptions.edgeVisibilityMode === "selected-model") {
+        if (!selectedNodeId || !selectedModelId) {
+          continue;
+        }
+        const fromNode = doc.getNode(edge.from);
+        const toNode = doc.getNode(edge.to);
+        if (
+          fromNode?.meta?.modelId === selectedModelId ||
+          toNode?.meta?.modelId === selectedModelId
+        ) {
+          visible.add(key);
+        }
+      }
+    }
+
+    return visible;
+  }
+
+  private computeRelatedNodeIds(
+    doc: GraphDoc,
+    visibleEdgeKeys: Set<string>,
+    selectedNodeId: string | null,
+    selectedModelId: string | null,
+    edgeVisibilityMode: EdgeVisibilityMode
+  ): Set<string> {
+    const related = new Set<string>();
+    if (selectedNodeId) {
+      related.add(selectedNodeId);
+    }
+
+    for (const key of visibleEdgeKeys) {
+      const [from, to] = key.split("->", 2);
+      if (from) related.add(from);
+      if (to) related.add(to);
+    }
+
+    if (edgeVisibilityMode === "selected-model" && selectedModelId) {
+      for (const node of doc.nodes.values()) {
+        if (node.meta?.modelId === selectedModelId) {
+          related.add(node.id);
+        }
+      }
+    }
+
+    return related;
+  }
+
+  private edgeKey(from: string, to: string): string {
+    return `${from}->${to}`;
   }
 
   private drawPlusButtons(doc: GraphDoc) {

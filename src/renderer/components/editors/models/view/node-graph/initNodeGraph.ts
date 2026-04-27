@@ -23,11 +23,33 @@ export type NodeGraphAPI = {
   dispose: () => void;
   /** Access the live graph document (read-only usage preferred) */
   getDoc: () => GraphDoc;
+  /** Update read-only graph display behavior */
+  setDisplayOptions: (options: Partial<GraphDisplayOptions>) => void;
+};
+
+export type EdgeVisibilityMode =
+  | "none"
+  | "selected-node"
+  | "selected-model"
+  | "expanded-models"
+  | "all";
+
+export type GraphDisplayOptions = {
+  edgeVisibilityMode: EdgeVisibilityMode;
+  focusDimming: boolean;
+  expandedModelIds: string[];
+};
+
+const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
+  edgeVisibilityMode: "selected-model",
+  focusDimming: true,
+  expandedModelIds: [],
 };
 
 export function initNodeGraph(
   svgElement: SVGSVGElement | null,
-  store: DocumentStore
+  store: DocumentStore,
+  initialDisplayOptions?: Partial<GraphDisplayOptions>
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -45,9 +67,19 @@ export function initNodeGraph(
   const view = new SvgView(svgElement, layers, router);
   const selectionController = new SelectionController(svgElement);
   const slotDragController = new SlotDragController(svgElement, doc, store);
+  let selectedNodeId: string | null = null;
+  let displayOptions: GraphDisplayOptions = {
+    ...DEFAULT_DISPLAY_OPTIONS,
+    ...initialDisplayOptions,
+  };
 
   const render = () => {
-    view.render(doc);
+    view.render(doc, {
+      selectedNodeId,
+      edgeVisibilityMode: displayOptions.edgeVisibilityMode,
+      focusDimming: displayOptions.focusDimming,
+      expandedModelIds: displayOptions.expandedModelIds,
+    });
   };
 
   const attachControllers = () => {
@@ -90,6 +122,15 @@ export function initNodeGraph(
     "models-graph:rename-requested",
     renameHandler as EventListener
   );
+  const selectionChangedHandler = (e: Event) => {
+    const ce = e as CustomEvent<{ nodeId?: string | null }>;
+    selectedNodeId = ce.detail?.nodeId ?? null;
+    render();
+  };
+  window.addEventListener(
+    "models-graph:selection-changed",
+    selectionChangedHandler as EventListener
+  );
 
   // First paint + attach controllers (idempotent if caller repeats)
   render();
@@ -111,11 +152,19 @@ export function initNodeGraph(
       "models-graph:rename-requested",
       renameHandler as EventListener
     );
+    window.removeEventListener(
+      "models-graph:selection-changed",
+      selectionChangedHandler as EventListener
+    );
     selectionController.detach();
     slotDragController.detach();
   };
 
   const getDoc = () => doc;
+  const setDisplayOptions = (options: Partial<GraphDisplayOptions>) => {
+    displayOptions = { ...displayOptions, ...options };
+    render();
+  };
 
   return {
     svg: svgElement,
@@ -125,6 +174,7 @@ export function initNodeGraph(
     refreshLayout,
     dispose,
     getDoc,
+    setDisplayOptions,
   };
 }
 

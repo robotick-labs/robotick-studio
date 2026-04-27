@@ -36,6 +36,8 @@ export interface Section {
   laneHeight: number;
   maxNodes: number;
   labelY: number;
+  rootType?: string;
+  hasSequencedGroup?: boolean;
 }
 
 export class GraphDoc {

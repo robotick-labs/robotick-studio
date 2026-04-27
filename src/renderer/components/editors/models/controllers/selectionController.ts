@@ -7,14 +7,13 @@ export class SelectionController {
     const g = (e.target as Element).closest("g.workload-node") as
       | SVGGElement
       | null;
-    if (g?.id) {
-      editorSelectionStore.setSelection(g.id);
-      window.dispatchEvent(
-        new CustomEvent("models-graph:selection-changed", {
-          detail: { nodeId: g.id },
-        })
-      );
-    }
+    const nodeId = g?.id ?? null;
+    editorSelectionStore.setSelection(nodeId);
+    window.dispatchEvent(
+      new CustomEvent("models-graph:selection-changed", {
+        detail: { nodeId },
+      })
+    );
   };
 
   attach(): void {

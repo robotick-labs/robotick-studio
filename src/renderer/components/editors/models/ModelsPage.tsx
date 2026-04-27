@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Project } from "../../../data-sources/launcher";
 import {
   buildNamespacedKey,
@@ -12,6 +12,7 @@ const useProjectContext = Project.Context.use;
 import { DocumentStore } from "./document/documentStore";
 import {
   initNodeGraph,
+  type EdgeVisibilityMode,
   type NodeGraphAPI,
 } from "./view/node-graph/initNodeGraph";
 import {
@@ -37,6 +38,9 @@ export default function ModelsPage() {
       ),
     [panelIdentifier, projectPath, workspaceIdentifier]
   );
+  const [edgeVisibilityMode, setEdgeVisibilityMode] =
+    useState<EdgeVisibilityMode>("selected-model");
+  const graphApiRef = useRef<NodeGraphAPI | null>(null);
 
   useEffect(() => {
     const graphEl = graphRef.current;
@@ -63,7 +67,11 @@ export default function ModelsPage() {
         await store.load(projectPath);
         if (disposed) return;
 
-        graphApi = initNodeGraph(graphElement, store);
+        graphApi = initNodeGraph(graphElement, store, {
+          edgeVisibilityMode,
+          focusDimming: true,
+        });
+        graphApiRef.current = graphApi;
         panelApi = initPropertyPanel(panelElement, store);
         const storedViewport = readViewport(viewportStorageKey);
         if (storedViewport) {
@@ -93,6 +101,7 @@ export default function ModelsPage() {
 
     return () => {
       disposed = true;
+      graphApiRef.current = null;
       graphApi?.dispose();
       panelApi?.dispose?.();
       disposeViewportControls?.();
@@ -100,10 +109,33 @@ export default function ModelsPage() {
     };
   }, [projectPath, viewportStorageKey]);
 
+  useEffect(() => {
+    graphApiRef.current?.setDisplayOptions({
+      edgeVisibilityMode,
+      focusDimming: true,
+    });
+  }, [edgeVisibilityMode]);
+
   return (
     <div className={styles.layout}>
       <div className={styles.mainPanel}>
         <div className={styles.graphPanel}>
+          <div className={styles.viewportControls}>
+            <label htmlFor="models-edge-visibility">Connections</label>
+            <select
+              id="models-edge-visibility"
+              value={edgeVisibilityMode}
+              onChange={(event) =>
+                setEdgeVisibilityMode(event.target.value as EdgeVisibilityMode)
+              }
+            >
+              <option value="none">None</option>
+              <option value="selected-node">Selected Node Only</option>
+              <option value="selected-model">Selected Node - Model</option>
+              <option value="expanded-models">Expanded Models</option>
+              <option value="all">All</option>
+            </select>
+          </div>
           <svg ref={graphRef} className={styles.graph}>
             <defs />
           </svg>

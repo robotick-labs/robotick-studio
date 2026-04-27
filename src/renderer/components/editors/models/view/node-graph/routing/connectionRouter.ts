@@ -1,6 +1,8 @@
 import type { Node, Edge } from "../layout/editorNodeGraph";
 
 export interface RoutedEdge {
+  from: string;
+  to: string;
   path: string;
   classList: string[];
 }

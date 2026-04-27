@@ -57,6 +57,9 @@ export function buildGraphDocFromModel(
     const root = m.workloads.find((w: Workload) => w.name === m.root)!;
     const lanes =
       root.type === "SyncedGroupWorkload" ? root.children ?? [] : [root.name];
+    const hasSequencedGroup = m.workloads.some(
+      (w: Workload) => w.type === "SequencedGroupWorkload"
+    );
 
     let maxSlots = 0;
     for (let lane = 0; lane < lanes.length; lane++) {
@@ -82,6 +85,10 @@ export function buildGraphDocFromModel(
           workload,
           meta: { modelId, section: sectionIndex },
         };
+        node.meta = {
+          ...node.meta,
+          type: workload.type,
+        };
         doc.upsertNode(node);
       });
 
@@ -102,6 +109,7 @@ export function buildGraphDocFromModel(
           meta: {
             modelId,
             section: sectionIndex,
+            type: groupWorkload.type,
             children: names.map((n: string) => nodeIdFor(modelId, n)),
           },
         };
@@ -144,6 +152,8 @@ export function buildGraphDocFromModel(
       laneHeight,
       maxNodes: maxSlots,
       labelY: yOffset - 10,
+      rootType: root.type ?? "Workload",
+      hasSequencedGroup,
     });
 
     globalMaxNodes = Math.max(globalMaxNodes, maxSlots);
