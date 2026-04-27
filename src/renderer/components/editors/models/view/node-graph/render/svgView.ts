@@ -43,12 +43,13 @@ export class SvgView {
     const viewWidth = Math.ceil(bounds.width) + margin * 2;
     const viewHeight = Math.ceil(bounds.height) + margin * 2;
 
-    this.svg.setAttribute("width", String(viewWidth));
-    this.svg.setAttribute("height", String(viewHeight));
-    this.svg.setAttribute(
-      "viewBox",
-      `${viewX} ${viewY} ${viewWidth} ${viewHeight}`
-    );
+    const currentViewBox = this.svg.getAttribute("viewBox");
+    if (!currentViewBox) {
+      this.svg.setAttribute(
+        "viewBox",
+        `${viewX} ${viewY} ${viewWidth} ${viewHeight}`
+      );
+    }
 
     // Step 3: re-render swimlanes with final width
     this.renderSwimlanes(doc.sections, viewWidth);

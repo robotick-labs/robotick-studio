@@ -43,14 +43,16 @@ export function initNodeGraph(
 
   const router = new RectilinearRouter();
   const view = new SvgView(svgElement, layers, router);
+  const selectionController = new SelectionController(svgElement);
+  const slotDragController = new SlotDragController(svgElement, doc, store);
 
   const render = () => {
     view.render(doc);
   };
 
   const attachControllers = () => {
-    new SelectionController(svgElement).attach();
-    new SlotDragController(svgElement, doc, view, store).attachAll();
+    selectionController.attach();
+    slotDragController.attachAll();
   };
 
   // ——— Store subscription (render on any store mutation) ———
@@ -109,7 +111,8 @@ export function initNodeGraph(
       "models-graph:rename-requested",
       renameHandler as EventListener
     );
-    // If you later add controller-level detach(), call them here.
+    selectionController.detach();
+    slotDragController.detach();
   };
 
   const getDoc = () => doc;

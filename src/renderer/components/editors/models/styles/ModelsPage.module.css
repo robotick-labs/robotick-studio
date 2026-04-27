@@ -16,17 +16,19 @@
 
 .graphPanel {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   background-color: #111;
   border-bottom: 1px solid #444;
 }
 
 .graph {
   width: 100%;
-  height: auto;
-  min-height: 800px;
+  height: 100%;
+  min-height: 0;
   background-color: #070a12;
   display: block;
+  cursor: default;
+  user-select: none;
 }
 
 .propertyPanel {
