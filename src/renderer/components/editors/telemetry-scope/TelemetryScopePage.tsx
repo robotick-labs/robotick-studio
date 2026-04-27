@@ -97,6 +97,15 @@ type TraceScrubState = {
   onUp: () => void;
 };
 
+type PlotCursorPosition = {
+  previewX: number;
+  previewY: number;
+  svgX: number;
+  svgY: number;
+  timeSec: number;
+  value: number;
+};
+
 const STORAGE_BASE_KEY = "robotick-studio.telemetry-scope.panel";
 const DEFAULT_WINDOW_SECONDS = 10;
 const MIN_WINDOW_SECONDS = 0.1;
@@ -426,6 +435,16 @@ function formatGeneratorLabel(trace: GeneratorTraceConfig): string {
   return `${trace.waveShape} ${frequencyText}`;
 }
 
+function formatCursorTimeSeconds(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  return `${rounded.toFixed(Math.abs(rounded) >= 10 ? 2 : 3)} s`;
+}
+
+function formatCursorValue(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  return rounded.toFixed(3);
+}
+
 function getTraceEditorLabel(trace: TraceConfig): string {
   if (isGeneratorTrace(trace)) return formatGeneratorLabel(trace);
   return trace.fieldPath || trace.workloadName || "trace";
@@ -613,6 +632,9 @@ export default function TelemetryScopePage() {
   const pauseGapTraceIdsRef = useRef<Set<string>>(new Set());
   const freezeTimeMsRef = useRef<number | null>(settings.freeze ? performance.now() : null);
   const traceScrubRef = useRef<TraceScrubState | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [cursorPosition, setCursorPosition] = useState<PlotCursorPosition | null>(null);
+  const [dragStartPosition, setDragStartPosition] = useState<PlotCursorPosition | null>(null);
   const [, forceRefresh] = useReducer((count) => count + 1, 0);
 
   useEffect(() => {
@@ -647,6 +669,19 @@ export default function TelemetryScopePage() {
       traceScrubRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!dragStartPosition) return;
+
+    const handleMouseUp = () => {
+      setDragStartPosition(null);
+    };
+
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragStartPosition]);
 
   useEffect(() => {
     writeScopePanelSettings(storageKeys, settings);
@@ -906,6 +941,72 @@ export default function TelemetryScopePage() {
     traceFieldOptions,
     plotTraces
   );
+
+  const getPlotCursorPosition = (
+    event: React.MouseEvent<SVGSVGElement>
+  ): PlotCursorPosition | null => {
+    const preview = previewRef.current;
+    if (!preview) return null;
+    const rect = preview.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    const previewX = event.clientX - rect.left;
+    const previewY = event.clientY - rect.top;
+    const normalizedSvgX = Math.min(Math.max(previewX / rect.width, 0), 1);
+    const normalizedSvgY = Math.min(Math.max(previewY / rect.height, 0), 1);
+    const svgX = normalizedSvgX * PLOT_WIDTH;
+    const svgY = normalizedSvgY * PLOT_HEIGHT;
+
+    const xSpan = PLOT_WIDTH - PLOT_PADDING.left - PLOT_PADDING.right;
+    const ySpan = PLOT_HEIGHT - PLOT_PADDING.top - PLOT_PADDING.bottom;
+    const clampedPlotX = Math.min(
+      Math.max(svgX, PLOT_PADDING.left),
+      PLOT_WIDTH - PLOT_PADDING.right
+    );
+    const clampedPlotY = Math.min(
+      Math.max(svgY, PLOT_PADDING.top),
+      PLOT_HEIGHT - PLOT_PADDING.bottom
+    );
+    const normalizedX = (clampedPlotX - PLOT_PADDING.left) / xSpan;
+    const normalizedY = 1 - (clampedPlotY - PLOT_PADDING.top) / ySpan;
+
+    return {
+      previewX,
+      previewY,
+      svgX: clampedPlotX,
+      svgY: clampedPlotY,
+      timeSec: (normalizedX - 1) * effectiveWindowSeconds,
+      value: yRange.min + normalizedY * (yRange.max - yRange.min),
+    };
+  };
+
+  const handlePlotMouseMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const next = getPlotCursorPosition(event);
+    setCursorPosition(next);
+  };
+
+  const handlePlotMouseLeave = () => {
+    setCursorPosition(null);
+  };
+
+  const handlePlotMouseDown = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    const next = getPlotCursorPosition(event);
+    if (!next) return;
+    setCursorPosition(next);
+    setDragStartPosition(next);
+  };
+
+  const dragMeasurement =
+    dragStartPosition && cursorPosition
+      ? {
+          start: dragStartPosition,
+          end: cursorPosition,
+          deltaTimeSec: cursorPosition.timeSec - dragStartPosition.timeSec,
+          deltaValue: cursorPosition.value - dragStartPosition.value,
+        }
+      : null;
+  const previewWidthPx = previewRef.current?.clientWidth ?? 0;
 
   const updateSettings = (partial: Partial<ScopePanelSettings>) => {
     setSettings((current) => ({ ...current, ...partial }));
@@ -1353,7 +1454,7 @@ export default function TelemetryScopePage() {
         ) : null}
       </div>
 
-      <div className={styles.preview}>
+      <div className={styles.preview} ref={previewRef}>
         {plotTraces.length > 0 ? (
           <>
             <svg
@@ -1361,6 +1462,9 @@ export default function TelemetryScopePage() {
               viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
               preserveAspectRatio="none"
               aria-label="Telemetry scope preview"
+              onMouseMove={handlePlotMouseMove}
+              onMouseLeave={handlePlotMouseLeave}
+              onMouseDown={handlePlotMouseDown}
             >
               {settings.showGrid
                 ? Array.from({ length: 6 }, (_, index) => {
@@ -1433,7 +1537,72 @@ export default function TelemetryScopePage() {
                   />
                 ))
               )}
+
+              {dragMeasurement ? (
+                <line
+                  x1={dragMeasurement.start.svgX}
+                  y1={dragMeasurement.start.svgY}
+                  x2={dragMeasurement.end.svgX}
+                  y2={dragMeasurement.end.svgY}
+                  stroke="rgba(255,255,255,0.95)"
+                  strokeWidth="1.5"
+                  strokeDasharray="5 4"
+                />
+              ) : null}
+
+              {dragMeasurement ? (
+                <>
+                  <circle
+                    cx={dragMeasurement.start.svgX}
+                    cy={dragMeasurement.start.svgY}
+                    r="4"
+                    fill="rgba(255,255,255,0.95)"
+                  />
+                  <circle
+                    cx={dragMeasurement.end.svgX}
+                    cy={dragMeasurement.end.svgY}
+                    r="4"
+                    fill="rgba(255,255,255,0.95)"
+                  />
+                </>
+              ) : null}
             </svg>
+
+            {cursorPosition ? (
+              <div
+                className={styles.cursorReadout}
+                style={{
+                  left: `${cursorPosition.previewX + 12}px`,
+                  top: `${Math.max(cursorPosition.previewY - 12, 10)}px`,
+                  transform:
+                    previewWidthPx > 0 && cursorPosition.previewX > previewWidthPx * 0.7
+                      ? "translate(-100%, 0)"
+                      : "none",
+                }}
+              >
+                {dragMeasurement ? (
+                  <>
+                    <div>
+                      Start {formatCursorTimeSeconds(dragMeasurement.start.timeSec)},{" "}
+                      {formatCursorValue(dragMeasurement.start.value)}
+                    </div>
+                    <div>
+                      End {formatCursorTimeSeconds(dragMeasurement.end.timeSec)},{" "}
+                      {formatCursorValue(dragMeasurement.end.value)}
+                    </div>
+                    <div>
+                      Δ {formatCursorTimeSeconds(dragMeasurement.deltaTimeSec)},{" "}
+                      {formatCursorValue(dragMeasurement.deltaValue)}
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    {formatCursorTimeSeconds(cursorPosition.timeSec)},{" "}
+                    {formatCursorValue(cursorPosition.value)}
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {settings.showLegend ? (
               <div className={styles.legend}>

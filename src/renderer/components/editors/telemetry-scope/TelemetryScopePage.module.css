@@ -217,6 +217,20 @@
   align-self: auto;
 }
 
+.cursorReadout {
+  position: absolute;
+  z-index: 3;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(10, 16, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--app-text-primary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .message {
   height: 100%;
   display: flex;
