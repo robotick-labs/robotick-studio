@@ -75,6 +75,7 @@ function createStruct(fields: ITelemetryField[]): ITelemetryStruct {
 }
 
 function createTelemetryModel(): ITelemetryModel {
+  const field = createField("alpha.outputs.speed");
   return {
     schemaSessionId: "session-1",
     raw: null,
@@ -84,9 +85,11 @@ function createTelemetryModel(): ITelemetryModel {
       {
         name: "alpha",
         tickRateHz: 30,
-        outputs: createStruct([createField("alpha.outputs.speed")]),
+        outputs: createStruct([field]),
       } as ITelemetryWorkload,
     ],
+    getField: (path: string) =>
+      path === field.path ? field : null,
   } as ITelemetryModel;
 }
 
@@ -198,6 +201,151 @@ describe("TelemetryScopePage restore", () => {
       expect((selects[3] as HTMLSelectElement).value).toBe(
         "alpha.outputs.speed"
       );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("restores generator traces without waiting for telemetry models", async () => {
+    const storageKey = "robotick-studio.telemetry-scope.panel.workspace.panel-a";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        traces: [
+          {
+            id: "trace-generator-1",
+            sourceKind: "generator",
+            waveShape: "square",
+            frequencyHz: "2.5",
+            visible: true,
+            color: "#73c7ff",
+            scale: "1",
+            offset: "0",
+          },
+        ],
+        windowSeconds: 10,
+        freeze: false,
+        yMode: "auto",
+        yMin: "-1",
+        yMax: "1",
+        showGrid: true,
+        showLegend: true,
+        showLatestValues: true,
+        fieldsExpanded: true,
+        settingsExpanded: false,
+      })
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+            <TelemetryScopePage />
+          </PanelInstanceProvider>
+        );
+      });
+      await settle();
+
+      const selects = Array.from(container.querySelectorAll("select"));
+      expect(selects).toHaveLength(1);
+      expect((selects[0] as HTMLSelectElement).value).toBe("square");
+
+      const inputs = Array.from(container.querySelectorAll("input"));
+      const frequencyInput = inputs.find(
+        (input) => (input as HTMLInputElement).type === "number"
+      ) as HTMLInputElement | undefined;
+      expect(frequencyInput?.value).toBe("2.5");
+
+      expect(container.textContent).toContain("square 2.5 Hz");
+      expect(window.localStorage.getItem(storageKey)).toContain(
+        '"sourceKind":"generator"'
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("continues plotting restored field traces when telemetry samples arrive", async () => {
+    const storageKey = "robotick-studio.telemetry-scope.panel.workspace.panel-a";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        traces: [
+          {
+            id: "trace-1",
+            modelPath: "models/demo.model.yaml",
+            workloadName: "alpha",
+            section: "outputs",
+            fieldPath: "alpha.outputs.speed",
+            visible: true,
+            color: "#7ef9a9",
+            scale: "1",
+            offset: "0",
+          },
+        ],
+        windowSeconds: 10,
+        freeze: false,
+        yMode: "auto",
+        yMin: "-1",
+        yMax: "1",
+        showGrid: true,
+        showLegend: true,
+        showLatestValues: true,
+        fieldsExpanded: true,
+        settingsExpanded: false,
+      })
+    );
+
+    projectModelsState.current = {
+      data: [
+        {
+          modelPath: "models/demo.model.yaml",
+          modelName: "Demo Model",
+          telemetryBaseUrl: "http://example.test",
+          preferredTelemetrySampleRateHz: 20,
+        },
+      ],
+      loading: false,
+      error: null,
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+            <TelemetryScopePage />
+          </PanelInstanceProvider>
+        );
+      });
+      await settle();
+
+      const subscribeCall = telemetryServiceState.service.subscribeTelemetry.mock.calls[0];
+      expect(subscribeCall).toBeDefined();
+      const subscription = subscribeCall?.[2] as
+        | { callback?: (model: ITelemetryModel) => void }
+        | undefined;
+      expect(subscription?.callback).toBeTypeOf("function");
+
+      await act(async () => {
+        subscription?.callback?.(telemetryServiceState.model as ITelemetryModel);
+      });
+      await settle();
+
+      expect(container.querySelectorAll("polyline").length).toBeGreaterThan(0);
     } finally {
       act(() => {
         root.unmount();

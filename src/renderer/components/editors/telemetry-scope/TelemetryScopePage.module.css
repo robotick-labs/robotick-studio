@@ -158,6 +158,65 @@
   font-size: 0.78rem;
 }
 
+.viewportControls {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.viewportToggleButton {
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.viewportToggleButton:hover,
+.viewportToggleButton:focus-visible,
+.viewportControls .clearButton:hover,
+.viewportControls .clearButton:focus-visible {
+  border: none;
+  background: rgba(12, 147, 225, 0.3);
+  color: white;
+  outline: none;
+}
+
+.viewportToggleButtonActive {
+  background: rgba(15, 136, 255, 0.9);
+  color: #fff;
+}
+
+.viewportToggleButtonActive:hover,
+.viewportToggleButtonActive:focus-visible {
+  background: rgba(15, 136, 255, 0.95);
+}
+
+.viewportControls .clearButton {
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+  align-self: auto;
+}
+
 .message {
   height: 100%;
   display: flex;
@@ -276,7 +335,13 @@
 
 .fieldsFooter {
   display: flex;
+  gap: 8px;
   justify-content: center;
+  flex-wrap: wrap;
+}
+
+.sourceSpacer {
+  min-height: 1px;
 }
 
 .settingsGrid {

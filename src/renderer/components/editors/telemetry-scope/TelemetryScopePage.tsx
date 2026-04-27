@@ -24,22 +24,37 @@ type ModelOption = {
 
 type SectionKind = "config" | "inputs" | "outputs" | "stats";
 type YMode = "auto" | "manual";
+type SignalSourceKind = "field" | "generator";
+type GeneratorWaveShape = "sine" | "square" | "saw";
 
-type TraceConfig = {
+type BaseTraceConfig = {
   id: string;
-  modelPath: string;
-  workloadName: string;
-  section: SectionKind;
-  fieldPath: string;
+  sourceKind: SignalSourceKind;
   visible: boolean;
   color: string;
   scale: string;
   offset: string;
 };
 
+type FieldTraceConfig = BaseTraceConfig & {
+  sourceKind: "field";
+  modelPath: string;
+  workloadName: string;
+  section: SectionKind;
+  fieldPath: string;
+};
+
+type GeneratorTraceConfig = BaseTraceConfig & {
+  sourceKind: "generator";
+  waveShape: GeneratorWaveShape;
+  frequencyHz: string;
+};
+
+type TraceConfig = FieldTraceConfig | GeneratorTraceConfig;
+
 type ScopePanelSettings = {
   traces: TraceConfig[];
-  windowSeconds: number;
+  windowSeconds: string;
   freeze: boolean;
   yMode: YMode;
   yMin: string;
@@ -62,14 +77,16 @@ type SamplePoint = {
   timeMs: number;
   value: number;
   breakBefore?: boolean;
+  seamBefore?: boolean;
 };
 
 type PlotTrace = TraceConfig & {
-  field: ScopeFieldOption;
+  isBoolean: boolean;
   labelText: string;
   latestValue: number | null;
   points: SamplePoint[];
   polylines: string[];
+  seamMarkers: number[];
 };
 
 type TraceScrubKind = "scale" | "offset";
@@ -82,9 +99,9 @@ type TraceScrubState = {
 
 const STORAGE_BASE_KEY = "robotick-studio.telemetry-scope.panel";
 const DEFAULT_WINDOW_SECONDS = 10;
+const MIN_WINDOW_SECONDS = 0.1;
 const DEFAULT_Y_MIN = "-1";
 const DEFAULT_Y_MAX = "1";
-const WINDOW_OPTIONS = [5, 10, 30, 60];
 const SECTION_OPTIONS: Array<{ value: SectionKind; label: string }> = [
   { value: "config", label: "Config" },
   { value: "inputs", label: "Inputs" },
@@ -96,6 +113,8 @@ const PLOT_WIDTH = 1000;
 const PLOT_HEIGHT = 420;
 const PLOT_PADDING = { top: 24, right: 16, bottom: 28, left: 18 };
 const DEFAULT_SAMPLE_RATE_HZ = 20;
+const GENERATOR_SAMPLE_COUNT = 256;
+const RESUME_SEAM_MS = 120;
 
 function createTraceId(): string {
   if (
@@ -107,15 +126,16 @@ function createTraceId(): string {
   return `trace-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createTrace(
+function createFieldTrace(
   modelPath: string,
   workloadName: string,
   section: SectionKind,
   fieldPath: string,
   color: string
-): TraceConfig {
+): FieldTraceConfig {
   return {
     id: createTraceId(),
+    sourceKind: "field",
     modelPath,
     workloadName,
     section,
@@ -127,10 +147,23 @@ function createTrace(
   };
 }
 
+function createGeneratorTrace(color: string): GeneratorTraceConfig {
+  return {
+    id: createTraceId(),
+    sourceKind: "generator",
+    waveShape: "sine",
+    frequencyHz: "1",
+    visible: true,
+    color,
+    scale: "1",
+    offset: "0",
+  };
+}
+
 function createDefaultSettings(): ScopePanelSettings {
   return {
-    traces: [createTrace("", "", "outputs", "", TRACE_COLORS[0])],
-    windowSeconds: DEFAULT_WINDOW_SECONDS,
+    traces: [createFieldTrace("", "", "outputs", "", TRACE_COLORS[0])],
+    windowSeconds: String(DEFAULT_WINDOW_SECONDS),
     freeze: false,
     yMode: "auto",
     yMin: DEFAULT_Y_MIN,
@@ -143,9 +176,17 @@ function createDefaultSettings(): ScopePanelSettings {
   };
 }
 
-function sanitizeWindowSeconds(value: unknown): number {
-  const numeric = typeof value === "number" ? value : Number(value);
-  return WINDOW_OPTIONS.includes(numeric) ? numeric : DEFAULT_WINDOW_SECONDS;
+function sanitizeWindowSecondsInput(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return String(DEFAULT_WINDOW_SECONDS);
+}
+
+function parseWindowSeconds(value: string): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= MIN_WINDOW_SECONDS
+    ? numeric
+    : DEFAULT_WINDOW_SECONDS;
 }
 
 function isSectionKind(value: unknown): value is SectionKind {
@@ -157,6 +198,14 @@ function isSectionKind(value: unknown): value is SectionKind {
   );
 }
 
+function isSignalSourceKind(value: unknown): value is SignalSourceKind {
+  return value === "field" || value === "generator";
+}
+
+function isGeneratorWaveShape(value: unknown): value is GeneratorWaveShape {
+  return value === "sine" || value === "square" || value === "saw";
+}
+
 function sanitizeTrace(
   value: unknown,
   index: number,
@@ -166,23 +215,9 @@ function sanitizeTrace(
     return null;
   }
   const data = value as Record<string, unknown>;
-  return {
+  const base = {
     id: typeof data.id === "string" ? data.id : createTraceId(),
-    modelPath:
-      typeof data.modelPath === "string"
-        ? data.modelPath
-        : migrationDefaults.modelPath ?? "",
-    workloadName:
-      typeof data.workloadName === "string"
-        ? data.workloadName
-        : migrationDefaults.workloadName ?? "",
-    section: isSectionKind(data.section)
-      ? data.section
-      : migrationDefaults.section ?? "outputs",
-    fieldPath:
-      typeof data.fieldPath === "string"
-        ? data.fieldPath
-        : migrationDefaults.fieldPath ?? "",
+    sourceKind: isSignalSourceKind(data.sourceKind) ? data.sourceKind : "field",
     visible: typeof data.visible === "boolean" ? data.visible : true,
     color:
       typeof data.color === "string" && data.color.length > 0
@@ -190,6 +225,44 @@ function sanitizeTrace(
         : TRACE_COLORS[index % TRACE_COLORS.length],
     scale: typeof data.scale === "string" ? data.scale : "1",
     offset: typeof data.offset === "string" ? data.offset : "0",
+  } satisfies BaseTraceConfig;
+
+  if (base.sourceKind === "generator") {
+    return {
+      ...base,
+      sourceKind: "generator",
+      waveShape: isGeneratorWaveShape(data.waveShape) ? data.waveShape : "sine",
+      frequencyHz: typeof data.frequencyHz === "string" ? data.frequencyHz : "1",
+    };
+  }
+
+  return {
+    ...base,
+    sourceKind: "field",
+    modelPath:
+      typeof data.modelPath === "string"
+        ? data.modelPath
+        : "modelPath" in migrationDefaults && typeof migrationDefaults.modelPath === "string"
+          ? migrationDefaults.modelPath
+          : "",
+    workloadName:
+      typeof data.workloadName === "string"
+        ? data.workloadName
+        : "workloadName" in migrationDefaults &&
+            typeof migrationDefaults.workloadName === "string"
+          ? migrationDefaults.workloadName
+          : "",
+    section: isSectionKind(data.section)
+      ? data.section
+      : "section" in migrationDefaults && isSectionKind(migrationDefaults.section)
+        ? migrationDefaults.section
+        : "outputs",
+    fieldPath:
+      typeof data.fieldPath === "string"
+        ? data.fieldPath
+        : "fieldPath" in migrationDefaults && typeof migrationDefaults.fieldPath === "string"
+          ? migrationDefaults.fieldPath
+          : "",
   };
 }
 
@@ -207,7 +280,8 @@ function readScopePanelSettings(storageKeys: string[]): ScopePanelSettings {
       return fallback;
     }
     const data = parsed as Record<string, unknown>;
-    const migrationDefaults: Partial<TraceConfig> = {
+    const migrationDefaults: Partial<FieldTraceConfig> = {
+      sourceKind: "field",
       modelPath: typeof data.modelPath === "string" ? data.modelPath : "",
       workloadName:
         typeof data.workloadName === "string" ? data.workloadName : "",
@@ -221,7 +295,7 @@ function readScopePanelSettings(storageKeys: string[]): ScopePanelSettings {
       : [];
     return {
       traces: traces.length > 0 ? traces : fallback.traces,
-      windowSeconds: sanitizeWindowSeconds(data.windowSeconds),
+      windowSeconds: sanitizeWindowSecondsInput(data.windowSeconds),
       freeze:
         typeof data.freeze === "boolean" ? data.freeze : fallback.freeze,
       yMode: data.yMode === "manual" ? "manual" : "auto",
@@ -336,6 +410,69 @@ function formatFieldLabel(
   return relativePath || segments[segments.length - 1] || path;
 }
 
+function isFieldTrace(trace: TraceConfig): trace is FieldTraceConfig {
+  return trace.sourceKind === "field";
+}
+
+function isGeneratorTrace(trace: TraceConfig): trace is GeneratorTraceConfig {
+  return trace.sourceKind === "generator";
+}
+
+function formatGeneratorLabel(trace: GeneratorTraceConfig): string {
+  const frequency = Number(trace.frequencyHz);
+  const frequencyText = Number.isFinite(frequency)
+    ? `${frequency.toFixed(frequency >= 10 ? 0 : 1)} Hz`
+    : "Invalid Hz";
+  return `${trace.waveShape} ${frequencyText}`;
+}
+
+function getTraceEditorLabel(trace: TraceConfig): string {
+  if (isGeneratorTrace(trace)) return formatGeneratorLabel(trace);
+  return trace.fieldPath || trace.workloadName || "trace";
+}
+
+function parseGeneratorFrequencyHz(trace: GeneratorTraceConfig): number | null {
+  const parsed = Number(trace.frequencyHz);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function getGeneratorWaveValue(
+  waveShape: GeneratorWaveShape,
+  frequencyHz: number,
+  timeSeconds: number
+): number {
+  const phase = frequencyHz * timeSeconds;
+  const cycle = phase - Math.floor(phase);
+  if (waveShape === "square") {
+    return cycle < 0.5 ? 1 : -1;
+  }
+  if (waveShape === "saw") {
+    return cycle * 2 - 1;
+  }
+  return Math.sin(phase * Math.PI * 2);
+}
+
+function createGeneratorPoints(
+  trace: GeneratorTraceConfig,
+  plotNowMs: number,
+  windowSeconds: number
+): SamplePoint[] {
+  const frequencyHz = parseGeneratorFrequencyHz(trace);
+  if (frequencyHz === null) return [];
+  const sampleCount = Math.max(2, GENERATOR_SAMPLE_COUNT);
+  const windowMs = windowSeconds * 1000;
+  const points: SamplePoint[] = [];
+  for (let index = 0; index < sampleCount; index += 1) {
+    const progress = index / (sampleCount - 1);
+    const timeMs = plotNowMs - windowMs + progress * windowMs;
+    points.push({
+      timeMs,
+      value: getGeneratorWaveValue(trace.waveShape, frequencyHz, timeMs / 1000),
+    });
+  }
+  return points;
+}
+
 function coerceScalarValue(field: ITelemetryField): number | null {
   const value = field.getValue?.();
   if (typeof value === "boolean") {
@@ -384,18 +521,16 @@ function formatRateLabel(hzValues: number[]): string {
   return "Mixed";
 }
 
-function formatTraceValue(
-  trace: TraceConfig,
-  field: ScopeFieldOption,
-  value: number | null
-): string {
+function formatTraceValue(trace: PlotTrace, value: number | null): string {
   if (value === null) return "No sample";
-  if (field.isBoolean && !hasTraceTransform(trace)) return value >= 0.5 ? "1" : "0";
+  if (trace.isBoolean && !hasTraceTransform(trace)) {
+    return value >= 0.5 ? "1" : "0";
+  }
   return value.toFixed(3);
 }
 
 function getTraceModel(
-  trace: TraceConfig,
+  trace: FieldTraceConfig,
   modelOptions: ModelOption[]
 ): ModelOption | null {
   return (
@@ -406,7 +541,7 @@ function getTraceModel(
 }
 
 function getWorkloadOptions(
-  trace: TraceConfig,
+  trace: FieldTraceConfig,
   modelOptions: ModelOption[],
   modelsByPath: ReadonlyMap<string, ITelemetryModel>
 ): ITelemetryWorkload[] {
@@ -416,7 +551,7 @@ function getWorkloadOptions(
 }
 
 function getSelectedWorkload(
-  trace: TraceConfig,
+  trace: FieldTraceConfig,
   modelOptions: ModelOption[],
   modelsByPath: ReadonlyMap<string, ITelemetryModel>
 ): ITelemetryWorkload | null {
@@ -429,7 +564,7 @@ function getSelectedWorkload(
 }
 
 function getFieldOptions(
-  trace: TraceConfig,
+  trace: FieldTraceConfig,
   modelOptions: ModelOption[],
   modelsByPath: ReadonlyMap<string, ITelemetryModel>
 ): ScopeFieldOption[] {
@@ -521,6 +656,7 @@ export default function TelemetryScopePage() {
     const seen = new Set<string>();
     const selected: ModelOption[] = [];
     for (const trace of settings.traces) {
+      if (!isFieldTrace(trace)) continue;
       const model = getTraceModel(trace, modelOptions);
       if (!model || seen.has(model.modelPath)) continue;
       seen.add(model.modelPath);
@@ -579,10 +715,11 @@ export default function TelemetryScopePage() {
     const current = settingsRef.current;
     if (current.freeze) return;
     const now = performance.now();
-    const horizonMs = current.windowSeconds * 1000;
+    const horizonMs = parseWindowSeconds(current.windowSeconds) * 1000;
     let changed = false;
 
     for (const trace of current.traces) {
+      if (!isFieldTrace(trace)) continue;
       if (trace.modelPath !== modelPath) continue;
       if (!trace.fieldPath || typeof model.getField !== "function") continue;
       const field = model.getField(trace.fieldPath);
@@ -592,7 +729,12 @@ export default function TelemetryScopePage() {
       const series = historiesRef.current[trace.id] ?? [];
       const breakBefore =
         pauseGapTraceIdsRef.current.has(trace.id) && series.length > 0;
-      series.push({ timeMs: now, value, breakBefore });
+      series.push({
+        timeMs: now,
+        value,
+        breakBefore,
+        seamBefore: breakBefore,
+      });
       pauseGapTraceIdsRef.current.delete(trace.id);
       historiesRef.current[trace.id] = series.filter(
         (point) => now - point.timeMs <= horizonMs
@@ -607,6 +749,7 @@ export default function TelemetryScopePage() {
     setSettings((current) => {
       let changed = false;
       const nextTraces = current.traces.map((trace, index) => {
+        if (!isFieldTrace(trace)) return trace;
         const nextTrace = normalizeTraceSelection(
           trace,
           index,
@@ -629,6 +772,7 @@ export default function TelemetryScopePage() {
   const traceFieldOptions = useMemo(() => {
     const map = new Map<string, ScopeFieldOption[]>();
     for (const trace of settings.traces) {
+      if (!isFieldTrace(trace)) continue;
       map.set(trace.id, getFieldOptions(trace, modelOptions, modelsByPath));
     }
     return map;
@@ -638,16 +782,35 @@ export default function TelemetryScopePage() {
     settings.freeze && freezeTimeMsRef.current !== null
       ? freezeTimeMsRef.current
       : performance.now();
+  const effectiveWindowSeconds = parseWindowSeconds(settings.windowSeconds);
 
   const traces = useMemo<PlotTrace[]>(() => {
-    const windowMs = settings.windowSeconds * 1000;
-    return settings.traces
-      .map((trace) => {
+    const windowMs = effectiveWindowSeconds * 1000;
+    const nextTraces: PlotTrace[] = [];
+    for (const trace of settings.traces) {
+        if (isGeneratorTrace(trace)) {
+          const points = createGeneratorPoints(trace, plotNowMs, effectiveWindowSeconds).map(
+            (point) => ({
+              ...point,
+              value: transformTraceValue(trace, point.value),
+            })
+          );
+          nextTraces.push({
+            ...trace,
+            isBoolean: false,
+            labelText: formatGeneratorLabel(trace),
+            latestValue: points.length > 0 ? points[points.length - 1].value : null,
+            points,
+            polylines: [],
+            seamMarkers: [],
+          });
+          continue;
+        }
         const field =
           traceFieldOptions
             .get(trace.id)
             ?.find((option) => option.path === trace.fieldPath) ?? null;
-        if (!field) return null;
+        if (!field) continue;
         const rawPoints = historiesRef.current[trace.id] ?? [];
         const visiblePoints = rawPoints.filter(
           (point) => plotNowMs - point.timeMs <= windowMs
@@ -656,9 +819,9 @@ export default function TelemetryScopePage() {
           visiblePoints.length > 0
             ? transformTraceValue(trace, visiblePoints[visiblePoints.length - 1].value)
             : null;
-        return {
+        nextTraces.push({
           ...trace,
-          field,
+          isBoolean: field.isBoolean,
           labelText: field.label,
           latestValue,
           points: visiblePoints.map((point) => ({
@@ -666,10 +829,11 @@ export default function TelemetryScopePage() {
             value: transformTraceValue(trace, point.value),
           })),
           polylines: [],
-        };
-      })
-      .filter((trace): trace is PlotTrace => Boolean(trace));
-  }, [plotNowMs, settings.traces, settings.windowSeconds, traceFieldOptions]);
+          seamMarkers: [],
+        });
+    }
+    return nextTraces;
+  }, [effectiveWindowSeconds, plotNowMs, settings.traces, traceFieldOptions]);
 
   const visibleTraces = traces.filter((trace) => trace.visible);
   const autoYRange = useMemo(() => {
@@ -707,28 +871,32 @@ export default function TelemetryScopePage() {
   const plotTraces = useMemo<PlotTrace[]>(() => {
     const xSpan = PLOT_WIDTH - PLOT_PADDING.left - PLOT_PADDING.right;
     const ySpan = PLOT_HEIGHT - PLOT_PADDING.top - PLOT_PADDING.bottom;
-    const windowMs = settings.windowSeconds * 1000;
+    const windowMs = effectiveWindowSeconds * 1000;
     return visibleTraces.map((trace) => {
       const polylines: string[] = [];
+      const seamMarkers: number[] = [];
       let segment: string[] = [];
       for (const point of trace.points) {
-        if (point.breakBefore && segment.length > 0) {
-          polylines.push(segment.join(" "));
-          segment = [];
-        }
         const ageMs = plotNowMs - point.timeMs;
         const normalizedX = 1 - ageMs / windowMs;
         const normalizedY = (point.value - yRange.min) / (yRange.max - yRange.min);
         const x = PLOT_PADDING.left + normalizedX * xSpan;
         const y = PLOT_PADDING.top + (1 - normalizedY) * ySpan;
+        if (point.breakBefore && segment.length > 0) {
+          polylines.push(segment.join(" "));
+          segment = [];
+        }
+        if (point.seamBefore) {
+          seamMarkers.push(x);
+        }
         segment.push(`${x.toFixed(1)},${y.toFixed(1)}`);
       }
       if (segment.length > 0) {
         polylines.push(segment.join(" "));
       }
-      return { ...trace, polylines };
+      return { ...trace, polylines, seamMarkers };
     });
-  }, [plotNowMs, settings.windowSeconds, visibleTraces, yRange.max, yRange.min]);
+  }, [effectiveWindowSeconds, plotNowMs, visibleTraces, yRange.max, yRange.min]);
 
   const emptyMessage = getEmptyMessage(
     projectModels.loading,
@@ -759,6 +927,22 @@ export default function TelemetryScopePage() {
 
   const updateFreeze = (freeze: boolean) => {
     if (!freeze && settingsRef.current.freeze) {
+      const frozenAt = freezeTimeMsRef.current;
+      const now = performance.now();
+      if (frozenAt !== null) {
+        const pausedDurationMs = Math.max(0, now - frozenAt);
+        const shiftMs = Math.max(0, pausedDurationMs - RESUME_SEAM_MS);
+        if (shiftMs > 0) {
+          const nextHistories: Record<string, SamplePoint[]> = {};
+          for (const [traceId, series] of Object.entries(historiesRef.current)) {
+            nextHistories[traceId] = series.map((point) => ({
+              ...point,
+              timeMs: point.timeMs + shiftMs,
+            }));
+          }
+          historiesRef.current = nextHistories;
+        }
+      }
       pauseGapTraceIdsRef.current = new Set(
         settingsRef.current.traces.map((trace) => trace.id)
       );
@@ -771,7 +955,7 @@ export default function TelemetryScopePage() {
     setSettings((current) => ({
       ...current,
       traces: current.traces.map((trace) =>
-        trace.id === traceId ? { ...trace, ...partial } : trace
+        trace.id === traceId ? ({ ...trace, ...partial } as TraceConfig) : trace
       ),
     }));
   };
@@ -835,11 +1019,18 @@ export default function TelemetryScopePage() {
     window.addEventListener("mouseup", onUp);
   };
 
-  const addTrace = () => {
+  const addFieldTrace = () => {
     setSettings((current) => {
-      const source = current.traces[current.traces.length - 1];
+      let source: FieldTraceConfig | undefined;
+      for (let index = current.traces.length - 1; index >= 0; index -= 1) {
+        const candidate = current.traces[index];
+        if (isFieldTrace(candidate)) {
+          source = candidate;
+          break;
+        }
+      }
       const normalized = normalizeTraceSelection(
-        source ?? createDefaultSettings().traces[0],
+        source ?? (createDefaultSettings().traces[0] as FieldTraceConfig),
         current.traces.length,
         modelOptionsRef.current,
         modelsByPath
@@ -848,7 +1039,7 @@ export default function TelemetryScopePage() {
         ...current,
         traces: [
           ...current.traces,
-          createTrace(
+          createFieldTrace(
             normalized.modelPath,
             normalized.workloadName,
             normalized.section,
@@ -860,6 +1051,18 @@ export default function TelemetryScopePage() {
     });
   };
 
+  const addGeneratorTrace = () => {
+    setSettings((current) => ({
+      ...current,
+      traces: [
+        ...current.traces,
+        createGeneratorTrace(
+          TRACE_COLORS[current.traces.length % TRACE_COLORS.length]
+        ),
+      ],
+    }));
+  };
+
   const removeTrace = (traceId: string) => {
     setSettings((current) => {
       const remaining = current.traces.filter((trace) => trace.id !== traceId);
@@ -867,7 +1070,7 @@ export default function TelemetryScopePage() {
       pauseGapTraceIdsRef.current.delete(traceId);
       if (remaining.length > 0) return { ...current, traces: remaining };
       const fallback = normalizeTraceSelection(
-        createDefaultSettings().traces[0],
+        createDefaultSettings().traces[0] as FieldTraceConfig,
         0,
         modelOptionsRef.current,
         modelsByPath
@@ -909,13 +1112,16 @@ export default function TelemetryScopePage() {
           <div className={styles.expandedPanel}>
             <div className={styles.traceArray}>
               {settings.traces.map((trace) => {
-                const selectedModel = getTraceModel(trace, modelOptions);
-                const workloadOptions = getWorkloadOptions(
-                  trace,
-                  modelOptions,
-                  modelsByPath
-                );
-                const fieldOptions = traceFieldOptions.get(trace.id) ?? [];
+                const selectedModel = isFieldTrace(trace)
+                  ? getTraceModel(trace, modelOptions)
+                  : null;
+                const workloadOptions = isFieldTrace(trace)
+                  ? getWorkloadOptions(trace, modelOptions, modelsByPath)
+                  : [];
+                const fieldOptions = isFieldTrace(trace)
+                  ? traceFieldOptions.get(trace.id) ?? []
+                  : [];
+                const editorLabel = getTraceEditorLabel(trace);
                 return (
                   <div className={styles.traceRow} key={trace.id}>
                     <div className={styles.traceFields}>
@@ -929,93 +1135,133 @@ export default function TelemetryScopePage() {
                         x
                       </button>
 
-                      <label className={styles.control}>
-                        <span>Model</span>
-                        <select
-                          value={selectedModel?.modelPath ?? ""}
-                          disabled={modelOptions.length === 0}
-                          onChange={(event) =>
-                            updateTrace(trace.id, {
-                              modelPath: event.target.value,
-                              workloadName: "",
-                              fieldPath: "",
-                            })
-                          }
-                        >
-                          {modelOptions.length === 0 ? (
-                            <option value="">No models</option>
-                          ) : null}
-                          {modelOptions.map((model) => (
-                            <option key={model.modelPath} value={model.modelPath}>
-                              {model.modelName}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {isFieldTrace(trace) ? (
+                        <>
+                          <label className={styles.control}>
+                            <span>Model</span>
+                            <select
+                              value={selectedModel?.modelPath ?? ""}
+                              disabled={modelOptions.length === 0}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  modelPath: event.target.value,
+                                  workloadName: "",
+                                  fieldPath: "",
+                                } satisfies Partial<FieldTraceConfig>)
+                              }
+                            >
+                              {modelOptions.length === 0 ? (
+                                <option value="">No models</option>
+                              ) : null}
+                              {modelOptions.map((model) => (
+                                <option key={model.modelPath} value={model.modelPath}>
+                                  {model.modelName}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
 
-                      <label className={styles.control}>
-                        <span>Workload</span>
-                        <select
-                          value={trace.workloadName}
-                          disabled={workloadOptions.length === 0}
-                          onChange={(event) =>
-                            updateTrace(trace.id, {
-                              workloadName: event.target.value,
-                              fieldPath: "",
-                            })
-                          }
-                        >
-                          {workloadOptions.length === 0 ? (
-                            <option value="">Waiting</option>
-                          ) : null}
-                          {workloadOptions.map((workload) => (
-                            <option key={workload.name} value={workload.name}>
-                              {workload.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <label className={styles.control}>
+                            <span>Workload</span>
+                            <select
+                              value={trace.workloadName}
+                              disabled={workloadOptions.length === 0}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  workloadName: event.target.value,
+                                  fieldPath: "",
+                                } satisfies Partial<FieldTraceConfig>)
+                              }
+                            >
+                              {workloadOptions.length === 0 ? (
+                                <option value="">Waiting</option>
+                              ) : null}
+                              {workloadOptions.map((workload) => (
+                                <option key={workload.name} value={workload.name}>
+                                  {workload.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
 
-                      <label className={styles.control}>
-                        <span>Section</span>
-                        <select
-                          value={trace.section}
-                          onChange={(event) =>
-                            updateTrace(trace.id, {
-                              section: event.target.value as SectionKind,
-                              fieldPath: "",
-                            })
-                          }
-                        >
-                          {SECTION_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <label className={styles.control}>
+                            <span>Section</span>
+                            <select
+                              value={trace.section}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  section: event.target.value as SectionKind,
+                                  fieldPath: "",
+                                } satisfies Partial<FieldTraceConfig>)
+                              }
+                            >
+                              {SECTION_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
 
-                      <label className={styles.control}>
-                        <span>Field</span>
-                        <select
-                          value={trace.fieldPath}
-                          disabled={fieldOptions.length === 0}
-                          onChange={(event) =>
-                            updateTrace(trace.id, {
-                              fieldPath: event.target.value,
-                            })
-                          }
-                        >
-                          {fieldOptions.length === 0 ? (
-                            <option value="">No scalar fields</option>
-                          ) : null}
-                          {fieldOptions.map((field) => (
-                            <option key={field.path} value={field.path}>
-                              {field.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <label className={styles.control}>
+                            <span>Field</span>
+                            <select
+                              value={trace.fieldPath}
+                              disabled={fieldOptions.length === 0}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  fieldPath: event.target.value,
+                                } satisfies Partial<FieldTraceConfig>)
+                              }
+                            >
+                              {fieldOptions.length === 0 ? (
+                                <option value="">No scalar fields</option>
+                              ) : null}
+                              {fieldOptions.map((field) => (
+                                <option key={field.path} value={field.path}>
+                                  {field.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      ) : (
+                        <>
+                          <label className={styles.control}>
+                            <span>Wave</span>
+                            <select
+                              value={trace.waveShape}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  waveShape: event.target.value as GeneratorWaveShape,
+                                } satisfies Partial<GeneratorTraceConfig>)
+                              }
+                            >
+                              <option value="sine">Sine</option>
+                              <option value="square">Square</option>
+                              <option value="saw">Saw</option>
+                            </select>
+                          </label>
+
+                          <label className={styles.control}>
+                            <span>Frequency (Hz)</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={trace.frequencyHz}
+                              onChange={(event) =>
+                                updateTrace(trace.id, {
+                                  frequencyHz: event.target.value,
+                                } satisfies Partial<GeneratorTraceConfig>)
+                              }
+                            />
+                          </label>
+
+                          <div className={styles.sourceSpacer} aria-hidden="true" />
+                          <div className={styles.sourceSpacer} aria-hidden="true" />
+                        </>
+                      )}
 
                       <label className={styles.control}>
                         <span>Color</span>
@@ -1035,7 +1281,7 @@ export default function TelemetryScopePage() {
                           <button
                             type="button"
                             className={styles.scrubHotspot}
-                            aria-label={`Adjust scale for ${trace.labelText}`}
+                            aria-label={`Adjust scale for ${editorLabel}`}
                             title="Drag to adjust scale"
                             onMouseDown={(event) =>
                               startTraceTransformScrub(event, trace, "scale")
@@ -1059,7 +1305,7 @@ export default function TelemetryScopePage() {
                           <button
                             type="button"
                             className={styles.scrubHotspot}
-                            aria-label={`Adjust offset for ${trace.labelText}`}
+                            aria-label={`Adjust offset for ${editorLabel}`}
                             title="Drag to adjust offset"
                             onMouseDown={(event) =>
                               startTraceTransformScrub(event, trace, "offset")
@@ -1096,8 +1342,11 @@ export default function TelemetryScopePage() {
             </div>
 
             <div className={styles.fieldsFooter}>
-              <button type="button" className={styles.addButton} onClick={addTrace}>
+              <button type="button" className={styles.addButton} onClick={addFieldTrace}>
                 + Add Field
+              </button>
+              <button type="button" className={styles.addButton} onClick={addGeneratorTrace}>
+                + Add Generator
               </button>
             </div>
           </div>
@@ -1168,6 +1417,22 @@ export default function TelemetryScopePage() {
                   />
                 ))
               )}
+
+              {plotTraces.flatMap((trace) =>
+                trace.seamMarkers.map((x, index) => (
+                  <line
+                    key={`${trace.id}-seam-${index}`}
+                    x1={x}
+                    y1={PLOT_PADDING.top}
+                    x2={x}
+                    y2={PLOT_HEIGHT - PLOT_PADDING.bottom}
+                    stroke={trace.color}
+                    strokeWidth="1.4"
+                    strokeDasharray="3 6"
+                    opacity="0.75"
+                  />
+                ))
+              )}
             </svg>
 
             {settings.showLegend ? (
@@ -1181,13 +1446,30 @@ export default function TelemetryScopePage() {
                     <span className={styles.legendLabel}>{trace.labelText}</span>
                     {settings.showLatestValues ? (
                       <span className={styles.legendValue}>
-                        {formatTraceValue(trace, trace.field, trace.latestValue)}
+                        {formatTraceValue(trace, trace.latestValue)}
                       </span>
                     ) : null}
                   </div>
                 ))}
               </div>
             ) : null}
+
+            <div className={styles.viewportControls}>
+              <button
+                type="button"
+                className={`${styles.viewportToggleButton} ${
+                  settings.freeze ? styles.viewportToggleButtonActive : ""
+                }`}
+                aria-pressed={settings.freeze}
+                onClick={() => updateFreeze(!settings.freeze)}
+              >
+                Freeze
+              </button>
+
+              <button type="button" className={styles.clearButton} onClick={clearHistory}>
+                Clear
+              </button>
+            </div>
 
             <div className={styles.statusBar}>
               <span>{sampleRateLabel}</span>
@@ -1206,21 +1488,18 @@ export default function TelemetryScopePage() {
           <div className={styles.expandedPanel}>
             <div className={styles.settingsGrid}>
               <label className={styles.control}>
-                <span>Window</span>
-                <select
+                <span>Window (sec)</span>
+                <input
+                  type="number"
+                  min={MIN_WINDOW_SECONDS}
+                  step="0.1"
                   value={settings.windowSeconds}
                   onChange={(event) =>
                     updateSettings({
-                      windowSeconds: sanitizeWindowSeconds(event.target.value),
+                      windowSeconds: event.target.value,
                     })
                   }
-                >
-                  {WINDOW_OPTIONS.map((seconds) => (
-                    <option key={seconds} value={seconds}>
-                      {seconds}s
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
 
               <label className={styles.control}>
@@ -1274,17 +1553,6 @@ export default function TelemetryScopePage() {
               <label className={styles.toggle}>
                 <input
                   type="checkbox"
-                  checked={settings.freeze}
-                  onChange={(event) =>
-                    updateFreeze(event.target.checked)
-                  }
-                />
-                Freeze
-              </label>
-
-              <label className={styles.toggle}>
-                <input
-                  type="checkbox"
                   checked={settings.showGrid}
                   onChange={(event) =>
                     updateSettings({ showGrid: event.target.checked })
@@ -1314,10 +1582,6 @@ export default function TelemetryScopePage() {
                 />
                 Show Latest Values
               </label>
-
-              <button type="button" className={styles.clearButton} onClick={clearHistory}>
-                Clear
-              </button>
             </div>
           </div>
         ) : null}
@@ -1344,25 +1608,30 @@ export default function TelemetryScopePage() {
 }
 
 function tracesEqual(a: TraceConfig, b: TraceConfig): boolean {
+  if (a.sourceKind !== b.sourceKind) return false;
   return (
     a.id === b.id &&
-    a.modelPath === b.modelPath &&
-    a.workloadName === b.workloadName &&
-    a.section === b.section &&
-    a.fieldPath === b.fieldPath &&
     a.visible === b.visible &&
     a.color === b.color &&
     a.scale === b.scale &&
-    a.offset === b.offset
+    a.offset === b.offset &&
+    (isFieldTrace(a) && isFieldTrace(b)
+      ? a.modelPath === b.modelPath &&
+        a.workloadName === b.workloadName &&
+        a.section === b.section &&
+        a.fieldPath === b.fieldPath
+      : isGeneratorTrace(a) && isGeneratorTrace(b)
+        ? a.waveShape === b.waveShape && a.frequencyHz === b.frequencyHz
+        : false)
   );
 }
 
 function normalizeTraceSelection(
-  trace: TraceConfig,
+  trace: FieldTraceConfig,
   index: number,
   modelOptions: ModelOption[],
   modelsByPath: ReadonlyMap<string, ITelemetryModel>
-): TraceConfig {
+): FieldTraceConfig {
   const hasModelOptions = modelOptions.length > 0;
   const matchingModel =
     modelOptions.find((model) => model.modelPath === trace.modelPath) ?? null;
@@ -1412,14 +1681,29 @@ function getEmptyMessage(
   traceFieldOptions: ReadonlyMap<string, ScopeFieldOption[]>,
   plotTraces: PlotTrace[]
 ): string {
-  if (loadingModels) return "Loading telemetry models...";
-  if (modelOptions.length === 0) return "No telemetry models available.";
-  if (traces.some((trace) => !modelsByPath.has(trace.modelPath))) {
+  const fieldTraces = traces.filter(isFieldTrace);
+  const generatorTraces = traces.filter(isGeneratorTrace);
+  if (loadingModels && fieldTraces.length > 0) return "Loading telemetry models...";
+  if (fieldTraces.length > 0 && modelOptions.length === 0) {
+    return "No telemetry models available.";
+  }
+  if (fieldTraces.some((trace) => !modelsByPath.has(trace.modelPath))) {
     return "Waiting for telemetry schema...";
   }
-  if (traces.some((trace) => (traceFieldOptions.get(trace.id) ?? []).length === 0)) {
+  if (
+    fieldTraces.some((trace) => (traceFieldOptions.get(trace.id) ?? []).length === 0)
+  ) {
     return "No compatible scalar fields in the selected scope.";
   }
+  if (
+    generatorTraces.some(
+      (trace) => parseGeneratorFrequencyHz(trace) === null
+    )
+  ) {
+    return "One or more generators has an invalid frequency.";
+  }
   if (plotTraces.length === 0) return "No visible traces.";
-  return "Waiting for telemetry samples...";
+  return fieldTraces.length > 0
+    ? "Waiting for telemetry samples..."
+    : "No visible traces.";
 }
