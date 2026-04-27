@@ -298,6 +298,7 @@
     84px
     minmax(78px, 0.5fr)
     minmax(78px, 0.5fr)
+    minmax(78px, 0.5fr)
     auto;
   gap: 8px;
   align-items: end;
@@ -308,12 +309,18 @@
   align-items: center;
   gap: 6px;
   min-height: 34px;
+  white-space: nowrap;
   color: var(--app-text-primary);
   font-size: 0.85rem;
 }
 
 .toggle input {
   margin: 0;
+}
+
+.transformControl input {
+  width: 92px;
+  min-width: 92px;
 }
 
 .colorInput {
@@ -343,8 +350,26 @@
 
 .addButton,
 .clearButton {
-  padding: 6px 10px;
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
   align-self: flex-start;
+}
+
+.addButton:hover,
+.addButton:focus-visible,
+.clearButton:hover,
+.clearButton:focus-visible {
+  border: none;
+  background: rgba(12, 147, 225, 0.3);
+  color: white;
+  outline: none;
 }
 
 .fieldsFooter {

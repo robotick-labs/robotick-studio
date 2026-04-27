@@ -32,6 +32,7 @@ type BaseTraceConfig = {
   sourceKind: SignalSourceKind;
   visible: boolean;
   color: string;
+  xOffsetSeconds: string;
   scale: string;
   offset: string;
 };
@@ -97,7 +98,7 @@ type ModelTimingAnchor = {
   calibrationAnchorSumMs: number;
 };
 
-type TraceScrubKind = "scale" | "offset";
+type TraceScrubKind = "scale" | "offset" | "xOffsetSeconds";
 
 type TraceScrubState = {
   previousUserSelect: string;
@@ -160,6 +161,7 @@ function createFieldTrace(
     fieldPath,
     visible: true,
     color,
+    xOffsetSeconds: "0",
     scale: "1",
     offset: "0",
   };
@@ -173,6 +175,7 @@ function createGeneratorTrace(color: string): GeneratorTraceConfig {
     frequencyHz: "1",
     visible: true,
     color,
+    xOffsetSeconds: "0",
     scale: "1",
     offset: "0",
   };
@@ -241,6 +244,8 @@ function sanitizeTrace(
       typeof data.color === "string" && data.color.length > 0
         ? data.color
         : TRACE_COLORS[index % TRACE_COLORS.length],
+    xOffsetSeconds:
+      typeof data.xOffsetSeconds === "string" ? data.xOffsetSeconds : "0",
     scale: typeof data.scale === "string" ? data.scale : "1",
     offset: typeof data.offset === "string" ? data.offset : "0",
   } satisfies BaseTraceConfig;
@@ -538,6 +543,52 @@ function parseTraceTransformValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseTraceXOffsetMs(trace: TraceConfig): number {
+  return parseTraceTransformValue(trace.xOffsetSeconds, 0) * 1000;
+}
+
+function getTraceTransformNumericValue(
+  trace: TraceConfig,
+  kind: TraceScrubKind
+): number {
+  if (kind === "scale") {
+    return parseTraceTransformValue(trace.scale, 1);
+  }
+  if (kind === "offset") {
+    return parseTraceTransformValue(trace.offset, 0);
+  }
+  return parseTraceTransformValue(trace.xOffsetSeconds, 0);
+}
+
+function toNiceStep(value: number): number {
+  const finite = Number.isFinite(value) ? Math.abs(value) : 0;
+  if (finite <= 0) return 0.01;
+  const exponent = Math.floor(Math.log10(finite));
+  const base = finite / 10 ** exponent;
+  const niceBase = base <= 1 ? 1 : base <= 2 ? 2 : base <= 5 ? 5 : 10;
+  return niceBase * 10 ** exponent;
+}
+
+function getAdaptiveTransformStep(
+  kind: TraceScrubKind,
+  currentValue: number
+): number {
+  const magnitude = Math.max(Math.abs(currentValue), kind === "scale" ? 1 : 0.1);
+  const raw =
+    kind === "scale"
+      ? magnitude * 0.02
+      : magnitude * 0.05;
+  const clamped =
+    kind === "scale"
+      ? Math.min(0.5, Math.max(0.001, raw))
+      : Math.min(2.0, Math.max(0.001, raw));
+  return toNiceStep(clamped);
+}
+
+function getScaleTransformStep(currentValue: number): number {
+  return getAdaptiveTransformStep("scale", currentValue);
+}
+
 function transformTraceValue(trace: TraceConfig, value: number): number {
   const scale = parseTraceTransformValue(trace.scale, 1);
   const offset = parseTraceTransformValue(trace.offset, 0);
@@ -559,12 +610,12 @@ function hasTraceTransform(trace: TraceConfig): boolean {
 function formatRateLabel(hzValues: number[]): string {
   const valid = hzValues.filter((value) => Number.isFinite(value) && value > 0);
   if (valid.length === 0) return "Waiting";
-  const unique = Array.from(new Set(valid.map((value) => value.toFixed(1))));
-  if (unique.length === 1) {
-    const value = valid[0];
-    return `${value.toFixed(value >= 10 ? 0 : 1)} Hz`;
-  }
-  return "Mixed";
+  const uniqueNumeric = Array.from(new Set(valid.map((value) => Number(value.toFixed(1))))).sort(
+    (a, b) => a - b
+  );
+  return uniqueNumeric
+    .map((value) => (value >= 10 ? value.toFixed(0) : value.toFixed(1)))
+    .join(" | ");
 }
 
 function formatTraceValue(trace: PlotTrace, value: number | null): string {
@@ -996,6 +1047,26 @@ export default function TelemetryScopePage() {
     return autoYRange;
   }, [autoYRange, settings.yMax, settings.yMin, settings.yMode]);
 
+  const yAxisHeight = Math.max(1e-6, yRange.max - yRange.min);
+  const xAxisSpanSeconds = Math.max(MIN_WINDOW_SECONDS, effectiveWindowSeconds);
+
+  const getOffsetInputStep = (kind: "offset" | "xOffsetSeconds"): number => {
+    if (kind === "offset") {
+      // Arrow nudges track Y-axis scale (about a tenth of visible height).
+      return toNiceStep(Math.max(0.001, yAxisHeight / 10));
+    }
+    // X-offset nudges track visible X window span.
+    return toNiceStep(Math.max(0.001, xAxisSpanSeconds / 10));
+  };
+
+  const getOffsetScrubStep = (kind: "offset" | "xOffsetSeconds"): number => {
+    if (kind === "offset") {
+      // Drag scrub defaults to finer control than arrow nudge.
+      return toNiceStep(Math.max(0.0001, yAxisHeight / 50));
+    }
+    return toNiceStep(Math.max(0.0001, xAxisSpanSeconds / 50));
+  };
+
   const plotTraces = useMemo<PlotTrace[]>(() => {
     const xSpan = PLOT_WIDTH - PLOT_PADDING.left - PLOT_PADDING.right;
     const ySpan = PLOT_HEIGHT - PLOT_PADDING.top - PLOT_PADDING.bottom;
@@ -1004,8 +1075,9 @@ export default function TelemetryScopePage() {
       const polylines: string[] = [];
       const seamMarkers: number[] = [];
       let segment: string[] = [];
+      const xOffsetMs = parseTraceXOffsetMs(trace);
       for (const point of trace.points) {
-        const ageMs = plotNowMs - point.timeMs;
+        const ageMs = plotNowMs - (point.timeMs + xOffsetMs);
         const normalizedX = 1 - ageMs / windowMs;
         const normalizedY = (point.value - yRange.min) / (yRange.max - yRange.min);
         const x = PLOT_PADDING.left + normalizedX * xSpan;
@@ -1183,12 +1255,12 @@ export default function TelemetryScopePage() {
       traceScrubRef.current = null;
     }
 
-    const startValue = parseTraceTransformValue(
-      kind === "scale" ? trace.scale : trace.offset,
-      kind === "scale" ? 1 : 0
-    );
+    const startValue = getTraceTransformNumericValue(trace, kind);
     const pixelsPerStep = 6;
-    const scrubStep = 0.01;
+    const scrubStep =
+      kind === "offset" || kind === "xOffsetSeconds"
+        ? getOffsetScrubStep(kind)
+        : getScaleTransformStep(startValue);
     const previousUserSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
 
@@ -1260,6 +1332,49 @@ export default function TelemetryScopePage() {
         ),
       ],
     }));
+  };
+
+  const syncFieldTraceXOffsetsToFirst = () => {
+    setSettings((current) => {
+      const fieldTraces = current.traces.filter(isFieldTrace);
+      if (fieldTraces.length < 2) return current;
+
+      const reference = fieldTraces[0];
+      const referenceSeries = historiesRef.current[reference.id] ?? [];
+      const referenceLast = referenceSeries[referenceSeries.length - 1];
+      if (!referenceLast || !Number.isFinite(referenceLast.timeMs)) {
+        return current;
+      }
+      const referenceEffectiveMs =
+        referenceLast.timeMs + parseTraceXOffsetMs(reference);
+
+      let changed = false;
+      const nextTraces = current.traces.map((trace) => {
+        if (!isFieldTrace(trace) || trace.id === reference.id) {
+          return trace;
+        }
+        const series = historiesRef.current[trace.id] ?? [];
+        const last = series[series.length - 1];
+        if (!last || !Number.isFinite(last.timeMs)) {
+          return trace;
+        }
+
+        const effectiveMs = last.timeMs + parseTraceXOffsetMs(trace);
+        const deltaMs = referenceEffectiveMs - effectiveMs;
+        const nextSeconds =
+          parseTraceTransformValue(trace.xOffsetSeconds, 0) + deltaMs / 1000;
+        const next = {
+          ...trace,
+          xOffsetSeconds: formatTraceTransformValue(nextSeconds),
+        };
+        if (next.xOffsetSeconds !== trace.xOffsetSeconds) {
+          changed = true;
+        }
+        return next;
+      });
+
+      return changed ? { ...current, traces: nextTraces } : current;
+    });
   };
 
   const removeTrace = (traceId: string) => {
@@ -1474,9 +1589,36 @@ export default function TelemetryScopePage() {
                         />
                       </label>
 
-                      <label className={styles.control}>
+                      <label className={`${styles.control} ${styles.transformControl}`}>
                         <span className={styles.controlLabelRow}>
-                          <span>Scale</span>
+                          <span>Offset X (s)</span>
+                          <button
+                            type="button"
+                            className={styles.scrubHotspot}
+                            aria-label={`Adjust x offset for ${editorLabel}`}
+                            title="Drag to adjust x offset"
+                            onMouseDown={(event) =>
+                              startTraceTransformScrub(event, trace, "xOffsetSeconds")
+                            }
+                          >
+                            <span className={styles.scrubDot} />
+                          </button>
+                        </span>
+                        <input
+                          type="number"
+                          step={getOffsetInputStep("xOffsetSeconds")}
+                          value={trace.xOffsetSeconds}
+                          onChange={(event) =>
+                            updateTrace(trace.id, {
+                              xOffsetSeconds: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+
+                      <label className={`${styles.control} ${styles.transformControl}`}>
+                        <span className={styles.controlLabelRow}>
+                          <span>Scale Y</span>
                           <button
                             type="button"
                             className={styles.scrubHotspot}
@@ -1491,6 +1633,9 @@ export default function TelemetryScopePage() {
                         </span>
                         <input
                           type="number"
+                          step={getScaleTransformStep(
+                            getTraceTransformNumericValue(trace, "scale")
+                          )}
                           value={trace.scale}
                           onChange={(event) =>
                             updateTrace(trace.id, { scale: event.target.value })
@@ -1498,9 +1643,9 @@ export default function TelemetryScopePage() {
                         />
                       </label>
 
-                      <label className={styles.control}>
+                      <label className={`${styles.control} ${styles.transformControl}`}>
                         <span className={styles.controlLabelRow}>
-                          <span>Offset</span>
+                          <span>Offset Y</span>
                           <button
                             type="button"
                             className={styles.scrubHotspot}
@@ -1515,6 +1660,7 @@ export default function TelemetryScopePage() {
                         </span>
                         <input
                           type="number"
+                          step={getOffsetInputStep("offset")}
                           value={trace.offset}
                           onChange={(event) =>
                             updateTrace(trace.id, { offset: event.target.value })
@@ -1546,6 +1692,13 @@ export default function TelemetryScopePage() {
               </button>
               <button type="button" className={styles.addButton} onClick={addGeneratorTrace}>
                 + Add Generator
+              </button>
+              <button
+                type="button"
+                className={styles.addButton}
+                onClick={syncFieldTraceXOffsetsToFirst}
+              >
+                Sync All Fields
               </button>
             </div>
           </div>
@@ -1754,8 +1907,14 @@ export default function TelemetryScopePage() {
         {settings.settingsExpanded ? (
           <div className={styles.expandedPanel}>
             <div className={styles.settingsGrid}>
+
               <label className={styles.control}>
-                <span>Window (sec)</span>
+                <span>Sample Rate / Hz</span>
+                <input type="text" value={sampleRateLabel} readOnly />
+              </label>
+              
+              <label className={styles.control}>
+                <span>Window / sec</span>
                 <input
                   type="number"
                   min={MIN_WINDOW_SECONDS}
@@ -1767,11 +1926,6 @@ export default function TelemetryScopePage() {
                     })
                   }
                 />
-              </label>
-
-              <label className={styles.control}>
-                <span>Sample Rate</span>
-                <input type="text" value={sampleRateLabel} readOnly />
               </label>
 
               <label className={styles.control}>
@@ -1788,7 +1942,7 @@ export default function TelemetryScopePage() {
               </label>
 
               <label className={styles.control}>
-                <span>Y Min</span>
+                <span>Min Y</span>
                 <input
                   type="number"
                   value={
@@ -1802,7 +1956,7 @@ export default function TelemetryScopePage() {
               </label>
 
               <label className={styles.control}>
-                <span>Y Max</span>
+                <span>Max Y</span>
                 <input
                   type="number"
                   value={
@@ -1880,6 +2034,7 @@ function tracesEqual(a: TraceConfig, b: TraceConfig): boolean {
     a.id === b.id &&
     a.visible === b.visible &&
     a.color === b.color &&
+    a.xOffsetSeconds === b.xOffsetSeconds &&
     a.scale === b.scale &&
     a.offset === b.offset &&
     (isFieldTrace(a) && isFieldTrace(b)
@@ -1935,6 +2090,7 @@ function normalizeTraceSelection(
       ? selectedField?.path ?? trace.fieldPath
       : trace.fieldPath,
     color: trace.color || TRACE_COLORS[index % TRACE_COLORS.length],
+    xOffsetSeconds: trace.xOffsetSeconds || "0",
     scale: trace.scale || "1",
     offset: trace.offset || "0",
   };
