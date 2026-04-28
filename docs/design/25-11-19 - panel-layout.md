@@ -13,6 +13,9 @@
    - Releasing performs the split, creating two sibling panels that initially mirror the previous content.
 2. **Context menu**
    - Right-clicking inside a panel opens a menu scoped to the click location.
+   - RMB gesture is tap-vs-hold gated:
+     - tap (`<=100ms`) opens the panel context menu
+     - hold (`>100ms`) does not open the panel context menu (reserved for editor-level gestures like viewport pan)
    - Menu entries: `Split Horizontally`, `Split Vertically`, `Assign Tool…`, `Close Panel`, `Maximize Panel`, `Reset Layout`.
    - Choosing a split option inserts the new divide that passes through the click position, so users can decide which sub-area becomes larger/smaller.
 3. **Assigning content**

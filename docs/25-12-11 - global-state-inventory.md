@@ -13,6 +13,7 @@
 | Floating panels | `src/renderer/components/workspaces/floating-panels/floating-panel-store.ts` | In-memory map of panel records scoped by workspace. |
 | Terminal log service | `src/renderer/data-sources/launcher/internal/terminal-log-service.ts` | Singleton `terminalLogService` manages websocket + preferences. |
 | Workspace memory | `src/renderer/utils/workspaceMemory.ts` | Helper functions now backed by `services/storage`. |
+| Models editor panel state | `src/renderer/components/editors/models/ModelsPage.tsx` | Per-panel-instance persistence via namespaced keys: viewport (`robotick-studio.models.viewport`), collapsed models (`robotick-studio.models.collapsed`), and view state (`robotick-studio.models.view-state`, including `Connections` mode + selected node). |
 
 ## Direct browser API usage
 
