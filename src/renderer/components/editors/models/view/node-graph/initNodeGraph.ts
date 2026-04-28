@@ -27,6 +27,10 @@ export type NodeGraphAPI = {
   setDisplayOptions: (options: Partial<GraphDisplayOptions>) => void;
   /** Replace the collapsed model set used by the layout */
   setCollapsedModelIds: (modelIds: string[]) => void;
+  /** Read current selected node id */
+  getSelectedNodeId: () => string | null;
+  /** Set selected node id and re-render */
+  setSelectedNodeId: (nodeId: string | null) => void;
 };
 
 export type EdgeVisibilityMode =
@@ -56,7 +60,8 @@ export function initNodeGraph(
   svgElement: SVGSVGElement | null,
   store: DocumentStore,
   initialDisplayOptions?: Partial<GraphDisplayOptions>,
-  initialLayoutOptions?: Partial<GraphLayoutOptions>
+  initialLayoutOptions?: Partial<GraphLayoutOptions>,
+  options?: { selectionScope?: string; initialSelectedNodeId?: string | null }
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -77,9 +82,10 @@ export function initNodeGraph(
 
   const router = new RectilinearRouter();
   const view = new SvgView(svgElement, layers, router);
-  const selectionController = new SelectionController(svgElement);
+  const selectionScope = options?.selectionScope ?? "default";
+  const selectionController = new SelectionController(svgElement, selectionScope);
   const slotDragController = new SlotDragController(svgElement, doc, store);
-  let selectedNodeId: string | null = null;
+  let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
   let displayOptions: GraphDisplayOptions = {
     ...DEFAULT_DISPLAY_OPTIONS,
     ...initialDisplayOptions,
@@ -135,7 +141,10 @@ export function initNodeGraph(
     renameHandler as EventListener
   );
   const selectionChangedHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ nodeId?: string | null }>;
+    const ce = e as CustomEvent<{ nodeId?: string | null; scope?: string }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
     selectedNodeId = ce.detail?.nodeId ?? null;
     render();
   };
@@ -183,6 +192,11 @@ export function initNodeGraph(
     layoutOptions = { ...layoutOptions, collapsedModelIds: [...modelIds] };
     refreshLayout();
   };
+  const getSelectedNodeId = () => selectedNodeId;
+  const setSelectedNodeId = (nodeId: string | null) => {
+    selectedNodeId = nodeId;
+    render();
+  };
 
   return {
     svg: svgElement,
@@ -194,6 +208,8 @@ export function initNodeGraph(
     getDoc,
     setDisplayOptions,
     setCollapsedModelIds,
+    getSelectedNodeId,
+    setSelectedNodeId,
   };
 }
 

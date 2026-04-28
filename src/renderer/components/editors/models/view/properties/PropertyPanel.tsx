@@ -3,10 +3,13 @@ import { DocumentStore } from "../../document/documentStore";
 import { useSelection } from "../../document/editorSelectionStore";
 import styles from "../../styles/ModelsPage.module.css";
 
-type PropertyPanelProps = { store: DocumentStore };
+type PropertyPanelProps = { store: DocumentStore; selectionScope: string };
 
-export const PropertyPanel: React.FC<PropertyPanelProps> = ({ store }) => {
-  const selectedId = useSelection();
+export const PropertyPanel: React.FC<PropertyPanelProps> = ({
+  store,
+  selectionScope,
+}) => {
+  const selectedId = useSelection(selectionScope);
   let workload: any = null;
   let workloadType: string | undefined;
 

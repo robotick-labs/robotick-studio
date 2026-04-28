@@ -1,7 +1,10 @@
 import { editorSelectionStore } from "../document/editorSelectionStore";
 
 export class SelectionController {
-  constructor(private svg: SVGSVGElement) {}
+  constructor(
+    private svg: SVGSVGElement,
+    private selectionScope: string = "default"
+  ) {}
 
   private onClick = (e: MouseEvent) => {
     const g = (e.target as Element).closest("g.workload-node") as
@@ -23,10 +26,10 @@ export class SelectionController {
       return;
     }
     const nodeId = g?.id ?? null;
-    editorSelectionStore.setSelection(nodeId);
+    editorSelectionStore.setSelection(nodeId, this.selectionScope);
     window.dispatchEvent(
       new CustomEvent("models-graph:selection-changed", {
-        detail: { nodeId },
+        detail: { nodeId, scope: this.selectionScope },
       })
     );
   };

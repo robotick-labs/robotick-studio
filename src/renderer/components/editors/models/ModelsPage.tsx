@@ -48,10 +48,40 @@ export default function ModelsPage() {
       ),
     [panelIdentifier, projectPath, workspaceIdentifier]
   );
+  const panelViewStateStorageKey = useMemo(
+    () =>
+      buildNamespacedKey(
+        "robotick-studio.models.view-state",
+        workspaceIdentifier,
+        panelIdentifier,
+        projectPath ?? "no-project"
+      ),
+    [panelIdentifier, projectPath, workspaceIdentifier]
+  );
+  const selectionScopeKey = useMemo(
+    () =>
+      `models:${workspaceIdentifier}:${panelIdentifier}:${projectPath ?? "no-project"}`,
+    [panelIdentifier, projectPath, workspaceIdentifier]
+  );
+  const initialViewState = useMemo(
+    () => readModelsViewState(panelViewStateStorageKey),
+    [panelViewStateStorageKey]
+  );
   const [edgeVisibilityMode, setEdgeVisibilityMode] =
-    useState<EdgeVisibilityMode>("selected-model");
+    useState<EdgeVisibilityMode>(
+      initialViewState?.edgeVisibilityMode ?? "selected-model"
+    );
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+    initialViewState?.selectedNodeId ?? null
+  );
   const [collapsedModelIds, setCollapsedModelIds] = useState<string[]>([]);
   const graphApiRef = useRef<NodeGraphAPI | null>(null);
+
+  useEffect(() => {
+    const stored = readModelsViewState(panelViewStateStorageKey);
+    setEdgeVisibilityMode(stored?.edgeVisibilityMode ?? "selected-model");
+    setSelectedNodeId(stored?.selectedNodeId ?? null);
+  }, [panelViewStateStorageKey]);
 
   useEffect(() => {
     const storedCollapsed = readCollapsedModelIds(collapsedModelsStorageKey);
@@ -91,15 +121,24 @@ export default function ModelsPage() {
             : storedCollapsed.filter((modelId) => allModelIds.includes(modelId));
         setCollapsedModelIds(initialCollapsed);
 
-        graphApi = initNodeGraph(graphElement, store, {
-          edgeVisibilityMode,
-          focusDimming: true,
-          expandedModelIds: [],
-        }, {
-          collapsedModelIds: initialCollapsed,
-        });
+        graphApi = initNodeGraph(
+          graphElement,
+          store,
+          {
+            edgeVisibilityMode,
+            focusDimming: true,
+            expandedModelIds: [],
+          },
+          {
+            collapsedModelIds: initialCollapsed,
+          },
+          {
+            selectionScope: selectionScopeKey,
+            initialSelectedNodeId: selectedNodeId,
+          }
+        );
         graphApiRef.current = graphApi;
-        panelApi = initPropertyPanel(panelElement, store);
+        panelApi = initPropertyPanel(panelElement, store, selectionScopeKey);
         const storedViewport = readViewport(viewportStorageKey);
         if (storedViewport) {
           setViewBox(graphElement, storedViewport);
@@ -135,12 +174,27 @@ export default function ModelsPage() {
           "models-graph:toggle-model-collapsed",
           onToggleCollapsed as EventListener
         );
+        const onSelectionChanged = (event: Event) => {
+          const ce = event as CustomEvent<{ nodeId?: string | null; scope?: string }>;
+          if ((ce.detail?.scope ?? "default") !== selectionScopeKey) {
+            return;
+          }
+          setSelectedNodeId(ce.detail?.nodeId ?? null);
+        };
+        window.addEventListener(
+          "models-graph:selection-changed",
+          onSelectionChanged as EventListener
+        );
         const prevDispose = disposeViewportControls;
         disposeViewportControls = () => {
           prevDispose?.();
           window.removeEventListener(
             "models-graph:toggle-model-collapsed",
             onToggleCollapsed as EventListener
+          );
+          window.removeEventListener(
+            "models-graph:selection-changed",
+            onSelectionChanged as EventListener
           );
         };
       } catch (err) {
@@ -160,11 +214,18 @@ export default function ModelsPage() {
       disposeViewportControls?.();
       resetDom(graphElement, panelElement);
     };
-  }, [projectPath, viewportStorageKey]);
+  }, [collapsedModelsStorageKey, projectPath, selectionScopeKey, viewportStorageKey]);
 
   useEffect(() => {
     writeCollapsedModelIds(collapsedModelsStorageKey, collapsedModelIds);
   }, [collapsedModelIds, collapsedModelsStorageKey]);
+
+  useEffect(() => {
+    writeModelsViewState(panelViewStateStorageKey, {
+      edgeVisibilityMode,
+      selectedNodeId,
+    });
+  }, [edgeVisibilityMode, panelViewStateStorageKey, selectedNodeId]);
 
   useEffect(() => {
     const graphApi = graphApiRef.current;
@@ -181,7 +242,8 @@ export default function ModelsPage() {
       focusDimming: true,
       expandedModelIds,
     });
-  }, [collapsedModelIds, edgeVisibilityMode]);
+    graphApiRef.current?.setSelectedNodeId(selectedNodeId);
+  }, [collapsedModelIds, edgeVisibilityMode, selectedNodeId]);
 
   return (
     <div className={styles.layout}>
@@ -231,6 +293,11 @@ type GraphViewport = {
   y: number;
   width: number;
   height: number;
+};
+
+type ModelsViewState = {
+  edgeVisibilityMode: EdgeVisibilityMode;
+  selectedNodeId: string | null;
 };
 
 const MOUSE_BUTTON = {
@@ -543,6 +610,41 @@ function readCollapsedModelIds(storageKey: string): string[] | null {
 
 function writeCollapsedModelIds(storageKey: string, modelIds: string[]): void {
   setStorageValue(storageKey, JSON.stringify(modelIds));
+}
+
+function readModelsViewState(storageKey: string): ModelsViewState | null {
+  const raw = readStorageValue(storageKey);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<ModelsViewState> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const edgeVisibilityMode = parsed.edgeVisibilityMode;
+    const selectedNodeId =
+      typeof parsed.selectedNodeId === "string" ? parsed.selectedNodeId : null;
+    if (
+      edgeVisibilityMode !== "none" &&
+      edgeVisibilityMode !== "selected-node" &&
+      edgeVisibilityMode !== "selected-model" &&
+      edgeVisibilityMode !== "expanded-models" &&
+      edgeVisibilityMode !== "all"
+    ) {
+      return null;
+    }
+    return {
+      edgeVisibilityMode,
+      selectedNodeId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeModelsViewState(storageKey: string, state: ModelsViewState): void {
+  setStorageValue(storageKey, JSON.stringify(state));
 }
 
 function computeFitWidthViewport(svg: SVGSVGElement): GraphViewport | null {
