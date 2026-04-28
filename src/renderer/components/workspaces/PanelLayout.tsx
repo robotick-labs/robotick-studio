@@ -45,6 +45,7 @@ const DEFAULT_LAYOUT_TAB_NAME = "Default";
 const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.05;
 const MAX_RATIO = 0.85;
+const PANEL_CONTEXT_MENU_TAP_MAX_MS = 100;
 
 type PanelLayoutProps = {
   workspaceId: string;
@@ -901,6 +902,9 @@ export function PanelLayout({
       editorId: string,
       event: React.MouseEvent<HTMLDivElement>
     ) => {
+      if (event.defaultPrevented || event.isDefaultPrevented()) {
+        return;
+      }
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
       const horizontalRatio = rect.width
@@ -1357,6 +1361,8 @@ function PanelLeaf({
   workspaceId,
 }: PanelLeafProps) {
   const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const rightMouseDownAtMsRef = React.useRef<number | null>(null);
+  const rightMouseDownPosRef = React.useRef<{ x: number; y: number } | null>(null);
   const [splitPreview, setSplitPreview] = React.useState<{
     direction: "horizontal" | "vertical";
     ratio: number;
@@ -1371,6 +1377,38 @@ function PanelLeaf({
   });
   const [editorPickerOpen, setEditorPickerOpen] = React.useState(false);
   const selectRef = React.useRef<HTMLSelectElement | null>(null);
+  const openPanelMenuFromMousePoint = React.useCallback(
+    (
+      currentTarget: HTMLDivElement,
+      clientX: number,
+      clientY: number,
+    ) => {
+      const syntheticEvent = {
+        defaultPrevented: false,
+        isDefaultPrevented: () => false,
+        preventDefault: () => {},
+        currentTarget,
+        clientX,
+        clientY,
+      } as React.MouseEvent<HTMLDivElement>;
+      onContextMenu(node.id, node.editorId, syntheticEvent);
+    },
+    [node.editorId, node.id, onContextMenu]
+  );
+  const handlePanelContextMenu = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // Chromium can dispatch `contextmenu` immediately on RMB down.
+      // Always intercept native contextmenu here and decide tap-vs-hold on mouseup.
+      if (rightMouseDownAtMsRef.current == null) {
+        onContextMenu(node.id, node.editorId, event);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      rightMouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+    },
+    [node.editorId, node.id, onContextMenu]
+  );
 
   const startSplitDrag = React.useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1449,7 +1487,32 @@ function PanelLeaf({
       <div
         className={styles.panelLeaf}
         ref={panelRef}
-        onContextMenu={(event) => onContextMenu(node.id, node.editorId, event)}
+        onMouseDownCapture={(event) => {
+          if (event.button === 2) {
+            rightMouseDownAtMsRef.current = performance.now();
+            rightMouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+          }
+        }}
+        onMouseUpCapture={(event) => {
+          if (event.button !== 2) {
+            return;
+          }
+          const downAt = rightMouseDownAtMsRef.current;
+          const elapsedMs =
+            typeof downAt === "number" ? performance.now() - downAt : Number.NaN;
+          const shouldOpen =
+            Number.isFinite(elapsedMs) && elapsedMs <= PANEL_CONTEXT_MENU_TAP_MAX_MS;
+          if (shouldOpen) {
+            const point = rightMouseDownPosRef.current ?? {
+              x: event.clientX,
+              y: event.clientY,
+            };
+            openPanelMenuFromMousePoint(event.currentTarget, point.x, point.y);
+          }
+          rightMouseDownAtMsRef.current = null;
+          rightMouseDownPosRef.current = null;
+        }}
+        onContextMenu={handlePanelContextMenu}
       >
         {splitPreview && (
           <div

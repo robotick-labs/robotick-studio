@@ -233,17 +233,38 @@ type GraphViewport = {
   height: number;
 };
 
+const MOUSE_BUTTON = {
+  LEFT: 0,
+  MIDDLE: 1,
+  RIGHT: 2,
+} as const;
+
 function attachViewportControls(
   svg: SVGSVGElement,
   onViewportChanged: (viewport: GraphViewport) => void
 ): () => void {
   const MIN_VIEWBOX_WIDTH = 300;
   const MAX_VIEWBOX_WIDTH = 50000;
-  const PAN_EXCLUDE_SELECTOR = "g.workload-node, g.plus-slot";
+  const PAN_HOLD_DELAY_MS = 100;
+  const CONTEXT_MENU_SUPPRESS_WINDOW_MS = 400;
 
   const applyViewport = (viewport: GraphViewport): void => {
     setViewBox(svg, viewport);
     onViewportChanged(viewport);
+  };
+  const clientToWorld = (
+    clientX: number,
+    clientY: number
+  ): { x: number; y: number } | null => {
+    const ctm = svg.getScreenCTM();
+    if (!ctm) {
+      return null;
+    }
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    const world = point.matrixTransform(ctm.inverse());
+    return { x: world.x, y: world.y };
   };
 
   const onWheel = (event: WheelEvent) => {
@@ -286,32 +307,82 @@ function attachViewportControls(
     | {
         startClientX: number;
         startClientY: number;
+        lastClientX: number;
+        lastClientY: number;
+        mouseDownTimeMs: number;
         startViewBox: GraphViewport;
+        panArmed: boolean;
+        isPanning: boolean;
       }
     | null = null;
+  let suppressContextMenuUntilMs = 0;
+  let armPanTimer: ReturnType<typeof window.setTimeout> | null = null;
+
+  const clearArmPanTimer = () => {
+    if (armPanTimer == null) {
+      return;
+    }
+    window.clearTimeout(armPanTimer);
+    armPanTimer = null;
+  };
+
+  const shouldSuppressContextMenu = () => {
+    const heldLongEnough =
+      dragState != null &&
+      performance.now() - dragState.mouseDownTimeMs >= PAN_HOLD_DELAY_MS;
+    return (
+      heldLongEnough ||
+      dragState?.panArmed === true ||
+      dragState?.isPanning === true ||
+      performance.now() < suppressContextMenuUntilMs
+    );
+  };
 
   const onMouseMove = (event: MouseEvent) => {
     if (!dragState) {
       return;
     }
 
-    const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
+    dragState.lastClientX = event.clientX;
+    dragState.lastClientY = event.clientY;
+
+    if (!dragState.isPanning) {
+      if (!dragState.panArmed) {
+        return;
+      }
+      dragState.isPanning = true;
+      svg.style.cursor = "grabbing";
+    }
+    event.preventDefault();
+
+    const startWorld = clientToWorld(dragState.startClientX, dragState.startClientY);
+    const currentWorld = clientToWorld(event.clientX, event.clientY);
+    if (!startWorld || !currentWorld) {
       return;
     }
 
-    const dx = event.clientX - dragState.startClientX;
-    const dy = event.clientY - dragState.startClientY;
+    const deltaX = currentWorld.x - startWorld.x;
+    const deltaY = currentWorld.y - startWorld.y;
 
     applyViewport({
-      x: dragState.startViewBox.x - (dx / rect.width) * dragState.startViewBox.width,
-      y: dragState.startViewBox.y - (dy / rect.height) * dragState.startViewBox.height,
+      x: dragState.startViewBox.x - deltaX,
+      y: dragState.startViewBox.y - deltaY,
       width: dragState.startViewBox.width,
       height: dragState.startViewBox.height,
     });
   };
 
   const stopDragging = () => {
+    clearArmPanTimer();
+    if (
+      dragState &&
+      (dragState.panArmed ||
+        dragState.isPanning ||
+        performance.now() - dragState.mouseDownTimeMs >= PAN_HOLD_DELAY_MS)
+    ) {
+      suppressContextMenuUntilMs =
+        performance.now() + CONTEXT_MENU_SUPPRESS_WINDOW_MS;
+    }
     dragState = null;
     svg.style.cursor = "";
     window.removeEventListener("mousemove", onMouseMove);
@@ -323,12 +394,7 @@ function attachViewportControls(
   };
 
   const onMouseDown = (event: MouseEvent) => {
-    if (event.button !== 1) {
-      return;
-    }
-
-    const targetElement = event.target as Element | null;
-    if (targetElement?.closest(PAN_EXCLUDE_SELECTOR)) {
+    if (event.button !== MOUSE_BUTTON.RIGHT) {
       return;
     }
 
@@ -340,29 +406,47 @@ function attachViewportControls(
     dragState = {
       startClientX: event.clientX,
       startClientY: event.clientY,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
+      mouseDownTimeMs: performance.now(),
       startViewBox: viewBox,
+      panArmed: false,
+      isPanning: false,
     };
+    armPanTimer = window.setTimeout(() => {
+      if (!dragState) {
+        armPanTimer = null;
+        return;
+      }
+      dragState.panArmed = true;
+      dragState.startClientX = dragState.lastClientX;
+      dragState.startClientY = dragState.lastClientY;
+      dragState.startViewBox = getViewBox(svg) ?? dragState.startViewBox;
+      svg.style.cursor = "grab";
+      armPanTimer = null;
+    }, PAN_HOLD_DELAY_MS);
 
-    svg.style.cursor = "grabbing";
-    event.preventDefault();
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
   };
 
-  const onAuxClick = (event: MouseEvent) => {
-    if (event.button === 1) {
-      event.preventDefault();
+  const onWindowContextMenu = (event: MouseEvent) => {
+    if (!shouldSuppressContextMenu()) {
+      return;
     }
+    event.preventDefault();
+    event.stopPropagation();
+    suppressContextMenuUntilMs = 0;
   };
 
   svg.addEventListener("wheel", onWheel, { passive: false });
   svg.addEventListener("mousedown", onMouseDown);
-  svg.addEventListener("auxclick", onAuxClick);
+  window.addEventListener("contextmenu", onWindowContextMenu, true);
 
   return () => {
     svg.removeEventListener("wheel", onWheel);
     svg.removeEventListener("mousedown", onMouseDown);
-    svg.removeEventListener("auxclick", onAuxClick);
+    window.removeEventListener("contextmenu", onWindowContextMenu, true);
     stopDragging();
   };
 }
