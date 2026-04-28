@@ -19,6 +19,7 @@ import {
   normalizeRcModules,
 } from "./remote-control-types";
 import { useLauncherService } from "./LauncherService";
+import { isAppQuitting } from "../../../utils/appQuitting";
 
 type LoadState<T> = {
   data: T;
@@ -239,6 +240,9 @@ export function LauncherDataProvider({
   const rcRequestRef = useRef(0);
 
   const refreshProjectSettings = useCallback(async () => {
+    if (isAppQuitting()) {
+      return;
+    }
     const requestId = ++metasRequestRef.current;
     setProjectSettings((prev) => ({
       ...prev,
@@ -270,6 +274,9 @@ export function LauncherDataProvider({
   }, []);
 
   const refreshProjectModels = useCallback(async () => {
+    if (isAppQuitting()) {
+      return;
+    }
     const requestId = ++modelsRequestRef.current;
     if (!projectPath) {
       setProjectModels({ data: [], loading: false, error: null });
@@ -300,6 +307,9 @@ export function LauncherDataProvider({
   }, [launcherService, projectPath]);
 
   const refreshRcModules = useCallback(async () => {
+    if (isAppQuitting()) {
+      return;
+    }
     const requestId = ++rcRequestRef.current;
     if (!projectPath) {
       setRcModules({ data: [], loading: false, error: null });
@@ -345,7 +355,11 @@ export function LauncherDataProvider({
   useEffect(() => {
     void refreshProjectSettings();
     const intervalId = window.setInterval(
-      () => void refreshProjectSettings(),
+      () => {
+        if (!isAppQuitting()) {
+          void refreshProjectSettings();
+        }
+      },
       PROJECT_METAS_POLL_MS
     );
     return () => window.clearInterval(intervalId);

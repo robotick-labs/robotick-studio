@@ -97,6 +97,17 @@ export function registerRendererStorage(
     };
   });
 
+  ipcMain.on("robotick-storage:get", (event, payload: { key: string }) => {
+    if (!storageFile) {
+      event.returnValue = null;
+      return;
+    }
+    const state = ensureCache();
+    event.returnValue = Object.prototype.hasOwnProperty.call(state, payload.key)
+      ? state[payload.key]
+      : null;
+  });
+
   ipcMain.handle(
     "robotick-storage:set",
     async (_event, payload: { key: string; value: string }) => {

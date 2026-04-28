@@ -25,6 +25,8 @@ export type NodeGraphAPI = {
   getDoc: () => GraphDoc;
   /** Update read-only graph display behavior */
   setDisplayOptions: (options: Partial<GraphDisplayOptions>) => void;
+  /** Replace the collapsed model set used by the layout */
+  setCollapsedModelIds: (modelIds: string[]) => void;
 };
 
 export type EdgeVisibilityMode =
@@ -40,6 +42,10 @@ export type GraphDisplayOptions = {
   expandedModelIds: string[];
 };
 
+export type GraphLayoutOptions = {
+  collapsedModelIds: string[];
+};
+
 const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
   edgeVisibilityMode: "selected-model",
   focusDimming: true,
@@ -49,7 +55,8 @@ const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
 export function initNodeGraph(
   svgElement: SVGSVGElement | null,
   store: DocumentStore,
-  initialDisplayOptions?: Partial<GraphDisplayOptions>
+  initialDisplayOptions?: Partial<GraphDisplayOptions>,
+  initialLayoutOptions?: Partial<GraphLayoutOptions>
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -59,7 +66,12 @@ export function initNodeGraph(
   const doc = new GraphDoc();
 
   // Initial build (so we know sizes before first paint)
-  buildGraphDocFromModel(store, doc);
+  let layoutOptions: GraphLayoutOptions = {
+    collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
+  };
+  buildGraphDocFromModel(store, doc, {
+    collapsedModelIds: layoutOptions.collapsedModelIds,
+  });
 
   const layers = createSvgLayers(svgElement);
 
@@ -137,7 +149,9 @@ export function initNodeGraph(
   attachControllers();
 
   const refreshLayout = () => {
-    buildGraphDocFromModel(store, doc);
+    buildGraphDocFromModel(store, doc, {
+      collapsedModelIds: layoutOptions.collapsedModelIds,
+    });
     render();
   };
 
@@ -165,6 +179,10 @@ export function initNodeGraph(
     displayOptions = { ...displayOptions, ...options };
     render();
   };
+  const setCollapsedModelIds = (modelIds: string[]) => {
+    layoutOptions = { ...layoutOptions, collapsedModelIds: [...modelIds] };
+    refreshLayout();
+  };
 
   return {
     svg: svgElement,
@@ -175,6 +193,7 @@ export function initNodeGraph(
     dispose,
     getDoc,
     setDisplayOptions,
+    setCollapsedModelIds,
   };
 }
 

@@ -3,6 +3,7 @@ import { launcherEvents } from "./LauncherContext";
 import { getLauncherLogStreamUrl } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
 import { createPollingTask } from "../../../utils/polling";
+import { isAppQuitting } from "../../../utils/appQuitting";
 
 type TerminalLogSubscriber = () => void;
 
@@ -53,6 +54,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
     { intervalMs: RECONNECT_MIN_DELAY_MS, runImmediately: false }
   );
   private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
+  private shuttingDown = false;
 
   constructor() {
     if (HAS_WEBSOCKET && !IS_TEST_ENV) {
@@ -61,6 +63,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
       console.warn("[terminal] WebSocket unavailable in this environment");
     }
     launcherEvents.addEventListener("run-requested", this.handleRunRequested);
+    if (typeof window !== "undefined") {
+      window.addEventListener("robotick:app-quitting", this.handleAppQuitting);
+    }
   }
 
   subscribe(listener: TerminalLogSubscriber) {
@@ -99,6 +104,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private connect() {
+    if (this.shuttingDown || isAppQuitting()) {
+      return;
+    }
     if (!HAS_WEBSOCKET) {
       return;
     }
@@ -143,6 +151,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   private scheduleReconnect() {
+    if (this.shuttingDown || isAppQuitting()) {
+      return;
+    }
     if (!HAS_WEBSOCKET) {
       return;
     }
@@ -156,6 +167,19 @@ class TerminalLogServiceImpl implements TerminalLogService {
       this.reconnectTask.start({ immediate: false });
     }
   }
+
+  private handleAppQuitting = () => {
+    this.shuttingDown = true;
+    this.reconnectTask.stop();
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // ignore close errors during app shutdown
+      }
+      this.ws = null;
+    }
+  };
 
   private pushMessage(message: string) {
     const next = [...this.messages, message];

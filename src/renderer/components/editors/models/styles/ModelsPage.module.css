@@ -170,6 +170,11 @@
   stroke-width: 0.5;
 }
 
+:global(.swimlane.collapsed-swimlane) {
+  fill: #0f131f;
+  stroke: #57657f;
+}
+
 :global(.label) {
   fill: #999;
   font-size: 12px;
@@ -183,6 +188,20 @@
   cursor: move;
   transition: opacity 120ms ease, stroke 120ms ease, stroke-width 120ms ease,
     filter 120ms ease;
+}
+
+:global(.workload-node rect.collapsed-model) {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  pointer-events: none;
+}
+
+:global(.workload-node rect.collapsed-stub) {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  pointer-events: none;
 }
 
 :global(.workload-node text) {
@@ -227,15 +246,31 @@
 }
 
 :global(.model-label) {
-  fill: #b4b3b3;
-  font-size: 14px;
-  font-weight: bold;
+  fill: #d8e3ef;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-:global(.model-meta-label) {
-  fill: #7e96b0;
-  font-size: 11px;
-  font-weight: 500;
+:global(.model-collapse-header) {
+  cursor: pointer;
+}
+
+:global(.model-collapse-header-box) {
+  fill: #141d2d;
+  stroke: #3d5470;
+  stroke-width: 1;
+}
+
+:global(.model-collapse-header:hover .model-collapse-header-box) {
+  fill: #1b2a3f;
+  stroke: #6f8fb2;
+}
+
+:global(.model-collapse-header-chevron) {
+  fill: #d6e5f7;
+  font-size: 12px;
+  text-anchor: middle;
+  pointer-events: none;
 }
 
 :global(.project-button) {

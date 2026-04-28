@@ -119,6 +119,9 @@ export class SvgView {
         rect.setAttribute("ry", "6");
         rect.setAttribute("width", String(canvasWidth - marginX * 2));
         rect.setAttribute("height", String(section.laneHeight + 1));
+        if (section.collapsed) {
+          rect.classList.add("collapsed-swimlane");
+        }
         this.layers.swim.appendChild(rect);
 
         const label = document.createElementNS(
@@ -128,37 +131,77 @@ export class SvgView {
         label.classList.add("label");
         label.setAttribute("x", String(marginX + 10));
         label.setAttribute("y", String(y + 20));
-        label.textContent = section.hasSequencedGroup
-          ? `Thread ${i + 1} · Step chain`
-          : `Thread ${i + 1}`;
-        this.layers.swim.appendChild(label);
+        if (!section.collapsed) {
+          label.textContent = section.hasSequencedGroup
+            ? `Thread ${i + 1} · Step chain`
+            : `Thread ${i + 1}`;
+          this.layers.swim.appendChild(label);
+        }
       }
     }
   }
 
   private renderSectionLabels(sections: Section[]): void {
-    Array.from(this.svg.querySelectorAll("text.model-label, text.model-meta-label")).forEach(
-      (n) => n.remove()
+    Array.from(this.svg.querySelectorAll("g.model-collapse-header")).forEach((n) =>
+      n.remove()
     );
     for (const s of sections) {
-      const text = document.createElementNS(
+      const header = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      header.classList.add("model-collapse-header");
+      header.setAttribute("transform", `translate(${marginX + 4},${s.labelY - 16})`);
+      header.setAttribute("role", "button");
+      header.setAttribute("tabindex", "0");
+      header.setAttribute(
+        "aria-label",
+        s.collapsed ? "Expand model section" : "Collapse model section"
+      );
+
+      const headerBox = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "rect"
+      );
+      const modelLabel = s.modelId;
+      const estimatedLabelWidth = Math.min(
+        900,
+        Math.max(220, 34 + modelLabel.length * 7)
+      );
+      headerBox.setAttribute("width", String(estimatedLabelWidth));
+      headerBox.setAttribute("height", "24");
+      headerBox.setAttribute("rx", "8");
+      headerBox.setAttribute("ry", "8");
+      headerBox.classList.add("model-collapse-header-box");
+
+      const chevron = document.createElementNS(
         "http://www.w3.org/2000/svg",
         "text"
       );
-      text.setAttribute("x", String(marginX + 10));
-      text.setAttribute("y", String(s.labelY));
-      text.classList.add("model-label");
-      text.textContent = s.modelId;
-      this.svg.appendChild(text);
+      chevron.setAttribute("x", "12");
+      chevron.setAttribute("y", "16");
+      chevron.classList.add("model-collapse-header-chevron");
+      chevron.textContent = s.collapsed ? "▶" : "▼";
 
-      const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      meta.setAttribute("x", String(marginX + 230));
-      meta.setAttribute("y", String(s.labelY));
-      meta.classList.add("model-meta-label");
-      const rootType = s.rootType ?? "Workload";
-      const sequenceLabel = s.hasSequencedGroup ? "Sequence: on" : "Sequence: off";
-      meta.textContent = `Root: ${rootType} | Threads: ${s.laneCount} | ${sequenceLabel}`;
-      this.svg.appendChild(meta);
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", "28");
+      label.setAttribute("y", "16");
+      label.classList.add("model-label");
+      label.textContent = modelLabel;
+
+      const fireToggle = () =>
+        window.dispatchEvent(
+          new CustomEvent("models-graph:toggle-model-collapsed", {
+            detail: { modelId: s.modelId },
+          })
+        );
+      header.addEventListener("click", fireToggle);
+      header.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          fireToggle();
+        }
+      });
+      header.append(headerBox, chevron, label);
+      this.svg.appendChild(header);
+
     }
   }
 
@@ -173,24 +216,40 @@ export class SvgView {
         "http://www.w3.org/2000/svg",
         "rect"
       );
-      rect.classList.add(n.kind === "group" ? "group" : "workload");
+      if (n.kind === "group") {
+        rect.classList.add("group");
+      } else if (n.kind === "collapsed-model") {
+        rect.classList.add("collapsed-model");
+      } else if (n.kind === "stub") {
+        rect.classList.add("collapsed-stub");
+      } else {
+        rect.classList.add("workload");
+      }
       rect.setAttribute("width", String(n.w));
       rect.setAttribute("height", String(n.h));
-
-      const text = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
-      text.setAttribute("x", "10");
-      text.setAttribute("y", "25");
+      g.setAttribute("data-node-kind", n.kind);
 
       // Append first so CSS for .workload-node text is applied before measuring
-      g.append(rect, text);
+      g.append(rect);
       this.layers.nodes.appendChild(g);
-
-      // Fit label to available width (account for left padding ~10 and a little right padding)
-      const maxTextWidth = Math.max(0, n.w - 20);
-      this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+      if (n.kind !== "stub" && n.kind !== "collapsed-model") {
+        const text = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text"
+        );
+        text.setAttribute("x", "10");
+        text.setAttribute("y", "25");
+        g.append(text);
+        // Fit label to available width (account for left padding ~10 and a little right padding)
+        const maxTextWidth = Math.max(0, n.w - 20);
+        this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+      }
+    }
+    g.setAttribute("data-node-kind", n.kind);
+    if (n.meta?.modelId) {
+      g.setAttribute("data-model-id", n.meta.modelId);
+    } else {
+      g.removeAttribute("data-model-id");
     }
     g.classList.remove("is-structural-group", "is-selected", "is-dimmed");
     if (
@@ -248,6 +307,16 @@ export class SvgView {
     relatedNodeIds: Set<string>,
     focusDimming: boolean
   ): void {
+    // Remove stale node elements that are no longer present in the current doc
+    Array.from(this.layers.nodes.querySelectorAll("g.workload-node")).forEach(
+      (el) => {
+        const id = (el as SVGGElement).id;
+        if (!doc.nodes.has(id)) {
+          el.remove();
+        }
+      }
+    );
+
     for (const n of doc.nodes.values()) {
       const g = this.ensureNode(n);
       g.setAttribute("transform", `translate(${n.x},${n.y})`);
@@ -436,6 +505,9 @@ export class SvgView {
       cy = H / 2;
 
     for (const s of sections) {
+      if (s.collapsed) {
+        continue;
+      }
       for (let lane = 0; lane < s.laneCount; lane++) {
         const laneY = s.yStart + lane * s.laneHeight;
 

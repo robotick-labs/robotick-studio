@@ -18,7 +18,8 @@ export interface RobotickWindowControls {
   readonly maximize: () => void;
   readonly restore: () => void;
   readonly close: () => void;
-  readonly createWindow?: (seedUrl?: string) => void;
+  readonly createWindow?: (seedUrl?: string, scope?: string) => void;
+  readonly getChildWindowScopes?: () => Promise<string[]>;
   readonly toggleMaximize: () => void;
   readonly showSystemMenu?: (x: number, y: number) => void;
   readonly onStateChange?: (

@@ -12,12 +12,19 @@ const startX = 120,
   spacing = 180,
   laneHeight = 200;
 const lanePadY = (laneHeight - nodeSize.height) / 2;
+const sectionHeaderX = 24;
+const sectionHeaderHeight = 24;
+const collapsedSectionHeight = 44;
 
 export interface LayoutSummary {
   sections: Section[];
   totalHeight: number;
   globalMaxNodes: number;
 }
+
+export type BuildGraphOptions = {
+  collapsedModelIds?: Iterable<string>;
+};
 
 /**
  * Create a namespaced node identifier for an item defined in a model file.
@@ -44,15 +51,28 @@ export function nodeIdFor(modelPath: string, id: string): string {
  */
 export function buildGraphDocFromModel(
   store: DocumentStore,
-  doc: GraphDoc
+  doc: GraphDoc,
+  options: BuildGraphOptions = {}
 ): LayoutSummary {
+  const collapsedModelIds = new Set(options.collapsedModelIds ?? []);
+
+  doc.nodes.clear();
   doc.sections = [];
   const edges: Edge[] = [];
+  const modelAliases = new Map<string, string>();
+  const collapsedNodeIds = new Map<string, string>();
+  const modelIds = store.getModelIds();
+  for (const modelId of modelIds) {
+    const base = modelBaseName(modelId);
+    modelAliases.set(modelId, modelId);
+    modelAliases.set(base, modelId);
+  }
+
   let yOffset = 40,
     globalMaxNodes = 0,
     sectionIndex = 0;
 
-  for (const modelId of store.getModelIds()) {
+  for (const modelId of modelIds) {
     const m = store.get(modelId)!;
     const root = m.workloads.find((w: Workload) => w.name === m.root)!;
     const lanes =
@@ -60,6 +80,45 @@ export function buildGraphDocFromModel(
     const hasSequencedGroup = m.workloads.some(
       (w: Workload) => w.type === "SequencedGroupWorkload"
     );
+    const isCollapsed = collapsedModelIds.has(modelId);
+
+    if (isCollapsed) {
+      const labelY = yOffset + 8;
+      const headerY = labelY - 16;
+      const headerWidth = estimateSectionHeaderWidth(modelId);
+      const collapsedNodeId = nodeIdFor(modelId, "__collapsed_model__");
+
+      const collapsedNode: Node = {
+        id: collapsedNodeId,
+        kind: "collapsed-model",
+        label: modelId,
+        x: sectionHeaderX,
+        y: headerY,
+        w: headerWidth,
+        h: sectionHeaderHeight,
+        lane: 0,
+        meta: { modelId, section: sectionIndex },
+      };
+      doc.upsertNode(collapsedNode);
+      collapsedNodeIds.set(modelId, collapsedNodeId);
+
+      doc.sections.push({
+        index: sectionIndex,
+        modelId,
+        yStart: yOffset,
+        laneCount: 0,
+        laneHeight: 0,
+        maxNodes: 0,
+        labelY,
+        rootType: root.type ?? "Workload",
+        hasSequencedGroup,
+        collapsed: true,
+      });
+
+      yOffset += collapsedSectionHeight;
+      sectionIndex++;
+      continue;
+    }
 
     let maxSlots = 0;
     for (let lane = 0; lane < lanes.length; lane++) {
@@ -117,33 +176,6 @@ export function buildGraphDocFromModel(
       }
     }
 
-    for (const c of m.connections ?? []) {
-      edges.push({
-        from: nodeIdFor(modelId, c.from.split(".")[0]),
-        to: nodeIdFor(modelId, c.to.split(".")[0]),
-      });
-    }
-    for (const r of m.remote_models ?? []) {
-      for (const c of r.connections ?? []) {
-        if (typeof c.from === "string" && typeof c.to_remote === "string") {
-          edges.push({
-            from: nodeIdFor(modelId, c.from.split(".")[0]),
-            to: `${r.name}:${c.to_remote.split(".")[0]}`,
-            isRemote: true,
-          });
-        } else if (
-          typeof c.from_remote === "string" &&
-          typeof c.to === "string"
-        ) {
-          edges.push({
-            from: `${r.name}:${c.from_remote.split(".")[0]}`,
-            to: nodeIdFor(modelId, c.to.split(".")[0]),
-            isRemote: true,
-          });
-        }
-      }
-    }
-
     doc.sections.push({
       index: sectionIndex,
       modelId,
@@ -154,6 +186,7 @@ export function buildGraphDocFromModel(
       labelY: yOffset - 10,
       rootType: root.type ?? "Workload",
       hasSequencedGroup,
+      collapsed: false,
     });
 
     globalMaxNodes = Math.max(globalMaxNodes, maxSlots);
@@ -161,6 +194,109 @@ export function buildGraphDocFromModel(
     sectionIndex++;
   }
 
+  for (const modelId of modelIds) {
+    const m = store.get(modelId)!;
+    const modelIsCollapsed = collapsedModelIds.has(modelId);
+
+    if (!modelIsCollapsed) {
+      for (const c of m.connections ?? []) {
+        const from = resolveNodeId(
+          modelAliases,
+          collapsedNodeIds,
+          modelId,
+          c.from.split(".")[0],
+          false
+        );
+        const to = resolveNodeId(
+          modelAliases,
+          collapsedNodeIds,
+          modelId,
+          c.to.split(".")[0],
+          false
+        );
+        if (from && to) {
+          edges.push({ from, to });
+        }
+      }
+    }
+
+    for (const r of m.remote_models ?? []) {
+      const targetModelId = modelAliases.get(r.name) ?? r.name;
+      for (const c of r.connections ?? []) {
+        if (typeof c.from === "string" && typeof c.to_remote === "string") {
+          const from = resolveNodeId(
+            modelAliases,
+            collapsedNodeIds,
+            modelId,
+            c.from.split(".")[0],
+            true
+          );
+          const to = resolveNodeId(
+            modelAliases,
+            collapsedNodeIds,
+            targetModelId,
+            c.to_remote.split(".")[0],
+            true
+          );
+          if (from && to) {
+            edges.push({ from, to, isRemote: true });
+          }
+        } else if (
+          typeof c.from_remote === "string" &&
+          typeof c.to === "string"
+        ) {
+          const from = resolveNodeId(
+            modelAliases,
+            collapsedNodeIds,
+            targetModelId,
+            c.from_remote.split(".")[0],
+            true
+          );
+          const to = resolveNodeId(
+            modelAliases,
+            collapsedNodeIds,
+            modelId,
+            c.to.split(".")[0],
+            true
+          );
+          if (from && to) {
+            edges.push({ from, to, isRemote: true });
+          }
+        }
+      }
+    }
+  }
+
   doc.setEdges(edges);
   return { sections: doc.sections, totalHeight: yOffset, globalMaxNodes };
+}
+
+function modelBaseName(modelId: string): string {
+  return (
+    modelId
+      .split("/")
+      .pop()
+      ?.replace(/\.model\.yaml$/, "") ?? modelId
+  );
+}
+
+function resolveNodeId(
+  modelAliases: Map<string, string>,
+  collapsedNodeIds: Map<string, string>,
+  modelRef: string,
+  workloadName: string,
+  allowCollapsedAnchor: boolean
+): string | null {
+  const canonicalModelId = modelAliases.get(modelRef) ?? modelRef;
+  if (allowCollapsedAnchor) {
+    const collapsedNodeId = collapsedNodeIds.get(canonicalModelId);
+    if (collapsedNodeId) {
+      return collapsedNodeId;
+    }
+  }
+  return nodeIdFor(canonicalModelId, workloadName);
+}
+
+function estimateSectionHeaderWidth(modelId: string): number {
+  return Math.min(900, Math.max(220, 34 + modelId.length * 7));
 }

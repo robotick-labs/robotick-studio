@@ -7,6 +7,21 @@ export class SelectionController {
     const g = (e.target as Element).closest("g.workload-node") as
       | SVGGElement
       | null;
+    const nodeKind = g?.getAttribute("data-node-kind");
+    if (nodeKind === "collapsed-model") {
+      const modelId = g?.getAttribute("data-model-id");
+      if (modelId) {
+        window.dispatchEvent(
+          new CustomEvent("models-graph:toggle-model-collapsed", {
+            detail: { modelId },
+          })
+        );
+      }
+      return;
+    }
+    if (nodeKind === "stub") {
+      return;
+    }
     const nodeId = g?.id ?? null;
     editorSelectionStore.setSelection(nodeId);
     window.dispatchEvent(

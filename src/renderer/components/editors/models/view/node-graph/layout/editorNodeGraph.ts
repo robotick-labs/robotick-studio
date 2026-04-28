@@ -2,7 +2,7 @@ import type { Workload } from "../../../document/modelData.js";
 
 export type NodeId = string;
 
-export type NodeKind = "workload" | "group" | "label";
+export type NodeKind = "workload" | "group" | "label" | "collapsed-model" | "stub";
 
 export interface Node {
   id: NodeId;
@@ -19,6 +19,7 @@ export interface Node {
     type?: string;
     children?: NodeId[];
     section?: number;
+    stubDirection?: "incoming" | "outgoing";
   };
 }
 
@@ -38,6 +39,7 @@ export interface Section {
   labelY: number;
   rootType?: string;
   hasSequencedGroup?: boolean;
+  collapsed?: boolean;
 }
 
 export class GraphDoc {

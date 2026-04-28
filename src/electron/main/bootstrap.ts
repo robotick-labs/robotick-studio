@@ -61,8 +61,12 @@ type BrowserWindowInstance = {
   maximize: () => void;
   unmaximize: () => void;
   isMaximized: () => boolean;
+  isMinimized?: () => boolean;
+  isDestroyed?: () => boolean;
   isFocused?: () => boolean;
   close: () => void;
+  destroy?: () => void;
+  restore?: () => void;
   focus?: () => void;
   show?: () => void;
   setAlwaysOnTop?: (flag: boolean, level?: string) => void;
@@ -177,6 +181,10 @@ let windowStateWriteTimer: NodeJS.Timeout | null = null;
 let windowStateWriteInFlight = false;
 let lastStudioCpuSample: StudioCpuSample | null = null;
 let lastLinuxProcessCpuSample: LinuxProcessCpuSample | null = null;
+const DEV_SERVER_PORT_CANDIDATES = [
+  5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183,
+];
+const DEV_SERVER_PROBE_TIMEOUT_MS = 800;
 
 const PUBLIC_ICON_RELATIVE = path.join(
   "public",
@@ -243,6 +251,36 @@ function readWindowStateStore(): WindowStateStore {
       [PRIMARY_WINDOW_SCOPE]: DEFAULT_WINDOW_STATE,
     },
   };
+}
+
+async function canReachDevServer(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEV_SERVER_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${url}/@vite/client`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveDevServerUrl(): Promise<string> {
+  const envUrl = process.env.ROBOTICK_STUDIO_DEV_URL?.trim();
+  if (envUrl && (await canReachDevServer(envUrl))) {
+    return envUrl;
+  }
+  for (const port of DEV_SERVER_PORT_CANDIDATES) {
+    const candidate = `http://localhost:${port}`;
+    if (await canReachDevServer(candidate)) {
+      return candidate;
+    }
+  }
+  return "http://localhost:5173";
 }
 
 async function persistWindowStateStore(state: WindowStateStore) {
@@ -919,6 +957,7 @@ export async function bootstrapElectron({
     WindowMetadata
   >();
   const openChildScopes = new Set<string>();
+  const windowByScope = new Map<string, BrowserWindowInstance>();
 
   const getWindowStateForScope = (scope: string): WindowState => {
     const scopedState = windowStateStore.windows[scope];
@@ -942,10 +981,15 @@ export async function bootstrapElectron({
     metadata: WindowMetadata
   ) => {
     windowMetadataByWindow.set(win, metadata);
+    windowByScope.set(metadata.scope, win);
     if (!metadata.isPrimary) {
       openChildScopes.add(metadata.scope);
     }
     win.on("closed", () => {
+      const mapped = windowByScope.get(metadata.scope);
+      if (mapped === win) {
+        windowByScope.delete(metadata.scope);
+      }
       if (!metadata.isPrimary) {
         openChildScopes.delete(metadata.scope);
       }
@@ -1123,7 +1167,7 @@ export async function bootstrapElectron({
   const windowController = (
     command: string,
     target: BrowserWindowInstance,
-    payload?: { x?: number; y?: number; seedUrl?: string }
+    payload?: { x?: number; y?: number; seedUrl?: string; scope?: string }
   ) => {
     switch (command) {
       case "minimize":
@@ -1146,7 +1190,16 @@ export async function bootstrapElectron({
         target.close();
         break;
       case "createWindow": {
-        const scope = allocateChildScope();
+        const scope = payload?.scope?.trim() || allocateChildScope();
+        const existing = windowByScope.get(scope);
+        if (existing && !(existing.isDestroyed?.() ?? false)) {
+          if (existing.isMinimized?.()) {
+            existing.restore?.();
+          }
+          existing.show?.();
+          existing.focus?.();
+          break;
+        }
         createWindow({
           scope,
           isPrimary: false,
@@ -1154,6 +1207,11 @@ export async function bootstrapElectron({
         });
         break;
       }
+      case "childScopes":
+        return {
+          isMaximized: target.isMaximized(),
+          childScopes: Array.from(openChildScopes),
+        };
       case "systemMenu":
         showSystemMenu(target, payload);
         break;
@@ -1199,7 +1257,7 @@ export async function bootstrapElectron({
       (
         event: IpcMainInvokeEvent,
         payload:
-          | { command: string; x?: number; y?: number; seedUrl?: string }
+          | { command: string; x?: number; y?: number; seedUrl?: string; scope?: string }
           | undefined
       ) => {
         const target = resolveBrowserWindowFromEvent(event);
@@ -1233,12 +1291,38 @@ export async function bootstrapElectron({
     };
   })();
 
+  const notifyRenderersAppQuitting = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.webContents.send("robotick-app-quitting");
+      } catch {
+        // ignore renderer notification failures during shutdown
+      }
+    }
+  };
+
+  const closeAllWindowsForQuit = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.destroy?.();
+      } catch {
+        try {
+          win.close();
+        } catch {
+          // ignore close failures during shutdown
+        }
+      }
+    }
+  };
+
   let gracefulQuitInFlight = false;
   const runGracefulQuit = async () => {
     if (gracefulQuitInFlight) {
       return;
     }
     gracefulQuitInFlight = true;
+    notifyRenderersAppQuitting();
+    closeAllWindowsForQuit();
     await cleanupLauncher();
     app.quit();
   };
@@ -1346,7 +1430,9 @@ export async function bootstrapElectron({
     if (typeof options?.seedUrl === "string" && options.seedUrl.length > 0) {
       win.loadURL(options.seedUrl);
     } else if (env.ELECTRON_DEV === "1") {
-      win.loadURL("http://localhost:5173");
+      void resolveDevServerUrl().then((url) => {
+        win.loadURL(url);
+      });
     } else {
       const indexPath = path.join(__dirname, "../../renderer/index.html");
       console.log("Launching app at:", indexPath);

@@ -348,6 +348,7 @@ export async function ensureLauncherReady() {
 export async function stopManagedLauncher() {
   const proc = managedProcess;
   if (!proc) {
+    killExistingLauncherProcesses();
     return;
   }
 
@@ -395,4 +396,8 @@ export async function stopManagedLauncher() {
   if (managedProcess === proc) {
     managedProcess = null;
   }
+
+  // Ensure no lingering launcher listener keeps the Electron process from
+  // exiting when graceful shutdown stalls in uvicorn background tasks.
+  killExistingLauncherProcesses();
 }
