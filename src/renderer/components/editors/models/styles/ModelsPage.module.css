@@ -247,8 +247,16 @@
 }
 
 .propCompositeBody {
-  margin-left: 16px;
+  margin-left: 0;
   margin-top: 6px;
+}
+
+.propCompositeBody .propLabel {
+  padding-left: 16px;
+}
+
+.propCompositeBody .propCompositeBody .propLabel {
+  padding-left: 28px;
 }
 
 .propLabel {
@@ -296,6 +304,12 @@
 .propRevertGhost {
   background: transparent;
   border: none;
+}
+
+.propRevertSpacer {
+  width: 22px;
+  height: 22px;
+  display: inline-block;
 }
 
 .propLoadingWrap {

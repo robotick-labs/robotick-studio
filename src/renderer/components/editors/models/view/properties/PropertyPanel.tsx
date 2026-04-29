@@ -459,7 +459,7 @@ function NestedStructFields({
   const objectValue = isPlainObject(value) ? value : ({} as Record<string, unknown>);
 
   return (
-    <div style={{ marginLeft: 12, marginTop: 6 }}>
+    <div style={{ marginTop: 6 }}>
       {struct.fields.map((field) => {
         const childPath = `${path}.${field.name}`;
         const hasOverride = Object.prototype.hasOwnProperty.call(objectValue, field.name);
@@ -470,7 +470,7 @@ function NestedStructFields({
           <div key={childPath} style={{ marginBottom: 6 }}>
             {childStruct ? (
               <CompositeFieldGroup
-                label={childPath}
+                label={field.name}
                 cppType={field.type}
                 fieldPath={childPath}
                 hasOverride={hasOverride}
@@ -489,7 +489,7 @@ function NestedStructFields({
             ) : (
               <FieldRow
                 fieldPath={childPath}
-                label={childPath}
+                label={field.name}
                 value={display}
                 cppType={field.type}
                 hasOverride={hasOverride}
@@ -597,7 +597,7 @@ function FieldRow({
           {hasOverride ? "↺" : ""}
         </button>
       ) : (
-        <span />
+        <span className={styles.propRevertSpacer} />
       )}
     </div>
   );

@@ -278,8 +278,8 @@ describe("PropertyPanel Phase 2A", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("position.x");
-    expect(container.textContent).toContain("position.y");
+    expect(container.textContent).toContain("x");
+    expect(container.textContent).toContain("y");
     expect(container.textContent).toContain("Wrong type for config.position.y");
     expect(container.textContent).toContain("Wrong type for outputs.points[1].x");
 
