@@ -183,9 +183,9 @@ export default function ModelsPage() {
         if (storedViewport) {
           setViewBox(graphElement, storedViewport);
         } else {
-          const fitWidthViewport = computeFitWidthViewport(graphElement);
-          if (fitWidthViewport) {
-            setViewBox(graphElement, fitWidthViewport);
+          const defaultViewport = computeDefaultViewport(graphElement);
+          if (defaultViewport) {
+            setViewBox(graphElement, defaultViewport);
           }
         }
         disposeViewportControls = attachViewportControls(
@@ -717,8 +717,8 @@ function writeModelsViewState(storageKey: string, state: ModelsViewState): void 
   setStorageValue(storageKey, JSON.stringify(payload));
 }
 
-function computeFitWidthViewport(svg: SVGSVGElement): GraphViewport | null {
-  const margin = 40;
+function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
+  const DEFAULT_VIEWBOX_WIDTH = 1500;
   const bounds = svg.getBBox();
   if (!(bounds.width > 0 && bounds.height > 0)) {
     return null;
@@ -729,10 +729,11 @@ function computeFitWidthViewport(svg: SVGSVGElement): GraphViewport | null {
     return null;
   }
 
-  const width = Math.ceil(bounds.width) + margin * 2;
+  const width = DEFAULT_VIEWBOX_WIDTH;
   const height = width * (rect.height / rect.width);
-  const x = Math.floor(bounds.x) - margin;
+  const contentCenterX = bounds.x + bounds.width / 2;
   const contentCenterY = bounds.y + bounds.height / 2;
+  const x = contentCenterX - width / 2;
   const y = contentCenterY - height / 2;
 
   return { x, y, width, height };

@@ -188,6 +188,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           loading={schemaState.loading}
           onRefresh={() => void loadSchema(true)}
         />
+        <ErrorViewer errors={schemaState.error ? [schemaState.error] : []} />
         <h3>
           <span>Model</span>{" "}
           <span style={{ fontWeight: "normal" }}>| {modelName}</span>
@@ -200,7 +201,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           path="$"
         />
 
-        <ErrorViewer errors={schemaState.error ? [schemaState.error] : []} />
       </div>
     );
   }
@@ -248,6 +248,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
         <span>Properties</span>{" "}
         <span style={{ fontWeight: "normal" }}>| {workloadType || "Unknown"}</span>
       </h3>
+      <ErrorViewer errors={allErrors} />
 
       <PropertySection
         title="Core"
@@ -316,8 +317,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           />
         </>
       )}
-
-      <ErrorViewer errors={allErrors} />
     </div>
   );
 };
