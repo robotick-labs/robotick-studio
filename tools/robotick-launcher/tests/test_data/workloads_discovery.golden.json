@@ -449,31 +449,31 @@
           "name": "max_motor_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "motor1_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "motor2_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "motor3_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "motor4_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         }
       ]
     },
@@ -485,25 +485,25 @@
           "name": "motor1_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor2_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor3_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor4_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -515,25 +515,25 @@
           "name": "motor1_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor2_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor3_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "motor4_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -549,13 +549,13 @@
           "name": "float_value_when_true",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "float_value_when_false",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -579,7 +579,7 @@
           "name": "float_value",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -693,7 +693,7 @@
           "name": "window_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0f"
+          "default_value": "5.0"
         },
         {
           "name": "viewport_width",
@@ -722,7 +722,7 @@
           "name": "cochlear_visual_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "draw_pitch_info",
@@ -746,13 +746,13 @@
           "name": "pitch_visual_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "pitch_min_amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2f"
+          "default_value": "0.2"
         },
         {
           "name": "render_mode",
@@ -763,7 +763,7 @@
           "name": "fusion_link_alpha_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "100.0f"
+          "default_value": "100.0"
         }
       ]
     },
@@ -1011,7 +1011,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "max_num_partials",
@@ -1057,7 +1057,7 @@
           "name": "rest_heart_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "60.0f"
+          "default_value": "60.0"
         },
         {
           "name": "render_mode",
@@ -1085,7 +1085,7 @@
           "name": "bar1_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.9f"
+          "default_value": "0.9"
         },
         {
           "name": "bar2_label",
@@ -1097,7 +1097,7 @@
           "name": "bar2_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "bar3_label",
@@ -1109,7 +1109,7 @@
           "name": "bar3_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.6f"
+          "default_value": "0.6"
         },
         {
           "name": "bar4_label",
@@ -1121,13 +1121,13 @@
           "name": "bar4_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2f"
+          "default_value": "0.2"
         },
         {
           "name": "heart_rate_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         }
       ]
     },
@@ -1139,7 +1139,7 @@
           "name": "activation_amount",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "display_png",
@@ -1446,13 +1446,13 @@
           "name": "tau_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.25f"
+          "default_value": "0.25"
         },
         {
           "name": "min_tau_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "1e-4f"
+          "default_value": "1e-4"
         }
       ]
     },
@@ -1464,7 +1464,7 @@
           "name": "value",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "reset",
@@ -1482,7 +1482,7 @@
           "name": "result",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -1494,7 +1494,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -1721,7 +1721,7 @@
           "name": "sim_tick_rate_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "-1.0f"
+          "default_value": "-1.0"
         },
         {
           "name": "mj_initial",
@@ -1766,7 +1766,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -1859,7 +1859,7 @@
           "name": "noise_floor_rms",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -1916,49 +1916,49 @@
           "name": "harmonic_floor_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "-60.0f"
+          "default_value": "-60.0"
         },
         {
           "name": "speaking_rate_decay",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.95f"
+          "default_value": "0.95"
         },
         {
           "name": "rms_smooth_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2f"
+          "default_value": "0.2"
         },
         {
           "name": "signal_rms_threshold",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.015f"
+          "default_value": "0.015"
         },
         {
           "name": "voiced_falloff_rate_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0f"
+          "default_value": "5.0"
         },
         {
           "name": "harmonic_confidence_min_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "-15.0f"
+          "default_value": "-15.0"
         },
         {
           "name": "harmonic_confidence_max_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "25.0f"
+          "default_value": "25.0"
         },
         {
           "name": "harmonic_confidence_gate",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.35f"
+          "default_value": "0.35"
         }
       ]
     },
@@ -1997,7 +1997,7 @@
           "name": "history_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "8.0f"
+          "default_value": "8.0"
         },
         {
           "name": "simplified_sample_count",
@@ -2009,25 +2009,25 @@
           "name": "minimum_segment_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1f"
+          "default_value": "0.1"
         },
         {
           "name": "silence_hangover_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2f"
+          "default_value": "0.2"
         },
         {
           "name": "segment_merge_tolerance_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.25f"
+          "default_value": "0.25"
         },
         {
           "name": "max_pitch_jump_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "80.0f"
+          "default_value": "80.0"
         }
       ]
     },
@@ -2182,7 +2182,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "use_rms_for_amplitude",
@@ -2206,7 +2206,7 @@
           "name": "tone_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "enable_partials",
@@ -2218,7 +2218,7 @@
           "name": "partials_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "max_num_partials",
@@ -2236,31 +2236,31 @@
           "name": "noise_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5f"
+          "default_value": "0.5"
         },
         {
           "name": "brightness_to_noise_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.8f"
+          "default_value": "0.8"
         },
         {
           "name": "brightness_to_partial_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0f"
+          "default_value": "5.0"
         },
         {
           "name": "harmonicity_to_noise_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.03f"
+          "default_value": "0.03"
         },
         {
           "name": "harmonicity_to_partial_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.03f"
+          "default_value": "0.03"
         },
         {
           "name": "use_brightness_for_noise_lpf",
@@ -2272,25 +2272,25 @@
           "name": "noise_cutoff_default_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "2000.0f"
+          "default_value": "2000.0"
         },
         {
           "name": "mix_smooth_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.8f"
+          "default_value": "0.8"
         },
         {
           "name": "min_component_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "max_component_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "2.0f"
+          "default_value": "2.0"
         }
       ]
     },
@@ -2408,19 +2408,19 @@
           "name": "roll",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "pitch",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "yaw",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -2516,7 +2516,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -2528,13 +2528,13 @@
           "name": "frequency_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "440.0f"
+          "default_value": "440.0"
         },
         {
           "name": "amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1f"
+          "default_value": "0.1"
         }
       ]
     },
@@ -2658,13 +2658,13 @@
           "name": "accumulator_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "accumulator_capacity_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "is_transcribe_thread_active",
@@ -2719,31 +2719,31 @@
           "name": "max_speed_differential",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.4f"
+          "default_value": "0.4"
         },
         {
           "name": "power_scale_both",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "power_scale_left",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "power_scale_right",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0f"
+          "default_value": "1.0"
         },
         {
           "name": "power_seek_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "-1.0f"
+          "default_value": "-1.0"
         }
       ]
     },
@@ -2755,13 +2755,13 @@
           "name": "speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "angular_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -2773,13 +2773,13 @@
           "name": "left_motor",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "right_motor",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -3046,7 +3046,7 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "looping",
@@ -3058,7 +3058,7 @@
           "name": "loop_delay_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },
@@ -3085,7 +3085,7 @@
           "name": "total_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "total_frame_count",
@@ -3160,25 +3160,25 @@
           "name": "a",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "b",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         },
         {
           "name": "weight_a",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5f"
+          "default_value": "0.5"
         },
         {
           "name": "weight_b",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5f"
+          "default_value": "0.5"
         }
       ]
     },
@@ -3190,7 +3190,7 @@
           "name": "result",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0f"
+          "default_value": "0.0"
         }
       ]
     },

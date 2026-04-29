@@ -7,8 +7,8 @@ import React, {
 } from "react";
 import {
   launcherService,
-  type WorkloadsRegistryEntry,
   type WorkloadsRegistryField,
+  type WorkloadsRegistryResponse,
   type WorkloadsRegistryStruct,
 } from "../../../../../data-sources/launcher";
 import { DocumentStore } from "../../document/documentStore";
@@ -26,12 +26,22 @@ type WorkloadSection = "config" | "inputs" | "outputs";
 type SchemaState = {
   loading: boolean;
   error: string | null;
-  byType: Map<string, WorkloadsRegistryEntry>;
+  byType: Map<string, ResolvedWorkloadSchema>;
+  validationErrors: string[];
+  coreSchema: Record<string, unknown> | null;
 };
 
 type CachedSchema = {
-  byType: Map<string, WorkloadsRegistryEntry>;
+  byType: Map<string, ResolvedWorkloadSchema>;
+  validationErrors: string[];
+  coreSchema: Record<string, unknown> | null;
   loadedAtMs: number;
+};
+
+type ResolvedWorkloadSchema = {
+  type: string;
+  roots: Partial<Record<WorkloadSection, string>>;
+  structs: Record<string, WorkloadsRegistryStruct>;
 };
 
 const SCHEMA_CACHE = new Map<string, CachedSchema>();
@@ -47,6 +57,8 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
     loading: false,
     error: null,
     byType: new Map(),
+    validationErrors: [],
+    coreSchema: null,
   });
 
   const loadSchema = useCallback(
@@ -58,6 +70,8 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           loading: false,
           error: null,
           byType: cached.byType,
+          validationErrors: cached.validationErrors,
+          coreSchema: cached.coreSchema,
         });
         return;
       }
@@ -68,17 +82,24 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           projectPath,
           "linux"
         );
-        const byType = new Map<string, WorkloadsRegistryEntry>();
-        for (const entry of response.registry ?? []) {
-          if (entry.type?.trim()) {
-            byType.set(entry.type, entry);
-          }
-        }
-        SCHEMA_CACHE.set(cacheKey, { byType, loadedAtMs: Date.now() });
+        const { byType, validationErrors } =
+          buildSchemasFromRegistryResponse(response);
+        const coreSchema = await launcherService.fetchProjectCoreModelSchema(
+          projectPath,
+          "linux"
+        );
+        SCHEMA_CACHE.set(cacheKey, {
+          byType,
+          validationErrors,
+          coreSchema,
+          loadedAtMs: Date.now(),
+        });
         setSchemaState({
           loading: false,
           error: null,
           byType,
+          validationErrors,
+          coreSchema,
         });
       } catch (error) {
         setSchemaState((prev) => ({
@@ -88,6 +109,8 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
             error instanceof Error
               ? error.message
               : "Failed to load workload schema metadata",
+          validationErrors: prev.validationErrors,
+          coreSchema: prev.coreSchema,
         }));
       }
     },
@@ -161,6 +184,11 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
         : modelId.split("/").pop()?.replace(/\.model\.yaml$/, "") ?? modelId;
     const telemetry = model.telemetry ?? {};
     const remoteModels = model.remote_models ?? [];
+    const coreFields = buildModelCoreFieldsFromSchema(
+      model as Record<string, unknown>,
+      schemaState.coreSchema,
+      modelId
+    );
     return (
       <div>
         <PanelHeader
@@ -174,16 +202,12 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
         <PropertySection
           title="Core"
-          fields={[
-            { name: "name", type: "std::string", value: model.name },
-            { name: "file", type: "path", value: modelId },
-            { name: "root", type: "std::string", value: model.root },
-          ]}
+          fields={coreFields}
         />
 
         <PropertySection
           title="Telemetry"
-          fields={buildTelemetryFields(telemetry)}
+          fields={buildObjectFields(telemetry)}
         />
 
         <PropertySection
@@ -228,16 +252,36 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   const { modelId, workload } = selectedWorkload!;
   const workloadType = workload.type?.trim() ?? "";
-  const schemaEntry = workloadType ? schemaState.byType.get(workloadType) : undefined;
-  const schemaStructs = schemaEntry?.metadata?.structs ?? {};
+  const schemaEntry = workloadType
+    ? schemaState.byType.get(workloadType)
+    : undefined;
+  const awaitingSchema = schemaState.loading && !schemaEntry;
+  const schemaStructs = schemaEntry?.structs ?? {};
+  const configFields = resolveSectionSchemaFields(schemaEntry, "config");
+  const inputsFields = resolveSectionSchemaFields(schemaEntry, "inputs");
+  const outputsFields = resolveSectionSchemaFields(schemaEntry, "outputs");
 
-  const validationErrors = buildValidationErrors(workload, schemaStructs);
+  const validationErrors = awaitingSchema
+    ? []
+    : buildValidationErrors(
+        workload,
+        schemaStructs,
+        configFields,
+        inputsFields,
+        outputsFields
+      );
   const fetchErrors = schemaState.error ? [schemaState.error] : [];
+  const launcherValidationErrors = schemaState.validationErrors;
   const missingSchemaError =
     workloadType && !schemaEntry && !schemaState.loading
       ? [`No workload schema metadata found for type '${workloadType}'.`]
       : [];
-  const allErrors = [...fetchErrors, ...missingSchemaError, ...validationErrors];
+  const allErrors = [
+    ...fetchErrors,
+    ...launcherValidationErrors,
+    ...missingSchemaError,
+    ...validationErrors,
+  ];
 
   return (
     <div>
@@ -258,33 +302,62 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
         ]}
       />
 
-      <SchemaSection
-        title="Config"
-        schemaFields={getStructByName(schemaStructs, "config")?.fields ?? []}
-        structs={schemaStructs}
-        values={workload.config ?? {}}
-        onRevert={(fieldPath) =>
-          store.clearWorkloadFieldOverride(modelId, workload.name, "config", fieldPath)
-        }
-      />
-      <SchemaSection
-        title="Inputs"
-        schemaFields={getStructByName(schemaStructs, "inputs")?.fields ?? []}
-        structs={schemaStructs}
-        values={workload.inputs ?? {}}
-        onRevert={(fieldPath) =>
-          store.clearWorkloadFieldOverride(modelId, workload.name, "inputs", fieldPath)
-        }
-      />
-      <SchemaSection
-        title="Outputs"
-        schemaFields={getStructByName(schemaStructs, "outputs")?.fields ?? []}
-        structs={schemaStructs}
-        values={workload.outputs ?? {}}
-        onRevert={(fieldPath) =>
-          store.clearWorkloadFieldOverride(modelId, workload.name, "outputs", fieldPath)
-        }
-      />
+      {awaitingSchema ? (
+        <div className={styles.propSection}>
+          <div className={styles.propLoadingWrap} aria-label="Loading schema metadata">
+            <div className={styles.propLoadingDots} aria-hidden="true">
+              <span>.</span>
+              <span>.</span>
+              <span>.</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <SchemaSection
+            title="Config"
+            schemaFields={configFields}
+            structs={schemaStructs}
+            values={workload.config ?? {}}
+            onRevert={(fieldPath) =>
+              store.clearWorkloadFieldOverride(
+                modelId,
+                workload.name,
+                "config",
+                fieldPath
+              )
+            }
+          />
+          <SchemaSection
+            title="Inputs"
+            schemaFields={inputsFields}
+            structs={schemaStructs}
+            values={workload.inputs ?? {}}
+            onRevert={(fieldPath) =>
+              store.clearWorkloadFieldOverride(
+                modelId,
+                workload.name,
+                "inputs",
+                fieldPath
+              )
+            }
+          />
+          <SchemaSection
+            title="Outputs"
+            schemaFields={outputsFields}
+            structs={schemaStructs}
+            values={workload.outputs ?? {}}
+            onRevert={(fieldPath) =>
+              store.clearWorkloadFieldOverride(
+                modelId,
+                workload.name,
+                "outputs",
+                fieldPath
+              )
+            }
+          />
+        </>
+      )}
 
       <ErrorViewer errors={allErrors} />
     </div>
@@ -307,7 +380,15 @@ function PanelHeader({
         className={styles.propButton}
         aria-label="Refresh metadata"
       >
-        {loading ? "Refreshing..." : "Refresh metadata"}
+        {loading ? (
+          <span className={styles.propButtonLoadingDots} aria-hidden="true">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+          </span>
+        ) : (
+          "Refresh metadata"
+        )}
       </button>
     </div>
   );
@@ -345,15 +426,25 @@ function SchemaSection({
         const nestedStruct = resolveStructType(structs, field.type);
         return (
           <div key={`${title}:${field.name}`} style={{ marginBottom: 8 }}>
-            <FieldRow
-              fieldPath={field.name}
-              label={field.name}
-              value={display}
-              cppType={field.type}
-              hasOverride={hasOverride}
-              showRevert={true}
-              onRevert={() => onRevert(field.name)}
-            />
+            {nestedStruct ? (
+              <CompositeFieldLabel
+                label={field.name}
+                cppType={field.type}
+                fieldPath={field.name}
+                hasOverride={hasOverride}
+                onRevert={() => onRevert(field.name)}
+              />
+            ) : (
+              <FieldRow
+                fieldPath={field.name}
+                label={field.name}
+                value={display}
+                cppType={field.type}
+                hasOverride={hasOverride}
+                showRevert={true}
+                onRevert={() => onRevert(field.name)}
+              />
+            )}
             {nestedStruct ? (
               <NestedStructFields
                 path={field.name}
@@ -397,15 +488,25 @@ function NestedStructFields({
         const childStruct = resolveStructType(structs, field.type);
         return (
           <div key={childPath} style={{ marginBottom: 6 }}>
-            <FieldRow
-              fieldPath={childPath}
-              label={childPath}
-              value={display}
-              cppType={field.type}
-              hasOverride={hasOverride}
-              showRevert={true}
-              onRevert={() => onRevert(childPath)}
-            />
+            {childStruct ? (
+              <CompositeFieldLabel
+                label={childPath}
+                cppType={field.type}
+                fieldPath={childPath}
+                hasOverride={hasOverride}
+                onRevert={() => onRevert(childPath)}
+              />
+            ) : (
+              <FieldRow
+                fieldPath={childPath}
+                label={childPath}
+                value={display}
+                cppType={field.type}
+                hasOverride={hasOverride}
+                showRevert={true}
+                onRevert={() => onRevert(childPath)}
+              />
+            )}
             {childStruct ? (
               <NestedStructFields
                 path={childPath}
@@ -418,6 +519,41 @@ function NestedStructFields({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function CompositeFieldLabel({
+  label,
+  cppType,
+  fieldPath,
+  hasOverride,
+  onRevert,
+}: {
+  label: string;
+  cppType: string;
+  fieldPath: string;
+  hasOverride: boolean;
+  onRevert: () => void;
+}) {
+  return (
+    <div className={styles.propRow}>
+      <div className={styles.propLabel} title={fieldPath}>
+        {label}
+      </div>
+      <div style={{ opacity: 0.75, fontSize: "0.8em" }} title={cppType}>
+        {cppType}
+      </div>
+      <button
+        type="button"
+        className={styles.propRevert}
+        onClick={onRevert}
+        disabled={!hasOverride}
+        aria-label={`Revert ${fieldPath}`}
+        title={`Revert ${fieldPath}`}
+      >
+        ↺
+      </button>
     </div>
   );
 }
@@ -496,30 +632,58 @@ function PropertySection({
   );
 }
 
-function buildTelemetryFields(
-  telemetry: Record<string, unknown>
+function buildObjectFields(
+  objectValue: Record<string, unknown>
 ): Array<{ name: string; type: string; value: unknown }> {
-  const knownFields = [
-    {
-      name: "port",
-      type: "number",
-      value: telemetry.port,
-    },
-    {
-      name: "preferred_sample_rate_hz",
-      type: "number",
-      value: telemetry.preferred_sample_rate_hz,
-    },
-  ];
-  const known = new Set(knownFields.map((field) => field.name));
-  const extras = Object.entries(telemetry)
-    .filter(([name]) => !known.has(name))
+  return Object.entries(objectValue)
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, value]) => ({
       name,
-      type: "unknown",
+      type: inferDisplayType(value),
       value,
     }));
-  return [...knownFields, ...extras];
+}
+
+function buildModelCoreFieldsFromSchema(
+  model: Record<string, unknown>,
+  coreSchema: Record<string, unknown> | null,
+  modelId: string
+): Array<{ name: string; type: string; value: unknown }> {
+  const fromSchema: Array<{ name: string; type: string; value: unknown }> = [];
+  const schemaProperties =
+    coreSchema && isPlainObject(coreSchema.properties)
+      ? (coreSchema.properties as Record<string, unknown>)
+      : null;
+  if (schemaProperties) {
+    for (const [name, schemaNode] of Object.entries(schemaProperties)) {
+      if (!Object.prototype.hasOwnProperty.call(model, name)) continue;
+      fromSchema.push({
+        name,
+        type: inferSchemaType(schemaNode),
+        value: model[name],
+      });
+    }
+  }
+  fromSchema.push({
+    name: "file",
+    type: "path",
+    value: modelId,
+  });
+  return fromSchema;
+}
+
+function inferSchemaType(schemaNode: unknown): string {
+  if (!isPlainObject(schemaNode)) return "unknown";
+  const t = schemaNode.type;
+  if (typeof t === "string") return t;
+  if (Array.isArray(t)) return t.join("|");
+  return "unknown";
+}
+
+function inferDisplayType(value: unknown): string {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
 }
 
 function ErrorViewer({ errors }: { errors: string[] }) {
@@ -571,14 +735,17 @@ function buildValidationErrors(
     inputs?: Record<string, unknown>;
     outputs?: Record<string, unknown>;
   },
-  schemaStructs: Record<string, WorkloadsRegistryStruct>
+  schemaStructs: Record<string, WorkloadsRegistryStruct>,
+  configFields: WorkloadsRegistryField[],
+  inputsFields: WorkloadsRegistryField[],
+  outputsFields: WorkloadsRegistryField[]
 ): string[] {
   const errors: string[] = [];
   errors.push(
     ...validateSection(
       "config",
       workload.config ?? {},
-      getStructByName(schemaStructs, "config")?.fields ?? [],
+      configFields,
       schemaStructs
     )
   );
@@ -586,7 +753,7 @@ function buildValidationErrors(
     ...validateSection(
       "inputs",
       workload.inputs ?? {},
-      getStructByName(schemaStructs, "inputs")?.fields ?? [],
+      inputsFields,
       schemaStructs
     )
   );
@@ -594,7 +761,7 @@ function buildValidationErrors(
     ...validateSection(
       "outputs",
       workload.outputs ?? {},
-      getStructByName(schemaStructs, "outputs")?.fields ?? [],
+      outputsFields,
       schemaStructs
     )
   );
@@ -707,6 +874,101 @@ function getStructByName(
   name: string
 ): WorkloadsRegistryStruct | undefined {
   return structs[name] ?? structs[name.toLowerCase()] ?? structs[name.toUpperCase()];
+}
+
+function resolveSectionSchemaFields(
+  schemaEntry: ResolvedWorkloadSchema | undefined,
+  section: WorkloadSection
+): WorkloadsRegistryField[] {
+  if (!schemaEntry) return [];
+  const rootType = schemaEntry.roots[section];
+  if (!rootType) return [];
+  const struct = resolveStructType(schemaEntry.structs, rootType);
+  return struct?.fields ?? [];
+}
+
+function buildSchemasFromRegistryResponse(
+  response: WorkloadsRegistryResponse
+): {
+  byType: Map<string, ResolvedWorkloadSchema>;
+  validationErrors: string[];
+} {
+  const byType = new Map<string, ResolvedWorkloadSchema>();
+  const globalStructs: Record<string, WorkloadsRegistryStruct> = {};
+
+  for (const typeEntry of response.types ?? []) {
+    if (!typeEntry?.name?.trim() || !Array.isArray(typeEntry.fields)) {
+      continue;
+    }
+    globalStructs[typeEntry.name] = {
+      name: typeEntry.name,
+      fields: typeEntry.fields.map((field) => ({
+        name: field.name,
+        type: field.type,
+        default: field.default_value,
+        element_count: field.element_count,
+      })),
+    };
+  }
+
+  const sharedStructs = response.shared_types?.structs ?? {};
+  for (const [typeName, struct] of Object.entries(sharedStructs)) {
+    if (!typeName?.trim()) continue;
+    globalStructs[typeName] = {
+      name: struct.type_name ?? typeName,
+      fields: (struct.fields ?? []).map((field) => ({
+        name: field.field_name,
+        type: field.field_type_name,
+        default: field.default_value,
+      })),
+    };
+  }
+
+  for (const workloadEntry of response.workloads ?? []) {
+    if (!workloadEntry?.type?.trim()) continue;
+    byType.set(workloadEntry.type, {
+      type: workloadEntry.type,
+      roots: {
+        config: workloadEntry.config?.type,
+        inputs: workloadEntry.inputs?.type,
+        outputs: workloadEntry.outputs?.type,
+      },
+      structs: globalStructs,
+    });
+  }
+
+  for (const legacy of response.registry ?? []) {
+    if (!legacy.type?.trim()) continue;
+    const legacyStructs = legacy.metadata?.structs ?? {};
+    const mergedStructs: Record<string, WorkloadsRegistryStruct> = {
+      ...globalStructs,
+      ...legacyStructs,
+    };
+    const prior = byType.get(legacy.type);
+    byType.set(legacy.type, {
+      type: legacy.type,
+      roots: {
+        config:
+          prior?.roots.config ??
+          legacyStructs.config?.name ??
+          "config",
+        inputs:
+          prior?.roots.inputs ??
+          legacyStructs.inputs?.name ??
+          "inputs",
+        outputs:
+          prior?.roots.outputs ??
+          legacyStructs.outputs?.name ??
+          "outputs",
+      },
+      structs: mergedStructs,
+    });
+  }
+
+  return {
+    byType,
+    validationErrors: response.validation_errors ?? [],
+  };
 }
 
 function resolveStructType(

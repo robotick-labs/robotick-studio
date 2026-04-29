@@ -84,6 +84,12 @@ export function createMockLauncherService(
         registry: [],
       } as WorkloadsRegistryResponse;
     },
+    async fetchProjectCoreModelSchema() {
+      return {
+        title: "Robotick Core Model Envelope",
+        type: "object",
+      };
+    },
     async getProjectModels() {
       return [] as ProjectModelDescriptor[];
     },

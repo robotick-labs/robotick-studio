@@ -8,10 +8,12 @@ if (typeof globalThis !== "undefined") {
 }
 
 const fetchProjectWorkloadsRegistryMock = vi.hoisted(() => vi.fn());
+const fetchProjectCoreModelSchemaMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../../renderer/data-sources/launcher", () => ({
   launcherService: {
     fetchProjectWorkloadsRegistry: fetchProjectWorkloadsRegistryMock,
+    fetchProjectCoreModelSchema: fetchProjectCoreModelSchemaMock,
   },
 }));
 
@@ -22,6 +24,17 @@ import { editorSelectionStore } from "../../../../../renderer/components/editors
 describe("PropertyPanel Phase 2A", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fetchProjectCoreModelSchemaMock.mockResolvedValue({
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        root: { type: ["string", "object"] },
+        telemetry: { type: "object" },
+        connections: { type: "array" },
+        remote_models: { type: "array" },
+        workloads: { type: "array" },
+      },
+    });
     editorSelectionStore.setSelection(null, "test-scope");
   });
 

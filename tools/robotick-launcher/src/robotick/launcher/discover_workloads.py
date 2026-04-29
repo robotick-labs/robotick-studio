@@ -234,8 +234,11 @@ def _extract_simple_initializer(init_text: str) -> Optional[str]:
         return None
     if _SIMPLE_BOOL.match(init):
         return init.lower()
-    if _SIMPLE_INT.match(init) or _SIMPLE_FLOAT.match(init):
+    if _SIMPLE_INT.match(init):
         return init
+    if _SIMPLE_FLOAT.match(init):
+        # Normalize C/C++ float literal suffixes in schema output.
+        return re.sub(r"[fF]$", "", init)
     if _SIMPLE_STRING.match(init):
         return init[1:-1]
     return None

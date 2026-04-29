@@ -107,6 +107,7 @@ export type WorkloadsRegistryField = {
   name: string;
   type: string;
   default?: string;
+  element_count?: number;
 };
 
 export type WorkloadsRegistryStruct = {
@@ -125,7 +126,33 @@ export type WorkloadsRegistryEntry = {
 export type WorkloadsRegistryResponse = {
   project: string;
   target: string;
-  registry: WorkloadsRegistryEntry[];
+  workloads?: Array<{
+    type: string;
+    config?: { type: string };
+    inputs?: { type: string };
+    outputs?: { type: string };
+    state?: { type: string };
+    schema_error?: string;
+  }>;
+  types?: Array<{
+    name: string;
+    type_category: string | number;
+    fields?: Array<{
+      name: string;
+      type: string;
+      element_count?: number;
+      default_value?: string;
+    }>;
+    primitive_kind?: string;
+    mime_type?: string;
+    format?: string;
+    capacity?: string;
+  }>;
+  writable_inputs?: Array<Record<string, unknown>>;
+  validation_errors?: string[];
+
+  // Legacy shape kept optional for compatibility during migration.
+  registry?: WorkloadsRegistryEntry[];
   shared_types?: {
     primitives?: Record<
       string,
@@ -578,6 +605,18 @@ export async function fetchProjectWorkloadsRegistry(
   return await fetchJSON<WorkloadsRegistryResponse>(url);
 }
 
+export async function fetchProjectCoreModelSchema(
+  projectPath: string,
+  target = "linux"
+): Promise<Record<string, unknown>> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-core-model-schema", {
+    project_path: normalizedProjectPath,
+    target,
+  });
+  return await fetchJSON<Record<string, unknown>>(url);
+}
+
 async function buildModelDescriptors(
   projectPath: string
 ): Promise<ProjectModelDescriptor[]> {
@@ -721,6 +760,7 @@ const currentProject: LauncherService = {
   fetchProjectRemoteControlSettings,
   fetchProjectModelPaths,
   fetchProjectWorkloadsRegistry,
+  fetchProjectCoreModelSchema,
   getProjectModels,
   refreshProjectModels,
   clearProjectModelCache: invalidateModelCache,

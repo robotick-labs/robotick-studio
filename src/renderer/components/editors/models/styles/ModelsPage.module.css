@@ -128,10 +128,14 @@
 }
 
 .propButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: rgba(12, 147, 225, 0.2);
   color: rgba(255, 255, 255, 0.92);
   border-radius: 8px;
+  min-width: 116px;
   min-height: 30px;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
@@ -152,6 +156,27 @@
   cursor: default;
 }
 
+.propButtonLoadingDots {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.propButtonLoadingDots span {
+  opacity: 0.2;
+  animation: prop-dot-fade 1s ease-in-out infinite;
+}
+
+.propButtonLoadingDots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.propButtonLoadingDots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 .propRow {
   display: grid;
   grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.5fr) auto;
@@ -168,7 +193,7 @@
 }
 
 .propValueOverride {
-  font-weight: 700;
+  font-weight: 9000;
 }
 
 .propRevert {
@@ -194,6 +219,45 @@
 .propRevert:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.propLoadingWrap {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+}
+
+.propLoadingDots {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 32px;
+  line-height: 1;
+  color: rgba(192, 215, 255, 0.7);
+}
+
+.propLoadingDots span {
+  opacity: 0.2;
+  animation: prop-dot-fade 1s ease-in-out infinite;
+}
+
+.propLoadingDots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.propLoadingDots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes prop-dot-fade {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
 }
 
 :global(.connection) {

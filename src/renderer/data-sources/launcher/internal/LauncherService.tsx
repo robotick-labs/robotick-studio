@@ -36,6 +36,10 @@ export interface LauncherService {
     projectPath: string,
     target?: string
   ): Promise<WorkloadsRegistryResponse>;
+  fetchProjectCoreModelSchema(
+    projectPath: string,
+    target?: string
+  ): Promise<Record<string, unknown>>;
 
   getProjectModels(
     projectPath?: string
