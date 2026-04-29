@@ -458,6 +458,18 @@ def get_workloads_registry(
                         "Missing default_value in schema metadata for primitive field "
                         f"'{type_name}.{field_name}' ({field_type}, kind={primitive_kind})."
                     )
+            primitive_meta = shared_primitives.get(field_type, {})
+            if isinstance(primitive_meta, dict):
+                primitive_kind = primitive_meta.get("primitive_kind")
+                if isinstance(primitive_kind, str):
+                    field_entry["primitive_kind"] = primitive_kind
+                enum_values = primitive_meta.get("enum_values")
+                if (
+                    isinstance(enum_values, list)
+                    and all(isinstance(v, str) for v in enum_values)
+                    and len(enum_values) > 0
+                ):
+                    field_entry["enum_values"] = enum_values
             fields.append(field_entry)
         types_map[type_name] = {
             "name": type_name,

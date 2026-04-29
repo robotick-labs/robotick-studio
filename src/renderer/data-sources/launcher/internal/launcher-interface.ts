@@ -108,6 +108,8 @@ export type WorkloadsRegistryField = {
   type: string;
   default?: string;
   element_count?: number;
+  primitive_kind?: string;
+  enum_values?: string[];
 };
 
 export type WorkloadsRegistryStruct = {
@@ -142,11 +144,14 @@ export type WorkloadsRegistryResponse = {
       type: string;
       element_count?: number;
       default_value?: string;
+      primitive_kind?: string;
+      enum_values?: string[];
     }>;
     primitive_kind?: string;
     mime_type?: string;
     format?: string;
     capacity?: string;
+    enum_values?: string[];
   }>;
   writable_inputs?: Array<Record<string, unknown>>;
   validation_errors?: string[];

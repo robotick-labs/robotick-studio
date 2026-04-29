@@ -279,6 +279,7 @@ _SIMPLE_FLOAT = re.compile(
     r"^[+-]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][+-]?\d+)?(?:[fF]?)$"
 )
 _SIMPLE_STRING = re.compile(r'^("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\')$')
+_SIMPLE_ENUM_TOKEN = re.compile(r"^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+$")
 
 
 def _extract_simple_initializer(init_text: str) -> Optional[str]:
@@ -294,6 +295,8 @@ def _extract_simple_initializer(init_text: str) -> Optional[str]:
         return re.sub(r"[fF]$", "", init)
     if _SIMPLE_STRING.match(init):
         return init[1:-1]
+    if _SIMPLE_ENUM_TOKEN.match(init):
+        return init
     return None
 
 
@@ -442,7 +445,7 @@ def _build_registration_index(config) -> Dict[str, object]:
                 files.append(p)
 
     structs: Dict[str, Dict[str, object]] = {}
-    known_leaf_types: Dict[str, Dict[str, str]] = {}
+    known_leaf_types: Dict[str, Dict[str, object]] = {}
     declaration_defaults: Dict[str, Dict[str, str]] = {}
 
     for path in files:
@@ -472,7 +475,9 @@ def _build_registration_index(config) -> Dict[str, object]:
             }
             unresolved_defaults -= resolved_here
 
-    _merge_declaration_defaults_into_registered_structs(structs, declaration_defaults)
+    _merge_declaration_defaults_into_registered_structs(
+        structs, declaration_defaults, known_leaf_types
+    )
 
     return {
         "structs": structs,
@@ -590,6 +595,7 @@ def _index_target_struct_declaration_defaults(
 def _merge_declaration_defaults_into_registered_structs(
     structs: Dict[str, Dict[str, object]],
     declaration_defaults: Dict[str, Dict[str, str]],
+    known_leaf_types: Dict[str, Dict[str, object]],
 ) -> None:
     for struct_name, sdef in structs.items():
         defaults_by_field = declaration_defaults.get(struct_name, {})
@@ -608,16 +614,74 @@ def _merge_declaration_defaults_into_registered_structs(
                 continue
             default_value = defaults_by_field.get(field_name)
             if default_value is not None:
-                field["default_value"] = default_value
+                field_type = _canonical_type_name(str(field.get("type", "")))
+                field["default_value"] = _normalize_default_value_for_field_type(
+                    field_type, default_value, known_leaf_types
+                )
+
+
+def _normalize_default_value_for_field_type(
+    field_type: str,
+    default_value: str,
+    known_leaf_types: Dict[str, Dict[str, object]],
+) -> str:
+    leaf_meta = known_leaf_types.get(field_type)
+    if not isinstance(leaf_meta, dict):
+        return default_value
+    if leaf_meta.get("primitive_kind") != "enum":
+        return default_value
+    symbol_to_label = leaf_meta.get("enum_symbol_to_label") or {}
+    if isinstance(symbol_to_label, dict) and default_value in symbol_to_label:
+        mapped = symbol_to_label.get(default_value)
+        if isinstance(mapped, str) and mapped:
+            return mapped
+    if "::" in default_value:
+        fallback = default_value.split("::")[-1].strip()
+        if fallback:
+            return fallback
+    return default_value
 
 
 def _index_known_leaf_type_registrations(
-    text: str, out_leaf_types: Dict[str, Dict[str, str]]
+    text: str, out_leaf_types: Dict[str, Dict[str, object]]
 ) -> None:
     for m in re.finditer(r"ROBOTICK_REGISTER_ENUM_BEGIN\s*\(\s*(?P<name>[^)]+)\)", text):
         key = _canonical_type_name(m.group("name").strip())
         if key and not _is_macro_placeholder_name(key):
-            out_leaf_types[key] = {"category": "enum"}
+            out_leaf_types[key] = {"category": "enum", "primitive_kind": "enum"}
+
+    enum_block_pat = re.compile(
+        r"ROBOTICK_REGISTER_ENUM_BEGIN\s*\(\s*(?P<name>[^)]+)\s*\)(?P<body>.*?)ROBOTICK_REGISTER_ENUM_END\s*\(\s*(?P=name)\s*\)",
+        re.S,
+    )
+    enum_value_pat = re.compile(
+        r'ROBOTICK_ENUM_VALUE\s*\(\s*"(?P<label>[^"]+)"\s*,\s*(?P<symbol>[^)]+)\)'
+    )
+    for block in enum_block_pat.finditer(text):
+        key = _canonical_type_name(block.group("name").strip())
+        if not key or _is_macro_placeholder_name(key):
+            continue
+        labels: List[str] = []
+        symbol_to_label: Dict[str, str] = {}
+        for ev in enum_value_pat.finditer(block.group("body")):
+            label = ev.group("label").strip()
+            symbol = " ".join(ev.group("symbol").strip().split())
+            if label:
+                labels.append(label)
+            if symbol and label:
+                symbol_to_label[symbol] = label
+                symbol_to_label[_canonical_type_name(symbol)] = label
+                if "::" in symbol:
+                    symbol_to_label[symbol.split("::")[-1].strip()] = label
+        existing = out_leaf_types.get(key, {})
+        merged = dict(existing)
+        merged["category"] = "enum"
+        merged["primitive_kind"] = "enum"
+        if labels:
+            merged["enum_values"] = labels
+        if symbol_to_label:
+            merged["enum_symbol_to_label"] = symbol_to_label
+        out_leaf_types[key] = merged
 
     for m in re.finditer(
         r"ROBOTICK_REGISTER_DYNAMIC_STRUCT(?:_[24])?\s*\(\s*(?P<name>[^,\)]+)", text
@@ -746,11 +810,11 @@ def _infer_primitive_kind(type_name: str) -> str:
 
 def _build_referenced_primitives_metadata(
     referenced_leaves: Set[str], registration_index: Dict[str, object]
-) -> Dict[str, Dict[str, str]]:
+) -> Dict[str, Dict[str, object]]:
     known_leaf_types = registration_index.get("known_leaf_types", {})
     if not isinstance(known_leaf_types, dict):
         return {}
-    out: Dict[str, Dict[str, str]] = {}
+    out: Dict[str, Dict[str, object]] = {}
     for leaf in sorted(referenced_leaves):
         meta = known_leaf_types.get(leaf)
         if meta is None:

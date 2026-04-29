@@ -425,6 +425,7 @@ function SchemaSection({
                 label={field.name}
                 value={display}
                 cppType={field.type}
+                enumValues={field.enum_values}
                 hasOverride={hasOverride}
                 showRevert={true}
                 readOnly={readOnly}
@@ -492,6 +493,7 @@ function NestedStructFields({
                 label={field.name}
                 value={display}
                 cppType={field.type}
+                enumValues={field.enum_values}
                 hasOverride={hasOverride}
                 showRevert={true}
                 readOnly={readOnly}
@@ -558,6 +560,7 @@ function FieldRow({
   label,
   value,
   cppType,
+  enumValues,
   hasOverride,
   showRevert,
   readOnly,
@@ -567,6 +570,7 @@ function FieldRow({
   label: string;
   value: string;
   cppType: string;
+  enumValues?: string[];
   hasOverride: boolean;
   showRevert: boolean;
   readOnly: boolean;
@@ -577,14 +581,31 @@ function FieldRow({
       <div className={styles.propLabel} title={fieldPath}>
         {label}
       </div>
-      <input
-        className={hasOverride ? styles.propValueOverride : undefined}
-        type="text"
-        value={value}
-        readOnly
-        title={cppType}
-        data-prop={fieldPath}
-      />
+      {Array.isArray(enumValues) && enumValues.length > 0 ? (
+        <select
+          className={hasOverride ? styles.propValueOverride : undefined}
+          value={enumValues.includes(value) ? value : ""}
+          disabled
+          title={cppType}
+          data-prop={fieldPath}
+        >
+          <option value="">default not available</option>
+          {enumValues.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          className={hasOverride ? styles.propValueOverride : undefined}
+          type="text"
+          value={value}
+          readOnly
+          title={cppType}
+          data-prop={fieldPath}
+        />
+      )}
       {showRevert ? (
         <button
           type="button"
@@ -1090,9 +1111,22 @@ function buildSchemasFromRegistryResponse(
 } {
   const byType = new Map<string, ResolvedWorkloadSchema>();
   const globalStructs: Record<string, WorkloadsRegistryStruct> = {};
+  const primitiveMetaByType = new Map<
+    string,
+    { primitiveKind?: string; enumValues?: string[] }
+  >();
 
   for (const typeEntry of response.types ?? []) {
-    if (!typeEntry?.name?.trim() || !Array.isArray(typeEntry.fields)) {
+    if (!typeEntry?.name?.trim()) {
+      continue;
+    }
+    if (typeEntry.primitive_kind || Array.isArray(typeEntry.enum_values)) {
+      primitiveMetaByType.set(typeEntry.name, {
+        primitiveKind: typeEntry.primitive_kind,
+        enumValues: typeEntry.enum_values,
+      });
+    }
+    if (!Array.isArray(typeEntry.fields)) {
       continue;
     }
     globalStructs[typeEntry.name] = {
@@ -1102,6 +1136,10 @@ function buildSchemasFromRegistryResponse(
         type: field.type,
         default: field.default_value,
         element_count: field.element_count,
+        primitive_kind: field.primitive_kind,
+        enum_values:
+          field.enum_values ??
+          primitiveMetaByType.get(field.type)?.enumValues,
       })),
     };
   }
@@ -1115,6 +1153,8 @@ function buildSchemasFromRegistryResponse(
         name: field.field_name,
         type: field.field_type_name,
         default: field.default_value,
+        primitive_kind: primitiveMetaByType.get(field.field_type_name)?.primitiveKind,
+        enum_values: primitiveMetaByType.get(field.field_type_name)?.enumValues,
       })),
     };
   }

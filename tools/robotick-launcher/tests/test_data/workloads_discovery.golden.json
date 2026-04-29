@@ -429,19 +429,28 @@
           "name": "timestamp",
           "type": "double",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "sample_rate",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "44100"
+          "default_value": "44100",
+          "primitive_kind": "integer"
         }
       ]
     },
     {
       "name": "AudioQueueResult",
-      "type_category": "enum"
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Success",
+        "Dropped",
+        "NoData",
+        "Error"
+      ]
     },
     {
       "name": "BaseXConfig",
@@ -451,31 +460,36 @@
           "name": "max_motor_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor1_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor2_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor3_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor4_speed_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -487,25 +501,29 @@
           "name": "motor1_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor2_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor3_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor4_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -517,25 +535,29 @@
           "name": "motor1_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor2_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor3_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "motor4_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -551,13 +573,15 @@
           "name": "float_value_when_true",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "float_value_when_false",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -569,7 +593,8 @@
           "name": "bool_value",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -581,7 +606,8 @@
           "name": "float_value",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -592,23 +618,32 @@
         {
           "name": "scene_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "render_mode",
           "type": "RenderMode",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
         },
         {
           "name": "hide_cursor",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "max_output_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -657,7 +692,8 @@
           "name": "timestamp",
           "type": "double",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "band_center_hz",
@@ -696,77 +732,95 @@
           "name": "window_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0"
+          "default_value": "5.0",
+          "primitive_kind": "number"
         },
         {
           "name": "viewport_width",
           "type": "int",
           "element_count": 1,
-          "default_value": "512"
+          "default_value": "512",
+          "primitive_kind": "integer"
         },
         {
           "name": "viewport_height",
           "type": "int",
           "element_count": 1,
-          "default_value": "128"
+          "default_value": "128",
+          "primitive_kind": "integer"
         },
         {
           "name": "max_output_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         },
         {
           "name": "log_scale",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "cochlear_visual_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "draw_pitch_info",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "draw_pitch_info_amplitude",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "draw_harmonics",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "pitch_visual_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "pitch_min_amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "render_mode",
           "type": "RenderMode",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
         },
         {
           "name": "fusion_link_alpha_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "100.0"
+          "default_value": "100.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -870,103 +924,120 @@
           "name": "left_trigger",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "right_trigger",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "a",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "b",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "x",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "y",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "left_bumper",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "right_bumper",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "back",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "start",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "guide",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "left_stick_button",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "right_stick_button",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "dpad_up",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "dpad_down",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "dpad_left",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "dpad_right",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -1015,7 +1086,8 @@
           "name": "h1_f0_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_amplitudes",
@@ -1032,13 +1104,15 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "max_num_partials",
           "type": "int",
           "element_count": 1,
-          "default_value": "8"
+          "default_value": "8",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1072,23 +1146,32 @@
           "name": "enabled",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "rest_heart_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "60.0"
+          "default_value": "60.0",
+          "primitive_kind": "number"
         },
         {
           "name": "render_mode",
           "type": "RenderMode",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
         },
         {
           "name": "max_output_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1100,55 +1183,64 @@
           "name": "bar1_label",
           "type": "FixedString8",
           "element_count": 1,
-          "default_value": "Ha"
+          "default_value": "Ha",
+          "primitive_kind": "string"
         },
         {
           "name": "bar1_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.9"
+          "default_value": "0.9",
+          "primitive_kind": "number"
         },
         {
           "name": "bar2_label",
           "type": "FixedString8",
           "element_count": 1,
-          "default_value": "Ti"
+          "default_value": "Ti",
+          "primitive_kind": "string"
         },
         {
           "name": "bar2_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "bar3_label",
           "type": "FixedString8",
           "element_count": 1,
-          "default_value": "Ex"
+          "default_value": "Ex",
+          "primitive_kind": "string"
         },
         {
           "name": "bar3_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.6"
+          "default_value": "0.6",
+          "primitive_kind": "number"
         },
         {
           "name": "bar4_label",
           "type": "FixedString8",
           "element_count": 1,
-          "default_value": "Hu"
+          "default_value": "Hu",
+          "primitive_kind": "string"
         },
         {
           "name": "bar4_fraction",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "heart_rate_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1160,7 +1252,8 @@
           "name": "activation_amount",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "display_png",
@@ -1177,7 +1270,8 @@
           "name": "multiplier",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1189,13 +1283,15 @@
           "name": "a",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "b",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1207,7 +1303,8 @@
           "name": "sum",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "message",
@@ -1218,7 +1315,8 @@
         {
           "name": "status",
           "type": "HelloStatus",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "HelloStatus::NORMAL"
         }
       ]
     },
@@ -1234,19 +1332,22 @@
           "name": "stream_id",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "slot_index",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "generation",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1257,54 +1358,93 @@
         {
           "name": "storage_kind",
           "type": "ImageStorageKind",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "RawPacked",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "RawPacked",
+            "Encoded"
+          ]
         },
         {
           "name": "pixel_format",
           "type": "ImagePixelFormat",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "Rgb8",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
         },
         {
           "name": "width",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "height",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "stride_bytes",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "data_size_bytes",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "timestamp_ns",
           "type": "uint64_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "sequence",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
     {
       "name": "ImagePixelFormat",
-      "type_category": "enum"
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Rgb8",
+        "Bgr8",
+        "Rgba8",
+        "Bgra8",
+        "Gray8",
+        "Gray16",
+        "Depth16",
+        "Depth32f",
+        "Jpeg",
+        "Png"
+      ]
     },
     {
       "name": "ImagePngDynamic",
@@ -1333,29 +1473,52 @@
         {
           "name": "output_storage_kind",
           "type": "ImageStorageKind",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "ImageStorageKind::Encoded",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "RawPacked",
+            "Encoded"
+          ]
         },
         {
           "name": "output_pixel_format",
           "type": "ImagePixelFormat",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "ImagePixelFormat::Jpeg",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
         },
         {
           "name": "jpeg_quality",
           "type": "int",
           "element_count": 1,
-          "default_value": "80"
+          "default_value": "80",
+          "primitive_kind": "integer"
         },
         {
           "name": "fallback_jpeg_quality",
           "type": "int",
           "element_count": 1,
-          "default_value": "60"
+          "default_value": "60",
+          "primitive_kind": "integer"
         },
         {
           "name": "max_output_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1383,13 +1546,19 @@
           "name": "actual_jpeg_quality_used",
           "type": "uint8_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
     {
       "name": "ImageStorageKind",
-      "type_category": "enum"
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "RawPacked",
+        "Encoded"
+      ]
     },
     {
       "name": "ImageToImageRefConfig",
@@ -1399,17 +1568,33 @@
           "name": "output_stream_id",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         },
         {
           "name": "max_input_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         },
         {
           "name": "decoded_pixel_format",
           "type": "ImagePixelFormat",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "ImagePixelFormat::Bgr8",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
         }
       ]
     },
@@ -1443,7 +1628,8 @@
           "name": "enable_debug_info",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -1476,13 +1662,15 @@
           "name": "tau_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.25"
+          "default_value": "0.25",
+          "primitive_kind": "number"
         },
         {
           "name": "min_tau_seconds",
           "type": "float",
           "element_count": 1,
-          "default_value": "1e-4"
+          "default_value": "1e-4",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1494,13 +1682,15 @@
           "name": "value",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "reset",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -1512,7 +1702,8 @@
           "name": "result",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1524,7 +1715,8 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1541,18 +1733,28 @@
           "name": "success",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "last_read_status",
           "type": "AudioQueueResult",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "AudioQueueResult::Success",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Success",
+            "Dropped",
+            "NoData",
+            "Error"
+          ]
         },
         {
           "name": "dropped_reads",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1564,25 +1766,29 @@
           "name": "base_frequency_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "440.0"
+          "default_value": "440.0",
+          "primitive_kind": "number"
         },
         {
           "name": "base_amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "modulation_freq_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "modulation_depth_cents",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1594,25 +1800,29 @@
           "name": "camera_index",
           "type": "int",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "capture_width",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "1280"
+          "default_value": "1280",
+          "primitive_kind": "integer"
         },
         {
           "name": "capture_height",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "720"
+          "default_value": "720",
+          "primitive_kind": "integer"
         },
         {
           "name": "stream_id",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1647,19 +1857,22 @@
           "name": "enable_tls",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "publish_qos",
           "type": "uint8_t",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         },
         {
           "name": "subscribe_qos",
           "type": "uint8_t",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1670,13 +1883,15 @@
         {
           "name": "last_subscribe",
           "type": "MqttOpResult",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "MqttOpResult::Success"
         },
         {
           "name": "connected",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -1693,18 +1908,21 @@
           "name": "texture_width",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "640"
+          "default_value": "640",
+          "primitive_kind": "integer"
         },
         {
           "name": "texture_height",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "480"
+          "default_value": "480",
+          "primitive_kind": "integer"
         },
         {
           "name": "max_output_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1716,7 +1934,8 @@
           "name": "mujoco_scene_id",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1733,7 +1952,8 @@
           "name": "frame_count",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1744,18 +1964,21 @@
         {
           "name": "workload_config_file_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "model_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "sim_tick_rate_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "-1.0"
+          "default_value": "-1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "mj_initial",
@@ -1788,7 +2011,8 @@
           "name": "scene_id",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -1800,7 +2024,8 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1870,7 +2095,8 @@
           "name": "bypass",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -1887,13 +2113,15 @@
           "name": "is_noise_only",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "noise_floor_rms",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1905,43 +2133,50 @@
           "name": "noise_learning_rms_threshold",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.02"
+          "default_value": "0.02",
+          "primitive_kind": "number"
         },
         {
           "name": "noise_profile_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1"
+          "default_value": "0.1",
+          "primitive_kind": "number"
         },
         {
           "name": "suppression_strength",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.8"
+          "default_value": "0.8",
+          "primitive_kind": "number"
         },
         {
           "name": "min_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1"
+          "default_value": "0.1",
+          "primitive_kind": "number"
         },
         {
           "name": "gain_smooth_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "noise_only_rms_threshold",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.02"
+          "default_value": "0.02",
+          "primitive_kind": "number"
         },
         {
           "name": "noise_floor_min",
           "type": "float",
           "element_count": 1,
-          "default_value": "1e-6"
+          "default_value": "1e-6",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -1957,49 +2192,57 @@
           "name": "harmonic_floor_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "-60.0"
+          "default_value": "-60.0",
+          "primitive_kind": "number"
         },
         {
           "name": "speaking_rate_decay",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.95"
+          "default_value": "0.95",
+          "primitive_kind": "number"
         },
         {
           "name": "rms_smooth_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "signal_rms_threshold",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.015"
+          "default_value": "0.015",
+          "primitive_kind": "number"
         },
         {
           "name": "voiced_falloff_rate_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0"
+          "default_value": "5.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_confidence_min_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "-15.0"
+          "default_value": "-15.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_confidence_max_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "25.0"
+          "default_value": "25.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_confidence_gate",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.35"
+          "default_value": "0.35",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2038,37 +2281,43 @@
           "name": "history_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "8.0"
+          "default_value": "8.0",
+          "primitive_kind": "number"
         },
         {
           "name": "simplified_sample_count",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "32"
+          "default_value": "32",
+          "primitive_kind": "integer"
         },
         {
           "name": "minimum_segment_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1"
+          "default_value": "0.1",
+          "primitive_kind": "number"
         },
         {
           "name": "silence_hangover_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "segment_merge_tolerance_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.25"
+          "default_value": "0.25",
+          "primitive_kind": "number"
         },
         {
           "name": "max_pitch_jump_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "80.0"
+          "default_value": "80.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2112,127 +2361,148 @@
           "name": "rms",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "has_signal",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_pitch",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "is_voiced",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "voiced_confidence",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "is_harmonic",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "harmonic_confidence",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "speaking_rate_sps",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "pitch_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "pitch_slope_hz_per_s",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonicity_hnr_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "jitter",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "shimmer",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "spectral_brightness",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "h1_to_h2_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_tilt_db_per_h",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "even_odd_ratio",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonic_support_ratio",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "centroid_ratio",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "formant1_ratio",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "formant2_ratio",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2244,115 +2514,134 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "use_rms_for_amplitude",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "use_voiced_gate",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "enable_tone",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "tone_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "enable_partials",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "partials_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "max_num_partials",
           "type": "int",
           "element_count": 1,
-          "default_value": "16"
+          "default_value": "16",
+          "primitive_kind": "integer"
         },
         {
           "name": "enable_noise",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "noise_base",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5"
+          "default_value": "0.5",
+          "primitive_kind": "number"
         },
         {
           "name": "brightness_to_noise_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.8"
+          "default_value": "0.8",
+          "primitive_kind": "number"
         },
         {
           "name": "brightness_to_partial_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "5.0"
+          "default_value": "5.0",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonicity_to_noise_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.03"
+          "default_value": "0.03",
+          "primitive_kind": "number"
         },
         {
           "name": "harmonicity_to_partial_scale",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.03"
+          "default_value": "0.03",
+          "primitive_kind": "number"
         },
         {
           "name": "use_brightness_for_noise_lpf",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "noise_cutoff_default_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "2000.0"
+          "default_value": "2000.0",
+          "primitive_kind": "number"
         },
         {
           "name": "mix_smooth_alpha",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.8"
+          "default_value": "0.8",
+          "primitive_kind": "number"
         },
         {
           "name": "min_component_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "max_component_gain",
           "type": "float",
           "element_count": 1,
-          "default_value": "2.0"
+          "default_value": "2.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2364,7 +2653,8 @@
           "name": "enabled",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "prosody_state",
@@ -2391,7 +2681,8 @@
         {
           "name": "script_name",
           "type": "FixedString128",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "class_name",
@@ -2435,19 +2726,22 @@
           "name": "output_roll_source",
           "type": "int",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "output_pitch_source",
           "type": "int",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         },
         {
           "name": "output_yaw_source",
           "type": "int",
           "element_count": 1,
-          "default_value": "2"
+          "default_value": "2",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -2470,19 +2764,22 @@
           "name": "roll",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "pitch",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "yaw",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2493,22 +2790,26 @@
         {
           "name": "w",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "1.0"
         },
         {
           "name": "x",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "y",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "z",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -2529,12 +2830,24 @@
         {
           "name": "stick_shape_transform_left",
           "type": "StickShapeTransform",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "StickShapeTransform::CircleToSquare",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "None",
+            "CircleToSquare"
+          ]
         },
         {
           "name": "stick_shape_transform_right",
           "type": "StickShapeTransform",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "StickShapeTransform::CircleToSquare",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "None",
+            "CircleToSquare"
+          ]
         }
       ]
     },
@@ -2546,7 +2859,8 @@
           "name": "use_web_inputs",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "gamepad_state_raw",
@@ -2568,7 +2882,12 @@
     },
     {
       "name": "RenderMode",
-      "type_category": "enum"
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Texture",
+        "Screen"
+      ]
     },
     {
       "name": "SineWaveGeneratorConfig",
@@ -2578,7 +2897,8 @@
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2590,13 +2910,15 @@
           "name": "frequency_hz",
           "type": "float",
           "element_count": 1,
-          "default_value": "440.0"
+          "default_value": "440.0",
+          "primitive_kind": "number"
         },
         {
           "name": "amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.1"
+          "default_value": "0.1",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2619,37 +2941,43 @@
           "name": "min_peak_amplitude",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.05"
+          "default_value": "0.05",
+          "primitive_kind": "number"
         },
         {
           "name": "peak_merge_cents",
           "type": "float",
           "element_count": 1,
-          "default_value": "25.0"
+          "default_value": "25.0",
+          "primitive_kind": "number"
         },
         {
           "name": "snake_match_cents",
           "type": "float",
           "element_count": 1,
-          "default_value": "100.0"
+          "default_value": "100.0",
+          "primitive_kind": "number"
         },
         {
           "name": "snake_keep_alive_frames",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "4"
+          "default_value": "4",
+          "primitive_kind": "integer"
         },
         {
           "name": "harmonic_match_cents",
           "type": "float",
           "element_count": 1,
-          "default_value": "100.0"
+          "default_value": "100.0",
+          "primitive_kind": "number"
         },
         {
           "name": "max_snakes",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "32"
+          "default_value": "32",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -2704,7 +3032,8 @@
           "name": "is_voiced",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -2726,25 +3055,29 @@
           "name": "accumulator_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "accumulator_capacity_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "is_transcribe_thread_active",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "transcribe_session_count",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -2755,7 +3088,8 @@
         {
           "name": "model_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "num_threads",
@@ -2767,19 +3101,22 @@
           "name": "min_voiced_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5"
+          "default_value": "0.5",
+          "primitive_kind": "number"
         },
         {
           "name": "silence_hangover_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         },
         {
           "name": "proto_refresh_interval_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.2"
+          "default_value": "0.2",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2791,31 +3128,36 @@
           "name": "max_speed_differential",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.4"
+          "default_value": "0.4",
+          "primitive_kind": "number"
         },
         {
           "name": "power_scale_both",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "power_scale_left",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "power_scale_right",
           "type": "float",
           "element_count": 1,
-          "default_value": "1.0"
+          "default_value": "1.0",
+          "primitive_kind": "number"
         },
         {
           "name": "power_seek_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "-1.0"
+          "default_value": "-1.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2827,13 +3169,15 @@
           "name": "speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "angular_speed",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -2845,19 +3189,26 @@
           "name": "left_motor",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "right_motor",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
     {
       "name": "StickShapeTransform",
-      "type_category": "enum"
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "None",
+        "CircleToSquare"
+      ]
     },
     {
       "name": "TemplateConfig",
@@ -2866,12 +3217,14 @@
         {
           "name": "gain",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "number"
         },
         {
           "name": "threshold",
           "type": "int",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         },
         {
           "name": "label",
@@ -2892,17 +3245,20 @@
         {
           "name": "angle",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "number"
         },
         {
           "name": "sensor_value",
           "type": "int",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "integer"
         },
         {
           "name": "sensor_label",
           "type": "FixedString16",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "blackboard",
@@ -2918,7 +3274,8 @@
         {
           "name": "command",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "number"
         },
         {
           "name": "status",
@@ -2929,7 +3286,8 @@
           "name": "sensor_ok",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "blackboard",
@@ -2940,55 +3298,64 @@
           "name": "warning_count",
           "type": "uint32_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         },
         {
           "name": "has_called_set_children",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_set_engine",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_pre_load",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_load",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_setup",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_start",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_tick",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "has_called_stop",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -3000,7 +3367,8 @@
           "name": "log_rate_hz",
           "type": "int",
           "element_count": 1,
-          "default_value": "1"
+          "default_value": "1",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -3012,19 +3380,22 @@
           "name": "last_tick_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "avg_tick_rate",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "tick_stddev",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -3044,31 +3415,36 @@
         {
           "name": "text",
           "type": "FixedString512",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "transcribe_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "transcript_mean_confidence",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "start_time_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -3079,12 +3455,14 @@
         {
           "name": "x",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "y",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -3095,17 +3473,20 @@
         {
           "name": "x",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "y",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "z",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -3116,25 +3497,29 @@
         {
           "name": "file_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "amplitude_gain_db",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "looping",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "loop_delay_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -3161,13 +3546,15 @@
           "name": "total_duration_sec",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "total_frame_count",
           "type": "uint64_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -3178,19 +3565,22 @@
         {
           "name": "file_path",
           "type": "FixedString256",
-          "element_count": 1
+          "element_count": 1,
+          "primitive_kind": "string"
         },
         {
           "name": "overwrite",
           "type": "bool",
           "element_count": 1,
-          "default_value": "true"
+          "default_value": "true",
+          "primitive_kind": "boolean"
         },
         {
           "name": "stereo",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         }
       ]
     },
@@ -3218,13 +3608,15 @@
           "name": "file_open",
           "type": "bool",
           "element_count": 1,
-          "default_value": "false"
+          "default_value": "false",
+          "primitive_kind": "boolean"
         },
         {
           "name": "total_written",
           "type": "uint64_t",
           "element_count": 1,
-          "default_value": "0"
+          "default_value": "0",
+          "primitive_kind": "integer"
         }
       ]
     },
@@ -3236,25 +3628,29 @@
           "name": "a",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "b",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         },
         {
           "name": "weight_a",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5"
+          "default_value": "0.5",
+          "primitive_kind": "number"
         },
         {
           "name": "weight_b",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.5"
+          "default_value": "0.5",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -3266,7 +3662,8 @@
           "name": "result",
           "type": "float",
           "element_count": 1,
-          "default_value": "0.0"
+          "default_value": "0.0",
+          "primitive_kind": "number"
         }
       ]
     },
@@ -3316,20 +3713,11 @@
     "Missing default_value in schema metadata for primitive field 'HeartbeatDisplayConfig.max_output_bytes' (uint32_t, kind=integer).",
     "Missing default_value in schema metadata for primitive field 'ImageRefToImageConfig.max_output_bytes' (uint32_t, kind=integer).",
     "Missing default_value in schema metadata for primitive field 'ImageToImageRefConfig.max_input_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'Vec3f.x' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Vec3f.y' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Vec3f.z' (float, kind=number).",
     "Missing default_value in schema metadata for primitive field 'MuJoCoCameraConfig.max_output_bytes' (uint32_t, kind=integer).",
     "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.workload_config_file_path' (FixedString256, kind=string).",
     "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.model_path' (FixedString256, kind=string).",
     "Missing default_value in schema metadata for primitive field 'Transcript.text' (FixedString512, kind=string).",
     "Missing default_value in schema metadata for primitive field 'PythonConfig.script_name' (FixedString128, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'Quatf.w' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Quatf.x' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Quatf.y' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Quatf.z' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Vec2f.x' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'Vec2f.y' (float, kind=number).",
     "Missing default_value in schema metadata for primitive field 'SpeechToTextSettings.model_path' (FixedString256, kind=string).",
     "Missing default_value in schema metadata for primitive field 'TemplateConfig.gain' (float, kind=number).",
     "Missing default_value in schema metadata for primitive field 'TemplateConfig.threshold' (int, kind=integer).",
