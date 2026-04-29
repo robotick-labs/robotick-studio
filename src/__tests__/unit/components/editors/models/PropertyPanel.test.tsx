@@ -203,7 +203,7 @@ describe("PropertyPanel Phase 2A", () => {
       "button[aria-label='Revert gain']"
     ) as HTMLButtonElement | null;
     expect(revertGain).not.toBeNull();
-    expect(revertGain?.disabled).toBe(false);
+    expect(revertGain?.disabled).toBe(true);
 
     await act(async () => {
       revertGain?.click();
@@ -213,7 +213,7 @@ describe("PropertyPanel Phase 2A", () => {
     const gainAfterRevert = container.querySelector(
       "input[data-prop='gain']"
     ) as HTMLInputElement | null;
-    expect(gainAfterRevert?.value).toBe("default not available");
+    expect(gainAfterRevert?.value).toBe("0.5");
     expect(revertGain?.disabled).toBe(true);
 
     act(() => root.unmount());

@@ -561,13 +561,13 @@ function CompositeFieldLabel({
       </div>
       <button
         type="button"
-        className={`${styles.propRevert} ${!hasOverride ? styles.propRevertGhost : ""}`}
+        className={`${styles.propRevert} ${hasOverride ? "" : styles.propRevertGhost}`.trim()}
         onClick={onRevert}
-        disabled={!hasOverride || readOnly}
+        disabled={readOnly || !hasOverride}
         aria-label={`Revert ${fieldPath}`}
         title={`Revert ${fieldPath}`}
       >
-        ↺
+        {hasOverride ? "↺" : ""}
       </button>
     </div>
   );
@@ -608,13 +608,13 @@ function FieldRow({
       {showRevert ? (
         <button
           type="button"
-          className={`${styles.propRevert} ${!hasOverride ? styles.propRevertGhost : ""}`}
+          className={`${styles.propRevert} ${hasOverride ? "" : styles.propRevertGhost}`.trim()}
           onClick={onRevert}
-          disabled={!hasOverride || readOnly}
+          disabled={readOnly || !hasOverride}
           aria-label={`Revert ${fieldPath}`}
           title={`Revert ${fieldPath}`}
         >
-          ↺
+          {hasOverride ? "↺" : ""}
         </button>
       ) : (
         <span />

@@ -221,9 +221,14 @@
   cursor: default;
 }
 
+.propRevertInvisible {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .propRevertGhost {
   background: transparent;
-  border: 1px solid rgba(183, 194, 216, 0.35);
+  border: none;
 }
 
 .propLoadingWrap {
