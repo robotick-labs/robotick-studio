@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 from .utils import render_template, write_text_if_changed
 
+_REGISTRATION_INDEX_CACHE: Dict[
+    Tuple[Tuple[str, int, int, int], ...], Dict[str, object]
+] = {}
+
 
 def discover_workload_sources_map(config) -> Dict[str, Dict[str, object]]:
     """
@@ -77,7 +81,7 @@ def discover_workloads_metadata(config) -> List[Dict]:
     Returns: [ { name, source, structs: { config, inputs, outputs } } ]
     """
     sources = discover_workload_sources_map(config)
-    registration_index = _build_registration_index(config)
+    registration_index = _get_cached_registration_index(config)
     resolved_type_cache: Dict[str, Optional[Dict[str, object]]] = {}
     out: List[Dict] = []
 
@@ -124,6 +128,55 @@ def discover_workloads_metadata(config) -> List[Dict]:
         out.append(item)
 
     return out
+
+
+def _get_cached_registration_index(config) -> Dict[str, object]:
+    roots = _resolve_registration_search_roots(config)
+    key = _registration_roots_fingerprint(roots)
+    cached = _REGISTRATION_INDEX_CACHE.get(key)
+    if cached is not None:
+        return cached
+    built = _build_registration_index(config)
+    _REGISTRATION_INDEX_CACHE[key] = built
+    return built
+
+
+def _registration_roots_fingerprint(
+    roots: Sequence[Path],
+) -> Tuple[Tuple[str, int, int, int], ...]:
+    exts = {
+        ".h",
+        ".hh",
+        ".hpp",
+        ".hxx",
+        ".ipp",
+        ".inl",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+    }
+    entries: List[Tuple[str, int, int, int]] = []
+    for root in sorted((Path(r).resolve() for r in roots), key=lambda p: str(p)):
+        if not root.exists() or not root.is_dir():
+            entries.append((str(root), 0, 0, 0))
+            continue
+        file_count = 0
+        newest_mtime_ns = 0
+        total_size = 0
+        for p in root.rglob("*"):
+            if not p.is_file() or p.suffix.lower() not in exts:
+                continue
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            file_count += 1
+            total_size += int(st.st_size)
+            if int(st.st_mtime_ns) > newest_mtime_ns:
+                newest_mtime_ns = int(st.st_mtime_ns)
+        entries.append((str(root), file_count, newest_mtime_ns, total_size))
+    return tuple(entries)
 def _parse_workload_cpp(
     file_path: Path, expected_workload: str, include_search_roots: Optional[Sequence[Path]] = None
 ) -> Dict:
@@ -390,6 +443,7 @@ def _build_registration_index(config) -> Dict[str, object]:
 
     structs: Dict[str, Dict[str, object]] = {}
     known_leaf_types: Dict[str, Dict[str, str]] = {}
+    declaration_defaults: Dict[str, Dict[str, str]] = {}
 
     for path in files:
         try:
@@ -398,6 +452,27 @@ def _build_registration_index(config) -> Dict[str, object]:
             continue
         _index_struct_registrations(text, path, structs)
         _index_known_leaf_type_registrations(text, known_leaf_types)
+
+    if structs:
+        unresolved_defaults: Set[str] = set(structs.keys())
+        for path in files:
+            if not unresolved_defaults:
+                break
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            _index_target_struct_declaration_defaults(
+                text, unresolved_defaults, declaration_defaults
+            )
+            resolved_here = {
+                name
+                for name in unresolved_defaults
+                if name in declaration_defaults and declaration_defaults[name]
+            }
+            unresolved_defaults -= resolved_here
+
+    _merge_declaration_defaults_into_registered_structs(structs, declaration_defaults)
 
     return {
         "structs": structs,
@@ -490,6 +565,50 @@ def _index_struct_registrations(text: str, source_path: Path, out_structs: Dict[
             raise ValueError(
                 f"Conflicting struct registrations for type '{key}' while indexing '{source_path}'."
             )
+
+
+def _index_target_struct_declaration_defaults(
+    text: str,
+    target_struct_names: Set[str],
+    out_defaults: Dict[str, Dict[str, str]],
+) -> None:
+    for struct_name in target_struct_names:
+        if f"struct {struct_name}" not in text and f"struct robotick::{struct_name}" not in text:
+            continue
+        fields = _extract_struct_fields(text, struct_name)
+        if not fields:
+            continue
+        defaults = out_defaults.setdefault(struct_name, {})
+        for field in fields:
+            field_name = field.get("name")
+            default_value = field.get("default_value")
+            if not isinstance(field_name, str) or default_value is None:
+                continue
+            defaults.setdefault(field_name, default_value)
+
+
+def _merge_declaration_defaults_into_registered_structs(
+    structs: Dict[str, Dict[str, object]],
+    declaration_defaults: Dict[str, Dict[str, str]],
+) -> None:
+    for struct_name, sdef in structs.items():
+        defaults_by_field = declaration_defaults.get(struct_name, {})
+        if not defaults_by_field:
+            continue
+        fields = sdef.get("fields")
+        if not isinstance(fields, list):
+            continue
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if "default_value" in field:
+                continue
+            field_name = field.get("name")
+            if not isinstance(field_name, str):
+                continue
+            default_value = defaults_by_field.get(field_name)
+            if default_value is not None:
+                field["default_value"] = default_value
 
 
 def _index_known_leaf_type_registrations(

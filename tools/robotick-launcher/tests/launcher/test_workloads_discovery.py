@@ -179,6 +179,9 @@ namespace robotick
     assert "config" in structs
     assert structs["config"]["name"] == "NestedConfig"
     assert "ChildType" in structs
+    child_fields = structs["ChildType"]["fields"]
+    gain_field = next(field for field in child_fields if field["name"] == "gain")
+    assert gain_field.get("default_value") == "1.0"
 
 
 def test_discovery_reports_schema_error_for_missing_referenced_registration(tmp_path: Path):

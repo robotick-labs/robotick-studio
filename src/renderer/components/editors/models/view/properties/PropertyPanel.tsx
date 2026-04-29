@@ -303,7 +303,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
       />
 
       {awaitingSchema ? (
-        <div className={styles.propSection}>
+        <CollapsibleSection title="Loading">
           <div className={styles.propLoadingWrap} aria-label="Loading schema metadata">
             <div className={styles.propLoadingDots} aria-hidden="true">
               <span>.</span>
@@ -311,7 +311,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
               <span>.</span>
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
       ) : (
         <>
           <SchemaSection
@@ -397,6 +397,23 @@ function PanelHeader({
   );
 }
 
+function CollapsibleSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className={styles.propSection} open>
+      <summary className={styles.propSectionSummary}>
+        <h4 className={styles.propSectionHeading}>{title}</h4>
+      </summary>
+      <div>{children}</div>
+    </details>
+  );
+}
+
 function SchemaSection({
   title,
   schemaFields,
@@ -414,16 +431,14 @@ function SchemaSection({
 }) {
   if (schemaFields.length === 0) {
     return (
-      <div className={styles.propSection}>
-        <h4>{title}</h4>
+      <CollapsibleSection title={title}>
         <p style={{ margin: "4px 0 0", opacity: 0.8 }}>No fields discovered</p>
-      </div>
+      </CollapsibleSection>
     );
   }
 
   return (
-    <div className={styles.propSection}>
-      <h4>{title}</h4>
+    <CollapsibleSection title={title}>
       {schemaFields.map((field) => {
         const hasOverride = Object.prototype.hasOwnProperty.call(values, field.name);
         const rawValue = values[field.name];
@@ -432,14 +447,23 @@ function SchemaSection({
         return (
           <div key={`${title}:${field.name}`} style={{ marginBottom: 8 }}>
             {nestedStruct ? (
-              <CompositeFieldLabel
+              <CompositeFieldGroup
                 label={field.name}
                 cppType={field.type}
                 fieldPath={field.name}
                 hasOverride={hasOverride}
                 readOnly={readOnly}
                 onRevert={() => onRevert(field.name)}
-              />
+              >
+                <NestedStructFields
+                  path={field.name}
+                  struct={nestedStruct}
+                  structs={structs}
+                  value={rawValue}
+                  readOnly={readOnly}
+                  onRevert={onRevert}
+                />
+              </CompositeFieldGroup>
             ) : (
               <FieldRow
                 fieldPath={field.name}
@@ -452,20 +476,10 @@ function SchemaSection({
                 onRevert={() => onRevert(field.name)}
               />
             )}
-            {nestedStruct ? (
-              <NestedStructFields
-                path={field.name}
-                struct={nestedStruct}
-                structs={structs}
-                value={rawValue}
-                readOnly={readOnly}
-                onRevert={onRevert}
-              />
-            ) : null}
           </div>
         );
       })}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -484,29 +498,39 @@ function NestedStructFields({
   readOnly: boolean;
   onRevert: (fieldPath: string) => void;
 }) {
-  if (!isPlainObject(value) || !Array.isArray(struct.fields) || struct.fields.length === 0) {
+  if (!Array.isArray(struct.fields) || struct.fields.length === 0) {
     return null;
   }
+  const objectValue = isPlainObject(value) ? value : ({} as Record<string, unknown>);
 
   return (
     <div style={{ marginLeft: 12, marginTop: 6 }}>
       {struct.fields.map((field) => {
         const childPath = `${path}.${field.name}`;
-        const hasOverride = Object.prototype.hasOwnProperty.call(value, field.name);
-        const childValue = value[field.name];
+        const hasOverride = Object.prototype.hasOwnProperty.call(objectValue, field.name);
+        const childValue = objectValue[field.name];
         const display = getDisplayValue(childValue, field.default);
         const childStruct = resolveStructType(structs, field.type);
         return (
           <div key={childPath} style={{ marginBottom: 6 }}>
             {childStruct ? (
-              <CompositeFieldLabel
+              <CompositeFieldGroup
                 label={childPath}
                 cppType={field.type}
                 fieldPath={childPath}
                 hasOverride={hasOverride}
                 readOnly={readOnly}
                 onRevert={() => onRevert(childPath)}
-              />
+              >
+                <NestedStructFields
+                  path={childPath}
+                  struct={childStruct}
+                  structs={structs}
+                  value={childValue}
+                  readOnly={readOnly}
+                  onRevert={onRevert}
+                />
+              </CompositeFieldGroup>
             ) : (
               <FieldRow
                 fieldPath={childPath}
@@ -519,16 +543,6 @@ function NestedStructFields({
                 onRevert={() => onRevert(childPath)}
               />
             )}
-            {childStruct ? (
-              <NestedStructFields
-                path={childPath}
-                struct={childStruct}
-                structs={structs}
-                value={childValue}
-                readOnly={readOnly}
-                onRevert={onRevert}
-              />
-            ) : null}
           </div>
         );
       })}
@@ -536,13 +550,14 @@ function NestedStructFields({
   );
 }
 
-function CompositeFieldLabel({
+function CompositeFieldGroup({
   label,
   cppType,
   fieldPath,
   hasOverride,
   readOnly,
   onRevert,
+  children,
 }: {
   label: string;
   cppType: string;
@@ -550,26 +565,36 @@ function CompositeFieldLabel({
   hasOverride: boolean;
   readOnly: boolean;
   onRevert: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div className={styles.propRow}>
-      <div className={styles.propLabel} title={fieldPath}>
-        {label}
-      </div>
-      <div style={{ opacity: 0.75, fontSize: "0.8em" }} title={cppType}>
-        {cppType}
-      </div>
-      <button
-        type="button"
-        className={`${styles.propRevert} ${hasOverride ? "" : styles.propRevertGhost}`.trim()}
-        onClick={onRevert}
-        disabled={readOnly || !hasOverride}
-        aria-label={`Revert ${fieldPath}`}
-        title={`Revert ${fieldPath}`}
-      >
-        {hasOverride ? "↺" : ""}
-      </button>
-    </div>
+    <details className={styles.propComposite} open>
+      <summary className={styles.propCompositeSummary}>
+        <div className={styles.propRow}>
+          <div className={styles.propLabel} title={fieldPath}>
+            {label}
+          </div>
+          <div style={{ opacity: 0.75, fontSize: "0.8em" }} title={cppType}>
+            {cppType}
+          </div>
+          <button
+            type="button"
+            className={`${styles.propRevert} ${hasOverride ? "" : styles.propRevertGhost}`.trim()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRevert();
+            }}
+            disabled={readOnly || !hasOverride}
+            aria-label={`Revert ${fieldPath}`}
+            title={`Revert ${fieldPath}`}
+          >
+            {hasOverride ? "↺" : ""}
+          </button>
+        </div>
+      </summary>
+      <div className={styles.propCompositeBody}>{children}</div>
+    </details>
   );
 }
 
@@ -631,8 +656,7 @@ function PropertySection({
   fields: Array<{ name: string; type: string; value: unknown }>;
 }) {
   return (
-    <div className={styles.propSection}>
-      <h4>{title}</h4>
+    <CollapsibleSection title={title}>
       {fields.map((field) => (
         <FieldRow
           key={`core:${field.name}`}
@@ -646,7 +670,7 @@ function PropertySection({
           onRevert={() => {}}
         />
       ))}
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -709,8 +733,7 @@ function ErrorViewer({ errors }: { errors: string[] }) {
     return null;
   }
   return (
-    <div className={styles.propSection}>
-      <h4>Schema/YAML Errors</h4>
+    <CollapsibleSection title="Schema/YAML Errors">
       <div style={{ maxHeight: 180, overflowY: "auto", fontSize: 12 }}>
         {errors.map((error, index) => (
           <div key={`${index}:${error}`} style={{ color: "#f3b2b2", marginBottom: 6 }}>
@@ -718,7 +741,7 @@ function ErrorViewer({ errors }: { errors: string[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
 
@@ -740,7 +763,7 @@ function getDisplayValue(value: unknown, registryDefault?: string): string {
   if (value !== undefined) {
     return formatValue(value);
   }
-  if (registryDefault !== undefined && registryDefault !== null && registryDefault !== "") {
+  if (registryDefault !== undefined && registryDefault !== null) {
     return registryDefault;
   }
   return "default not available";

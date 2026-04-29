@@ -428,12 +428,14 @@
         {
           "name": "timestamp",
           "type": "double",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "sample_rate",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "44100"
         }
       ]
     },
@@ -654,7 +656,8 @@
         {
           "name": "timestamp",
           "type": "double",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "band_center_hz",
@@ -866,87 +869,104 @@
         {
           "name": "left_trigger",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "right_trigger",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "a",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "b",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "x",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "y",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "left_bumper",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "right_bumper",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "back",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "start",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "guide",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "left_stick_button",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "right_stick_button",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "dpad_up",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "dpad_down",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "dpad_left",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "dpad_right",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         }
       ]
     },
@@ -994,7 +1014,8 @@
         {
           "name": "h1_f0_hz",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "harmonic_amplitudes",
@@ -1212,17 +1233,20 @@
         {
           "name": "stream_id",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "slot_index",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "generation",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         }
       ]
     },
@@ -1243,32 +1267,38 @@
         {
           "name": "width",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "height",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "stride_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "data_size_bytes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "timestamp_ns",
           "type": "uint64_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         },
         {
           "name": "sequence",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0"
         }
       ]
     },
@@ -1533,22 +1563,26 @@
         {
           "name": "base_frequency_hz",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "440.0"
         },
         {
           "name": "base_amplitude",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "modulation_freq_hz",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "modulation_depth_cents",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -1870,37 +1904,44 @@
         {
           "name": "noise_learning_rms_threshold",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.02"
         },
         {
           "name": "noise_profile_alpha",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.1"
         },
         {
           "name": "suppression_strength",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.8"
         },
         {
           "name": "min_gain",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.1"
         },
         {
           "name": "gain_smooth_alpha",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.2"
         },
         {
           "name": "noise_only_rms_threshold",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.02"
         },
         {
           "name": "noise_floor_min",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "1e-6"
         }
       ]
     },
@@ -2070,107 +2111,128 @@
         {
           "name": "rms",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "has_signal",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "has_pitch",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "is_voiced",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "voiced_confidence",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "is_harmonic",
           "type": "bool",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "false"
         },
         {
           "name": "harmonic_confidence",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "speaking_rate_sps",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "pitch_hz",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "pitch_slope_hz_per_s",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "harmonicity_hnr_db",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "jitter",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "shimmer",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "spectral_brightness",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "h1_to_h2_db",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "harmonic_tilt_db_per_h",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "even_odd_ratio",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "1.0"
         },
         {
           "name": "harmonic_support_ratio",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "centroid_ratio",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "formant1_ratio",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "formant2_ratio",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -2556,32 +2618,38 @@
         {
           "name": "min_peak_amplitude",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.05"
         },
         {
           "name": "peak_merge_cents",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "25.0"
         },
         {
           "name": "snake_match_cents",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "100.0"
         },
         {
           "name": "snake_keep_alive_frames",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "4"
         },
         {
           "name": "harmonic_match_cents",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "100.0"
         },
         {
           "name": "max_snakes",
           "type": "uint32_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "32"
         }
       ]
     },
@@ -2692,22 +2760,26 @@
         {
           "name": "num_threads",
           "type": "uint16_t",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "4"
         },
         {
           "name": "min_voiced_duration_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.5"
         },
         {
           "name": "silence_hangover_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.2"
         },
         {
           "name": "proto_refresh_interval_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.2"
         }
       ]
     },
@@ -2977,22 +3049,26 @@
         {
           "name": "transcribe_duration_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "transcript_mean_confidence",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "start_time_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         },
         {
           "name": "duration_sec",
           "type": "float",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "0.0"
         }
       ]
     },
@@ -3233,6 +3309,35 @@
   "writable_inputs": [],
   "validation_errors": [
     "HelloWorkload:$: Missing registration for referenced type 'HelloStatus' (from 'HelloOutputs').",
-    "MqttClientWorkload:$: Missing registration for referenced type 'MqttOpResult' (from 'MqttClientOutputs')."
+    "MqttClientWorkload:$: Missing registration for referenced type 'MqttOpResult' (from 'MqttClientOutputs').",
+    "Missing default_value in schema metadata for primitive field 'CanvasConfig.scene_path' (FixedString256, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'CanvasConfig.max_output_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'CochlearVisualizerConfig.max_output_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'HeartbeatDisplayConfig.max_output_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'ImageRefToImageConfig.max_output_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'ImageToImageRefConfig.max_input_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'Vec3f.x' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Vec3f.y' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Vec3f.z' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'MuJoCoCameraConfig.max_output_bytes' (uint32_t, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.workload_config_file_path' (FixedString256, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.model_path' (FixedString256, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'Transcript.text' (FixedString512, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'PythonConfig.script_name' (FixedString128, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'Quatf.w' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Quatf.x' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Quatf.y' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Quatf.z' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Vec2f.x' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'Vec2f.y' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'SpeechToTextSettings.model_path' (FixedString256, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'TemplateConfig.gain' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'TemplateConfig.threshold' (int, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'TemplateInputs.angle' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'TemplateInputs.sensor_value' (int, kind=integer).",
+    "Missing default_value in schema metadata for primitive field 'TemplateInputs.sensor_label' (FixedString16, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'TemplateOutputs.command' (float, kind=number).",
+    "Missing default_value in schema metadata for primitive field 'WavPlayerConfig.file_path' (FixedString256, kind=string).",
+    "Missing default_value in schema metadata for primitive field 'WavRecorderConfig.file_path' (FixedString256, kind=string)."
   ]
 }

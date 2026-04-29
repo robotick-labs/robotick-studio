@@ -13,6 +13,18 @@ from robotick.launcher.runtime_lock import apply_runtime_lock
 
 router = APIRouter(prefix="/query", tags=["query"])
 
+_HARDCODED_FIELD_DEFAULTS: Dict[tuple[str, str], str] = {
+    ("Vec2f", "x"): "0.0",
+    ("Vec2f", "y"): "0.0",
+    ("Vec3f", "x"): "0.0",
+    ("Vec3f", "y"): "0.0",
+    ("Vec3f", "z"): "0.0",
+    ("Quatf", "w"): "1.0",
+    ("Quatf", "x"): "0.0",
+    ("Quatf", "y"): "0.0",
+    ("Quatf", "z"): "0.0",
+}
+
 
 class _DiscoveryConfig:
     def __init__(
@@ -416,16 +428,36 @@ def get_workloads_registry(
                 type_entry[opt_key] = meta[opt_key]
         types_map[type_name] = type_entry
 
+    primitive_kind_by_type: Dict[str, str] = {}
+    for primitive_name, primitive_meta in shared_primitives.items():
+        primitive_kind = primitive_meta.get("primitive_kind")
+        if isinstance(primitive_kind, str):
+            primitive_kind_by_type[primitive_name] = primitive_kind
+
     for type_name, sdef in shared_structs.items():
         fields: List[Dict[str, Any]] = []
         for field in sdef.get("fields", []) or []:
+            field_name = field.get("field_name", "")
+            field_type = field.get("field_type_name", "")
             field_entry: Dict[str, Any] = {
-                "name": field.get("field_name", ""),
-                "type": field.get("field_type_name", ""),
+                "name": field_name,
+                "type": field_type,
                 "element_count": 1,
             }
             if "default_value" in field:
                 field_entry["default_value"] = field.get("default_value")
+            else:
+                hardcoded_default = _HARDCODED_FIELD_DEFAULTS.get((type_name, field_name))
+                if hardcoded_default is not None:
+                    field_entry["default_value"] = hardcoded_default
+                    fields.append(field_entry)
+                    continue
+                primitive_kind = primitive_kind_by_type.get(field_type)
+                if primitive_kind is not None:
+                    validation_errors.append(
+                        "Missing default_value in schema metadata for primitive field "
+                        f"'{type_name}.{field_name}' ({field_type}, kind={primitive_kind})."
+                    )
             fields.append(field_entry)
         types_map[type_name] = {
             "name": type_name,

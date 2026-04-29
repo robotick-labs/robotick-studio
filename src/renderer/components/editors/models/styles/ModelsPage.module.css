@@ -80,7 +80,37 @@
 
 .propSection {
   border-top: 1px solid #0a0e16;
-  padding-top: 8px;
+  padding-top: 28px;
+}
+
+.propSectionSummary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.propSectionSummary::-webkit-details-marker {
+  display: none;
+}
+
+.propSectionSummary::before {
+  content: "▾";
+  color: rgba(183, 194, 216, 0.8);
+  font-size: 12px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.propSection:not([open]) .propSectionSummary::before {
+  content: "▸";
+}
+
+.propSectionHeading {
+  margin: 0;
+  font-size: 1.12rem;
 }
 
 .propSection label {
@@ -182,6 +212,43 @@
   grid-template-columns: minmax(110px, 1fr) minmax(140px, 1.5fr) auto;
   align-items: center;
   gap: 8px;
+}
+
+.propComposite {
+  margin: 0;
+}
+
+.propCompositeSummary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.propCompositeSummary::-webkit-details-marker {
+  display: none;
+}
+
+.propCompositeSummary::before {
+  content: "▾";
+  color: rgba(183, 194, 216, 0.8);
+  font-size: 12px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.propComposite:not([open]) .propCompositeSummary::before {
+  content: "▸";
+}
+
+.propCompositeSummary > .propRow {
+  flex: 1 1 auto;
+}
+
+.propCompositeBody {
+  margin-left: 16px;
+  margin-top: 6px;
 }
 
 .propLabel {
