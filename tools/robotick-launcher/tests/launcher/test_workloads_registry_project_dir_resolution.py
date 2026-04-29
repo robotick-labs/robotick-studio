@@ -40,5 +40,5 @@ def test_workloads_registry_resolves_project_dir_tokens(tmp_path: Path):
     result = get_workloads_registry(project_path=project_path, target="linux")
 
     assert result["target"] == "linux"
-    assert len(result["registry"]) == 1
-    assert result["registry"][0]["type"] == "DemoWorkload"
+    assert len(result["workloads"]) == 1
+    assert result["workloads"][0]["type"] == "DemoWorkload"

@@ -11,8 +11,11 @@ def test_workloads_registry_matches_golden():
     result = get_workloads_registry(project_path=TEST_PROJECT, target="linux")
     assert result["target"] == "linux"
     assert result["project"].endswith("test-project.project.yaml")
-    assert isinstance(result["registry"], list)
-    assert len(result["registry"]) > 0
-    first = result["registry"][0]
+    assert isinstance(result["workloads"], list)
+    assert len(result["workloads"]) > 0
+    first = result["workloads"][0]
     assert isinstance(first.get("type"), str)
-    assert isinstance(first.get("metadata"), dict)
+    assert "name" not in first
+    assert isinstance(result.get("types"), list)
+    assert len(result["types"]) > 0
+    assert isinstance(result.get("writable_inputs"), list)

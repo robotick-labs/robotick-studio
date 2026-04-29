@@ -126,6 +126,30 @@ export type WorkloadsRegistryResponse = {
   project: string;
   target: string;
   registry: WorkloadsRegistryEntry[];
+  shared_types?: {
+    primitives?: Record<
+      string,
+      {
+        type_name?: string;
+        category?: string;
+        primitive_kind?: string;
+        mime_type?: string;
+        format?: string;
+        capacity?: string;
+      }
+    >;
+    structs?: Record<
+      string,
+      {
+        type_name?: string | null;
+        fields?: Array<{
+          field_name: string;
+          field_type_name: string;
+          default_value?: string;
+        }>;
+      }
+    >;
+  };
 };
 
 const projectListeners = new Set<ProjectChangedListener>();
