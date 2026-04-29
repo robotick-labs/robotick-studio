@@ -1240,6 +1240,7 @@ function PanelNodeView({
 
   return (
     <PanelLeaf
+      key={node.id}
       node={node}
       editorOptions={editorOptions}
       onContextMenu={onContextMenu}

@@ -81,8 +81,8 @@ export function initNodeGraph(
   const layers = createSvgLayers(svgElement);
 
   const router = new RectilinearRouter();
-  const view = new SvgView(svgElement, layers, router);
   const selectionScope = options?.selectionScope ?? "default";
+  const view = new SvgView(svgElement, layers, router, selectionScope);
   const selectionController = new SelectionController(svgElement, selectionScope);
   const slotDragController = new SlotDragController(svgElement, doc, store);
   let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
@@ -110,7 +110,14 @@ export function initNodeGraph(
 
   // ——— Graph-specific events (kept local to this module) ———
   const plusClickHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ sectionIndex: number; laneIndex: number }>;
+    const ce = e as CustomEvent<{
+      sectionIndex: number;
+      laneIndex: number;
+      scope?: string;
+    }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
     const { sectionIndex, laneIndex } = ce.detail;
     const section = doc.sections[sectionIndex];
     const modelId = section.modelId;
@@ -123,7 +130,14 @@ export function initNodeGraph(
   };
 
   const renameHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ nodeId: string; newName: string }>;
+    const ce = e as CustomEvent<{
+      nodeId: string;
+      newName: string;
+      scope?: string;
+    }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
     const { nodeId, newName } = ce.detail;
     const n = doc.getNode(nodeId);
     if (!n) return;
@@ -132,11 +146,11 @@ export function initNodeGraph(
     // No manual render: handled by store subscription
   };
 
-  window.addEventListener(
+  svgElement.addEventListener(
     "models-graph:plus-click",
     plusClickHandler as EventListener
   );
-  window.addEventListener(
+  svgElement.addEventListener(
     "models-graph:rename-requested",
     renameHandler as EventListener
   );
@@ -167,11 +181,11 @@ export function initNodeGraph(
   const dispose = () => {
     // Clean up all listeners we installed
     unsubscribeStore?.();
-    window.removeEventListener(
+    svgElement.removeEventListener(
       "models-graph:plus-click",
       plusClickHandler as EventListener
     );
-    window.removeEventListener(
+    svgElement.removeEventListener(
       "models-graph:rename-requested",
       renameHandler as EventListener
     );

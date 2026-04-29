@@ -45,7 +45,8 @@ export class SvgView {
   constructor(
     private svg: SVGSVGElement,
     private layers: Layers,
-    private router: ConnectionRouter
+    private router: ConnectionRouter,
+    private eventScope: string = "default"
   ) {}
 
   render(
@@ -187,9 +188,10 @@ export class SvgView {
       label.textContent = modelLabel;
 
       const fireToggle = () =>
-        window.dispatchEvent(
+        this.svg.dispatchEvent(
           new CustomEvent("models-graph:toggle-model-collapsed", {
-            detail: { modelId: s.modelId },
+            detail: { modelId: s.modelId, scope: this.eventScope },
+            bubbles: true,
           })
         );
       header.addEventListener("click", fireToggle);
@@ -206,7 +208,9 @@ export class SvgView {
   }
 
   private ensureNode(n: Node): SVGGElement {
-    let g = this.svg.getElementById(n.id) as SVGGElement | null;
+    let g = Array.from(this.layers.nodes.querySelectorAll("g.workload-node")).find(
+      (el): el is SVGGElement => el instanceof SVGGElement && el.id === n.id
+    );
     if (!g) {
       g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       g.id = n.id;
@@ -556,9 +560,14 @@ export class SvgView {
         });
 
         const fire = () =>
-          window.dispatchEvent(
+          this.svg.dispatchEvent(
             new CustomEvent("models-graph:plus-click", {
-              detail: { sectionIndex: s.index, laneIndex: lane },
+              detail: {
+                sectionIndex: s.index,
+                laneIndex: lane,
+                scope: this.eventScope,
+              },
+              bubbles: true,
             })
           );
 

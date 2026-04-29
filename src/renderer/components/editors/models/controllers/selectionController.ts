@@ -14,9 +14,10 @@ export class SelectionController {
     if (nodeKind === "collapsed-model") {
       const modelId = g?.getAttribute("data-model-id");
       if (modelId) {
-        window.dispatchEvent(
+        this.svg.dispatchEvent(
           new CustomEvent("models-graph:toggle-model-collapsed", {
-            detail: { modelId },
+            detail: { modelId, scope: this.selectionScope },
+            bubbles: true,
           })
         );
       }
