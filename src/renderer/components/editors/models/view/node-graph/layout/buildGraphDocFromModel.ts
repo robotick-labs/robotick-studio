@@ -15,7 +15,7 @@ const lanePadY = (laneHeight - nodeSize.height) / 2;
 const sectionHeaderX = 24;
 const modelHeaderYFromSectionStart = -52;
 const modelHeaderHeight = 52;
-const modelToNextHeaderGap = 20;
+const modelToNextHeaderGap = 40;
 
 export interface LayoutSummary {
   sections: Section[];
