@@ -221,6 +221,11 @@
   cursor: default;
 }
 
+.propRevertGhost {
+  background: transparent;
+  border: 1px solid rgba(183, 194, 216, 0.35);
+}
+
 .propLoadingWrap {
   min-height: 120px;
   display: grid;

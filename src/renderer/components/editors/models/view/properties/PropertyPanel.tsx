@@ -319,6 +319,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
             schemaFields={configFields}
             structs={schemaStructs}
             values={workload.config ?? {}}
+            readOnly={true}
             onRevert={(fieldPath) =>
               store.clearWorkloadFieldOverride(
                 modelId,
@@ -333,6 +334,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
             schemaFields={inputsFields}
             structs={schemaStructs}
             values={workload.inputs ?? {}}
+            readOnly={true}
             onRevert={(fieldPath) =>
               store.clearWorkloadFieldOverride(
                 modelId,
@@ -347,6 +349,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
             schemaFields={outputsFields}
             structs={schemaStructs}
             values={workload.outputs ?? {}}
+            readOnly={true}
             onRevert={(fieldPath) =>
               store.clearWorkloadFieldOverride(
                 modelId,
@@ -399,12 +402,14 @@ function SchemaSection({
   schemaFields,
   structs,
   values,
+  readOnly,
   onRevert,
 }: {
   title: string;
   schemaFields: WorkloadsRegistryField[];
   structs: Record<string, WorkloadsRegistryStruct>;
   values: Record<string, unknown>;
+  readOnly: boolean;
   onRevert: (fieldPath: string) => void;
 }) {
   if (schemaFields.length === 0) {
@@ -432,6 +437,7 @@ function SchemaSection({
                 cppType={field.type}
                 fieldPath={field.name}
                 hasOverride={hasOverride}
+                readOnly={readOnly}
                 onRevert={() => onRevert(field.name)}
               />
             ) : (
@@ -442,6 +448,7 @@ function SchemaSection({
                 cppType={field.type}
                 hasOverride={hasOverride}
                 showRevert={true}
+                readOnly={readOnly}
                 onRevert={() => onRevert(field.name)}
               />
             )}
@@ -451,6 +458,7 @@ function SchemaSection({
                 struct={nestedStruct}
                 structs={structs}
                 value={rawValue}
+                readOnly={readOnly}
                 onRevert={onRevert}
               />
             ) : null}
@@ -466,12 +474,14 @@ function NestedStructFields({
   struct,
   structs,
   value,
+  readOnly,
   onRevert,
 }: {
   path: string;
   struct: WorkloadsRegistryStruct;
   structs: Record<string, WorkloadsRegistryStruct>;
   value: unknown;
+  readOnly: boolean;
   onRevert: (fieldPath: string) => void;
 }) {
   if (!isPlainObject(value) || !Array.isArray(struct.fields) || struct.fields.length === 0) {
@@ -494,6 +504,7 @@ function NestedStructFields({
                 cppType={field.type}
                 fieldPath={childPath}
                 hasOverride={hasOverride}
+                readOnly={readOnly}
                 onRevert={() => onRevert(childPath)}
               />
             ) : (
@@ -504,6 +515,7 @@ function NestedStructFields({
                 cppType={field.type}
                 hasOverride={hasOverride}
                 showRevert={true}
+                readOnly={readOnly}
                 onRevert={() => onRevert(childPath)}
               />
             )}
@@ -513,6 +525,7 @@ function NestedStructFields({
                 struct={childStruct}
                 structs={structs}
                 value={childValue}
+                readOnly={readOnly}
                 onRevert={onRevert}
               />
             ) : null}
@@ -528,12 +541,14 @@ function CompositeFieldLabel({
   cppType,
   fieldPath,
   hasOverride,
+  readOnly,
   onRevert,
 }: {
   label: string;
   cppType: string;
   fieldPath: string;
   hasOverride: boolean;
+  readOnly: boolean;
   onRevert: () => void;
 }) {
   return (
@@ -546,9 +561,9 @@ function CompositeFieldLabel({
       </div>
       <button
         type="button"
-        className={styles.propRevert}
+        className={`${styles.propRevert} ${!hasOverride ? styles.propRevertGhost : ""}`}
         onClick={onRevert}
-        disabled={!hasOverride}
+        disabled={!hasOverride || readOnly}
         aria-label={`Revert ${fieldPath}`}
         title={`Revert ${fieldPath}`}
       >
@@ -565,6 +580,7 @@ function FieldRow({
   cppType,
   hasOverride,
   showRevert,
+  readOnly,
   onRevert,
 }: {
   fieldPath: string;
@@ -573,6 +589,7 @@ function FieldRow({
   cppType: string;
   hasOverride: boolean;
   showRevert: boolean;
+  readOnly: boolean;
   onRevert: () => void;
 }) {
   return (
@@ -591,9 +608,9 @@ function FieldRow({
       {showRevert ? (
         <button
           type="button"
-          className={styles.propRevert}
+          className={`${styles.propRevert} ${!hasOverride ? styles.propRevertGhost : ""}`}
           onClick={onRevert}
-          disabled={!hasOverride}
+          disabled={!hasOverride || readOnly}
           aria-label={`Revert ${fieldPath}`}
           title={`Revert ${fieldPath}`}
         >
@@ -625,6 +642,7 @@ function PropertySection({
           cppType={field.type}
           hasOverride={false}
           showRevert={false}
+          readOnly={true}
           onRevert={() => {}}
         />
       ))}
