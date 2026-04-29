@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 import json
 import jsonschema
+from jsonschema import Draft4Validator
 
 from robotick.launcher.actions.query.list import list_projects, list_project_models
 from robotick.launcher.discover_workloads import discover_workloads_metadata
@@ -46,36 +47,41 @@ class _DiscoveryConfig:
         return path
 
 
-def _resolve_workloads_layout_schema_path(config: _DiscoveryConfig) -> Path:
+def _resolve_engine_schema_path(config: _DiscoveryConfig, schema_filename: str) -> Path:
     runtime_engine = (config.runtime or {}).get("engine") or {}
     engine_root = config.resolve_project_path(
         runtime_engine.get("local_path") or runtime_engine.get("path_override") or ""
     )
     candidates = [
-        engine_root / "schemas" / "workloads_layout.schema.json",
+        engine_root / "schemas" / schema_filename,
         Path(__file__).resolve().parents[6]
         / "robotick-engine"
         / "schemas"
-        / "workloads_layout.schema.json",
+        / schema_filename,
         Path(__file__).resolve().parents[4]
         / "tests"
         / "test_data"
         / "robotick"
         / "robotick-engine"
         / "schemas"
-        / "workloads_layout.schema.json",
+        / schema_filename,
     ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
     raise FileNotFoundError(
-        "Unable to locate workloads layout schema in engine roots. "
-        "Expected at <engine>/schemas/workloads_layout.schema.json."
+        f"Unable to locate engine schema '{schema_filename}' in engine roots. "
+        f"Expected at <engine>/schemas/{schema_filename}."
     )
 
 
 def _load_workloads_layout_schema(config: _DiscoveryConfig) -> Dict[str, Any]:
-    schema_path = _resolve_workloads_layout_schema_path(config)
+    schema_path = _resolve_engine_schema_path(config, "workloads_layout.schema.json")
+    return json.loads(schema_path.read_text(encoding="utf-8"))
+
+
+def _load_core_model_schema(config: _DiscoveryConfig) -> Dict[str, Any]:
+    schema_path = _resolve_engine_schema_path(config, "core_model_envelope.schema.json")
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
@@ -84,6 +90,48 @@ def _validate_workloads_layout_payload(
 ) -> None:
     schema = _load_workloads_layout_schema(config)
     jsonschema.validate(instance=payload, schema=schema)
+
+
+def _format_validation_error_path(err: jsonschema.ValidationError) -> str:
+    parts: List[str] = []
+    for item in err.absolute_path:
+        if isinstance(item, int):
+            parts.append(f"[{item}]")
+        else:
+            if parts:
+                parts.append(f".{item}")
+            else:
+                parts.append(str(item))
+    return "".join(parts) if parts else "$"
+
+
+def _validate_core_model_yaml_against_schema(
+    config: _DiscoveryConfig, project_path: Path, project_data: Dict[str, Any]
+) -> List[str]:
+    schema = _load_core_model_schema(config)
+    validator = Draft4Validator(schema)
+    errors: List[str] = []
+
+    for err in validator.iter_errors(project_data):
+        errors.append(f"project.yaml:{_format_validation_error_path(err)}: {err.message}")
+
+    try:
+        model_paths = list_project_models(str(project_path.resolve()))
+    except Exception:
+        model_paths = []
+
+    base_dir = project_path.parent.resolve()
+    for rel_path in model_paths:
+        model_path = (base_dir / rel_path).resolve()
+        if not model_path.exists():
+            continue
+        model_data = _load_yaml_as_json(model_path)
+        for err in validator.iter_errors(model_data):
+            errors.append(
+                f"{rel_path}:{_format_validation_error_path(err)}: {err.message}"
+            )
+
+    return errors
 
 
 @router.get("/list-projects", response_model=List[str])
@@ -275,6 +323,9 @@ def get_workloads_registry(
         target=target,
         project_name=project_name,
     )
+    validation_errors = _validate_core_model_yaml_against_schema(
+        discovery_config, project_path_full, project_data
+    )
     discovered = discover_workloads_metadata(discovery_config)
 
     workloads: List[Dict[str, Any]] = []
@@ -342,6 +393,9 @@ def get_workloads_registry(
                 workload_entry[key] = {"type": sdef["name"]}
         if "schema_error" in metadata:
             workload_entry["schema_error"] = metadata["schema_error"]
+            validation_errors.append(
+                f"{entry['name']}:$: {metadata['schema_error']}"
+            )
         workloads.append(workload_entry)
 
     types_map: Dict[str, Dict[str, Any]] = {}
@@ -385,6 +439,7 @@ def get_workloads_registry(
         "workloads": sorted(workloads, key=lambda w: str(w.get("name", ""))),
         "types": sorted(types_map.values(), key=lambda t: str(t.get("name", ""))),
         "writable_inputs": [],
+        "validation_errors": validation_errors,
     }
     try:
         _validate_workloads_layout_payload(payload, discovery_config)
@@ -395,3 +450,29 @@ def get_workloads_registry(
         ) from exc
 
     return payload
+
+
+@router.get("/get-core-model-schema", response_class=JSONResponse)
+def get_core_model_schema(
+    project_path: Path = Query(
+        ..., description="Absolute path to the project YAML file"
+    ),
+    target: str = Query(
+        "linux", description="Target platform used for schema resolution"
+    ),
+):
+    project_path_full = project_path.resolve()
+    if not project_path_full.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Project file not found: {project_path_full}"
+        )
+    base_dir = project_path_full.parent.resolve()
+    project_name = project_path_full.stem.removesuffix(".project")
+    project_data = _load_yaml_as_json(project_path_full)
+    discovery_config = _DiscoveryConfig(
+        base_dir=base_dir,
+        project_data=project_data,
+        target=target,
+        project_name=project_name,
+    )
+    return _load_core_model_schema(discovery_config)

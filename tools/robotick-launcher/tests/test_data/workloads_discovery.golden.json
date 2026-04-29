@@ -3230,5 +3230,9 @@
       "primitive_kind": "integer"
     }
   ],
-  "writable_inputs": []
+  "writable_inputs": [],
+  "validation_errors": [
+    "HelloWorkload:$: Missing registration for referenced type 'HelloStatus' (from 'HelloOutputs').",
+    "MqttClientWorkload:$: Missing registration for referenced type 'MqttOpResult' (from 'MqttClientOutputs')."
+  ]
 }
