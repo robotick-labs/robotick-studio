@@ -154,6 +154,12 @@ export type {
   ProjectSettingsSummary,
 } from "./internal/react-api";
 export type {
+  WorkloadsRegistryEntry,
+  WorkloadsRegistryField,
+  WorkloadsRegistryResponse,
+  WorkloadsRegistryStruct,
+} from "./internal/launcher-interface";
+export type {
   RcModuleDescriptor,
   RcSettingsResponse,
 } from "./internal/remote-control-types";

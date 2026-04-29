@@ -34,6 +34,15 @@ class _DiscoveryConfig:
             self.target,
         )
 
+    def resolve_project_path(self, raw: str) -> Path:
+        value = str(raw or "").replace("${PROJECT_DIR}", str(self.base_dir))
+        path = Path(value)
+        if not path.is_absolute():
+            path = (self.base_dir / path).resolve()
+        else:
+            path = path.resolve()
+        return path
+
 
 @router.get("/list-projects", response_model=List[str])
 def get_projects(base_dir: str = "."):

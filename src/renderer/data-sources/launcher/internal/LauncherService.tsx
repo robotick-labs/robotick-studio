@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useMemo } from "react";
-import type { ProjectModelDescriptor } from "./launcher-interface";
+import type {
+  ProjectModelDescriptor,
+  WorkloadsRegistryResponse,
+} from "./launcher-interface";
 import currentProject from "./launcher-interface";
 
 /**
@@ -29,6 +32,10 @@ export interface LauncherService {
     signal?: AbortSignal
   ): Promise<T>;
   fetchProjectModelPaths(projectPath: string): Promise<string[]>;
+  fetchProjectWorkloadsRegistry(
+    projectPath: string,
+    target?: string
+  ): Promise<WorkloadsRegistryResponse>;
 
   getProjectModels(
     projectPath?: string

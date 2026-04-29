@@ -10,6 +10,7 @@ import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
 const useProjectContext = Project.Context.use;
 
 import { DocumentStore } from "./document/documentStore";
+import { editorSelectionStore } from "./document/editorSelectionStore";
 import {
   initNodeGraph,
   type EdgeVisibilityMode,
@@ -138,7 +139,12 @@ export default function ModelsPage() {
           }
         );
         graphApiRef.current = graphApi;
-        panelApi = initPropertyPanel(panelElement, store, selectionScopeKey);
+        panelApi = initPropertyPanel(
+          panelElement,
+          store,
+          selectionScopeKey,
+          projectPath
+        );
         const storedViewport = readViewport(viewportStorageKey);
         if (storedViewport) {
           setViewBox(graphElement, storedViewport);
@@ -226,6 +232,10 @@ export default function ModelsPage() {
       selectedNodeId,
     });
   }, [edgeVisibilityMode, panelViewStateStorageKey, selectedNodeId]);
+
+  useEffect(() => {
+    editorSelectionStore.setSelection(selectedNodeId, selectionScopeKey);
+  }, [selectedNodeId, selectionScopeKey]);
 
   useEffect(() => {
     const graphApi = graphApiRef.current;

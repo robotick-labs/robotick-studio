@@ -5,8 +5,9 @@ export interface Workload {
   type?: string;
   tick_rate_hz: number;
   children?: string[];
-  config: Record<string, string>;
-  inputs: Record<string, string>;
+  config: Record<string, unknown>;
+  inputs: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
 }
 
 export interface DirectConnection {

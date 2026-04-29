@@ -103,6 +103,31 @@ export interface ProjectModelDescriptor<T = unknown> {
   data: T;
 }
 
+export type WorkloadsRegistryField = {
+  name: string;
+  type: string;
+  default?: string;
+};
+
+export type WorkloadsRegistryStruct = {
+  name?: string | null;
+  fields?: WorkloadsRegistryField[];
+};
+
+export type WorkloadsRegistryEntry = {
+  type: string;
+  metadata?: {
+    name?: string;
+    structs?: Record<string, WorkloadsRegistryStruct>;
+  };
+};
+
+export type WorkloadsRegistryResponse = {
+  project: string;
+  target: string;
+  registry: WorkloadsRegistryEntry[];
+};
+
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
 
@@ -513,6 +538,22 @@ async function fetchProjectModelData(
   return await fetchJSON(url);
 }
 
+export async function fetchProjectWorkloadsRegistry(
+  projectPath: string,
+  target = "linux"
+): Promise<WorkloadsRegistryResponse> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(
+    LAUNCHER_LOCAL_API_BASE,
+    "/query/get-workloads-registry",
+    {
+      project_path: normalizedProjectPath,
+      target,
+    }
+  );
+  return await fetchJSON<WorkloadsRegistryResponse>(url);
+}
+
 async function buildModelDescriptors(
   projectPath: string
 ): Promise<ProjectModelDescriptor[]> {
@@ -655,6 +696,7 @@ const currentProject: LauncherService = {
   fetchProjectSettingsData,
   fetchProjectRemoteControlSettings,
   fetchProjectModelPaths,
+  fetchProjectWorkloadsRegistry,
   getProjectModels,
   refreshProjectModels,
   clearProjectModelCache: invalidateModelCache,

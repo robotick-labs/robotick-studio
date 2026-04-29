@@ -445,4 +445,45 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(models).toHaveLength(1);
     expect(models[0]?.preferredTelemetrySampleRateHz).toBe(7.5);
   });
+
+  it("loads workloads registry metadata for a project/target", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/query/get-workloads-registry") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      expect(url.searchParams.get("project_path")).toBe("/tmp/sample-robot");
+      expect(url.searchParams.get("target")).toBe("linux");
+      return createJsonResponse({
+        project: "/tmp/sample-robot",
+        target: "linux",
+        registry: [
+          {
+            type: "SampleWorkload",
+            metadata: {
+              name: "SampleWorkload",
+              structs: {
+                config: {
+                  name: "SampleConfig",
+                  fields: [{ name: "enabled", type: "bool", default: "true" }],
+                },
+              },
+            },
+          },
+        ],
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+    const result = await launcherInterface.fetchProjectWorkloadsRegistry(
+      "/tmp/sample-robot",
+      "linux"
+    );
+
+    expect(result.registry).toHaveLength(1);
+    expect(result.registry[0]?.type).toBe("SampleWorkload");
+  });
 });

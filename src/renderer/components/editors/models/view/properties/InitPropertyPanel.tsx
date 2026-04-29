@@ -12,7 +12,8 @@ export type PropertyPanelAPI = {
 export function initPropertyPanel(
   hostElement: HTMLElement | null,
   store: DocumentStore,
-  selectionScope: string
+  selectionScope: string,
+  projectPath: string
 ): PropertyPanelAPI {
   if (!hostElement) {
     throw new Error("initPropertyPanel requires a host element");
@@ -20,7 +21,13 @@ export function initPropertyPanel(
   const root: Root = createRoot(hostElement);
 
   const render = () => {
-    root.render(<PropertyPanel store={store} selectionScope={selectionScope} />);
+    root.render(
+      <PropertyPanel
+        store={store}
+        selectionScope={selectionScope}
+        projectPath={projectPath}
+      />
+    );
   };
 
   render();

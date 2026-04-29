@@ -6,6 +6,8 @@ export interface WorkloadSpec {
   type?: string;
 }
 
+type WorkloadSection = "config" | "inputs" | "outputs";
+
 export class DocumentStore {
   private listeners = new Set<() => void>();
 
@@ -124,5 +126,44 @@ export class DocumentStore {
     }
     this.version++;
     this.notify();
+  }
+
+  clearWorkloadFieldOverride(
+    modelId: string,
+    workloadName: string,
+    section: WorkloadSection,
+    fieldPath: string
+  ) {
+    const model = this.models.get(modelId);
+    if (!model) return;
+    const workload = model.workloads.find((w) => w.name === workloadName);
+    if (!workload) return;
+
+    const sectionValues = workload[section];
+    if (!sectionValues || typeof sectionValues !== "object") return;
+
+    const path = fieldPath.split(".").filter(Boolean);
+    if (path.length === 0) return;
+
+    unsetAtPath(sectionValues as Record<string, unknown>, path);
+    this.version++;
+    this.notify();
+  }
+}
+
+function unsetAtPath(target: Record<string, unknown>, path: string[]) {
+  const [head, ...tail] = path;
+  if (!head) return;
+  if (tail.length === 0) {
+    delete target[head];
+    return;
+  }
+  const next = target[head];
+  if (!next || typeof next !== "object" || Array.isArray(next)) {
+    return;
+  }
+  unsetAtPath(next as Record<string, unknown>, tail);
+  if (Object.keys(next as Record<string, unknown>).length === 0) {
+    delete target[head];
   }
 }
