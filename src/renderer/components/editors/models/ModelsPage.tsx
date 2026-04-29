@@ -312,7 +312,7 @@ export default function ModelsPage() {
               id="models-edge-visibility"
               value={edgeVisibilityMode}
               onChange={(event) =>
-                setEdgeVisibilityMode(event.target.value as EdgeVisibilityMode)
+                setEdgeVisibilityMode(event.target.value as EdcgeVisibilityMode)
               }
             >
               <option value="none">None</option>

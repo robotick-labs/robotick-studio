@@ -240,14 +240,16 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
   return (
     <div>
-      <PanelHeader
-        loading={schemaState.loading}
-        onRefresh={() => void loadSchema(true)}
-      />
-      <h3>
-        <span>Properties</span>{" "}
-        <span style={{ fontWeight: "normal" }}>| {workloadType || "Unknown"}</span>
-      </h3>
+      <div className={styles.propTitleRow}>
+        <h3>
+          <span>Properties</span>{" "}
+          <span style={{ fontWeight: "normal" }}>| {workloadType || "Unknown"}</span>
+        </h3>
+        <PanelHeader
+          loading={schemaState.loading}
+          onRefresh={() => void loadSchema(true)}
+        />
+      </div>
       <ErrorViewer errors={allErrors} />
 
       <PropertySection
@@ -344,7 +346,7 @@ function PanelHeader({
             <span>.</span>
           </span>
         ) : (
-          "Refresh metadata"
+          "Refresh"
         )}
       </button>
     </div>
@@ -995,13 +997,64 @@ function validateSection(
   for (const [name, value] of Object.entries(values)) {
     const schema = schemaByName.get(name);
     if (!schema) {
-      errors.push(`Unknown ${section} field in YAML: '${name}'.`);
+      if (
+        !validateDottedSchemaPath(
+          section,
+          name,
+          value,
+          schemaByName,
+          structs,
+          errors
+        )
+      ) {
+        errors.push(`Unknown ${section} field in YAML: '${name}'.`);
+      }
       continue;
     }
     validateValueAgainstType(`${section}.${name}`, value, schema.type, structs, errors);
   }
 
   return errors;
+}
+
+function validateDottedSchemaPath(
+  section: "config" | "inputs" | "outputs",
+  fieldPath: string,
+  value: unknown,
+  schemaByName: Map<string, WorkloadsRegistryField>,
+  structs: Record<string, WorkloadsRegistryStruct>,
+  errors: string[]
+): boolean {
+  if (!fieldPath.includes(".")) {
+    return false;
+  }
+
+  const segments = fieldPath.split(".").filter((segment) => segment.length > 0);
+  if (segments.length < 2) {
+    return false;
+  }
+
+  const [rootName, ...nestedSegments] = segments;
+  const rootField = schemaByName.get(rootName);
+  if (!rootField) {
+    return false;
+  }
+
+  let currentType = rootField.type;
+  for (const segment of nestedSegments) {
+    const currentStruct = resolveStructType(structs, currentType);
+    if (!currentStruct) {
+      return false;
+    }
+    const child = (currentStruct.fields ?? []).find((field) => field.name === segment);
+    if (!child) {
+      return false;
+    }
+    currentType = child.type;
+  }
+
+  validateValueAgainstType(`${section}.${fieldPath}`, value, currentType, structs, errors);
+  return true;
 }
 
 function validateValueAgainstType(

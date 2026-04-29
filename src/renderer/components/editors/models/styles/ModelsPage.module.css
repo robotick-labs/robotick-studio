@@ -79,7 +79,6 @@
 }
 
 .propSection {
-  border-top: 1px solid #0a0e16;
   padding-top: 28px;
 }
 
@@ -154,7 +153,18 @@
 .propPanelHeader {
   display: flex;
   justify-content: flex-end;
+}
+
+.propTitleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 8px;
+}
+
+.propTitleRow h3 {
+  margin: 0;
 }
 
 .propButton {
@@ -165,7 +175,7 @@
   background: rgba(12, 147, 225, 0.2);
   color: rgba(255, 255, 255, 0.92);
   border-radius: 8px;
-  min-width: 116px;
+  min-width: 74px;
   min-height: 30px;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
