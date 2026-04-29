@@ -2,7 +2,13 @@ import type { Workload } from "../../../document/modelData.js";
 
 export type NodeId = string;
 
-export type NodeKind = "workload" | "group" | "label" | "collapsed-model" | "stub";
+export type NodeKind =
+  | "workload"
+  | "group"
+  | "label"
+  | "model"
+  | "collapsed-model"
+  | "stub";
 
 export interface Node {
   id: NodeId;
@@ -19,6 +25,8 @@ export interface Node {
     type?: string;
     children?: NodeId[];
     section?: number;
+    collapsed?: boolean;
+    subtitle?: string;
     stubDirection?: "incoming" | "outgoing";
   };
 }

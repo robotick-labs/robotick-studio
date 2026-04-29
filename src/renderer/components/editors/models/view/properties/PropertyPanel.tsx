@@ -103,7 +103,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
       return null;
     }
     const [base, wname] = selectedId.split(":", 2);
-    if (!base || !wname) {
+    if (!base || !wname || wname === "__model__") {
       return null;
     }
     for (const [modelId, model] of store.entries()) {
@@ -120,7 +120,27 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
     return null;
   }, [selectedId, store]);
 
-  if (!selectedWorkload) {
+  const selectedModel = useMemo(() => {
+    if (!selectedId) {
+      return null;
+    }
+    const [base, localId] = selectedId.split(":", 2);
+    if (!base || localId !== "__model__") {
+      return null;
+    }
+    for (const [modelId, model] of store.entries()) {
+      const modelBase = modelId
+        .split("/")
+        .pop()
+        ?.replace(/\.model\.yaml$/, "");
+      if (modelBase === base) {
+        return { modelId, model };
+      }
+    }
+    return null;
+  }, [selectedId, store]);
+
+  if (!selectedWorkload && !selectedModel) {
     return (
       <div>
         <PanelHeader
@@ -128,12 +148,85 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           onRefresh={() => void loadSchema(true)}
         />
         <p>Select a workload node to inspect schema-backed properties.</p>
+        <ErrorViewer errors={[]} />
+      </div>
+    );
+  }
+
+  if (selectedModel) {
+    const { modelId, model } = selectedModel;
+    const modelName =
+      typeof model.name === "string" && model.name.trim()
+        ? model.name
+        : modelId.split("/").pop()?.replace(/\.model\.yaml$/, "") ?? modelId;
+    const telemetry = model.telemetry ?? {};
+    const remoteModels = model.remote_models ?? [];
+    return (
+      <div>
+        <PanelHeader
+          loading={schemaState.loading}
+          onRefresh={() => void loadSchema(true)}
+        />
+        <h3>
+          <span>Model</span>{" "}
+          <span style={{ fontWeight: "normal" }}>| {modelName}</span>
+        </h3>
+
+        <PropertySection
+          title="Core"
+          fields={[
+            { name: "name", type: "std::string", value: model.name },
+            { name: "file", type: "path", value: modelId },
+            { name: "root", type: "std::string", value: model.root },
+          ]}
+        />
+
+        <PropertySection
+          title="Telemetry"
+          fields={buildTelemetryFields(telemetry)}
+        />
+
+        <PropertySection
+          title="Structure"
+          fields={[
+            {
+              name: "workloads",
+              type: "count",
+              value: model.workloads.length,
+            },
+            {
+              name: "connections",
+              type: "count",
+              value: model.connections?.length ?? 0,
+            },
+            {
+              name: "remote_models",
+              type: "count",
+              value: remoteModels.length,
+            },
+          ]}
+        />
+
+        {remoteModels.length > 0 ? (
+          <PropertySection
+            title="Remote Models"
+            fields={remoteModels.map((remote, index) => ({
+              name: remote.name || `remote_${index + 1}`,
+              type: "RemoteModelSpec",
+              value: {
+                name: remote.name,
+                connections: remote.connections?.length ?? 0,
+              },
+            }))}
+          />
+        ) : null}
+
         <ErrorViewer errors={schemaState.error ? [schemaState.error] : []} />
       </div>
     );
   }
 
-  const { modelId, workload } = selectedWorkload;
+  const { modelId, workload } = selectedWorkload!;
   const workloadType = workload.type?.trim() ?? "";
   const schemaEntry = workloadType ? schemaState.byType.get(workloadType) : undefined;
   const schemaStructs = schemaEntry?.metadata?.structs ?? {};
@@ -167,7 +260,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
       <SchemaSection
         title="Config"
-        section="config"
         schemaFields={getStructByName(schemaStructs, "config")?.fields ?? []}
         structs={schemaStructs}
         values={workload.config ?? {}}
@@ -177,7 +269,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
       />
       <SchemaSection
         title="Inputs"
-        section="inputs"
         schemaFields={getStructByName(schemaStructs, "inputs")?.fields ?? []}
         structs={schemaStructs}
         values={workload.inputs ?? {}}
@@ -187,7 +278,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
       />
       <SchemaSection
         title="Outputs"
-        section="outputs"
         schemaFields={getStructByName(schemaStructs, "outputs")?.fields ?? []}
         structs={schemaStructs}
         values={workload.outputs ?? {}}
@@ -404,6 +494,32 @@ function PropertySection({
       ))}
     </div>
   );
+}
+
+function buildTelemetryFields(
+  telemetry: Record<string, unknown>
+): Array<{ name: string; type: string; value: unknown }> {
+  const knownFields = [
+    {
+      name: "port",
+      type: "number",
+      value: telemetry.port,
+    },
+    {
+      name: "preferred_sample_rate_hz",
+      type: "number",
+      value: telemetry.preferred_sample_rate_hz,
+    },
+  ];
+  const known = new Set(knownFields.map((field) => field.name));
+  const extras = Object.entries(telemetry)
+    .filter(([name]) => !known.has(name))
+    .map(([name, value]) => ({
+      name,
+      type: "unknown",
+      value,
+    }));
+  return [...knownFields, ...extras];
 }
 
 function ErrorViewer({ errors }: { errors: string[] }) {

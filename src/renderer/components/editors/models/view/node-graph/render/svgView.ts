@@ -46,12 +46,12 @@ export class SvgView {
     private svg: SVGSVGElement,
     private layers: Layers,
     private router: ConnectionRouter,
-    private eventScope: string = "default"
+    private eventScope: string = "default",
   ) {}
 
   render(
     doc: GraphDoc,
-    displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS
+    displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
@@ -60,26 +60,35 @@ export class SvgView {
     const selectedNodeId = resolvedOptions.selectedNodeId;
     const selectedModelId =
       selectedNodeId != null
-        ? doc.getNode(selectedNodeId)?.meta?.modelId ?? null
+        ? (doc.getNode(selectedNodeId)?.meta?.modelId ?? null)
         : null;
-    const visibleEdges = this.computeVisibleEdges(doc, resolvedOptions, selectedModelId);
+    const visibleEdges = this.computeVisibleEdges(
+      doc,
+      resolvedOptions,
+      selectedModelId,
+    );
     const relatedNodeIds = this.computeRelatedNodeIds(
       doc,
       visibleEdges,
       selectedNodeId,
       selectedModelId,
-      resolvedOptions.edgeVisibilityMode
+      resolvedOptions.edgeVisibilityMode,
     );
 
     // Step 1: render all content first
-    this.renderSectionLabels(doc.sections);
-    this.renderNodes(doc, selectedNodeId, relatedNodeIds, resolvedOptions.focusDimming);
+    this.clearLegacySectionLabels();
+    this.renderNodes(
+      doc,
+      selectedNodeId,
+      relatedNodeIds,
+      resolvedOptions.focusDimming,
+    );
     this.renderEdges(
       doc,
       visibleEdges,
       selectedNodeId,
       selectedModelId,
-      resolvedOptions
+      resolvedOptions,
     );
     this.drawPlusButtons(doc);
 
@@ -96,7 +105,7 @@ export class SvgView {
     if (!currentViewBox) {
       this.svg.setAttribute(
         "viewBox",
-        `${viewX} ${viewY} ${viewWidth} ${viewHeight}`
+        `${viewX} ${viewY} ${viewWidth} ${viewHeight}`,
       );
     }
 
@@ -111,7 +120,7 @@ export class SvgView {
         const y = section.yStart + i * section.laneHeight;
         const rect = document.createElementNS(
           "http://www.w3.org/2000/svg",
-          "rect"
+          "rect",
         );
         rect.classList.add("swimlane");
         rect.setAttribute("x", String(marginX));
@@ -127,14 +136,14 @@ export class SvgView {
 
         const label = document.createElementNS(
           "http://www.w3.org/2000/svg",
-          "text"
+          "text",
         );
         label.classList.add("label");
         label.setAttribute("x", String(marginX + 10));
         label.setAttribute("y", String(y + 20));
         if (!section.collapsed) {
           label.textContent = section.hasSequencedGroup
-            ? `Thread ${i + 1} · Step chain`
+            ? `Thread ${i + 1} · Sequenced Group`
             : `Thread ${i + 1}`;
           this.layers.swim.appendChild(label);
         }
@@ -142,112 +151,65 @@ export class SvgView {
     }
   }
 
-  private renderSectionLabels(sections: Section[]): void {
-    Array.from(this.svg.querySelectorAll("g.model-collapse-header")).forEach((n) =>
-      n.remove()
+  private clearLegacySectionLabels(): void {
+    Array.from(this.svg.querySelectorAll("g.model-collapse-header")).forEach(
+      (n) => n.remove(),
     );
-    for (const s of sections) {
-      const header = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      header.classList.add("model-collapse-header");
-      header.setAttribute("transform", `translate(${marginX + 4},${s.labelY - 16})`);
-      header.setAttribute("role", "button");
-      header.setAttribute("tabindex", "0");
-      header.setAttribute(
-        "aria-label",
-        s.collapsed ? "Expand model section" : "Collapse model section"
-      );
-
-      const headerBox = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "rect"
-      );
-      const modelLabel = s.modelId;
-      const estimatedLabelWidth = Math.min(
-        900,
-        Math.max(220, 34 + modelLabel.length * 7)
-      );
-      headerBox.setAttribute("width", String(estimatedLabelWidth));
-      headerBox.setAttribute("height", "24");
-      headerBox.setAttribute("rx", "8");
-      headerBox.setAttribute("ry", "8");
-      headerBox.classList.add("model-collapse-header-box");
-
-      const chevron = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
-      chevron.setAttribute("x", "12");
-      chevron.setAttribute("y", "16");
-      chevron.classList.add("model-collapse-header-chevron");
-      chevron.textContent = s.collapsed ? "▶" : "▼";
-
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("x", "28");
-      label.setAttribute("y", "16");
-      label.classList.add("model-label");
-      label.textContent = modelLabel;
-
-      const fireToggle = () =>
-        this.svg.dispatchEvent(
-          new CustomEvent("models-graph:toggle-model-collapsed", {
-            detail: { modelId: s.modelId, scope: this.eventScope },
-            bubbles: true,
-          })
-        );
-      header.addEventListener("click", fireToggle);
-      header.addEventListener("keydown", (e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          fireToggle();
-        }
-      });
-      header.append(headerBox, chevron, label);
-      this.svg.appendChild(header);
-
-    }
   }
 
   private ensureNode(n: Node): SVGGElement {
-    let g = Array.from(this.layers.nodes.querySelectorAll("g.workload-node")).find(
-      (el): el is SVGGElement => el instanceof SVGGElement && el.id === n.id
+    let g = Array.from(
+      this.layers.nodes.querySelectorAll("g.workload-node"),
+    ).find(
+      (el): el is SVGGElement => el instanceof SVGGElement && el.id === n.id,
     );
+    const existingKind = g?.getAttribute("data-node-kind") ?? null;
+    if (g && existingKind !== n.kind) {
+      g.remove();
+      g = undefined;
+    }
     if (!g) {
       g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       g.id = n.id;
       g.classList.add("workload-node");
 
-      const rect = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "rect"
-      );
-      if (n.kind === "group") {
-        rect.classList.add("group");
-      } else if (n.kind === "collapsed-model") {
-        rect.classList.add("collapsed-model");
-      } else if (n.kind === "stub") {
-        rect.classList.add("collapsed-stub");
+      if (n.kind === "model" || n.kind === "collapsed-model") {
+        this.populateModelNode(g, n);
+        this.layers.nodes.appendChild(g);
       } else {
-        rect.classList.add("workload");
-      }
-      rect.setAttribute("width", String(n.w));
-      rect.setAttribute("height", String(n.h));
-      g.setAttribute("data-node-kind", n.kind);
-
-      // Append first so CSS for .workload-node text is applied before measuring
-      g.append(rect);
-      this.layers.nodes.appendChild(g);
-      if (n.kind !== "stub" && n.kind !== "collapsed-model") {
-        const text = document.createElementNS(
+        const rect = document.createElementNS(
           "http://www.w3.org/2000/svg",
-          "text"
+          "rect",
         );
-        text.setAttribute("x", "10");
-        text.setAttribute("y", "25");
-        g.append(text);
-        // Fit label to available width (account for left padding ~10 and a little right padding)
-        const maxTextWidth = Math.max(0, n.w - 20);
-        this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+        if (n.kind === "group") {
+          rect.classList.add("group");
+        } else if (n.kind === "stub") {
+          rect.classList.add("collapsed-stub");
+        } else {
+          rect.classList.add("workload");
+        }
+        rect.setAttribute("width", String(n.w));
+        rect.setAttribute("height", String(n.h));
+        g.setAttribute("data-node-kind", n.kind);
+
+        // Append first so CSS for .workload-node text is applied before measuring
+        g.append(rect);
+        this.layers.nodes.appendChild(g);
+        if (n.kind !== "stub") {
+          const text = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "text",
+          );
+          text.setAttribute("x", "10");
+          text.setAttribute("y", "25");
+          g.append(text);
+          // Fit label to available width (account for left padding ~10 and a little right padding)
+          const maxTextWidth = Math.max(0, n.w - 20);
+          this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+        }
       }
+    } else if (n.kind === "model" || n.kind === "collapsed-model") {
+      this.populateModelNode(g, n);
     }
     g.setAttribute("data-node-kind", n.kind);
     if (n.meta?.modelId) {
@@ -265,6 +227,75 @@ export class SvgView {
     return g;
   }
 
+  private populateModelNode(g: SVGGElement, n: Node): void {
+    const ns = "http://www.w3.org/2000/svg";
+    const isCollapsed =
+      n.meta?.collapsed === true || n.kind === "collapsed-model";
+    const toggleWidth = 38;
+    const toggleInset = 2;
+    g.replaceChildren();
+
+    const rect = document.createElementNS(ns, "rect");
+    rect.classList.add("model-node-body");
+    rect.setAttribute("width", String(n.w));
+    rect.setAttribute("height", String(n.h));
+    rect.setAttribute("rx", "6");
+    rect.setAttribute("ry", "6");
+
+    const toggleRect = document.createElementNS(ns, "path");
+    toggleRect.classList.add("model-toggle-button");
+    toggleRect.setAttribute(
+      "d",
+      roundedLeftRectPath(
+        toggleInset,
+        toggleInset,
+        toggleWidth - toggleInset,
+        n.h - toggleInset * 2,
+        4
+      )
+    );
+    toggleRect.setAttribute(
+      "aria-label",
+      isCollapsed ? "Expand model section" : "Collapse model section",
+    );
+
+    const divider = document.createElementNS(ns, "line");
+    divider.classList.add("model-toggle-divider");
+    divider.setAttribute("x1", String(toggleWidth));
+    divider.setAttribute("y1", "7");
+    divider.setAttribute("x2", String(toggleWidth));
+    divider.setAttribute("y2", String(n.h - 7));
+
+    const chevron = document.createElementNS(ns, "text");
+    chevron.classList.add("model-toggle-chevron");
+    chevron.setAttribute("x", String(toggleWidth / 2));
+    chevron.setAttribute("y", String(n.h / 2 + 4));
+    chevron.textContent = isCollapsed ? "▶" : "▼";
+
+    const title = document.createElementNS(ns, "text");
+    title.classList.add("model-node-title");
+    title.setAttribute("x", String(toggleWidth + 12));
+    title.setAttribute("y", "21");
+
+    const subtitle = document.createElementNS(ns, "text");
+    subtitle.classList.add("model-node-subtitle");
+    subtitle.setAttribute("x", String(toggleWidth + 12));
+    subtitle.setAttribute("y", "39");
+    g.append(rect, toggleRect, divider, chevron, title, subtitle);
+
+    this.fitTextWithEllipsis(
+      title,
+      n.label,
+      Math.max(0, n.w - toggleWidth - 22),
+    );
+    this.fitTextWithEllipsis(
+      subtitle,
+      n.meta?.subtitle ?? n.meta?.modelId ?? "",
+      Math.max(0, n.w - toggleWidth - 22),
+    );
+    g.setAttribute("data-node-kind", n.kind);
+  }
+
   /**
    * Sets textContent to the longest prefix that fits within maxWidth,
    * appending a single ellipsis if truncation was needed.
@@ -273,7 +304,7 @@ export class SvgView {
   private fitTextWithEllipsis(
     textEl: SVGTextElement,
     full: string,
-    maxWidth: number
+    maxWidth: number,
   ): void {
     // 1) Try full text first (no ellipsis if it fits)
     textEl.textContent = full;
@@ -309,7 +340,7 @@ export class SvgView {
     doc: GraphDoc,
     selectedNodeId: string | null,
     relatedNodeIds: Set<string>,
-    focusDimming: boolean
+    focusDimming: boolean,
   ): void {
     // Remove stale node elements that are no longer present in the current doc
     Array.from(this.layers.nodes.querySelectorAll("g.workload-node")).forEach(
@@ -318,7 +349,7 @@ export class SvgView {
         if (!doc.nodes.has(id)) {
           el.remove();
         }
-      }
+      },
     );
 
     for (const n of doc.nodes.values()) {
@@ -338,12 +369,12 @@ export class SvgView {
     visibleEdgeKeys: Set<string>,
     selectedNodeId: string | null,
     selectedModelId: string | null,
-    displayOptions: RenderDisplayOptions
+    displayOptions: RenderDisplayOptions,
   ): void {
     this.layers.edges.replaceChildren();
 
     const edges = this.router.routeAll(doc.edges, (id: string) =>
-      doc.getNode(id)
+      doc.getNode(id),
     );
 
     for (const e of edges) {
@@ -352,14 +383,14 @@ export class SvgView {
 
       const hoverPath = document.createElementNS(
         "http://www.w3.org/2000/svg",
-        "path"
+        "path",
       );
       hoverPath.setAttribute("d", e.path);
       hoverPath.classList.add("connection-hover-area");
 
       const visiblePath = document.createElementNS(
         "http://www.w3.org/2000/svg",
-        "path"
+        "path",
       );
       visiblePath.setAttribute("d", e.path);
       visiblePath.classList.add("connection", ...e.classList);
@@ -370,7 +401,8 @@ export class SvgView {
       const fromNode = doc.getNode(from);
       const toNode = doc.getNode(to);
       const touchesSelectedNode =
-        selectedNodeId != null && (from === selectedNodeId || to === selectedNodeId);
+        selectedNodeId != null &&
+        (from === selectedNodeId || to === selectedNodeId);
       const touchesSelectedModel =
         selectedModelId != null &&
         (fromNode?.meta?.modelId === selectedModelId ||
@@ -399,7 +431,7 @@ export class SvgView {
   private computeVisibleEdges(
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions,
-    selectedModelId: string | null
+    selectedModelId: string | null,
   ): Set<string> {
     const visible = new Set<string>();
     const selectedNodeId = displayOptions.selectedNodeId;
@@ -424,7 +456,8 @@ export class SvgView {
         const fromNode = doc.getNode(edge.from);
         const toNode = doc.getNode(edge.to);
         if (
-          (fromNode?.meta?.modelId && expandedModels.has(fromNode.meta.modelId)) ||
+          (fromNode?.meta?.modelId &&
+            expandedModels.has(fromNode.meta.modelId)) ||
           (toNode?.meta?.modelId && expandedModels.has(toNode.meta.modelId))
         ) {
           visible.add(key);
@@ -465,7 +498,7 @@ export class SvgView {
     visibleEdgeKeys: Set<string>,
     selectedNodeId: string | null,
     selectedModelId: string | null,
-    edgeVisibilityMode: EdgeVisibilityMode
+    edgeVisibilityMode: EdgeVisibilityMode,
   ): Set<string> {
     const related = new Set<string>();
     if (selectedNodeId) {
@@ -496,7 +529,7 @@ export class SvgView {
   private drawPlusButtons(doc: GraphDoc) {
     // Remove previous buttons
     Array.from(this.svg.querySelectorAll("g.plus-slot")).forEach((n) =>
-      n.remove()
+      n.remove(),
     );
 
     const sections = doc.sections;
@@ -517,7 +550,7 @@ export class SvgView {
 
         // ⬇️ Find the rightmost node *in this lane*
         const nodesInLane = Array.from(doc.nodes.values()).filter(
-          (n) => n.meta?.section === s.index && n.lane === lane
+          (n) => n.meta?.section === s.index && n.lane === lane,
         );
 
         const maxX =
@@ -568,7 +601,7 @@ export class SvgView {
                 scope: this.eventScope,
               },
               bubbles: true,
-            })
+            }),
           );
 
         g.addEventListener("click", fire);
@@ -584,4 +617,26 @@ export class SvgView {
       }
     }
   }
+}
+
+function roundedLeftRectPath(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+): string {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const right = x + width;
+  const bottom = y + height;
+  return [
+    `M ${x + r} ${y}`,
+    `H ${right}`,
+    `V ${bottom}`,
+    `H ${x + r}`,
+    `Q ${x} ${bottom} ${x} ${bottom - r}`,
+    `V ${y + r}`,
+    `Q ${x} ${y} ${x + r} ${y}`,
+    "Z",
+  ].join(" ");
 }

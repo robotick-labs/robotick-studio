@@ -26,6 +26,12 @@ export interface RemoteModelSpec {
 }
 
 export interface ModelData {
+  name?: string;
+  telemetry?: {
+    port?: number;
+    preferred_sample_rate_hz?: number;
+    [key: string]: unknown;
+  };
   root: string;
   workloads: Workload[];
   connections?: DirectConnection[];

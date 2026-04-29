@@ -11,17 +11,18 @@ export class SelectionController {
       | SVGGElement
       | null;
     const nodeKind = g?.getAttribute("data-node-kind");
-    if (nodeKind === "collapsed-model") {
+    if (nodeKind === "model" || nodeKind === "collapsed-model") {
       const modelId = g?.getAttribute("data-model-id");
-      if (modelId) {
+      const toggleTarget = (e.target as Element).closest(".model-toggle-button");
+      if (modelId && toggleTarget) {
         this.svg.dispatchEvent(
           new CustomEvent("models-graph:toggle-model-collapsed", {
             detail: { modelId, scope: this.selectionScope },
             bubbles: true,
           })
         );
+        return;
       }
-      return;
     }
     if (nodeKind === "stub") {
       return;
