@@ -387,7 +387,7 @@ function SchemaSection({
   if (schemaFields.length === 0) {
     return (
       <CollapsibleSection title={title}>
-        <p style={{ margin: "4px 0 0", opacity: 0.8 }}>No fields discovered</p>
+        <p style={{ margin: "4px 0 0", opacity: 0.8 }}>None</p>
       </CollapsibleSection>
     );
   }
