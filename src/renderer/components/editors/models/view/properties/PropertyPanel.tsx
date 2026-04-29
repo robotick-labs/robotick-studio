@@ -182,13 +182,6 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
       typeof model.name === "string" && model.name.trim()
         ? model.name
         : modelId.split("/").pop()?.replace(/\.model\.yaml$/, "") ?? modelId;
-    const telemetry = model.telemetry ?? {};
-    const remoteModels = model.remote_models ?? [];
-    const coreFields = buildModelCoreFieldsFromSchema(
-      model as Record<string, unknown>,
-      schemaState.coreSchema,
-      modelId
-    );
     return (
       <div>
         <PanelHeader
@@ -200,50 +193,12 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
           <span style={{ fontWeight: "normal" }}>| {modelName}</span>
         </h3>
 
-        <PropertySection
-          title="Core"
-          fields={coreFields}
+        <ModelSchemaSection
+          title="Properties"
+          value={model as Record<string, unknown>}
+          schema={schemaState.coreSchema}
+          path="$"
         />
-
-        <PropertySection
-          title="Telemetry"
-          fields={buildObjectFields(telemetry)}
-        />
-
-        <PropertySection
-          title="Structure"
-          fields={[
-            {
-              name: "workloads",
-              type: "count",
-              value: model.workloads.length,
-            },
-            {
-              name: "connections",
-              type: "count",
-              value: model.connections?.length ?? 0,
-            },
-            {
-              name: "remote_models",
-              type: "count",
-              value: remoteModels.length,
-            },
-          ]}
-        />
-
-        {remoteModels.length > 0 ? (
-          <PropertySection
-            title="Remote Models"
-            fields={remoteModels.map((remote, index) => ({
-              name: remote.name || `remote_${index + 1}`,
-              type: "RemoteModelSpec",
-              value: {
-                name: remote.name,
-                connections: remote.connections?.length ?? 0,
-              },
-            }))}
-          />
-        ) : null}
 
         <ErrorViewer errors={schemaState.error ? [schemaState.error] : []} />
       </div>
@@ -671,6 +626,205 @@ function PropertySection({
         />
       ))}
     </CollapsibleSection>
+  );
+}
+
+function ModelSchemaSection({
+  title,
+  value,
+  schema,
+  path,
+}: {
+  title: string;
+  value: unknown;
+  schema: Record<string, unknown> | null;
+  path: string;
+}) {
+  return (
+    <CollapsibleSection title={title}>
+      <ModelValueNode
+        label={path}
+        value={value}
+        schema={schema}
+        path={path}
+        collapseComposite={false}
+      />
+    </CollapsibleSection>
+  );
+}
+
+function ModelValueNode({
+  label,
+  value,
+  schema,
+  path,
+  collapseComposite = false,
+}: {
+  label: string;
+  value: unknown;
+  schema: Record<string, unknown> | null;
+  path: string;
+  collapseComposite?: boolean;
+}) {
+  const schemaType = inferSchemaType(schema);
+  if (isPlainObject(value) || schemaType === "object") {
+    const objectValue = isPlainObject(value) ? value : {};
+    const schemaProperties =
+      schema && isPlainObject(schema.properties)
+        ? (schema.properties as Record<string, unknown>)
+        : {};
+
+    const orderedKeys: string[] = [];
+    for (const key of Object.keys(schemaProperties)) {
+      if (key in objectValue) orderedKeys.push(key);
+    }
+    for (const key of Object.keys(objectValue)) {
+      if (!orderedKeys.includes(key)) orderedKeys.push(key);
+    }
+
+    const isArrayItemLabel = /^\[\d+\]$/.test(label);
+    const nameDisplay =
+      isArrayItemLabel && isPlainObject(value) && typeof value.name === "string"
+        ? value.name
+        : "";
+
+    if (path === "$") {
+      return (
+        <div>
+          {orderedKeys.map((key) => (
+            <ModelObjectChild
+              key={`${path}.${key}`}
+              keyName={key}
+              value={objectValue[key]}
+              schema={
+                isPlainObject(schemaProperties[key])
+                  ? (schemaProperties[key] as Record<string, unknown>)
+                  : null
+              }
+              path={`${path}.${key}`}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <details className={styles.propComposite} open={!collapseComposite}>
+        <summary className={styles.propCompositeSummary}>
+          <div className={styles.propRow}>
+            <div className={styles.propLabel} title={path}>
+              {label}
+            </div>
+            <div style={{ opacity: 0.75, fontSize: "0.8em" }}>
+              {nameDisplay}
+            </div>
+            <span />
+          </div>
+        </summary>
+        <div className={styles.propCompositeBody}>
+          {orderedKeys.map((key) => (
+            <ModelObjectChild
+              key={`${path}.${key}`}
+              keyName={key}
+              value={objectValue[key]}
+              schema={
+                isPlainObject(schemaProperties[key])
+                  ? (schemaProperties[key] as Record<string, unknown>)
+                  : null
+              }
+              path={`${path}.${key}`}
+              collapseComposite={collapseComposite}
+            />
+          ))}
+        </div>
+      </details>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    const itemSchema =
+      schema && isPlainObject(schema.items)
+        ? (schema.items as Record<string, unknown>)
+        : null;
+    const arrayLabel = `${value.length} items`;
+    if (value.length === 0) {
+      return (
+        <FieldRow
+          fieldPath={path}
+          label={label}
+          value={arrayLabel}
+          cppType="array"
+          hasOverride={false}
+          showRevert={false}
+          readOnly={true}
+          onRevert={() => {}}
+        />
+      );
+    }
+    return (
+      <details className={styles.propComposite}>
+        <summary className={styles.propCompositeSummary}>
+          <div className={styles.propRow}>
+            <div className={styles.propLabel} title={path}>
+              {label}
+            </div>
+            <div style={{ opacity: 0.75, fontSize: "0.8em" }} title="array">
+              {arrayLabel}
+            </div>
+            <span />
+          </div>
+        </summary>
+        <div className={styles.propCompositeBody}>
+          {value.map((item, index) => (
+            <ModelValueNode
+              key={`${path}[${index}]`}
+              label={`[${index}]`}
+              value={item}
+              schema={itemSchema}
+              path={`${path}[${index}]`}
+              collapseComposite={true}
+            />
+          ))}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <FieldRow
+      fieldPath={path}
+      label={label}
+      value={formatValue(value)}
+      cppType={schemaType}
+      hasOverride={false}
+      showRevert={false}
+      readOnly={true}
+      onRevert={() => {}}
+    />
+  );
+}
+
+function ModelObjectChild({
+  keyName,
+  value,
+  schema,
+  path,
+  collapseComposite = false,
+}: {
+  keyName: string;
+  value: unknown;
+  schema: Record<string, unknown> | null;
+  path: string;
+  collapseComposite?: boolean;
+}) {
+  return (
+    <ModelValueNode
+      label={keyName}
+      value={value}
+      schema={schema}
+      path={path}
+      collapseComposite={collapseComposite}
+    />
   );
 }
 
