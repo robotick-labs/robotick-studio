@@ -1,2064 +1,3769 @@
-[
-  {
-    "name": "BaseXWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/actuators/BaseXWorkload.cpp"
-    },
-    "structs": {
+{
+  "project": "__PROJECT_PATH__",
+  "target": "linux",
+  "workloads": [
+    {
+      "type": "BaseXWorkload",
       "config": {
-        "name": "BaseXConfig",
-        "fields": [
-          {
-            "name": "max_motor_speed",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "motor1_speed_scale",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "motor2_speed_scale",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "motor3_speed_scale",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "motor4_speed_scale",
-            "type": "float",
-            "default_value": "1.0f"
-          }
-        ]
+        "type": "BaseXConfig"
       },
       "inputs": {
-        "name": "BaseXInputs",
-        "fields": [
-          {
-            "name": "motor1_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor2_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor3_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor4_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "BaseXInputs"
       },
       "outputs": {
-        "name": "BaseXOutputs",
-        "fields": [
-          {
-            "name": "motor1_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor2_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor3_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "motor4_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "BaseXOutputs"
       }
-    }
-  },
-  {
-    "name": "BoolToFloatWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/transform/BoolToFloatWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "BoolToFloatWorkload",
       "config": {
-        "name": "BoolToFloatConfig",
-        "fields": [
-          {
-            "name": "float_value_when_true",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "float_value_when_false",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "BoolToFloatConfig"
       },
       "inputs": {
-        "name": "BoolToFloatInputs",
-        "fields": [
-          {
-            "name": "bool_value",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "BoolToFloatInputs"
       },
       "outputs": {
-        "name": "BoolToFloatOutputs",
-        "fields": [
-          {
-            "name": "float_value",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "BoolToFloatOutputs"
       }
-    }
-  },
-  {
-    "name": "CanvasWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/ui/CanvasWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "CanvasWorkload",
       "config": {
-        "name": "CanvasConfig",
-        "fields": [
-          {
-            "name": "scene_path",
-            "type": "FixedString256"
-          },
-          {
-            "name": "render_mode",
-            "type": "RenderMode"
-          },
-          {
-            "name": "hide_cursor",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "max_output_bytes",
-            "type": "uint32_t"
-          }
-        ]
+        "type": "CanvasConfig"
       },
       "inputs": {
-        "name": "CanvasInputs",
-        "fields": [
-          {
-            "name": "controls",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "CanvasInputs"
       },
       "outputs": {
-        "name": "CanvasOutputs",
-        "fields": [
-          {
-            "name": "face_png_data",
-            "type": "ImagePngDynamic"
-          }
-        ]
+        "type": "CanvasOutputs"
       }
-    }
-  },
-  {
-    "name": "CochlearTransformWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/CochlearTransformWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "CochlearTransformWorkload",
       "inputs": {
-        "name": "CochlearTransformInputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "CochlearTransformInputs"
       },
       "outputs": {
-        "name": "CochlearTransformOutputs",
-        "fields": [
-          {
-            "name": "cochlear_frame",
-            "type": "CochlearFrame"
-          }
-        ]
+        "type": "CochlearTransformOutputs"
       }
-    }
-  },
-  {
-    "name": "CochlearVisualizerWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/CochlearVisualizerWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "CochlearVisualizerWorkload",
       "config": {
-        "name": "CochlearVisualizerConfig",
-        "fields": [
-          {
-            "name": "window_seconds",
-            "type": "float",
-            "default_value": "5.0f"
-          },
-          {
-            "name": "viewport_width",
-            "type": "int",
-            "default_value": "512"
-          },
-          {
-            "name": "viewport_height",
-            "type": "int",
-            "default_value": "128"
-          },
-          {
-            "name": "max_output_bytes",
-            "type": "uint32_t"
-          },
-          {
-            "name": "log_scale",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "cochlear_visual_gain",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "draw_pitch_info",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "draw_pitch_info_amplitude",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "draw_harmonics",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "pitch_visual_gain",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "pitch_min_amplitude",
-            "type": "float",
-            "default_value": "0.2f"
-          },
-          {
-            "name": "render_mode",
-            "type": "RenderMode"
-          },
-          {
-            "name": "fusion_link_alpha_gain",
-            "type": "float",
-            "default_value": "100.0f"
-          }
-        ]
+        "type": "CochlearVisualizerConfig"
       },
       "inputs": {
-        "name": "CochlearVisualizerInputs",
-        "fields": [
-          {
-            "name": "cochlear_frame",
-            "type": "CochlearFrame"
-          },
-          {
-            "name": "pitch_info",
-            "type": "HarmonicPitchResult"
-          },
-          {
-            "name": "speech_segments",
-            "type": "ProsodicSegmentBuffer"
-          }
-        ]
+        "type": "CochlearVisualizerInputs"
       },
       "outputs": {
-        "name": "CochlearVisualizerOutputs",
-        "fields": [
-          {
-            "name": "visualization_png",
-            "type": "ImagePngDynamic"
-          }
-        ]
+        "type": "CochlearVisualizerOutputs"
       }
-    }
-  },
-  {
-    "name": "HarmonicPitchWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/HarmonicPitchWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "HarmonicPitchWorkload",
       "config": {
-        "name": "HarmonicPitchConfig",
-        "fields": [
-          {
-            "name": "settings",
-            "type": "SnakePitchTrackerConfig"
-          }
-        ]
+        "type": "HarmonicPitchConfig"
       },
       "inputs": {
-        "name": "HarmonicPitchInputs",
-        "fields": [
-          {
-            "name": "cochlear_frame",
-            "type": "CochlearFrame"
-          }
-        ]
+        "type": "HarmonicPitchInputs"
       },
       "outputs": {
-        "name": "HarmonicPitchOutputs",
-        "fields": [
-          {
-            "name": "pitch_info",
-            "type": "HarmonicPitchResult"
-          }
-        ]
+        "type": "HarmonicPitchOutputs"
       }
-    }
-  },
-  {
-    "name": "HarmonicWaveGeneratorWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/HarmonicWaveGeneratorWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "HarmonicWaveGeneratorWorkload",
       "config": {
-        "name": "HarmonicWaveGeneratorConfig",
-        "fields": [
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "max_num_partials",
-            "type": "int",
-            "default_value": "8"
-          }
-        ]
+        "type": "HarmonicWaveGeneratorConfig"
       },
       "inputs": {
-        "name": "HarmonicWaveGeneratorInputs",
-        "fields": [
-          {
-            "name": "pitch_info",
-            "type": "HarmonicPitchResult"
-          }
-        ]
+        "type": "HarmonicWaveGeneratorInputs"
       },
       "outputs": {
-        "name": "HarmonicWaveGeneratorOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "HarmonicWaveGeneratorOutputs"
       }
-    }
-  },
-  {
-    "name": "HeartbeatDisplayWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/ui/HeartbeatDisplayWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "HeartbeatDisplayWorkload",
       "config": {
-        "name": "HeartbeatDisplayConfig",
-        "fields": [
-          {
-            "name": "enabled",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "rest_heart_rate",
-            "type": "float",
-            "default_value": "60.0f"
-          },
-          {
-            "name": "render_mode",
-            "type": "RenderMode"
-          },
-          {
-            "name": "max_output_bytes",
-            "type": "uint32_t"
-          }
-        ]
+        "type": "HeartbeatDisplayConfig"
       },
       "inputs": {
-        "name": "HeartbeatDisplayInputs",
-        "fields": [
-          {
-            "name": "bar1_label",
-            "type": "FixedString8",
-            "default_value": "Ha"
-          },
-          {
-            "name": "bar1_fraction",
-            "type": "float",
-            "default_value": "0.9f"
-          },
-          {
-            "name": "bar2_label",
-            "type": "FixedString8",
-            "default_value": "Ti"
-          },
-          {
-            "name": "bar2_fraction",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "bar3_label",
-            "type": "FixedString8",
-            "default_value": "Ex"
-          },
-          {
-            "name": "bar3_fraction",
-            "type": "float",
-            "default_value": "0.6f"
-          },
-          {
-            "name": "bar4_label",
-            "type": "FixedString8",
-            "default_value": "Hu"
-          },
-          {
-            "name": "bar4_fraction",
-            "type": "float",
-            "default_value": "0.2f"
-          },
-          {
-            "name": "heart_rate_scale",
-            "type": "float",
-            "default_value": "1.0f"
-          }
-        ]
+        "type": "HeartbeatDisplayInputs"
       },
       "outputs": {
-        "name": "HeartbeatDisplayOutputs",
-        "fields": [
-          {
-            "name": "activation_amount",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "display_png",
-            "type": "ImagePngDynamic"
-          }
-        ]
+        "type": "HeartbeatDisplayOutputs"
       }
-    }
-  },
-  {
-    "name": "HelloWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/examples/HelloWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "HelloWorkload",
       "config": {
-        "name": "HelloConfig",
-        "fields": [
-          {
-            "name": "multiplier",
-            "type": "float",
-            "default_value": "1.0"
-          }
-        ]
+        "type": "HelloConfig"
       },
       "inputs": {
-        "name": "HelloInputs",
-        "fields": [
-          {
-            "name": "a",
-            "type": "float",
-            "default_value": "0.0"
-          },
-          {
-            "name": "b",
-            "type": "float",
-            "default_value": "0.0"
-          }
-        ]
+        "type": "HelloInputs"
       },
       "outputs": {
-        "name": "HelloOutputs",
-        "fields": [
-          {
-            "name": "sum",
-            "type": "float",
-            "default_value": "0.0"
-          },
-          {
-            "name": "message",
-            "type": "FixedString32",
-            "default_value": "Waiting..."
-          },
-          {
-            "name": "status",
-            "type": "HelloStatus"
-          }
-        ]
+        "type": "HelloOutputs"
       }
-    }
-  },
-  {
-    "name": "ImageRefToImageWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/ImageRefToImageWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ImageRefToImageWorkload",
       "config": {
-        "name": "ImageRefToImageConfig",
-        "fields": [
-          {
-            "name": "output_storage_kind",
-            "type": "ImageStorageKind"
-          },
-          {
-            "name": "output_pixel_format",
-            "type": "ImagePixelFormat"
-          },
-          {
-            "name": "jpeg_quality",
-            "type": "int",
-            "default_value": "80"
-          },
-          {
-            "name": "fallback_jpeg_quality",
-            "type": "int",
-            "default_value": "60"
-          },
-          {
-            "name": "max_output_bytes",
-            "type": "uint32_t"
-          }
-        ]
+        "type": "ImageRefToImageConfig"
       },
       "inputs": {
-        "name": "ImageRefToImageInputs",
-        "fields": [
-          {
-            "name": "image",
-            "type": "ImageRef"
-          }
-        ]
+        "type": "ImageRefToImageInputs"
       },
       "outputs": {
-        "name": "ImageRefToImageOutputs",
-        "fields": [
-          {
-            "name": "image",
-            "type": "Image"
-          },
-          {
-            "name": "actual_jpeg_quality_used",
-            "type": "uint8_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "ImageRefToImageOutputs"
       }
-    }
-  },
-  {
-    "name": "ImageToImageRefWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/ImageToImageRefWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ImageToImageRefWorkload",
       "config": {
-        "name": "ImageToImageRefConfig",
-        "fields": [
-          {
-            "name": "output_stream_id",
-            "type": "uint32_t",
-            "default_value": "1"
-          },
-          {
-            "name": "max_input_bytes",
-            "type": "uint32_t"
-          },
-          {
-            "name": "decoded_pixel_format",
-            "type": "ImagePixelFormat"
-          }
-        ]
+        "type": "ImageToImageRefConfig"
       },
       "inputs": {
-        "name": "ImageToImageRefInputs",
-        "fields": [
-          {
-            "name": "image",
-            "type": "Image"
-          }
-        ]
+        "type": "ImageToImageRefInputs"
       },
       "outputs": {
-        "name": "ImageToImageRefOutputs",
-        "fields": [
-          {
-            "name": "image",
-            "type": "ImageRef"
-          }
-        ]
+        "type": "ImageToImageRefOutputs"
       }
-    }
-  },
-  {
-    "name": "ImuWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/ImuWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ImuWorkload",
       "config": {
-        "name": "ImuConfig",
-        "fields": [
-          {
-            "name": "enable_debug_info",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "ImuConfig"
       },
       "outputs": {
-        "name": "ImuOutputs",
-        "fields": [
-          {
-            "name": "accel",
-            "type": "Vec3f"
-          },
-          {
-            "name": "gyro",
-            "type": "Vec3f"
-          },
-          {
-            "name": "mag",
-            "type": "Vec3f"
-          }
-        ]
+        "type": "ImuOutputs"
       }
-    }
-  },
-  {
-    "name": "LowPassFilterWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/transform/LowPassFilterWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "LowPassFilterWorkload",
       "config": {
-        "name": "LowPassFilterConfig",
-        "fields": [
-          {
-            "name": "tau_seconds",
-            "type": "float",
-            "default_value": "0.25f"
-          },
-          {
-            "name": "min_tau_seconds",
-            "type": "float",
-            "default_value": "1e-4f"
-          }
-        ]
+        "type": "LowPassFilterConfig"
       },
       "inputs": {
-        "name": "LowPassFilterInputs",
-        "fields": [
-          {
-            "name": "value",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "reset",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "LowPassFilterInputs"
       },
       "outputs": {
-        "name": "LowPassFilterOutputs",
-        "fields": [
-          {
-            "name": "result",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "LowPassFilterOutputs"
       }
-    }
-  },
-  {
-    "name": "MicWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/MicWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MicWorkload",
       "inputs": {
-        "name": "MicInputs",
-        "fields": [
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "MicInputs"
       },
       "outputs": {
-        "name": "MicOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "success",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "last_read_status",
-            "type": "AudioQueueResult"
-          },
-          {
-            "name": "dropped_reads",
-            "type": "uint32_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "MicOutputs"
       }
-    }
-  },
-  {
-    "name": "MonocularCameraWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/sensors/MonocularCameraWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MonocularCameraWorkload",
       "config": {
-        "name": "MonocularCameraConfig",
-        "fields": [
-          {
-            "name": "camera_index",
-            "type": "int",
-            "default_value": "0"
-          },
-          {
-            "name": "capture_width",
-            "type": "uint32_t",
-            "default_value": "1280"
-          },
-          {
-            "name": "capture_height",
-            "type": "uint32_t",
-            "default_value": "720"
-          },
-          {
-            "name": "stream_id",
-            "type": "uint32_t",
-            "default_value": "1"
-          }
-        ]
+        "type": "MonocularCameraConfig"
       },
       "outputs": {
-        "name": "MonocularCameraOutputs",
-        "fields": [
-          {
-            "name": "image",
-            "type": "ImageRef"
-          }
-        ]
+        "type": "MonocularCameraOutputs"
       }
-    }
-  },
-  {
-    "name": "MqttClientWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/telemetry/MqttClientWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MqttClientWorkload",
       "config": {
-        "name": "MqttClientConfig",
-        "fields": [
-          {
-            "name": "broker_mqtt_port",
-            "type": "uint16_t",
-            "default_value": "1883"
-          },
-          {
-            "name": "root_topic_namespace",
-            "type": "FixedString64",
-            "default_value": "robotick"
-          },
-          {
-            "name": "enable_tls",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "publish_qos",
-            "type": "uint8_t",
-            "default_value": "1"
-          },
-          {
-            "name": "subscribe_qos",
-            "type": "uint8_t",
-            "default_value": "1"
-          }
-        ]
+        "type": "MqttClientConfig"
       },
       "outputs": {
-        "name": "MqttClientOutputs",
-        "fields": [
-          {
-            "name": "last_subscribe",
-            "type": "MqttOpResult"
-          },
-          {
-            "name": "connected",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "MqttClientOutputs"
       }
-    }
-  },
-  {
-    "name": "MuJoCoCameraWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoCameraWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MuJoCoCameraWorkload",
       "config": {
-        "name": "MuJoCoCameraConfig",
-        "fields": [
-          {
-            "name": "camera_name",
-            "type": "FixedString64"
-          },
-          {
-            "name": "texture_width",
-            "type": "uint32_t",
-            "default_value": "640"
-          },
-          {
-            "name": "texture_height",
-            "type": "uint32_t",
-            "default_value": "480"
-          },
-          {
-            "name": "max_output_bytes",
-            "type": "uint32_t"
-          }
-        ]
+        "type": "MuJoCoCameraConfig"
       },
       "inputs": {
-        "name": "MuJoCoCameraInputs",
-        "fields": [
-          {
-            "name": "mujoco_scene_id",
-            "type": "uint32_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "MuJoCoCameraInputs"
       },
       "outputs": {
-        "name": "MuJoCoCameraOutputs",
-        "fields": [
-          {
-            "name": "png_data",
-            "type": "ImagePngDynamic"
-          },
-          {
-            "name": "frame_count",
-            "type": "uint32_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "MuJoCoCameraOutputs"
       }
-    }
-  },
-  {
-    "name": "MuJoCoPhysicsWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/simulation/MuJoCoPhysicsWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MuJoCoPhysicsWorkload",
       "config": {
-        "name": "MuJoCoPhysicsConfig",
-        "fields": [
-          {
-            "name": "workload_config_file_path",
-            "type": "FixedString256"
-          },
-          {
-            "name": "model_path",
-            "type": "FixedString256"
-          },
-          {
-            "name": "sim_tick_rate_hz",
-            "type": "float",
-            "default_value": "-1.0f"
-          },
-          {
-            "name": "mj_initial",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "MuJoCoPhysicsConfig"
       },
       "inputs": {
-        "name": "MuJoCoPhysicsInputs",
-        "fields": [
-          {
-            "name": "mujoco",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "MuJoCoPhysicsInputs"
       },
       "outputs": {
-        "name": "MuJoCoPhysicsOutputs",
-        "fields": [
-          {
-            "name": "mujoco",
-            "type": "Blackboard"
-          },
-          {
-            "name": "scene_id",
-            "type": "uint32_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "MuJoCoPhysicsOutputs"
       }
-    }
-  },
-  {
-    "name": "MultiToneGeneratorWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/MultiToneGeneratorWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "MultiToneGeneratorWorkload",
       "config": {
-        "name": "MultiToneGeneratorConfig",
-        "fields": [
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "MultiToneGeneratorConfig"
       },
       "inputs": {
-        "name": "MultiToneGeneratorInputs",
-        "fields": [
-          {
-            "name": "tone1",
-            "type": "ModulatedTone"
-          },
-          {
-            "name": "tone2",
-            "type": "ModulatedTone"
-          },
-          {
-            "name": "tone3",
-            "type": "ModulatedTone"
-          },
-          {
-            "name": "tone4",
-            "type": "ModulatedTone"
-          },
-          {
-            "name": "tone5",
-            "type": "ModulatedTone"
-          }
-        ]
+        "type": "MultiToneGeneratorInputs"
       },
       "outputs": {
-        "name": "MultiToneGeneratorOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "MultiToneGeneratorOutputs"
       }
-    }
-  },
-  {
-    "name": "NoiseSuppressWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/NoiseSuppressWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "NoiseSuppressWorkload",
       "config": {
-        "name": "NoiseSuppressConfig",
-        "fields": [
-          {
-            "name": "settings",
-            "type": "NoiseSuppressorConfig"
-          }
-        ]
+        "type": "NoiseSuppressConfig"
       },
       "inputs": {
-        "name": "NoiseSuppressInputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "bypass",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "NoiseSuppressInputs"
       },
       "outputs": {
-        "name": "NoiseSuppressOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "is_noise_only",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "noise_floor_rms",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "NoiseSuppressOutputs"
       }
-    }
-  },
-  {
-    "name": "ProsodyAnalyserWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyAnalyserWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ProsodyAnalyserWorkload",
       "config": {
-        "name": "ProsodyAnalyserConfig",
-        "fields": [
-          {
-            "name": "harmonic_floor_db",
-            "type": "float",
-            "default_value": "-60.0f"
-          },
-          {
-            "name": "speaking_rate_decay",
-            "type": "float",
-            "default_value": "0.95f"
-          },
-          {
-            "name": "rms_smooth_alpha",
-            "type": "float",
-            "default_value": "0.2f"
-          },
-          {
-            "name": "signal_rms_threshold",
-            "type": "float",
-            "default_value": "0.015f"
-          },
-          {
-            "name": "voiced_falloff_rate_hz",
-            "type": "float",
-            "default_value": "5.0f"
-          },
-          {
-            "name": "harmonic_confidence_min_db",
-            "type": "float",
-            "default_value": "-15.0f"
-          },
-          {
-            "name": "harmonic_confidence_max_db",
-            "type": "float",
-            "default_value": "25.0f"
-          },
-          {
-            "name": "harmonic_confidence_gate",
-            "type": "float",
-            "default_value": "0.35f"
-          }
-        ]
+        "type": "ProsodyAnalyserConfig"
       },
       "inputs": {
-        "name": "ProsodyAnalyserInputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "pitch_info",
-            "type": "HarmonicPitchResult"
-          }
-        ]
+        "type": "ProsodyAnalyserInputs"
       },
       "outputs": {
-        "name": "ProsodyAnalyserOutputs",
-        "fields": [
-          {
-            "name": "prosody_state",
-            "type": "ProsodyState"
-          }
-        ]
+        "type": "ProsodyAnalyserOutputs"
       }
-    }
-  },
-  {
-    "name": "ProsodyFusionWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyFusionWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ProsodyFusionWorkload",
       "config": {
-        "name": "ProsodyFusionConfig",
-        "fields": [
-          {
-            "name": "history_duration_sec",
-            "type": "float",
-            "default_value": "8.0f"
-          },
-          {
-            "name": "simplified_sample_count",
-            "type": "uint32_t",
-            "default_value": "32"
-          },
-          {
-            "name": "minimum_segment_duration_sec",
-            "type": "float",
-            "default_value": "0.1f"
-          },
-          {
-            "name": "silence_hangover_sec",
-            "type": "float",
-            "default_value": "0.2f"
-          },
-          {
-            "name": "segment_merge_tolerance_sec",
-            "type": "float",
-            "default_value": "0.25f"
-          },
-          {
-            "name": "max_pitch_jump_hz",
-            "type": "float",
-            "default_value": "80.0f"
-          }
-        ]
+        "type": "ProsodyFusionConfig"
       },
       "inputs": {
-        "name": "ProsodyFusionInputs",
-        "fields": [
-          {
-            "name": "prosody_state",
-            "type": "ProsodyState"
-          },
-          {
-            "name": "proto_transcript",
-            "type": "Transcript"
-          },
-          {
-            "name": "transcript",
-            "type": "Transcript"
-          }
-        ]
+        "type": "ProsodyFusionInputs"
       },
       "outputs": {
-        "name": "ProsodyFusionOutputs",
-        "fields": [
-          {
-            "name": "speech_segments",
-            "type": "ProsodicSegmentBuffer"
-          }
-        ]
+        "type": "ProsodyFusionOutputs"
       }
-    }
-  },
-  {
-    "name": "ProsodyWaveGeneratorWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/ProsodyWaveGeneratorWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "ProsodyWaveGeneratorWorkload",
       "config": {
-        "name": "ProsodyWaveGeneratorConfig",
-        "fields": [
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "use_rms_for_amplitude",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "use_voiced_gate",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "enable_tone",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "tone_base",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "enable_partials",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "partials_base",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "max_num_partials",
-            "type": "int",
-            "default_value": "16"
-          },
-          {
-            "name": "enable_noise",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "noise_base",
-            "type": "float",
-            "default_value": "0.5f"
-          },
-          {
-            "name": "brightness_to_noise_scale",
-            "type": "float",
-            "default_value": "0.8f"
-          },
-          {
-            "name": "brightness_to_partial_scale",
-            "type": "float",
-            "default_value": "5.0f"
-          },
-          {
-            "name": "harmonicity_to_noise_scale",
-            "type": "float",
-            "default_value": "0.03f"
-          },
-          {
-            "name": "harmonicity_to_partial_scale",
-            "type": "float",
-            "default_value": "0.03f"
-          },
-          {
-            "name": "use_brightness_for_noise_lpf",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "noise_cutoff_default_hz",
-            "type": "float",
-            "default_value": "2000.0f"
-          },
-          {
-            "name": "mix_smooth_alpha",
-            "type": "float",
-            "default_value": "0.8f"
-          },
-          {
-            "name": "min_component_gain",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "max_component_gain",
-            "type": "float",
-            "default_value": "2.0f"
-          }
-        ]
+        "type": "ProsodyWaveGeneratorConfig"
       },
       "inputs": {
-        "name": "ProsodyWaveGeneratorInputs",
-        "fields": [
-          {
-            "name": "enabled",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "prosody_state",
-            "type": "ProsodyState"
-          }
-        ]
+        "type": "ProsodyWaveGeneratorInputs"
       },
       "outputs": {
-        "name": "ProsodyWaveGeneratorOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "ProsodyWaveGeneratorOutputs"
       }
-    }
-  },
-  {
-    "name": "PythonWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/scripting/PythonWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "PythonWorkload",
       "config": {
-        "name": "PythonConfig",
-        "fields": [
-          {
-            "name": "script_name",
-            "type": "FixedString128"
-          },
-          {
-            "name": "class_name",
-            "type": "FixedString64"
-          },
-          {
-            "name": "script",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "PythonConfig"
       },
       "inputs": {
-        "name": "PythonInputs",
-        "fields": [
-          {
-            "name": "script",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "PythonInputs"
       },
       "outputs": {
-        "name": "PythonOutputs",
-        "fields": [
-          {
-            "name": "script",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "PythonOutputs"
       }
-    }
-  },
-  {
-    "name": "QuatToEulerWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/transform/QuatToEulerWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "QuatToEulerWorkload",
       "config": {
-        "name": "QuatToEulerConfig",
-        "fields": [
-          {
-            "name": "output_roll_source",
-            "type": "int",
-            "default_value": "0"
-          },
-          {
-            "name": "output_pitch_source",
-            "type": "int",
-            "default_value": "1"
-          },
-          {
-            "name": "output_yaw_source",
-            "type": "int",
-            "default_value": "2"
-          }
-        ]
+        "type": "QuatToEulerConfig"
       },
       "inputs": {
-        "name": "QuatToEulerInputs",
-        "fields": [
-          {
-            "name": "quat",
-            "type": "Quatf"
-          }
-        ]
+        "type": "QuatToEulerInputs"
       },
       "outputs": {
-        "name": "QuatToEulerOutputs",
-        "fields": [
-          {
-            "name": "roll",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "pitch",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "yaw",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "QuatToEulerOutputs"
       }
-    }
-  },
-  {
-    "name": "RemoteControlWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/control/RemoteControlWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "RemoteControlWorkload",
       "config": {
-        "name": "RemoteControlConfig",
-        "fields": [
-          {
-            "name": "dead_zone_left",
-            "type": "Vec2f"
-          },
-          {
-            "name": "dead_zone_right",
-            "type": "Vec2f"
-          },
-          {
-            "name": "stick_shape_transform_left",
-            "type": "StickShapeTransform"
-          },
-          {
-            "name": "stick_shape_transform_right",
-            "type": "StickShapeTransform"
-          }
-        ]
+        "type": "RemoteControlConfig"
       },
       "inputs": {
-        "name": "RemoteControlInputs",
-        "fields": [
-          {
-            "name": "use_web_inputs",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "gamepad_state_raw",
-            "type": "GamepadState"
-          }
-        ]
+        "type": "RemoteControlInputs"
       },
       "outputs": {
-        "name": "RemoteControlOutputs",
-        "fields": [
-          {
-            "name": "gamepad_state",
-            "type": "GamepadState"
-          }
-        ]
+        "type": "RemoteControlOutputs"
       }
-    }
-  },
-  {
-    "name": "SequencedGroupWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/composition/SequencedGroupWorkload.cpp"
     },
-    "structs": {}
-  },
-  {
-    "name": "SineWaveGeneratorWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/SineWaveGeneratorWorkload.cpp"
+    {
+      "type": "SequencedGroupWorkload"
     },
-    "structs": {
+    {
+      "type": "SineWaveGeneratorWorkload",
       "config": {
-        "name": "SineWaveGeneratorConfig",
-        "fields": [
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "SineWaveGeneratorConfig"
       },
       "inputs": {
-        "name": "SineWaveGeneratorInputs",
-        "fields": [
-          {
-            "name": "frequency_hz",
-            "type": "float",
-            "default_value": "440.0f"
-          },
-          {
-            "name": "amplitude",
-            "type": "float",
-            "default_value": "0.1f"
-          }
-        ]
+        "type": "SineWaveGeneratorInputs"
       },
       "outputs": {
-        "name": "SineWaveGeneratorOutputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "SineWaveGeneratorOutputs"
       }
-    }
-  },
-  {
-    "name": "SpeakerWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/SpeakerWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "SpeakerWorkload",
       "inputs": {
-        "name": "SpeakerInputs",
-        "fields": [
-          {
-            "name": "left",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "right",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "SpeakerInputs"
       },
       "outputs": {
-        "name": "SpeakerOutputs",
-        "fields": [
-          {
-            "name": "last_queue_status",
-            "type": "FixedString32"
-          }
-        ]
+        "type": "SpeakerOutputs"
       }
-    }
-  },
-  {
-    "name": "SpeechToTextWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/auditory/SpeechToTextWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "SpeechToTextWorkload",
       "config": {
-        "name": "SpeechToTextConfig",
-        "fields": [
-          {
-            "name": "settings",
-            "type": "SpeechToTextSettings"
-          }
-        ]
+        "type": "SpeechToTextConfig"
       },
       "inputs": {
-        "name": "SpeechToTextInputs",
-        "fields": [
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "is_voiced",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "SpeechToTextInputs"
       },
       "outputs": {
-        "name": "SpeechToTextOutputs",
-        "fields": [
-          {
-            "name": "proto_transcript",
-            "type": "Transcript"
-          },
-          {
-            "name": "transcript",
-            "type": "Transcript"
-          },
-          {
-            "name": "accumulator_duration_sec",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "accumulator_capacity_sec",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "is_transcribe_thread_active",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "transcribe_session_count",
-            "type": "uint32_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "SpeechToTextOutputs"
       }
-    }
-  },
-  {
-    "name": "SteeringMixerWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/control/SteeringMixerWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "SteeringMixerWorkload",
       "config": {
-        "name": "SteeringMixerConfig",
-        "fields": [
-          {
-            "name": "max_speed_differential",
-            "type": "float",
-            "default_value": "0.4f"
-          },
-          {
-            "name": "power_scale_both",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "power_scale_left",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "power_scale_right",
-            "type": "float",
-            "default_value": "1.0f"
-          },
-          {
-            "name": "power_seek_rate",
-            "type": "float",
-            "default_value": "-1.0f"
-          }
-        ]
+        "type": "SteeringMixerConfig"
       },
       "inputs": {
-        "name": "SteeringMixerInputs",
-        "fields": [
-          {
-            "name": "speed",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "angular_speed",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "SteeringMixerInputs"
       },
       "outputs": {
-        "name": "SteeringMixerOutputs",
-        "fields": [
-          {
-            "name": "left_motor",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "right_motor",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "SteeringMixerOutputs"
       }
-    }
-  },
-  {
-    "name": "StubWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/examples/StubWorkload.cpp"
     },
-    "structs": {}
-  },
-  {
-    "name": "SyncedGroupWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/composition/SyncedGroupWorkload.cpp"
+    {
+      "type": "StubWorkload"
     },
-    "structs": {}
-  },
-  {
-    "name": "TemplateWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/examples/TemplateWorkload.cpp"
+    {
+      "type": "SyncedGroupWorkload"
     },
-    "structs": {
+    {
+      "type": "TemplateWorkload",
       "config": {
-        "name": "TemplateConfig",
-        "fields": [
-          {
-            "name": "gain",
-            "type": "float"
-          },
-          {
-            "name": "threshold",
-            "type": "int"
-          },
-          {
-            "name": "label",
-            "type": "FixedString32"
-          },
-          {
-            "name": "blackboard",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "TemplateConfig"
       },
       "inputs": {
-        "name": "TemplateInputs",
-        "fields": [
-          {
-            "name": "angle",
-            "type": "float"
-          },
-          {
-            "name": "sensor_value",
-            "type": "int"
-          },
-          {
-            "name": "sensor_label",
-            "type": "FixedString16"
-          },
-          {
-            "name": "blackboard",
-            "type": "Blackboard"
-          }
-        ]
+        "type": "TemplateInputs"
       },
       "outputs": {
-        "name": "TemplateOutputs",
-        "fields": [
-          {
-            "name": "command",
-            "type": "float"
-          },
-          {
-            "name": "status",
-            "type": "FixedString64"
-          },
-          {
-            "name": "sensor_ok",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "blackboard",
-            "type": "Blackboard"
-          },
-          {
-            "name": "warning_count",
-            "type": "uint32_t",
-            "default_value": "0"
-          },
-          {
-            "name": "has_called_set_children",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_set_engine",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_pre_load",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_load",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_setup",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_start",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_tick",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "has_called_stop",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "TemplateOutputs"
       }
-    }
-  },
-  {
-    "name": "TimingDiagnosticsWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/diagnostics/TimingDiagnosticsWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "TimingDiagnosticsWorkload",
       "config": {
-        "name": "TimingDiagnosticsConfig",
-        "fields": [
-          {
-            "name": "log_rate_hz",
-            "type": "int",
-            "default_value": "1"
-          }
-        ]
+        "type": "TimingDiagnosticsConfig"
       },
       "outputs": {
-        "name": "TimingDiagnosticsOutputs",
-        "fields": [
-          {
-            "name": "last_tick_rate",
-            "type": "float",
-            "default_value": "0.0"
-          },
-          {
-            "name": "avg_tick_rate",
-            "type": "float",
-            "default_value": "0.0"
-          },
-          {
-            "name": "tick_stddev",
-            "type": "float",
-            "default_value": "0.0"
-          }
-        ]
+        "type": "TimingDiagnosticsOutputs"
       }
-    }
-  },
-  {
-    "name": "WavPlayerWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/WavPlayerWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "WavPlayerWorkload",
       "config": {
-        "name": "WavPlayerConfig",
-        "fields": [
-          {
-            "name": "file_path",
-            "type": "FixedString256"
-          },
-          {
-            "name": "amplitude_gain_db",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "looping",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "loop_delay_sec",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "WavPlayerConfig"
       },
       "outputs": {
-        "name": "WavPlayerOutputs",
-        "fields": [
-          {
-            "name": "left",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "right",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "mono",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "total_duration_sec",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "total_frame_count",
-            "type": "uint64_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "WavPlayerOutputs"
       }
-    }
-  },
-  {
-    "name": "WavRecorderWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/audio/WavRecorderWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "WavRecorderWorkload",
       "config": {
-        "name": "WavRecorderConfig",
-        "fields": [
-          {
-            "name": "file_path",
-            "type": "FixedString256"
-          },
-          {
-            "name": "overwrite",
-            "type": "bool",
-            "default_value": "true"
-          },
-          {
-            "name": "stereo",
-            "type": "bool",
-            "default_value": "false"
-          }
-        ]
+        "type": "WavRecorderConfig"
       },
       "inputs": {
-        "name": "WavRecorderInputs",
-        "fields": [
-          {
-            "name": "left",
-            "type": "AudioFrame"
-          },
-          {
-            "name": "right",
-            "type": "AudioFrame"
-          }
-        ]
+        "type": "WavRecorderInputs"
       },
       "outputs": {
-        "name": "WavRecorderOutputs",
-        "fields": [
-          {
-            "name": "file_open",
-            "type": "bool",
-            "default_value": "false"
-          },
-          {
-            "name": "total_written",
-            "type": "uint64_t",
-            "default_value": "0"
-          }
-        ]
+        "type": "WavRecorderOutputs"
       }
-    }
-  },
-  {
-    "name": "WeightedSumWorkload",
-    "source": {
-      "workload_root": "test_data/robotick/robotick-core-workloads",
-      "path_from_root": "cpp/src/robotick/workloads/transform/WeightedSumWorkload.cpp"
     },
-    "structs": {
+    {
+      "type": "WeightedSumWorkload",
       "inputs": {
-        "name": "WeightedSumInputs",
-        "fields": [
-          {
-            "name": "a",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "b",
-            "type": "float",
-            "default_value": "0.0f"
-          },
-          {
-            "name": "weight_a",
-            "type": "float",
-            "default_value": "0.5f"
-          },
-          {
-            "name": "weight_b",
-            "type": "float",
-            "default_value": "0.5f"
-          }
-        ]
+        "type": "WeightedSumInputs"
       },
       "outputs": {
-        "name": "WeightedSumOutputs",
-        "fields": [
-          {
-            "name": "result",
-            "type": "float",
-            "default_value": "0.0f"
-          }
-        ]
+        "type": "WeightedSumOutputs"
       }
     }
-  }
-]
+  ],
+  "types": [
+    {
+      "name": "AudioBuffer128",
+      "type_category": "container"
+    },
+    {
+      "name": "AudioBuffer512",
+      "type_category": "container"
+    },
+    {
+      "name": "AudioFrame",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "samples",
+          "type": "AudioBuffer512",
+          "element_count": 1
+        },
+        {
+          "name": "timestamp",
+          "type": "double",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "sample_rate",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "44100",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "AudioQueueResult",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Success",
+        "Dropped",
+        "NoData",
+        "Error"
+      ]
+    },
+    {
+      "name": "BaseXConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "max_motor_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor1_speed_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor2_speed_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor3_speed_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor4_speed_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "BaseXInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "motor1_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor2_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor3_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor4_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "BaseXOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "motor1_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor2_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor3_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "motor4_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "Blackboard",
+      "type_category": "dynamic_struct"
+    },
+    {
+      "name": "BoolToFloatConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "float_value_when_true",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "float_value_when_false",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "BoolToFloatInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "bool_value",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "BoolToFloatOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "float_value",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "CanvasConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "scene_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "render_mode",
+          "type": "RenderMode",
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
+        },
+        {
+          "name": "hide_cursor",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "max_output_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "262144",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "CanvasInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "controls",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CanvasOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "face_png_data",
+          "type": "ImagePngDynamic",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CochlearFrame",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "envelope",
+          "type": "AudioBuffer128",
+          "element_count": 1
+        },
+        {
+          "name": "fine_phase",
+          "type": "AudioBuffer128",
+          "element_count": 1
+        },
+        {
+          "name": "modulation_power",
+          "type": "AudioBuffer128",
+          "element_count": 1
+        },
+        {
+          "name": "timestamp",
+          "type": "double",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "band_center_hz",
+          "type": "AudioBuffer128",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CochlearTransformInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CochlearTransformOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "cochlear_frame",
+          "type": "CochlearFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CochlearVisualizerConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "window_seconds",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "5.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "viewport_width",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "512",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "viewport_height",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "128",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "max_output_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "131072",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "log_scale",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "cochlear_visual_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "draw_pitch_info",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "draw_pitch_info_amplitude",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "draw_harmonics",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "pitch_visual_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "pitch_min_amplitude",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "render_mode",
+          "type": "RenderMode",
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
+        },
+        {
+          "name": "fusion_link_alpha_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "100.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "CochlearVisualizerInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "cochlear_frame",
+          "type": "CochlearFrame",
+          "element_count": 1
+        },
+        {
+          "name": "pitch_info",
+          "type": "HarmonicPitchResult",
+          "element_count": 1
+        },
+        {
+          "name": "speech_segments",
+          "type": "ProsodicSegmentBuffer",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "CochlearVisualizerOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "visualization_png",
+          "type": "ImagePngDynamic",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "FixedString128",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "128"
+    },
+    {
+      "name": "FixedString16",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "16"
+    },
+    {
+      "name": "FixedString256",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "256"
+    },
+    {
+      "name": "FixedString32",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "32"
+    },
+    {
+      "name": "FixedString512",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "512"
+    },
+    {
+      "name": "FixedString64",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "64"
+    },
+    {
+      "name": "FixedString8",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "8"
+    },
+    {
+      "name": "GamepadState",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "left",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "right",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "scale_left",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "scale_right",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "left_trigger",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "right_trigger",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "a",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "b",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "x",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "y",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "left_bumper",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "right_bumper",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "back",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "start",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "guide",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "left_stick_button",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "right_stick_button",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "dpad_up",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "dpad_down",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "dpad_left",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "dpad_right",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "HarmonicAmplitudes",
+      "type_category": "container"
+    },
+    {
+      "name": "HarmonicPitchConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "settings",
+          "type": "SnakePitchTrackerConfig",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HarmonicPitchInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "cochlear_frame",
+          "type": "CochlearFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HarmonicPitchOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "pitch_info",
+          "type": "HarmonicPitchResult",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HarmonicPitchResult",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "h1_f0_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_amplitudes",
+          "type": "HarmonicAmplitudes",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HarmonicWaveGeneratorConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "max_num_partials",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "8",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "HarmonicWaveGeneratorInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "pitch_info",
+          "type": "HarmonicPitchResult",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HarmonicWaveGeneratorOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HeartbeatDisplayConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "rest_heart_rate",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "60.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "render_mode",
+          "type": "RenderMode",
+          "element_count": 1,
+          "default_value": "RenderMode::Texture",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Texture",
+            "Screen"
+          ]
+        },
+        {
+          "name": "max_output_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "65536",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "HeartbeatDisplayInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "bar1_label",
+          "type": "FixedString8",
+          "element_count": 1,
+          "default_value": "Ha",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "bar1_fraction",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.9",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "bar2_label",
+          "type": "FixedString8",
+          "element_count": 1,
+          "default_value": "Ti",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "bar2_fraction",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "bar3_label",
+          "type": "FixedString8",
+          "element_count": 1,
+          "default_value": "Ex",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "bar3_fraction",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.6",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "bar4_label",
+          "type": "FixedString8",
+          "element_count": 1,
+          "default_value": "Hu",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "bar4_fraction",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "heart_rate_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "HeartbeatDisplayOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "activation_amount",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "display_png",
+          "type": "ImagePngDynamic",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "HelloConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "multiplier",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "HelloInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "a",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "b",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "HelloOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "sum",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "message",
+          "type": "FixedString32",
+          "element_count": 1,
+          "default_value": "Waiting...",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "status",
+          "type": "HelloStatus",
+          "element_count": 1,
+          "default_value": "HelloStatus::NORMAL",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Normal",
+            "Magic"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HelloStatus",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Normal",
+        "Magic"
+      ]
+    },
+    {
+      "name": "Image",
+      "type_category": "dynamic_struct"
+    },
+    {
+      "name": "ImageHandle",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "stream_id",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "slot_index",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "generation",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "ImageMetadata",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "storage_kind",
+          "type": "ImageStorageKind",
+          "element_count": 1,
+          "default_value": "RawPacked",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "RawPacked",
+            "Encoded"
+          ]
+        },
+        {
+          "name": "pixel_format",
+          "type": "ImagePixelFormat",
+          "element_count": 1,
+          "default_value": "Rgb8",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
+        },
+        {
+          "name": "width",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "height",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "stride_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "data_size_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "timestamp_ns",
+          "type": "uint64_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "sequence",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "ImagePixelFormat",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Rgb8",
+        "Bgr8",
+        "Rgba8",
+        "Bgra8",
+        "Gray8",
+        "Gray16",
+        "Depth16",
+        "Depth32f",
+        "Jpeg",
+        "Png"
+      ]
+    },
+    {
+      "name": "ImagePngDynamic",
+      "type_category": "dynamic_struct"
+    },
+    {
+      "name": "ImageRef",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "handle",
+          "type": "ImageHandle",
+          "element_count": 1
+        },
+        {
+          "name": "metadata",
+          "type": "ImageMetadata",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImageRefToImageConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "output_storage_kind",
+          "type": "ImageStorageKind",
+          "element_count": 1,
+          "default_value": "ImageStorageKind::Encoded",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "RawPacked",
+            "Encoded"
+          ]
+        },
+        {
+          "name": "output_pixel_format",
+          "type": "ImagePixelFormat",
+          "element_count": 1,
+          "default_value": "ImagePixelFormat::Jpeg",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
+        },
+        {
+          "name": "jpeg_quality",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "80",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "fallback_jpeg_quality",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "60",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "max_output_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "262144",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "ImageRefToImageInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "image",
+          "type": "ImageRef",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImageRefToImageOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "image",
+          "type": "Image",
+          "element_count": 1
+        },
+        {
+          "name": "actual_jpeg_quality_used",
+          "type": "uint8_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "ImageStorageKind",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "RawPacked",
+        "Encoded"
+      ]
+    },
+    {
+      "name": "ImageToImageRefConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "output_stream_id",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "max_input_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "524288",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "decoded_pixel_format",
+          "type": "ImagePixelFormat",
+          "element_count": 1,
+          "default_value": "ImagePixelFormat::Bgr8",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Rgb8",
+            "Bgr8",
+            "Rgba8",
+            "Bgra8",
+            "Gray8",
+            "Gray16",
+            "Depth16",
+            "Depth32f",
+            "Jpeg",
+            "Png"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ImageToImageRefInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "image",
+          "type": "Image",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImageToImageRefOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "image",
+          "type": "ImageRef",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ImuConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "enable_debug_info",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "ImuOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "accel",
+          "type": "Vec3f",
+          "element_count": 1
+        },
+        {
+          "name": "gyro",
+          "type": "Vec3f",
+          "element_count": 1
+        },
+        {
+          "name": "mag",
+          "type": "Vec3f",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "LowPassFilterConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "tau_seconds",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.25",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "min_tau_seconds",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1e-4",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "LowPassFilterInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "value",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "reset",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "LowPassFilterOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "result",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "MicInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "MicOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "success",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "last_read_status",
+          "type": "AudioQueueResult",
+          "element_count": 1,
+          "default_value": "AudioQueueResult::Success",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Success",
+            "Dropped",
+            "NoData",
+            "Error"
+          ]
+        },
+        {
+          "name": "dropped_reads",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "ModulatedTone",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "base_frequency_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "440.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "base_amplitude",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "modulation_freq_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "modulation_depth_cents",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "MonocularCameraConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "camera_index",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "capture_width",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "1280",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "capture_height",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "720",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "stream_id",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MonocularCameraOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "image",
+          "type": "ImageRef",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "MqttClientConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "broker_mqtt_port",
+          "type": "uint16_t",
+          "element_count": 1,
+          "default_value": "1883",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "root_topic_namespace",
+          "type": "FixedString64",
+          "element_count": 1,
+          "default_value": "robotick",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "enable_tls",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "publish_qos",
+          "type": "uint8_t",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "subscribe_qos",
+          "type": "uint8_t",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MqttClientOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "connected",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoCameraConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "camera_name",
+          "type": "FixedString64",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "texture_width",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "640",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "texture_height",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "480",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "max_output_bytes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "262144",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoCameraInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mujoco_scene_id",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoCameraOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "png_data",
+          "type": "ImagePngDynamic",
+          "element_count": 1
+        },
+        {
+          "name": "frame_count",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoPhysicsConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "workload_config_file_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "model_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "sim_tick_rate_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "-1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "mj_initial",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoPhysicsInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mujoco",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "MuJoCoPhysicsOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mujoco",
+          "type": "Blackboard",
+          "element_count": 1
+        },
+        {
+          "name": "scene_id",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "MultiToneGeneratorConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "MultiToneGeneratorInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "tone1",
+          "type": "ModulatedTone",
+          "element_count": 1
+        },
+        {
+          "name": "tone2",
+          "type": "ModulatedTone",
+          "element_count": 1
+        },
+        {
+          "name": "tone3",
+          "type": "ModulatedTone",
+          "element_count": 1
+        },
+        {
+          "name": "tone4",
+          "type": "ModulatedTone",
+          "element_count": 1
+        },
+        {
+          "name": "tone5",
+          "type": "ModulatedTone",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "MultiToneGeneratorOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "NoiseSuppressConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "settings",
+          "type": "NoiseSuppressorConfig",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "NoiseSuppressInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "bypass",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "NoiseSuppressOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "is_noise_only",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "noise_floor_rms",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "NoiseSuppressorConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "noise_learning_rms_threshold",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.02",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "noise_profile_alpha",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.1",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "suppression_strength",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.8",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "min_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.1",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "gain_smooth_alpha",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "noise_only_rms_threshold",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.02",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "noise_floor_min",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1e-6",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "ProsodicSegmentBuffer",
+      "type_category": "container"
+    },
+    {
+      "name": "ProsodyAnalyserConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "harmonic_floor_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "-60.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "speaking_rate_decay",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.95",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "rms_smooth_alpha",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "signal_rms_threshold",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.015",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "voiced_falloff_rate_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "5.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_confidence_min_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "-15.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_confidence_max_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "25.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_confidence_gate",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.35",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "ProsodyAnalyserInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "pitch_info",
+          "type": "HarmonicPitchResult",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ProsodyAnalyserOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "prosody_state",
+          "type": "ProsodyState",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ProsodyFusionConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "history_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "8.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "simplified_sample_count",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "32",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "minimum_segment_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.1",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "silence_hangover_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "segment_merge_tolerance_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.25",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "max_pitch_jump_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "80.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "ProsodyFusionInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "prosody_state",
+          "type": "ProsodyState",
+          "element_count": 1
+        },
+        {
+          "name": "proto_transcript",
+          "type": "Transcript",
+          "element_count": 1
+        },
+        {
+          "name": "transcript",
+          "type": "Transcript",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ProsodyFusionOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "speech_segments",
+          "type": "ProsodicSegmentBuffer",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ProsodyState",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "rms",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "has_signal",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_pitch",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "is_voiced",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "voiced_confidence",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "is_harmonic",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "harmonic_confidence",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "speaking_rate_sps",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "pitch_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "pitch_slope_hz_per_s",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonicity_hnr_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "jitter",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "shimmer",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "spectral_brightness",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "h1_to_h2_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_tilt_db_per_h",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "even_odd_ratio",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonic_support_ratio",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "centroid_ratio",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "formant1_ratio",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "formant2_ratio",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "ProsodyWaveGeneratorConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "use_rms_for_amplitude",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "use_voiced_gate",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "enable_tone",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "tone_base",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "enable_partials",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "partials_base",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "max_num_partials",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "16",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "enable_noise",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "noise_base",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.5",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "brightness_to_noise_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.8",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "brightness_to_partial_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "5.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonicity_to_noise_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.03",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "harmonicity_to_partial_scale",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.03",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "use_brightness_for_noise_lpf",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "noise_cutoff_default_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "2000.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "mix_smooth_alpha",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.8",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "min_component_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "max_component_gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "2.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "ProsodyWaveGeneratorInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "prosody_state",
+          "type": "ProsodyState",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "ProsodyWaveGeneratorOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "PythonConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "script_name",
+          "type": "FixedString128",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "class_name",
+          "type": "FixedString64",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "script",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "PythonInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "script",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "PythonOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "script",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "QuatToEulerConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "output_roll_source",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "output_pitch_source",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "output_yaw_source",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "2",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "QuatToEulerInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "quat",
+          "type": "Quatf",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "QuatToEulerOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "roll",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "pitch",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "yaw",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "Quatf",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "w",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0"
+        },
+        {
+          "name": "x",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        },
+        {
+          "name": "z",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        }
+      ]
+    },
+    {
+      "name": "RemoteControlConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "dead_zone_left",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "dead_zone_right",
+          "type": "Vec2f",
+          "element_count": 1
+        },
+        {
+          "name": "stick_shape_transform_left",
+          "type": "StickShapeTransform",
+          "element_count": 1,
+          "default_value": "StickShapeTransform::CircleToSquare",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "None",
+            "CircleToSquare"
+          ]
+        },
+        {
+          "name": "stick_shape_transform_right",
+          "type": "StickShapeTransform",
+          "element_count": 1,
+          "default_value": "StickShapeTransform::CircleToSquare",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "None",
+            "CircleToSquare"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RemoteControlInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "use_web_inputs",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "gamepad_state_raw",
+          "type": "GamepadState",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "RemoteControlOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "gamepad_state",
+          "type": "GamepadState",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "RenderMode",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Texture",
+        "Screen"
+      ]
+    },
+    {
+      "name": "SineWaveGeneratorConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "SineWaveGeneratorInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "frequency_hz",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "440.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "amplitude",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.1",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "SineWaveGeneratorOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SnakePitchTrackerConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "min_peak_amplitude",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.05",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "peak_merge_cents",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "25.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "snake_match_cents",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "100.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "snake_keep_alive_frames",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "4",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "harmonic_match_cents",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "100.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "max_snakes",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "32",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "SpeakerInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "left",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "right",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeakerOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "last_queue_status",
+          "type": "FixedString32",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "settings",
+          "type": "SpeechToTextSettings",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "is_voiced",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "proto_transcript",
+          "type": "Transcript",
+          "element_count": 1
+        },
+        {
+          "name": "transcript",
+          "type": "Transcript",
+          "element_count": 1
+        },
+        {
+          "name": "accumulator_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "accumulator_capacity_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "is_transcribe_thread_active",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "transcribe_session_count",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "SpeechToTextSettings",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "model_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "num_threads",
+          "type": "uint16_t",
+          "element_count": 1,
+          "default_value": "4",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "min_voiced_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.5",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "silence_hangover_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "proto_refresh_interval_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.2",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "SteeringMixerConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "max_speed_differential",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.4",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "power_scale_both",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "power_scale_left",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "power_scale_right",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "1.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "power_seek_rate",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "-1.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "SteeringMixerInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "angular_speed",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "SteeringMixerOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "left_motor",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "right_motor",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "StickShapeTransform",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "None",
+        "CircleToSquare"
+      ]
+    },
+    {
+      "name": "TemplateConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "gain",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "threshold",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "label",
+          "type": "FixedString32",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "blackboard",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "TemplateInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "angle",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "sensor_value",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "sensor_label",
+          "type": "FixedString16",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "blackboard",
+          "type": "Blackboard",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "TemplateOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "command",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "status",
+          "type": "FixedString64",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "sensor_ok",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "blackboard",
+          "type": "Blackboard",
+          "element_count": 1
+        },
+        {
+          "name": "warning_count",
+          "type": "uint32_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        },
+        {
+          "name": "has_called_set_children",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_set_engine",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_pre_load",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_load",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_setup",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_start",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_tick",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "has_called_stop",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "TimingDiagnosticsConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "log_rate_hz",
+          "type": "int",
+          "element_count": 1,
+          "default_value": "1",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "TimingDiagnosticsOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "last_tick_rate",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "avg_tick_rate",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "tick_stddev",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "TranscribedWords",
+      "type_category": "container"
+    },
+    {
+      "name": "Transcript",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "words",
+          "type": "TranscribedWords",
+          "element_count": 1
+        },
+        {
+          "name": "text",
+          "type": "FixedString512",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "transcribe_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "transcript_mean_confidence",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "start_time_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "Vec2f",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "x",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        }
+      ]
+    },
+    {
+      "name": "Vec3f",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "x",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        },
+        {
+          "name": "z",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0"
+        }
+      ]
+    },
+    {
+      "name": "WavPlayerConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "file_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "amplitude_gain_db",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "looping",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "loop_delay_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "WavPlayerOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "left",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "right",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "mono",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "total_duration_sec",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "total_frame_count",
+          "type": "uint64_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "WavRecorderConfig",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "file_path",
+          "type": "FixedString256",
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
+        },
+        {
+          "name": "overwrite",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "true",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "stereo",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "WavRecorderInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "left",
+          "type": "AudioFrame",
+          "element_count": 1
+        },
+        {
+          "name": "right",
+          "type": "AudioFrame",
+          "element_count": 1
+        }
+      ]
+    },
+    {
+      "name": "WavRecorderOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "file_open",
+          "type": "bool",
+          "element_count": 1,
+          "default_value": "false",
+          "primitive_kind": "boolean"
+        },
+        {
+          "name": "total_written",
+          "type": "uint64_t",
+          "element_count": 1,
+          "default_value": "0",
+          "primitive_kind": "integer"
+        }
+      ]
+    },
+    {
+      "name": "WeightedSumInputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "a",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "b",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "weight_a",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.5",
+          "primitive_kind": "number"
+        },
+        {
+          "name": "weight_b",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.5",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "WeightedSumOutputs",
+      "type_category": "struct",
+      "fields": [
+        {
+          "name": "result",
+          "type": "float",
+          "element_count": 1,
+          "default_value": "0.0",
+          "primitive_kind": "number"
+        }
+      ]
+    },
+    {
+      "name": "bool",
+      "type_category": "primitive",
+      "primitive_kind": "boolean"
+    },
+    {
+      "name": "double",
+      "type_category": "primitive",
+      "primitive_kind": "number"
+    },
+    {
+      "name": "float",
+      "type_category": "primitive",
+      "primitive_kind": "number"
+    },
+    {
+      "name": "int",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    },
+    {
+      "name": "uint16_t",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    },
+    {
+      "name": "uint32_t",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    },
+    {
+      "name": "uint64_t",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    },
+    {
+      "name": "uint8_t",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    }
+  ],
+  "writable_inputs": [],
+  "validation_errors": []
+}

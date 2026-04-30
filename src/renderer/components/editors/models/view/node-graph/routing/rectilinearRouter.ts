@@ -181,6 +181,8 @@ export class RectilinearRouter implements ConnectionRouter {
       }
 
       results.push({
+        from: edge.from,
+        to: edge.to,
         path,
         classList: [
           "connection",

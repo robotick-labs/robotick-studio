@@ -12,4 +12,5 @@ export interface EngineModel {
   instanceURL: string;
   preferredSampleRateHz?: number;
   fieldConnectionHints: Record<string, FieldConnectionHint>;
+  expectedWorkloads?: Array<{ name: string; type: string }>;
 }

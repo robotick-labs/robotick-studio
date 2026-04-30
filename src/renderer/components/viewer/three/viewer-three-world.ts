@@ -21,6 +21,10 @@ import {
 } from "../../../data-sources/telemetry/index.js";
 import { ProjectData } from "../../../data-sources/launcher/index.js";
 import { resolveViewerAssetUrl } from "../asset-url-resolver.js";
+import {
+  resolveAnimatorModelDescriptor,
+  resolveAnimatorWorkloadName,
+} from "../telemetry-animator-resolution.js";
 
 const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
@@ -161,6 +165,7 @@ export class ViewerWorld {
   // telemetry
   private telemetrySubscriptions = new Map<string, () => void>();
   private telemetryStats = new Map<string, StatsRecord>();
+  private telemetryAnimatorWorkloadNames = new Map<string, string>();
   private textureFrameSignatures = new Map<string, string>();
   private frameStats: StatsRecord = {
     lastTimestamp: null,
@@ -667,7 +672,9 @@ export class ViewerWorld {
     this.telemetrySubscriptions.forEach((dispose) => dispose());
     this.telemetrySubscriptions.clear();
     this.telemetryStats.clear();
+    this.telemetryAnimatorWorkloadNames.clear();
     if (!this.worldConfig.telemetryAnimators) return;
+    const descriptors = (await ProjectData.waitForProjectModelsLoaded()).data;
 
     for (const config of this.worldConfig.telemetryAnimators) {
       this.telemetryStats.set(config.id, {
@@ -676,7 +683,16 @@ export class ViewerWorld {
         sum: 0,
         sumSq: 0,
       });
-      const baseUrl = await this.resolveAnimatorBaseUrl(config);
+      const descriptor = resolveAnimatorModelDescriptor(config, descriptors);
+      const workloadName = resolveAnimatorWorkloadName(config, descriptor);
+      if (!workloadName) {
+        console.warn(
+          `[viewer] telemetry animator ${config.id} missing workloadName/workloadId`,
+        );
+        continue;
+      }
+      this.telemetryAnimatorWorkloadNames.set(config.id, workloadName);
+      const baseUrl = await this.resolveAnimatorBaseUrl(config, descriptor);
       if (!baseUrl) {
         console.warn(
           `[viewer] telemetry animator ${config.id} missing telemetry base URL`,
@@ -864,31 +880,18 @@ export class ViewerWorld {
 
   private async resolveAnimatorBaseUrl(
     animator: TelemetryAnimator,
+    descriptorArg?: ReturnType<typeof resolveAnimatorModelDescriptor>,
   ): Promise<string | null> {
     if (animator.baseUrl?.trim()) {
       return animator.baseUrl.trim();
     }
-    const modelName = animator.modelName?.trim();
-    if (!modelName) {
-      return null;
-    }
-    try {
-      const descriptor =
-        await ProjectData.waitForModelDescriptorByName(modelName);
-      if (!descriptor) {
-        console.warn(
-          `[viewer] telemetry model "${modelName}" not found in project data`,
-        );
-        return null;
-      }
-      return descriptor.telemetryBaseUrl;
-    } catch (err) {
-      console.warn(
-        `[viewer] Failed to resolve telemetry model "${modelName}"`,
-        err,
+    const descriptor =
+      descriptorArg ??
+      resolveAnimatorModelDescriptor(
+        animator,
+        (await ProjectData.waitForProjectModelsLoaded()).data,
       );
-      return null;
-    }
+    return descriptor?.telemetryBaseUrl ?? null;
   }
 
   private async executeAnimator(
@@ -896,8 +899,12 @@ export class ViewerWorld {
     telemetryModel: ITelemetryModel,
   ) {
     this.recordTelemetrySample(animator.id);
+    const workloadName = this.telemetryAnimatorWorkloadNames.get(animator.id);
+    if (!workloadName) {
+      return;
+    }
     const workload = telemetryModel.workloads.find(
-      (w) => w.name === animator.workloadName,
+      (w) => w.name === workloadName,
     );
     if (!workload) {
       return;
@@ -905,7 +912,7 @@ export class ViewerWorld {
 
     if (animator.fields?.length) {
       this.applyFieldsData(
-        animator.workloadName,
+        workloadName,
         animator.fields,
         telemetryModel,
         animator.defaultSpace,
@@ -917,7 +924,7 @@ export class ViewerWorld {
     if (animator.textureFields?.length) {
       for (const t of animator.textureFields) {
         try {
-          const fieldPath = `${animator.workloadName}.${t.fieldId}`;
+          const fieldPath = `${workloadName}.${t.fieldId}`;
           const field = telemetryModel.getField?.(fieldPath);
           if (!field) {
             console.warn("Texture field not found:", fieldPath);
@@ -1009,7 +1016,7 @@ export class ViewerWorld {
           this.textureFrameSignatures.set(textureKey, frameSignature);
         } catch (error) {
           console.error(
-            `[viewer] Failed to update texture field ${animator.workloadName}.${t.fieldId}`,
+            `[viewer] Failed to update texture field ${workloadName}.${t.fieldId}`,
             error,
           );
         }

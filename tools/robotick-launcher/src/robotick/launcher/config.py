@@ -2,12 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from rich import print
 import typer
 import yaml
 from robotick.launcher.runtime_lock import apply_runtime_lock
+
+
+def _sanitize_identifier(value: str) -> str:
+    sanitized = re.sub(r"[^0-9A-Za-z_]", "_", value)
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    if not sanitized:
+        return "model"
+    if sanitized[0].isdigit():
+        return f"_{sanitized}"
+    return sanitized
 
 
 class DotDict(dict):
@@ -63,7 +74,7 @@ class Config:
 
         self.project_name = project
         self.model_name = model
-        self.model_name_safe = (model or "").replace("-", "_")
+        self.model_name_safe = _sanitize_identifier(model or "")
         self.target = target
         self.base_dir = base_dir
         self.dry_run = dry_run

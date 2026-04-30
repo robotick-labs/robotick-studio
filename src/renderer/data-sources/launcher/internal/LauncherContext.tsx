@@ -10,6 +10,7 @@ import React, {
 import { useProjectContext } from "./ProjectContext";
 import { buildUrl } from "./launcher-interface";
 import { getProjectModelsStateSnapshot } from "./LauncherDataContext";
+import { isAppQuitting } from "../../../utils/appQuitting";
 import {
   useLauncherService,
   type LauncherService,
@@ -101,7 +102,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function pollLoop() {
-      while (!cancelled) {
+      while (!cancelled && !isAppQuitting()) {
         const interval =
           Date.now() < fastPollUntilRef.current
             ? POLLING_FAST_INTERVAL_MS

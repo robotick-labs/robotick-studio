@@ -1,20 +1,46 @@
 import { editorSelectionStore } from "../document/editorSelectionStore";
 
 export class SelectionController {
-  constructor(private svg: SVGSVGElement) {}
-  attach(): void {
-    this.svg.addEventListener("click", (e) => {
-      const g = (e.target as Element).closest(
-        "g.workload-node"
-      ) as SVGGElement | null;
-      if (g?.id) {
-        editorSelectionStore.setSelection(g.id);
-        window.dispatchEvent(
-          new CustomEvent("models-graph:selection-changed", {
-            detail: { nodeId: g.id },
+  constructor(
+    private svg: SVGSVGElement,
+    private selectionScope: string = "default"
+  ) {}
+
+  private onClick = (e: MouseEvent) => {
+    const g = (e.target as Element).closest("g.workload-node") as
+      | SVGGElement
+      | null;
+    const nodeKind = g?.getAttribute("data-node-kind");
+    if (nodeKind === "model" || nodeKind === "collapsed-model") {
+      const modelId = g?.getAttribute("data-model-id");
+      const toggleTarget = (e.target as Element).closest(".model-toggle-button");
+      if (modelId && toggleTarget) {
+        this.svg.dispatchEvent(
+          new CustomEvent("models-graph:toggle-model-collapsed", {
+            detail: { modelId, scope: this.selectionScope },
+            bubbles: true,
           })
         );
+        return;
       }
-    });
+    }
+    if (nodeKind === "stub") {
+      return;
+    }
+    const nodeId = g?.id ?? null;
+    editorSelectionStore.setSelection(nodeId, this.selectionScope);
+    window.dispatchEvent(
+      new CustomEvent("models-graph:selection-changed", {
+        detail: { nodeId, scope: this.selectionScope },
+      })
+    );
+  };
+
+  attach(): void {
+    this.svg.addEventListener("click", this.onClick);
+  }
+
+  detach(): void {
+    this.svg.removeEventListener("click", this.onClick);
   }
 }

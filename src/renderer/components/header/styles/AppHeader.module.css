@@ -227,7 +227,7 @@
   white-space: nowrap;
   color: #eee;
   text-decoration: none;
-  background: #1d2436;
+  background: rgba(12, 147, 225, 0.2);
   padding: 6px 10px;
   border-radius: 10px;
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
@@ -235,7 +235,7 @@
 
 .navLink:hover,
 .navLink:focus {
-  background: rgba(12, 147, 225, 0.2);
+  background: rgba(12, 147, 225, 0.3);
   color: white;
   box-shadow: 0 0 6px rgba(12, 147, 225, 0.3);
 }
@@ -278,6 +278,272 @@
   font-size: 0.76rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.createWindowButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  margin-right: 0.45rem;
+  border-radius: 8px;
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.createWindowButton:hover,
+.createWindowButton:focus-visible {
+  border: none;
+  background: rgba(12, 147, 225, 0.3);
+  color: white;
+  outline: none;
+}
+
+.childWindowName {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 30px;
+  max-width: 260px;
+  padding: 0.2rem 0.55rem;
+  margin-right: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 18, 34, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.childWindowName:hover,
+.childWindowName:focus-visible {
+  border-color: rgba(12, 147, 225, 0.8);
+  background: rgba(12, 147, 225, 0.22);
+  outline: none;
+}
+
+.childWindowNameInput {
+  min-height: 30px;
+  max-width: 260px;
+  padding: 0.2rem 0.55rem;
+  margin-right: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid rgba(12, 147, 225, 0.8);
+  background: rgba(10, 18, 34, 0.95);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 0.76rem;
+}
+
+.childWindowNameInput:focus-visible {
+  outline: 1px solid rgba(12, 147, 225, 0.8);
+}
+
+.windowPresetSelector {
+  position: relative;
+  margin-right: 0.45rem;
+}
+
+.windowPresetButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 30px;
+  min-width: 180px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 18, 34, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.76rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.windowPresetButton:hover,
+.windowPresetButton:focus-visible {
+  background: rgba(12, 147, 225, 0.3);
+  border-color: rgba(12, 147, 225, 0.8);
+  outline: none;
+}
+
+.windowPresetLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.windowPresetMenu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  min-width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(8, 11, 24, 0.98);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+  padding: 0.35rem;
+  z-index: 200020;
+}
+
+.windowPresetMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 6px;
+}
+
+.windowPresetMenuItem + .windowPresetMenuItem {
+  margin-top: 0.25rem;
+}
+
+.windowPresetSelectButton {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-size: 0.76rem;
+  padding: 0.25rem 0.45rem;
+}
+
+.windowPresetMenuItemActive .windowPresetSelectButton {
+  background: rgba(12, 147, 225, 0.3);
+}
+
+.windowPresetMenuItemOpen .windowPresetSelectButton {
+  background: rgba(12, 147, 225, 0.95);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(12, 147, 225, 0.9);
+}
+
+.windowPresetMenuItemInactive {
+  background: transparent;
+}
+
+.windowPresetSelectButton:hover,
+.windowPresetSelectButton:focus-visible {
+  background: rgba(12, 147, 225, 0.22);
+  outline: none;
+}
+
+.windowPresetName {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+
+.windowPresetActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.windowPresetIconButton {
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  line-height: 1;
+}
+
+.windowPresetIconButton:hover,
+.windowPresetIconButton:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.windowPresetIconButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.windowPresetRenameInput {
+  flex: 1 1 auto;
+  min-height: 30px;
+  border: 1px solid rgba(12, 147, 225, 0.8);
+  border-radius: 6px;
+  background: rgba(10, 18, 34, 0.95);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 0.76rem;
+  padding: 0.25rem 0.45rem;
+}
+
+.windowPresetRenameInput:focus-visible {
+  outline: 1px solid rgba(12, 147, 225, 0.8);
+}
+
+.windowPresetIconButtonLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.windowPresetDeleteConfirm {
+  margin-top: 0.45rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(28, 10, 10, 0.95);
+}
+
+.windowPresetDeleteConfirmText {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.95);
+  margin-bottom: 0.45rem;
+}
+
+.windowPresetDeleteConfirmActions {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.windowPresetDeleteConfirmButton,
+.windowPresetDeleteConfirmButtonDanger {
+  border: none;
+  border-radius: 5px;
+  min-height: 24px;
+  padding: 0.2rem 0.45rem;
+  color: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.windowPresetDeleteConfirmButton {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.windowPresetDeleteConfirmButtonDanger {
+  background: rgba(185, 38, 38, 0.9);
 }
 
 @media (max-width: 1550px) {

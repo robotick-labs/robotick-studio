@@ -3,14 +3,19 @@ import { useSyncExternalStore } from "react";
 type Listener = () => void;
 
 class EditorSelectionStore {
-  private selection: string | null = null;
+  private selectionByScope = new Map<string, string | null>();
   private listeners = new Set<Listener>();
+  private static readonly DEFAULT_SCOPE = "default";
 
-  getSelection = (): string | null => this.selection;
+  getSelection = (scope: string = EditorSelectionStore.DEFAULT_SCOPE): string | null =>
+    this.selectionByScope.get(scope) ?? null;
 
-  setSelection = (id: string | null) => {
-    if (this.selection === id) return;
-    this.selection = id;
+  setSelection = (
+    id: string | null,
+    scope: string = EditorSelectionStore.DEFAULT_SCOPE
+  ) => {
+    if (this.selectionByScope.get(scope) === id) return;
+    this.selectionByScope.set(scope, id);
     this.listeners.forEach((l) => l());
   };
 
@@ -22,10 +27,10 @@ class EditorSelectionStore {
 
 export const editorSelectionStore = new EditorSelectionStore();
 
-export function useSelection(): string | null {
+export function useSelection(scope: string = "default"): string | null {
   return useSyncExternalStore(
     editorSelectionStore.subscribe,
-    editorSelectionStore.getSelection,
-    editorSelectionStore.getSelection
+    () => editorSelectionStore.getSelection(scope),
+    () => editorSelectionStore.getSelection(scope)
   );
 }

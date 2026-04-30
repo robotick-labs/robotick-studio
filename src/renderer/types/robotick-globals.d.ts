@@ -4,6 +4,8 @@ export interface RobotickEnvironment {
   readonly cesiumToken?: string;
   readonly usesNativeWindowFrame?: boolean;
   readonly workspaceRoot?: string;
+  readonly windowScope?: string;
+  readonly isPrimaryWindow?: boolean;
   [key: string]: unknown;
 }
 
@@ -16,6 +18,8 @@ export interface RobotickWindowControls {
   readonly maximize: () => void;
   readonly restore: () => void;
   readonly close: () => void;
+  readonly createWindow?: (seedUrl?: string, scope?: string) => Promise<void>;
+  readonly getChildWindowScopes?: () => Promise<string[]>;
   readonly toggleMaximize: () => void;
   readonly showSystemMenu?: (x: number, y: number) => void;
   readonly onStateChange?: (

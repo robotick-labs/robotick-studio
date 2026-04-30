@@ -1,5 +1,4 @@
 import type { GraphDoc } from "../view/node-graph/layout/editorNodeGraph";
-import type { SvgView } from "../view/node-graph/render/svgView";
 import { DocumentStore } from "../document/documentStore";
 
 const startX = 120,
@@ -12,65 +11,85 @@ function slotFromX(x: number): number {
 }
 
 export class SlotDragController {
+  private dragging = false;
+  private startLane = 0;
+  private startSlot = 0;
+  private modelId = "";
+
   constructor(
     private svg: SVGSVGElement,
     private doc: GraphDoc,
-    private view: SvgView,
     private store: DocumentStore
   ) {}
 
   attachAll(): void {
-    for (const node of this.doc.nodes.values()) {
-      if (node.kind !== "workload") continue;
-      const el = document.getElementById(node.id) as SVGGElement | null;
-      if (!el) continue;
-      this.attach(node.id, el);
-    }
+    this.svg.addEventListener("mousedown", this.onMouseDown);
   }
 
-  private attach(nodeId: string, el: SVGGElement): void {
-    let startLane = 0,
-      startSlot = 0,
-      modelId = "",
-      dragging = false;
+  detach(): void {
+    this.dragging = false;
+    this.svg.removeEventListener("mousedown", this.onMouseDown);
+    window.removeEventListener("mousemove", this.onMouseMove);
+    window.removeEventListener("mouseup", this.onMouseUp);
+  }
 
-    const getMeta = () => {
-      const n = this.doc.getNode(nodeId)!;
-      modelId = n.meta?.modelId ?? "";
-      startLane = n.lane;
-      startSlot = slotFromX(n.x);
-    };
+  private onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) {
+      return;
+    }
 
-    const toSvg = (e: MouseEvent) => {
-      const pt = this.svg.createSVGPoint();
-      pt.x = e.clientX;
-      pt.y = e.clientY;
-      const ctm = this.svg.getScreenCTM();
-      return ctm ? pt.matrixTransform(ctm.inverse()) : pt;
-    };
+    const target = e.target as Element | null;
+    const g = target?.closest("g.workload-node") as SVGGElement | null;
+    if (!g?.id) {
+      return;
+    }
 
-    el.addEventListener("mousedown", (e) => {
-      getMeta();
-      dragging = true;
-      e.preventDefault();
-      const onMove = (_ev: MouseEvent) => {
-        if (!dragging) return;
-        // preview could be added here
-      };
-      const onUp = (ev: MouseEvent) => {
-        dragging = false;
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+    const n = this.doc.getNode(g.id);
+    if (!n || n.kind !== "workload") {
+      return;
+    }
 
-        const p = toSvg(ev);
-        const targetSlot = slotFromX(p.x - nodeW / 2);
-        if (targetSlot !== startSlot) {
-          this.store.moveWithinLane(modelId, startLane, startSlot, targetSlot);
-          window.dispatchEvent(new CustomEvent("models-graph:store-updated"));
-        }
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp, { once: true });
-    });
+    this.modelId = n.meta?.modelId ?? "";
+    this.startLane = n.lane;
+    this.startSlot = slotFromX(n.x);
+    this.dragging = true;
+    e.preventDefault();
+    window.addEventListener("mousemove", this.onMouseMove);
+    window.addEventListener("mouseup", this.onMouseUp, { once: true });
+  };
+
+  private onMouseMove = (_ev: MouseEvent) => {
+    if (!this.dragging) return;
+    // preview could be added here
+  };
+
+  private onMouseUp = (ev: MouseEvent) => {
+    if (!this.dragging) {
+      return;
+    }
+
+    this.dragging = false;
+    window.removeEventListener("mousemove", this.onMouseMove);
+    window.removeEventListener("mouseup", this.onMouseUp);
+
+    const p = this.toSvg(ev);
+    const targetSlot = slotFromX(p.x - nodeW / 2);
+    if (targetSlot !== this.startSlot) {
+      this.store.moveWithinLane(
+        this.modelId,
+        this.startLane,
+        this.startSlot,
+        targetSlot
+      );
+      window.dispatchEvent(new CustomEvent("models-graph:store-updated"));
+    }
+  };
+
+  private toSvg(e: MouseEvent) {
+    const pt = this.svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = this.svg.getScreenCTM();
+    return ctm ? pt.matrixTransform(ctm.inverse()) : pt;
   }
 }

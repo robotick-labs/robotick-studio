@@ -163,8 +163,14 @@ describe("AppHeader", () => {
     const headerRight = container.querySelector(
       '[data-testid="window-controls"]'
     )?.parentElement;
+    const presetSelector = container.querySelector(
+      'button[aria-label="Select window preset"]'
+    );
     const stats = container.querySelector('[data-testid="studio-process-stats"]');
-    expect(headerRight?.firstElementChild).toBe(stats);
+    expect(headerRight?.firstElementChild).toBe(
+      presetSelector?.parentElement ?? null
+    );
+    expect(presetSelector?.parentElement?.nextElementSibling).toBe(stats);
 
     act(() => {
       root.unmount();

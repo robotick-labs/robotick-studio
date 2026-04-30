@@ -1,5 +1,8 @@
 import type { LauncherService } from "../LauncherService";
-import type { ProjectModelDescriptor } from "../launcher-interface";
+import type {
+  ProjectModelDescriptor,
+  WorkloadsRegistryResponse,
+} from "../launcher-interface";
 
 /**
  * Initialization options for the mock launcher service.
@@ -73,6 +76,19 @@ export function createMockLauncherService(
     },
     async fetchProjectModelPaths() {
       return [];
+    },
+    async fetchProjectWorkloadsRegistry() {
+      return {
+        project: projectPath,
+        target: "linux",
+        registry: [],
+      } as WorkloadsRegistryResponse;
+    },
+    async fetchProjectCoreModelSchema() {
+      return {
+        title: "Robotick Core Model Envelope",
+        type: "object",
+      };
     },
     async getProjectModels() {
       return [] as ProjectModelDescriptor[];

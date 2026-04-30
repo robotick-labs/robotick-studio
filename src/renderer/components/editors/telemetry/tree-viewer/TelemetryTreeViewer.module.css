@@ -79,6 +79,14 @@
   padding: 2px 0;
 }
 
+.nodeText {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .nodeValue {
   color: #8fd7ff;
   min-width: 0;

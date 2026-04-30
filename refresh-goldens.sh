@@ -52,20 +52,18 @@ rsync_target "test_project_brain/linux"
 rsync_target "test_project_spine/esp32"
 
 log "📝 Regenerating workloads_discovery golden..."
-PYTHONPATH="${LAUNCHER_DIR}/src" \
+PYTHONPATH="${LAUNCHER_DIR}/src" LAUNCHER_DIR="${LAUNCHER_DIR}" \
 python3 - <<'PY'
+import json
+import os
 from pathlib import Path
-from robotick.launcher.discover_workloads import discover_workloads_metadata_as_json
+from robotick.launcher.listen.routes_query import get_workloads_registry
 
-base_dir = Path("tools/robotick-launcher/tests")
-cfg = type("Cfg", (), {})()
-cfg.base_dir = base_dir.resolve()
-cfg.runtime = {"workload_sources": [{"local_path": "test_data/robotick/robotick-core-workloads"}]}
-cfg.target_platform = "linux"
-cfg.dry_run = False
-cfg.launcher_dir = cfg.base_dir / ".launcher"
-
-discovered = discover_workloads_metadata_as_json(cfg) + "\n"
+base_dir = Path(os.environ["LAUNCHER_DIR"]).resolve() / "tests"
+project_path = (base_dir / "test_data" / "test-project" / "test-project.project.yaml").resolve()
+registry = get_workloads_registry(project_path=project_path, target="linux")
+registry["project"] = "__PROJECT_PATH__"
+discovered = json.dumps(registry, indent=2) + "\n"
 golden_dir = base_dir / "test_data"
 golden_dir.mkdir(parents=True, exist_ok=True)
 (golden_dir / "workloads_discovery.latest.json").write_text(discovered, encoding="utf-8")

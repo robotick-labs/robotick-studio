@@ -133,6 +133,21 @@ export function TelemetryApp({
         instanceURL: model.telemetryBaseUrl,
         preferredSampleRateHz: model.preferredTelemetrySampleRateHz,
         fieldConnectionHints: hintsByModelPath.get(model.modelPath) ?? {},
+        expectedWorkloads: Array.isArray(
+          (model.data as { workloads?: Array<Record<string, unknown>> } | null)
+            ?.workloads
+        )
+          ? (
+              (model.data as {
+                workloads?: Array<Record<string, unknown>>;
+              }).workloads ?? []
+            )
+              .map((workload) => ({
+                name: String(workload?.name ?? "").trim(),
+                type: String(workload?.type ?? "").trim(),
+              }))
+              .filter((workload) => workload.name.length > 0)
+          : [],
       }))
       .sort((a, b) =>
         compareEngineModels(a, b, modelSortKey, (baseUrl) => {

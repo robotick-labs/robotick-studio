@@ -61,8 +61,12 @@ type BrowserWindowInstance = {
   maximize: () => void;
   unmaximize: () => void;
   isMaximized: () => boolean;
+  isMinimized?: () => boolean;
+  isDestroyed?: () => boolean;
   isFocused?: () => boolean;
   close: () => void;
+  destroy?: () => void;
+  restore?: () => void;
   focus?: () => void;
   show?: () => void;
   setAlwaysOnTop?: (flag: boolean, level?: string) => void;
@@ -97,6 +101,16 @@ type WindowState = {
   x?: number;
   y?: number;
   isMaximized?: boolean;
+};
+
+type WindowStateStore = {
+  version: 2;
+  windows: Record<string, WindowState>;
+};
+
+type WindowMetadata = {
+  scope: string;
+  isPrimary: boolean;
 };
 
 type WindowControlsState = {
@@ -148,6 +162,11 @@ const DEFAULT_WINDOW_STATE: WindowState = {
   height: 900,
 };
 
+const PRIMARY_WINDOW_SCOPE = "primary";
+const CHILD_WINDOW_SCOPE_PREFIX = "child-";
+const WINDOW_SCOPE_ARG_PREFIX = "--robotick-window-scope=";
+const WINDOW_PRIMARY_ARG_PREFIX = "--robotick-window-primary=";
+
 const WINDOW_STATE_FILE =
   process.env.ROBOTICK_WINDOW_STATE_FILE ||
   path.join(
@@ -157,11 +176,15 @@ const WINDOW_STATE_FILE =
   );
 
 const WINDOW_STATE_WRITE_DEBOUNCE_MS = 500;
-let pendingWindowState: WindowState | null = null;
+let pendingWindowStateStore: WindowStateStore | null = null;
 let windowStateWriteTimer: NodeJS.Timeout | null = null;
 let windowStateWriteInFlight = false;
 let lastStudioCpuSample: StudioCpuSample | null = null;
 let lastLinuxProcessCpuSample: LinuxProcessCpuSample | null = null;
+const DEV_SERVER_PORT_CANDIDATES = [
+  5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183,
+];
+const DEV_SERVER_PROBE_TIMEOUT_MS = 800;
 
 const PUBLIC_ICON_RELATIVE = path.join(
   "public",
@@ -171,16 +194,96 @@ const PUBLIC_ICON_RELATIVE = path.join(
   "icon.png",
 );
 
-function readWindowState(): WindowState {
+function isWindowState(value: unknown): value is WindowState {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const data = value as Record<string, unknown>;
+  return (
+    typeof data.width === "number" &&
+    Number.isFinite(data.width) &&
+    typeof data.height === "number" &&
+    Number.isFinite(data.height)
+  );
+}
+
+function readWindowStateStore(): WindowStateStore {
   try {
     const contents = fs.readFileSync(WINDOW_STATE_FILE, { encoding: "utf-8" });
-    return { ...DEFAULT_WINDOW_STATE, ...JSON.parse(contents) };
+    const parsed = JSON.parse(contents) as Record<string, unknown>;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.version === 2 &&
+      parsed.windows &&
+      typeof parsed.windows === "object"
+    ) {
+      const windows = Object.fromEntries(
+        Object.entries(parsed.windows as Record<string, unknown>)
+          .filter(([, value]) => isWindowState(value))
+          .map(([scope, value]) => [
+            scope,
+            { ...DEFAULT_WINDOW_STATE, ...(value as WindowState) },
+          ])
+      );
+      return {
+        version: 2,
+        windows:
+          Object.keys(windows).length > 0
+            ? windows
+            : { [PRIMARY_WINDOW_SCOPE]: DEFAULT_WINDOW_STATE },
+      };
+    }
+    if (isWindowState(parsed)) {
+      return {
+        version: 2,
+        windows: {
+          [PRIMARY_WINDOW_SCOPE]: { ...DEFAULT_WINDOW_STATE, ...parsed },
+        },
+      };
+    }
   } catch {
-    return DEFAULT_WINDOW_STATE;
+    // fall through to default
+  }
+  return {
+    version: 2,
+    windows: {
+      [PRIMARY_WINDOW_SCOPE]: DEFAULT_WINDOW_STATE,
+    },
+  };
+}
+
+async function canReachDevServer(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEV_SERVER_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${url}/@vite/client`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-async function persistWindowState(state: WindowState) {
+async function resolveDevServerUrl(): Promise<string> {
+  const envUrl = process.env.ROBOTICK_STUDIO_DEV_URL?.trim();
+  if (envUrl && (await canReachDevServer(envUrl))) {
+    return envUrl;
+  }
+  for (const port of DEV_SERVER_PORT_CANDIDATES) {
+    const candidate = `http://localhost:${port}`;
+    if (await canReachDevServer(candidate)) {
+      return candidate;
+    }
+  }
+  return "http://localhost:5173";
+}
+
+async function persistWindowStateStore(state: WindowStateStore) {
   try {
     await fs.promises.mkdir(path.dirname(WINDOW_STATE_FILE), {
       recursive: true,
@@ -198,26 +301,26 @@ async function persistWindowState(state: WindowState) {
 }
 
 function flushWindowStateQueue() {
-  if (windowStateWriteInFlight || !pendingWindowState) {
+  if (windowStateWriteInFlight || !pendingWindowStateStore) {
     return;
   }
-  const state = pendingWindowState;
-  pendingWindowState = null;
+  const state = pendingWindowStateStore;
+  pendingWindowStateStore = null;
   windowStateWriteInFlight = true;
-  persistWindowState(state)
+  persistWindowStateStore(state)
     .catch((error) => {
       console.error("[Launcher] Error writing window state", error);
     })
     .finally(() => {
       windowStateWriteInFlight = false;
-      if (pendingWindowState) {
+      if (pendingWindowStateStore) {
         setImmediate(flushWindowStateQueue);
       }
     });
 }
 
-function scheduleWindowStateWrite(state: WindowState) {
-  pendingWindowState = state;
+function scheduleWindowStateWrite(state: WindowStateStore) {
+  pendingWindowStateStore = state;
   if (windowStateWriteTimer) {
     clearTimeout(windowStateWriteTimer);
   }
@@ -259,8 +362,35 @@ function clampToDisplay(state: WindowState) {
   return { ...bounds, x, y, width, height };
 }
 
+function parseWindowScopeFromArgs(args: string[] | undefined): string | null {
+  if (!Array.isArray(args)) {
+    return null;
+  }
+  const scopeArg = args.find((arg) => arg.startsWith(WINDOW_SCOPE_ARG_PREFIX));
+  if (!scopeArg) {
+    return null;
+  }
+  const scope = scopeArg.slice(WINDOW_SCOPE_ARG_PREFIX.length).trim();
+  return scope.length > 0 ? scope : null;
+}
+
+function parseIsPrimaryFromArgs(args: string[] | undefined): boolean {
+  if (!Array.isArray(args)) {
+    return true;
+  }
+  const primaryArg = args.find((arg) =>
+    arg.startsWith(WINDOW_PRIMARY_ARG_PREFIX)
+  );
+  if (!primaryArg) {
+    return true;
+  }
+  return primaryArg.slice(WINDOW_PRIMARY_ARG_PREFIX.length) === "1";
+}
+
 type WindowOptionsConfig = {
   useNativeFrame?: boolean;
+  windowScope?: string;
+  isPrimaryWindow?: boolean;
 };
 
 const getDefaultWindowOptions = (
@@ -271,6 +401,8 @@ const getDefaultWindowOptions = (
 ) => {
   const isMac = platform === "darwin";
   const useNativeFrame = config.useNativeFrame === true;
+  const windowScope = config.windowScope ?? PRIMARY_WINDOW_SCOPE;
+  const isPrimaryWindow = config.isPrimaryWindow !== false;
   const frameless = !useNativeFrame;
 
   const base: Record<string, unknown> = {
@@ -284,6 +416,10 @@ const getDefaultWindowOptions = (
       preload: path.join(__dirname, "../preload/preload.js"),
       sandbox: true,
       contextIsolation: true,
+      additionalArguments: [
+        `${WINDOW_SCOPE_ARG_PREFIX}${windowScope}`,
+        `${WINDOW_PRIMARY_ARG_PREFIX}${isPrimaryWindow ? "1" : "0"}`,
+      ],
     },
   };
 
@@ -815,9 +951,78 @@ export async function bootstrapElectron({
     console.log("[Bootstrap] Disabled accelerated 2D canvas");
   }
 
+  const windowStateStore = readWindowStateStore();
+  const windowMetadataByWindow = new WeakMap<
+    BrowserWindowInstance,
+    WindowMetadata
+  >();
+  const openChildScopes = new Set<string>();
+  const windowByScope = new Map<string, BrowserWindowInstance>();
+
+  const getWindowStateForScope = (scope: string): WindowState => {
+    const scopedState = windowStateStore.windows[scope];
+    const fallbackState = windowStateStore.windows[PRIMARY_WINDOW_SCOPE];
+    return clampToDisplay({
+      ...DEFAULT_WINDOW_STATE,
+      ...(scopedState ?? fallbackState ?? DEFAULT_WINDOW_STATE),
+    });
+  };
+
+  const setWindowStateForScope = (scope: string, state: WindowState) => {
+    windowStateStore.windows[scope] = {
+      ...DEFAULT_WINDOW_STATE,
+      ...state,
+    };
+    scheduleWindowStateWrite(windowStateStore);
+  };
+
+  const registerWindowMetadata = (
+    win: BrowserWindowInstance,
+    metadata: WindowMetadata
+  ) => {
+    windowMetadataByWindow.set(win, metadata);
+    windowByScope.set(metadata.scope, win);
+    if (!metadata.isPrimary) {
+      openChildScopes.add(metadata.scope);
+    }
+    win.on("closed", () => {
+      const mapped = windowByScope.get(metadata.scope);
+      if (mapped === win) {
+        windowByScope.delete(metadata.scope);
+      }
+      if (!metadata.isPrimary) {
+        openChildScopes.delete(metadata.scope);
+      }
+    });
+  };
+
+  const allocateChildScope = (): string => {
+    let index = 1;
+    while (openChildScopes.has(`${CHILD_WINDOW_SCOPE_PREFIX}${index}`)) {
+      index += 1;
+    }
+    return `${CHILD_WINDOW_SCOPE_PREFIX}${index}`;
+  };
+
   app.on("browser-window-created", (_event, window) => {
     const browserWindow = window as BrowserWindowInstance;
     browserWindow.setMenuBarVisibility(false);
+    if (windowMetadataByWindow.has(browserWindow)) {
+      return;
+    }
+    const scope =
+      parseWindowScopeFromArgs(
+        (window as { webContents?: { getLastWebPreferences?: () => { additionalArguments?: string[] } } })
+          ?.webContents?.getLastWebPreferences?.()?.additionalArguments
+      ) ?? PRIMARY_WINDOW_SCOPE;
+    const isPrimary = parseIsPrimaryFromArgs(
+      (window as { webContents?: { getLastWebPreferences?: () => { additionalArguments?: string[] } } })
+        ?.webContents?.getLastWebPreferences?.()?.additionalArguments
+    );
+    registerWindowMetadata(browserWindow, {
+      scope,
+      isPrimary,
+    });
   });
 
   app.on("web-contents-created", (_event, contents) => {
@@ -825,21 +1030,28 @@ export async function bootstrapElectron({
     webContents.setWindowOpenHandler?.(() => ({
       action: "allow",
       overrideBrowserWindowOptions: getDefaultWindowOptions(
-        DEFAULT_WINDOW_STATE,
+        getWindowStateForScope(PRIMARY_WINDOW_SCOPE),
         platform,
         windowIconPath,
-        { useNativeFrame }
+        {
+          useNativeFrame,
+          windowScope: PRIMARY_WINDOW_SCOPE,
+          isPrimaryWindow: true,
+        }
       ),
     }));
   });
 
-  const registerWindowStateListeners = (win: BrowserWindowInstance) => {
+  const registerWindowStateListeners = (
+    win: BrowserWindowInstance,
+    scope: string
+  ) => {
     const saveState = () => {
       const state: WindowState = {
         ...win.getBounds(),
         isMaximized: win.isMaximized(),
       };
-      scheduleWindowStateWrite(state);
+      setWindowStateForScope(scope, state);
     };
     win.on("maximize", saveState);
     win.on("unmaximize", saveState);
@@ -913,6 +1125,12 @@ export async function bootstrapElectron({
     return resolved ?? null;
   };
 
+  let createWindow: (options?: {
+    scope?: string;
+    isPrimary?: boolean;
+    seedUrl?: string;
+  }) => BrowserWindowInstance;
+
   const showSystemMenu = (
     target: BrowserWindowInstance,
     coords?: { x?: number; y?: number }
@@ -949,7 +1167,7 @@ export async function bootstrapElectron({
   const windowController = (
     command: string,
     target: BrowserWindowInstance,
-    payload?: { x?: number; y?: number }
+    payload?: { x?: number; y?: number; seedUrl?: string; scope?: string }
   ) => {
     switch (command) {
       case "minimize":
@@ -971,6 +1189,29 @@ export async function bootstrapElectron({
       case "close":
         target.close();
         break;
+      case "createWindow": {
+        const scope = payload?.scope?.trim() || allocateChildScope();
+        const existing = windowByScope.get(scope);
+        if (existing && !(existing.isDestroyed?.() ?? false)) {
+          if (existing.isMinimized?.()) {
+            existing.restore?.();
+          }
+          existing.show?.();
+          existing.focus?.();
+          break;
+        }
+        createWindow({
+          scope,
+          isPrimary: false,
+          seedUrl: payload?.seedUrl,
+        });
+        break;
+      }
+      case "childScopes":
+        return {
+          isMaximized: target.isMaximized(),
+          childScopes: Array.from(openChildScopes),
+        };
       case "systemMenu":
         showSystemMenu(target, payload);
         break;
@@ -1015,7 +1256,9 @@ export async function bootstrapElectron({
       "robotick-window-command",
       (
         event: IpcMainInvokeEvent,
-        payload: { command: string; x?: number; y?: number } | undefined
+        payload:
+          | { command: string; x?: number; y?: number; seedUrl?: string; scope?: string }
+          | undefined
       ) => {
         const target = resolveBrowserWindowFromEvent(event);
         if (!target) {
@@ -1048,12 +1291,38 @@ export async function bootstrapElectron({
     };
   })();
 
+  const notifyRenderersAppQuitting = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.webContents.send("robotick-app-quitting");
+      } catch {
+        // ignore renderer notification failures during shutdown
+      }
+    }
+  };
+
+  const closeAllWindowsForQuit = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.destroy?.();
+      } catch {
+        try {
+          win.close();
+        } catch {
+          // ignore close failures during shutdown
+        }
+      }
+    }
+  };
+
   let gracefulQuitInFlight = false;
   const runGracefulQuit = async () => {
     if (gracefulQuitInFlight) {
       return;
     }
     gracefulQuitInFlight = true;
+    notifyRenderersAppQuitting();
+    closeAllWindowsForQuit();
     await cleanupLauncher();
     app.quit();
   };
@@ -1065,8 +1334,6 @@ export async function bootstrapElectron({
     (event as PreventableEvent | undefined)?.preventDefault?.();
     void runGracefulQuit();
   });
-
-  const storedState = clampToDisplay(readWindowState());
 
   const scheduleSmokeCheck = (win: BrowserWindowInstance) => {
     if (!isSmokeTest) {
@@ -1108,10 +1375,16 @@ export async function bootstrapElectron({
       }
     });
   };
-  const createWindow = () => {
+  createWindow = (options) => {
+    const isPrimary = options?.isPrimary !== false;
+    const scope =
+      options?.scope ?? (isPrimary ? PRIMARY_WINDOW_SCOPE : allocateChildScope());
+    const storedState = getWindowStateForScope(scope);
     const win = new BrowserWindow(
       getDefaultWindowOptions(storedState, platform, windowIconPath, {
         useNativeFrame,
+        windowScope: scope,
+        isPrimaryWindow: isPrimary,
       })
     );
     let alwaysOnTopTimer: NodeJS.Timeout | null = null;
@@ -1122,6 +1395,8 @@ export async function bootstrapElectron({
       }
     };
 
+    registerWindowMetadata(win, { scope, isPrimary });
+
     if (storedState.isMaximized) {
       win.maximize();
     }
@@ -1130,7 +1405,7 @@ export async function bootstrapElectron({
     win.on("closed", () => {
       clearAlwaysOnTopTimer();
     });
-    registerWindowStateListeners(win);
+    registerWindowStateListeners(win, scope);
     registerDevtoolsShortcuts(win, platform);
     attachRendererDiagnostics(win);
     attachWindowControlsLogger(win);
@@ -1152,14 +1427,19 @@ export async function bootstrapElectron({
       });
     });
 
-    if (env.ELECTRON_DEV === "1") {
-      win.loadURL("http://localhost:5173");
+    if (typeof options?.seedUrl === "string" && options.seedUrl.length > 0) {
+      win.loadURL(options.seedUrl);
+    } else if (env.ELECTRON_DEV === "1") {
+      void resolveDevServerUrl().then((url) => {
+        win.loadURL(url);
+      });
     } else {
       const indexPath = path.join(__dirname, "../../renderer/index.html");
       console.log("Launching app at:", indexPath);
       win.loadFile(indexPath);
     }
     scheduleSmokeCheck(win);
+    return win;
   };
 
   app.on("window-all-closed", () => {
@@ -1170,11 +1450,17 @@ export async function bootstrapElectron({
 
   await app.whenReady();
 
-  createWindow();
+  createWindow({
+    scope: PRIMARY_WINDOW_SCOPE,
+    isPrimary: true,
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow({
+        scope: PRIMARY_WINDOW_SCOPE,
+        isPrimary: true,
+      });
     }
   });
 

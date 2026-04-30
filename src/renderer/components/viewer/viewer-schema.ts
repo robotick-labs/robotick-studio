@@ -93,8 +93,10 @@ export interface TelemetryFieldMap {
 export interface TelemetryAnimator {
   id: string;
   baseUrl?: string;
+  modelId?: string;
   modelName?: string;
-  workloadName: string;
+  workloadId?: string;
+  workloadName?: string;
   samplingRateHz?: number; // default 20Hz
   // Map response to scene changes:
   fields?: TelemetryFieldMap[];
@@ -136,6 +138,8 @@ export interface ModelConfig {
 export interface ViewerConfig {
   container?: HTMLElement | null; // DOM parent; defaults to document.body
   projectPath?: string;
+  workspaceId?: string;
+  panelId?: string;
   backgroundColor?: string; // "#ffffff"
   fog?: FogConfig | null;
   addGroundPlane?: boolean;

@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+const WINDOW_SCOPE_ARG_PREFIX = "--robotick-window-scope=";
+const WINDOW_PRIMARY_ARG_PREFIX = "--robotick-window-primary=";
+
 type RendererErrorReport = {
   type: "error" | "unhandledrejection";
   message: string;
@@ -88,8 +91,24 @@ function installRendererErrorForwarding() {
   });
 }
 
+function installAppQuittingForwarding() {
+  ipcRenderer.on("robotick-app-quitting", () => {
+    window.dispatchEvent(new Event("robotick:app-quitting"));
+  });
+}
+
+function readArgument(prefix: string): string | undefined {
+  const arg = process.argv.find((entry) => entry.startsWith(prefix));
+  if (!arg) {
+    return undefined;
+  }
+  const value = arg.slice(prefix.length).trim();
+  return value.length > 0 ? value : undefined;
+}
+
 const expose = () => {
   installRendererErrorForwarding();
+  installAppQuittingForwarding();
 
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
   const windowControls = usesNativeWindowFrame
@@ -105,6 +124,18 @@ const expose = () => {
           ipcRenderer.invoke("robotick-window-command", { command: "restore" }),
         close: () =>
           ipcRenderer.invoke("robotick-window-command", { command: "close" }),
+        createWindow: (seedUrl?: string, scope?: string) =>
+          ipcRenderer.invoke("robotick-window-command", {
+            command: "createWindow",
+            seedUrl,
+            scope,
+          }),
+        getChildWindowScopes: async () => {
+          const response = (await ipcRenderer.invoke("robotick-window-command", {
+            command: "childScopes",
+          })) as { childScopes?: string[] } | undefined;
+          return Array.isArray(response?.childScopes) ? response.childScopes : [];
+        },
         toggleMaximize: () =>
           ipcRenderer.invoke("robotick-window-command", {
             command: "toggleMaximize",
@@ -167,9 +198,21 @@ const expose = () => {
   const storageBridge = {
     getItem(key: string): string | null {
       if (hasFileStore && storageCache) {
-        return Object.prototype.hasOwnProperty.call(storageCache, key)
-          ? storageCache[key]
-          : null;
+        try {
+          const latest = ipcRenderer.sendSync("robotick-storage:get", { key }) as
+            | string
+            | null;
+          if (latest === null) {
+            delete storageCache[key];
+            return null;
+          }
+          storageCache[key] = latest;
+          return latest;
+        } catch {
+          return Object.prototype.hasOwnProperty.call(storageCache, key)
+            ? storageCache[key]
+            : null;
+        }
       }
       try {
         return globalThis.localStorage?.getItem(key) ?? null;
@@ -226,6 +269,9 @@ const expose = () => {
       appTitle: "Robotick Studio",
       cesiumToken,
       usesNativeWindowFrame,
+      windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
+      isPrimaryWindow:
+        (readArgument(WINDOW_PRIMARY_ARG_PREFIX) ?? "1") !== "0",
       workspaceRoot:
         process.env.ROBOTICK_PROJECT_DIR ??
         process.env.ROBOTICK_WORKSPACE_ROOT,

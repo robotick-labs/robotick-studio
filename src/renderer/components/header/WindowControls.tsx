@@ -84,6 +84,10 @@ export function WindowControls(props: WindowControlsProps = {}) {
     return null;
   }
 
+  const handleClose = () => {
+    api.close();
+  };
+
   return (
     <div
       className={styles.windowControls}
@@ -113,7 +117,7 @@ export function WindowControls(props: WindowControlsProps = {}) {
         type="button"
         className={`${styles.button} ${styles.buttonClose}`}
         aria-label="Close"
-        onClick={() => api.close()}
+        onClick={handleClose}
       >
         <span className={styles.iconClose} />
       </button>

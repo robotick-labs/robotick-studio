@@ -10,17 +10,22 @@ type RawDirectConnection = {
 
 type RawRemoteConnection = {
   from?: unknown;
+  from_local?: unknown;
   to_remote?: unknown;
   from_remote?: unknown;
   to?: unknown;
+  to_local?: unknown;
 };
 
 type RawRemoteModelSpec = {
   name?: unknown;
+  model_id?: unknown;
   connections?: unknown;
 };
 
 type RawModelData = {
+  id?: unknown;
+  workloads?: unknown;
   connections?: unknown;
   remote_models?: unknown;
 };
@@ -46,8 +51,15 @@ function normalizeTelemetryFieldPath(path: unknown): string | null {
   return trimmed;
 }
 
-function normalizeLookupKey(value: string): string {
-  return value.trim().toLowerCase();
+function endpointOwner(path: string): string {
+  return path.split(".", 1)[0] ?? "";
+}
+
+function replaceEndpointOwner(path: string, owner: string): string {
+  const parts = path.split(".");
+  if (parts.length === 0) return path;
+  parts[0] = owner;
+  return parts.join(".");
 }
 
 function makeEmptyHint(): MutableFieldConnectionHint {
@@ -92,15 +104,29 @@ export function buildFieldConnectionHintsByModelPath(
     string,
     Map<string, MutableFieldConnectionHint>
   >();
-  const shortNameToModelPath = new Map<string, string>();
-  const modelNameToModelPath = new Map<string, string>();
+  const modelIdToModelPath = new Map<string, string>();
+  const workloadNamesByModelPath = new Map<string, Map<string, string>>();
 
   for (const model of models) {
-    shortNameToModelPath.set(
-      normalizeLookupKey(model.modelShortName),
-      model.modelPath
-    );
-    modelNameToModelPath.set(normalizeLookupKey(model.modelName), model.modelPath);
+    const modelData = (model.data ?? {}) as RawModelData;
+    const modelId =
+      typeof modelData.id === "string" ? modelData.id.trim() : "";
+    if (modelId) {
+      modelIdToModelPath.set(modelId, model.modelPath);
+    }
+    const workloadIdToName = new Map<string, string>();
+    const workloads = Array.isArray(modelData.workloads)
+      ? (modelData.workloads as Array<Record<string, unknown>>)
+      : [];
+    for (const workload of workloads) {
+      const workloadId =
+        typeof workload?.id === "string" ? workload.id.trim() : "";
+      if (!workloadId) continue;
+      const workloadName =
+        (typeof workload?.name === "string" && workload.name.trim()) || workloadId;
+      workloadIdToName.set(workloadId, workloadName);
+    }
+    workloadNamesByModelPath.set(model.modelPath, workloadIdToName);
     hintsByModelPath.set(model.modelPath, new Map());
   }
 
@@ -114,8 +140,19 @@ export function buildFieldConnectionHintsByModelPath(
       : [];
 
     for (const connection of localConnections) {
-      const from = normalizeTelemetryFieldPath(connection?.from);
-      const to = normalizeTelemetryFieldPath(connection?.to);
+      const rawFrom = normalizeTelemetryFieldPath(connection?.from);
+      const rawTo = normalizeTelemetryFieldPath(connection?.to);
+      if (!rawFrom || !rawTo) continue;
+      const localWorkloads =
+        workloadNamesByModelPath.get(model.modelPath) ?? new Map();
+      const fromOwner = endpointOwner(rawFrom);
+      const toOwner = endpointOwner(rawTo);
+      const from = localWorkloads.has(fromOwner)
+        ? replaceEndpointOwner(rawFrom, localWorkloads.get(fromOwner) ?? fromOwner)
+        : rawFrom;
+      const to = localWorkloads.has(toOwner)
+        ? replaceEndpointOwner(rawTo, localWorkloads.get(toOwner) ?? toOwner)
+        : rawTo;
       if (!from || !to) continue;
       ensureHint(modelHints, from).localOutgoingTo.add(to);
       ensureHint(modelHints, to).localIncomingFrom.add(from);
@@ -132,15 +169,23 @@ export function buildFieldConnectionHintsByModelPath(
       : [];
 
     for (const remoteModel of remoteModels) {
+      const remoteModelId =
+        typeof remoteModel?.model_id === "string"
+          ? remoteModel.model_id.trim()
+          : "";
       const remoteName =
         typeof remoteModel?.name === "string" ? remoteModel.name.trim() : "";
-      if (!remoteName) continue;
+      if (!remoteName && !remoteModelId) continue;
 
-      const lookupKey = normalizeLookupKey(remoteName);
-      const targetModelPath =
-        shortNameToModelPath.get(lookupKey) ??
-        modelNameToModelPath.get(lookupKey);
+      const targetModelPath = remoteModelId
+        ? modelIdToModelPath.get(remoteModelId)
+        : undefined;
       if (!targetModelPath) continue;
+      const sourceWorkloads =
+        workloadNamesByModelPath.get(sourceModel.modelPath) ?? new Map();
+      const targetWorkloads =
+        workloadNamesByModelPath.get(targetModelPath) ?? new Map();
+      const remoteModelLabel = remoteName || remoteModelId;
 
       const targetHints = hintsByModelPath.get(targetModelPath) ?? new Map();
       hintsByModelPath.set(targetModelPath, targetHints);
@@ -150,11 +195,35 @@ export function buildFieldConnectionHintsByModelPath(
         : [];
 
       for (const connection of remoteConnections) {
-        const from = normalizeTelemetryFieldPath(connection?.from);
-        const toRemote = normalizeTelemetryFieldPath(connection?.to_remote);
+        const rawFrom = normalizeTelemetryFieldPath(
+          connection?.from_local ?? connection?.from
+        );
+        const rawToRemote = normalizeTelemetryFieldPath(connection?.to_remote);
+        const from = rawFrom
+          ? (() => {
+              const owner = endpointOwner(rawFrom);
+              return sourceWorkloads.has(owner)
+                ? replaceEndpointOwner(
+                    rawFrom,
+                    sourceWorkloads.get(owner) ?? owner
+                  )
+                : rawFrom;
+            })()
+          : null;
+        const toRemote = rawToRemote
+          ? (() => {
+              const owner = endpointOwner(rawToRemote);
+              return targetWorkloads.has(owner)
+                ? replaceEndpointOwner(
+                    rawToRemote,
+                    targetWorkloads.get(owner) ?? owner
+                  )
+                : rawToRemote;
+            })()
+          : null;
         if (from && toRemote) {
           ensureHint(sourceHints, from).remoteOutgoingTo.add(
-            `${remoteName}.${toRemote}`
+            `${remoteModelLabel}.${toRemote}`
           );
           ensureHint(targetHints, toRemote).remoteIncomingFrom.add(
             `${sourceModel.modelShortName}.${from}`
@@ -163,11 +232,21 @@ export function buildFieldConnectionHintsByModelPath(
         }
 
         const fromRemote = normalizeTelemetryFieldPath(connection?.from_remote);
-        const to = normalizeTelemetryFieldPath(connection?.to);
+        const rawTo = normalizeTelemetryFieldPath(
+          connection?.to_local ?? connection?.to
+        );
+        const to = rawTo
+          ? (() => {
+              const owner = endpointOwner(rawTo);
+              return sourceWorkloads.has(owner)
+                ? replaceEndpointOwner(rawTo, sourceWorkloads.get(owner) ?? owner)
+                : rawTo;
+            })()
+          : null;
         if (!fromRemote || !to) continue;
 
         ensureHint(sourceHints, to).remoteIncomingFrom.add(
-          `${remoteName}.${fromRemote}`
+          `${remoteModelLabel}.${fromRemote}`
         );
         ensureHint(targetHints, fromRemote).remoteOutgoingTo.add(
           `${sourceModel.modelShortName}.${to}`

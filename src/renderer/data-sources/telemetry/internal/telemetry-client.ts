@@ -69,6 +69,7 @@ export interface LayoutWritableInput {
 }
 
 export interface LayoutModel {
+  engine?: LayoutWorkloadStruct;
   workloads: LayoutWorkload[];
   types: LayoutType[];
   engine_session_id?: string;
@@ -123,6 +124,7 @@ export interface ITelemetryWorkload {
 }
 
 export interface ITelemetryModel {
+  engine?: ITelemetryStruct;
   workloads: ITelemetryWorkload[];
   raw: ArrayBuffer | null;
   schemaSessionId: string;
@@ -912,6 +914,14 @@ namespace TelemetryFactory {
       return new TelemetryStruct(typeName, base, fields, t?.mime_type);
     };
 
+    if (layout.engine) {
+      model.engine = buildStruct(
+        layout.engine.type,
+        layout.engine.offset_within_container,
+        "engine",
+      );
+    }
+
     const workloads: ITelemetryWorkload[] = [];
     for (const wl of layout.workloads) {
       const base = wl.offset_within_container;
@@ -969,6 +979,22 @@ namespace TelemetryFactory {
 
     // Path lookup identical to previous behaviour
     model.getField = (path: string): ITelemetryField | undefined => {
+      if (path === "engine") {
+        return undefined;
+      }
+      if (path.startsWith("engine.")) {
+        const engineParts = path.split(".");
+        let fields = model.engine?.fields as ReadonlyArray<ITelemetryField> | undefined;
+        for (let i = 1; i < engineParts.length; i++) {
+          if (!fields) return undefined;
+          const next = fields.find((f) => f.name === engineParts[i]);
+          if (!next) return undefined;
+          if (i === engineParts.length - 1) return next;
+          fields = next.fields;
+        }
+        return undefined;
+      }
+
       const parts = path.split(".");
       if (parts.length < 3) return undefined;
 
@@ -1006,6 +1032,7 @@ namespace TelemetryFactory {
 // -----------------------------------------------------------------------------
 
 class TelemetryModel implements ITelemetryModel {
+  engine?: ITelemetryStruct;
   workloads: ITelemetryWorkload[] = [];
   schemaSessionId: string = "";
   workloads_buffer_size_used: number = 0;

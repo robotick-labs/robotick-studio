@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import hashlib
 
 from robotick.launcher.utils import render_template, write_text_if_changed
 from robotick.launcher.actions.query.list import list_project_models
@@ -91,13 +92,32 @@ def generate_model_cpp(config):
 def prepare_codegen_model_data(config):
     """Prepares Jinja-safe lists for workloads, connections, and remote models."""
     workloads = []
+    workload_id_to_name = {}
+    workload_id_to_var = {}
     for w in config.model.get("workloads", []):
+        workload_id = str(w.get("id", "")).strip()
+        workload_name = str(w.get("name", workload_id)).strip()
+        if workload_id:
+            workload_id_to_name[workload_id] = workload_name
+        var_name = workload_name.replace("-", "_")
+        workload_id_to_var[workload_id] = var_name
         config_entries = _flatten_field_entries(w.get("config"))
         input_entries = _flatten_field_entries(w.get("inputs"))
+        children = []
+        for child in w.get("children", []) or []:
+            child_id = ""
+            if isinstance(child, dict):
+                child_id = str(child.get("workload_id", "")).strip()
+            elif isinstance(child, str):
+                child_id = child
+            if child_id:
+                child_name = workload_id_to_name.get(child_id, child_id)
+                children.append(child_name)
         workloads.append(
             {
                 **w,
-                "var_name": w["name"].replace("-", "_"),
+                "children": children,
+                "var_name": var_name,
                 "config_entries": config_entries,
                 "config_entries_render": _build_render_entries(config_entries),
                 "input_entries": input_entries,
@@ -107,14 +127,26 @@ def prepare_codegen_model_data(config):
 
     connections = []
     for conn in config.model.get("connections", []):
-        connections.append({**conn, "var_name": f"conn_{conn['to'].replace('.', '_')}"})
+        from_path = _endpoint_id_to_name(conn.get("from", ""), workload_id_to_name)
+        to_path = _endpoint_id_to_name(conn.get("to", ""), workload_id_to_name)
+        connections.append(
+            {
+                **conn,
+                "from": from_path,
+                "to": to_path,
+                "var_name": f"conn_{to_path.replace('.', '_')}",
+            }
+        )
 
-    remote_models = _build_remote_models_codegen(config)
+    remote_models = _build_remote_models_codegen(config, workload_id_to_name)
 
     # --- Telemetry (single object) ---
     telemetry = dict(config.model.get("telemetry", {}) or {})
     telemetry_peers = _build_telemetry_peers_codegen(config, telemetry)
 
+    root_ref = config.model.get("root", {}) or {}
+    root_id = str(root_ref.get("workload_id", "")).strip() if isinstance(root_ref, dict) else ""
+    config.model["root_var_name"] = workload_id_to_var.get(root_id, "")
     return workloads, connections, remote_models, telemetry, telemetry_peers
 
 
@@ -149,26 +181,51 @@ def _build_telemetry_peers_codegen(config, telemetry):
     return telemetry_peers
 
 
-def _build_remote_models_codegen(config):
-    current_model_name = getattr(config, "model_name", "") or ""
-    if not current_model_name:
-        # Backward-compatible fallback used by some unit tests.
-        return _build_remote_models_from_current_model_only(config.model)
+def _build_remote_models_codegen(config, workload_id_to_name):
+    current_remote_models = config.model.get("remote_models", []) or []
+    current_model_id = str(config.model.get("id", "")).strip()
+    if not current_model_id:
+        if getattr(config, "dry_run", False) and not current_remote_models:
+            # Allow dry-run generation of minimal models that don't yet define an id.
+            return []
+        raise ValueError("Model is missing required 'id'")
 
-    current_remote_config = {
-        str(remote.get("name", "")).strip(): remote
-        for remote in (config.model.get("remote_models", []) or [])
-        if isinstance(remote, dict) and str(remote.get("name", "")).strip()
-    }
+    for remote in current_remote_models:
+        if not isinstance(remote, dict):
+            continue
+        remote_model_id = str(remote.get("model_id", "")).strip()
+        if not remote_model_id:
+            raise ValueError(
+                "remote_models entries require non-empty 'model_id'"
+            )
 
     project_models = _collect_project_models(config)
+    model_id_to_name = {
+        str(model.get("id", "")).strip(): str(model.get("name", "")).strip()
+        for model in project_models
+        if str(model.get("id", "")).strip()
+    }
+    current_remote_config = {}
+    for remote in current_remote_models:
+        if not isinstance(remote, dict):
+            continue
+        remote_model_id = str(remote.get("model_id", "")).strip()
+        current_remote_config[remote_model_id] = remote
+
     canonical_edges = _collect_canonical_remote_edges(project_models)
+    model_id_to_workload_names = {
+        str(model.get("id", "")).strip(): _build_workload_id_to_name_map(
+            model.get("data", {}) or {}
+        )
+        for model in project_models
+        if str(model.get("id", "")).strip()
+    }
 
     remote_grouped = {}
     for edge in canonical_edges:
-        if edge["source_model"] != current_model_name:
+        if edge["source_model_id"] != current_model_id:
             continue
-        target_model = edge["target_model"]
+        target_model = edge["target_model_id"]
         group = remote_grouped.setdefault(
             target_model,
             {
@@ -183,18 +240,24 @@ def _build_remote_models_codegen(config):
             group["channel"] = edge["channel"]
         group["connections"].append(
             {
-                "from": edge["source_field"],
-                "to_remote": edge["target_field"],
+                "from": _endpoint_id_to_name(edge["source_field"], workload_id_to_name),
+                "to_remote": _endpoint_id_to_name(
+                    edge["target_field"],
+                    model_id_to_workload_names.get(target_model, {}),
+                ),
             }
         )
 
     remote_models = []
-    for target_model_name in sorted(remote_grouped.keys()):
-        remote_decl = current_remote_config.get(target_model_name, {})
-        name_safe = target_model_name.replace("-", "_")
+    for target_model_id in sorted(remote_grouped.keys()):
+        remote_decl = current_remote_config.get(target_model_id, {})
+        remote_name = str(remote_decl.get("name", "")).strip() or model_id_to_name.get(
+            target_model_id, target_model_id
+        )
+        name_safe = remote_name.replace("-", "_")
         remote_conns = []
         for conn in sorted(
-            remote_grouped[target_model_name]["connections"],
+            remote_grouped[target_model_id]["connections"],
             key=lambda c: (c["to_remote"], c["from"]),
         ):
             remote_conns.append(
@@ -208,17 +271,17 @@ def _build_remote_models_codegen(config):
             )
         remote_models.append(
             {
-                "name": target_model_name,
+                "name": remote_name,
                 "name_safe": name_safe,
                 "mode": str(
                     remote_decl.get("mode")
-                    or remote_grouped[target_model_name]["mode"]
+                    or remote_grouped[target_model_id]["mode"]
                     or ""
                 ).strip(),
                 "channel": str(
                     remote_decl.get("channel")
                     or remote_decl.get("comms_channel")
-                    or remote_grouped[target_model_name]["channel"]
+                    or remote_grouped[target_model_id]["channel"]
                     or ""
                 ).strip(),
                 "connections": remote_conns,
@@ -228,49 +291,23 @@ def _build_remote_models_codegen(config):
     return remote_models
 
 
-def _build_remote_models_from_current_model_only(model):
-    remote_models = []
-    for remote in model.get("remote_models", []):
-        remote_name = str(remote.get("name", "")).strip()
-        if not remote_name:
-            continue
-        name_safe = remote_name.replace("-", "_")
-        remote_conns = []
-        for conn in remote.get("connections", []):
-            source_path = str(conn.get("from", "")).strip()
-            dest_path = str(conn.get("to_remote", "")).strip()
-            if not source_path or not dest_path:
-                continue
-            remote_conns.append(
-                {
-                    "from": source_path,
-                    "to_remote": dest_path,
-                    "var_name": (
-                        f"{name_safe}_conn_"
-                        f"{source_path.replace('.', '_')}__to__{dest_path.replace('.', '_')}"
-                    ),
-                }
-            )
-        remote_models.append(
-            {
-                "name": remote_name,
-                "name_safe": name_safe,
-                "mode": str(remote.get("mode", "")).strip(),
-                "channel": str(
-                    remote.get("channel") or remote.get("comms_channel") or ""
-                ).strip(),
-                "connections": remote_conns,
-            }
-        )
-    return remote_models
-
-
 def _collect_project_models(config):
-    project_file = Path(getattr(config, "project_file", ""))
-    if not project_file or not project_file.exists():
+    raw_project_file = str(getattr(config, "project_file", "")).strip()
+    if not raw_project_file:
         return [
             {
                 "name": getattr(config, "model_name", ""),
+                "id": str((getattr(config, "model", {}) or {}).get("id", "")).strip(),
+                "data": dict(config.model),
+            }
+        ]
+
+    project_file = Path(raw_project_file)
+    if not project_file.exists():
+        return [
+            {
+                "name": getattr(config, "model_name", ""),
+                "id": str((getattr(config, "model", {}) or {}).get("id", "")).strip(),
                 "data": dict(config.model),
             }
         ]
@@ -284,7 +321,10 @@ def _collect_project_models(config):
         model_data = yaml.safe_load(model_path.read_text()) or {}
         if not isinstance(model_data, dict):
             raise ValueError(f"Model YAML must be a mapping: {model_path}")
-        collected.append({"name": model_name, "data": model_data})
+        model_id = str(model_data.get("id", "")).strip()
+        if not model_id:
+            model_id = f"{model_name.replace('-', '_')}_model_{_stable_suffix(model_name)}"
+        collected.append({"name": model_name, "id": model_id, "data": model_data})
     return collected
 
 
@@ -293,6 +333,7 @@ def _collect_canonical_remote_edges(project_models):
     canonical_edges = []
     for model in project_models:
         model_name = str(model.get("name", "")).strip()
+        model_id = str(model.get("id", "")).strip()
         data = model.get("data", {}) or {}
         remote_models = data.get("remote_models", [])
         if not isinstance(remote_models, list):
@@ -300,16 +341,19 @@ def _collect_canonical_remote_edges(project_models):
         for remote in remote_models:
             if not isinstance(remote, dict):
                 continue
-            remote_name = str(remote.get("name", "")).strip()
-            if not remote_name:
-                continue
+            remote_id = str(remote.get("model_id", "")).strip()
+            if not remote_id:
+                raise ValueError(
+                    f"Remote model entry in '{model_name}' is missing required 'model_id'"
+                )
             connections = remote.get("connections", [])
             if not isinstance(connections, list):
                 continue
             for conn in connections:
                 edge = _parse_canonical_remote_edge(
                     model_name,
-                    remote_name,
+                    model_id,
+                    remote_id,
                     conn,
                     mode=str(remote.get("mode", "")).strip(),
                     channel=str(
@@ -319,17 +363,17 @@ def _collect_canonical_remote_edges(project_models):
                 if edge is None:
                     continue
                 key = (
-                    edge["source_model"],
+                    edge["source_model_id"],
                     edge["source_field"],
-                    edge["target_model"],
+                    edge["target_model_id"],
                     edge["target_field"],
                 )
                 existing = edge_index.get(key)
                 if existing is not None:
                     raise ValueError(
                         "Duplicate remote connection declaration for "
-                        f"{edge['source_model']}.{edge['source_field']} -> "
-                        f"{edge['target_model']}.{edge['target_field']}. "
+                        f"{edge['source_model_id']}.{edge['source_field']} -> "
+                        f"{edge['target_model_id']}.{edge['target_field']}. "
                         f"Declared in both '{existing['declared_in_model']}' and '{edge['declared_in_model']}'."
                     )
                 edge_index[key] = edge
@@ -338,13 +382,13 @@ def _collect_canonical_remote_edges(project_models):
 
 
 def _parse_canonical_remote_edge(
-    owner_model_name, remote_model_name, conn, *, mode="", channel=""
+    owner_model_name, owner_model_id, remote_model_id, conn, *, mode="", channel=""
 ):
     if not isinstance(conn, dict):
         return None
 
-    has_sender_form = ("from" in conn) or ("to_remote" in conn)
-    has_receiver_form = ("from_remote" in conn) or ("to" in conn)
+    has_sender_form = ("from_local" in conn) or ("to_remote" in conn)
+    has_receiver_form = ("from_remote" in conn) or ("to_local" in conn)
 
     if has_sender_form and has_receiver_form:
         raise ValueError(
@@ -354,17 +398,18 @@ def _parse_canonical_remote_edge(
         )
 
     if has_sender_form:
-        source_field = str(conn.get("from", "")).strip()
+        source_field = str(conn.get("from_local", "")).strip()
         target_field = str(conn.get("to_remote", "")).strip()
         if not source_field or not target_field:
             raise ValueError(
                 f"Invalid remote connection in '{owner_model_name}' for remote model "
-                f"'{remote_model_name}': sender-form requires both 'from' and 'to_remote'."
+                f"'{remote_model_id}': sender-form requires both 'from_local' and 'to_remote'."
             )
         return {
             "source_model": owner_model_name,
+            "source_model_id": owner_model_id,
             "source_field": source_field,
-            "target_model": remote_model_name,
+            "target_model_id": remote_model_id,
             "target_field": target_field,
             "declared_in_model": owner_model_name,
             "mode": mode,
@@ -373,16 +418,16 @@ def _parse_canonical_remote_edge(
 
     if has_receiver_form:
         source_field = str(conn.get("from_remote", "")).strip()
-        target_field = str(conn.get("to", "")).strip()
+        target_field = str(conn.get("to_local", "")).strip()
         if not source_field or not target_field:
             raise ValueError(
                 f"Invalid remote connection in '{owner_model_name}' for remote model "
-                f"'{remote_model_name}': receiver-form requires both 'from_remote' and 'to'."
+                f"'{remote_model_id}': receiver-form requires both 'from_remote' and 'to_local'."
             )
         return {
-            "source_model": remote_model_name,
+            "source_model_id": remote_model_id,
             "source_field": source_field,
-            "target_model": owner_model_name,
+            "target_model_id": owner_model_id,
             "target_field": target_field,
             "declared_in_model": owner_model_name,
             "mode": mode,
@@ -391,6 +436,32 @@ def _parse_canonical_remote_edge(
 
     raise ValueError(
         f"Invalid remote connection in '{owner_model_name}' for remote model "
-        f"'{remote_model_name}': expected sender-form (from/to_remote) or "
-        "receiver-form (from_remote/to)."
+        f"'{remote_model_id}': expected sender-form (from_local/to_remote) or "
+        "receiver-form (from_remote/to_local)."
     )
+
+
+def _endpoint_id_to_name(path, workload_id_to_name):
+    raw = str(path or "").strip()
+    if not raw:
+        return raw
+    owner, dot, rest = raw.partition(".")
+    resolved_owner = workload_id_to_name.get(owner, owner)
+    return f"{resolved_owner}{dot}{rest}" if dot else resolved_owner
+
+
+def _stable_suffix(value):
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:8].upper()
+
+
+def _build_workload_id_to_name_map(model_data):
+    mapping = {}
+    for workload in (model_data.get("workloads", []) or []):
+        if not isinstance(workload, dict):
+            continue
+        workload_id = str(workload.get("id", "")).strip()
+        if not workload_id:
+            continue
+        workload_name = str(workload.get("name", workload_id)).strip()
+        mapping[workload_id] = workload_name
+    return mapping

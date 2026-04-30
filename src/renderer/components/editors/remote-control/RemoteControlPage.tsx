@@ -6,12 +6,14 @@ import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
 import { Project, ProjectData, Launcher } from "../../../data-sources/launcher";
 import type { RcModuleDescriptor } from "../../../data-sources/launcher";
+import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
 import styles from "./styles/RemoteControlPage.module.css";
 
 export default function RemoteControlPage() {
   const { projectPath } = Project.Context.use();
   const { rcModules } = ProjectData.use();
   const { status } = Launcher.Context.use();
+  const panelInstance = usePanelInstance();
   const modules = rcModules.data;
 
   const viewerSelectionCache = React.useRef<{
@@ -61,6 +63,8 @@ export default function RemoteControlPage() {
           ...(viewerModule.config ?? {}),
           viewerType,
           projectPath,
+          workspaceId: panelInstance.workspaceId,
+          panelId: panelInstance.panelId,
           container: viewerContainerRef.current ?? undefined,
         });
         if (!active) {
@@ -90,7 +94,13 @@ export default function RemoteControlPage() {
         viewerInstanceId.current = null;
       }
     };
-  }, [projectPath, status, viewerSelection.key]);
+  }, [
+    panelInstance.panelId,
+    panelInstance.workspaceId,
+    projectPath,
+    status,
+    viewerSelection.key,
+  ]);
 
   const subtitlesModule = useMemo(
     () => modules.find((mod) => mod.type === "overlay/subtitles"),

@@ -2,7 +2,11 @@ import { GraphDoc } from "./layout/editorNodeGraph";
 import { createSvgLayers, SvgView } from "./render/svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
-import { buildGraphDocFromModel } from "./layout/buildGraphDocFromModel";
+import {
+  buildGraphDocFromModel,
+  type ModelSortKey,
+} from "./layout/buildGraphDocFromModel";
+export type { ModelSortKey } from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
 
@@ -23,11 +27,48 @@ export type NodeGraphAPI = {
   dispose: () => void;
   /** Access the live graph document (read-only usage preferred) */
   getDoc: () => GraphDoc;
+  /** Update read-only graph display behavior */
+  setDisplayOptions: (options: Partial<GraphDisplayOptions>) => void;
+  /** Replace the collapsed model set used by the layout */
+  setCollapsedModelIds: (modelIds: string[]) => void;
+  /** Read current selected node id */
+  getSelectedNodeId: () => string | null;
+  /** Set selected node id and re-render */
+  setSelectedNodeId: (nodeId: string | null) => void;
+  /** Replace model ordering and refresh layout */
+  setModelSortKey: (sortKey: ModelSortKey) => void;
+};
+
+export type EdgeVisibilityMode =
+  | "none"
+  | "selected-node"
+  | "selected-model"
+  | "expanded-models"
+  | "all";
+
+export type GraphDisplayOptions = {
+  edgeVisibilityMode: EdgeVisibilityMode;
+  focusDimming: boolean;
+  expandedModelIds: string[];
+};
+
+export type GraphLayoutOptions = {
+  collapsedModelIds: string[];
+  modelSortKey: ModelSortKey;
+};
+
+const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
+  edgeVisibilityMode: "selected-model",
+  focusDimming: true,
+  expandedModelIds: [],
 };
 
 export function initNodeGraph(
   svgElement: SVGSVGElement | null,
-  store: DocumentStore
+  store: DocumentStore,
+  initialDisplayOptions?: Partial<GraphDisplayOptions>,
+  initialLayoutOptions?: Partial<GraphLayoutOptions>,
+  options?: { selectionScope?: string; initialSelectedNodeId?: string | null }
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -37,20 +78,40 @@ export function initNodeGraph(
   const doc = new GraphDoc();
 
   // Initial build (so we know sizes before first paint)
-  buildGraphDocFromModel(store, doc);
+  let layoutOptions: GraphLayoutOptions = {
+    collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
+    modelSortKey: initialLayoutOptions?.modelSortKey ?? "model_path",
+  };
+  buildGraphDocFromModel(store, doc, {
+    collapsedModelIds: layoutOptions.collapsedModelIds,
+    modelSortKey: layoutOptions.modelSortKey,
+  });
 
   const layers = createSvgLayers(svgElement);
 
   const router = new RectilinearRouter();
-  const view = new SvgView(svgElement, layers, router);
+  const selectionScope = options?.selectionScope ?? "default";
+  const view = new SvgView(svgElement, layers, router, selectionScope);
+  const selectionController = new SelectionController(svgElement, selectionScope);
+  const slotDragController = new SlotDragController(svgElement, doc, store);
+  let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
+  let displayOptions: GraphDisplayOptions = {
+    ...DEFAULT_DISPLAY_OPTIONS,
+    ...initialDisplayOptions,
+  };
 
   const render = () => {
-    view.render(doc);
+    view.render(doc, {
+      selectedNodeId,
+      edgeVisibilityMode: displayOptions.edgeVisibilityMode,
+      focusDimming: displayOptions.focusDimming,
+      expandedModelIds: displayOptions.expandedModelIds,
+    });
   };
 
   const attachControllers = () => {
-    new SelectionController(svgElement).attach();
-    new SlotDragController(svgElement, doc, view, store).attachAll();
+    selectionController.attach();
+    slotDragController.attachAll();
   };
 
   // ——— Store subscription (render on any store mutation) ———
@@ -58,7 +119,14 @@ export function initNodeGraph(
 
   // ——— Graph-specific events (kept local to this module) ———
   const plusClickHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ sectionIndex: number; laneIndex: number }>;
+    const ce = e as CustomEvent<{
+      sectionIndex: number;
+      laneIndex: number;
+      scope?: string;
+    }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
     const { sectionIndex, laneIndex } = ce.detail;
     const section = doc.sections[sectionIndex];
     const modelId = section.modelId;
@@ -71,7 +139,14 @@ export function initNodeGraph(
   };
 
   const renameHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ nodeId: string; newName: string }>;
+    const ce = e as CustomEvent<{
+      nodeId: string;
+      newName: string;
+      scope?: string;
+    }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
     const { nodeId, newName } = ce.detail;
     const n = doc.getNode(nodeId);
     if (!n) return;
@@ -80,13 +155,25 @@ export function initNodeGraph(
     // No manual render: handled by store subscription
   };
 
-  window.addEventListener(
+  svgElement.addEventListener(
     "models-graph:plus-click",
     plusClickHandler as EventListener
   );
-  window.addEventListener(
+  svgElement.addEventListener(
     "models-graph:rename-requested",
     renameHandler as EventListener
+  );
+  const selectionChangedHandler = (e: Event) => {
+    const ce = e as CustomEvent<{ nodeId?: string | null; scope?: string }>;
+    if ((ce.detail?.scope ?? "default") !== selectionScope) {
+      return;
+    }
+    selectedNodeId = ce.detail?.nodeId ?? null;
+    render();
+  };
+  window.addEventListener(
+    "models-graph:selection-changed",
+    selectionChangedHandler as EventListener
   );
 
   // First paint + attach controllers (idempotent if caller repeats)
@@ -94,25 +181,50 @@ export function initNodeGraph(
   attachControllers();
 
   const refreshLayout = () => {
-    buildGraphDocFromModel(store, doc);
+    buildGraphDocFromModel(store, doc, {
+      collapsedModelIds: layoutOptions.collapsedModelIds,
+      modelSortKey: layoutOptions.modelSortKey,
+    });
     render();
   };
 
   const dispose = () => {
     // Clean up all listeners we installed
     unsubscribeStore?.();
-    window.removeEventListener(
+    svgElement.removeEventListener(
       "models-graph:plus-click",
       plusClickHandler as EventListener
     );
-    window.removeEventListener(
+    svgElement.removeEventListener(
       "models-graph:rename-requested",
       renameHandler as EventListener
     );
-    // If you later add controller-level detach(), call them here.
+    window.removeEventListener(
+      "models-graph:selection-changed",
+      selectionChangedHandler as EventListener
+    );
+    selectionController.detach();
+    slotDragController.detach();
   };
 
   const getDoc = () => doc;
+  const setDisplayOptions = (options: Partial<GraphDisplayOptions>) => {
+    displayOptions = { ...displayOptions, ...options };
+    render();
+  };
+  const setCollapsedModelIds = (modelIds: string[]) => {
+    layoutOptions = { ...layoutOptions, collapsedModelIds: [...modelIds] };
+    refreshLayout();
+  };
+  const getSelectedNodeId = () => selectedNodeId;
+  const setSelectedNodeId = (nodeId: string | null) => {
+    selectedNodeId = nodeId;
+    render();
+  };
+  const setModelSortKey = (sortKey: ModelSortKey) => {
+    layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
+    refreshLayout();
+  };
 
   return {
     svg: svgElement,
@@ -122,6 +234,11 @@ export function initNodeGraph(
     refreshLayout,
     dispose,
     getDoc,
+    setDisplayOptions,
+    setCollapsedModelIds,
+    getSelectedNodeId,
+    setSelectedNodeId,
+    setModelSortKey,
   };
 }
 

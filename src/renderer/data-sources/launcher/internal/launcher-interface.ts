@@ -103,6 +103,87 @@ export interface ProjectModelDescriptor<T = unknown> {
   data: T;
 }
 
+export type WorkloadsRegistryField = {
+  name: string;
+  type: string;
+  default?: string;
+  element_count?: number;
+  primitive_kind?: string;
+  enum_values?: string[];
+};
+
+export type WorkloadsRegistryStruct = {
+  name?: string | null;
+  fields?: WorkloadsRegistryField[];
+};
+
+export type WorkloadsRegistryEntry = {
+  type: string;
+  metadata?: {
+    name?: string;
+    structs?: Record<string, WorkloadsRegistryStruct>;
+  };
+};
+
+export type WorkloadsRegistryResponse = {
+  project: string;
+  target: string;
+  workloads?: Array<{
+    type: string;
+    config?: { type: string };
+    inputs?: { type: string };
+    outputs?: { type: string };
+    state?: { type: string };
+    schema_error?: string;
+  }>;
+  types?: Array<{
+    name: string;
+    type_category: string | number;
+    fields?: Array<{
+      name: string;
+      type: string;
+      element_count?: number;
+      default_value?: string;
+      primitive_kind?: string;
+      enum_values?: string[];
+    }>;
+    primitive_kind?: string;
+    mime_type?: string;
+    format?: string;
+    capacity?: string;
+    enum_values?: string[];
+  }>;
+  writable_inputs?: Array<Record<string, unknown>>;
+  validation_errors?: string[];
+
+  // Legacy shape kept optional for compatibility during migration.
+  registry?: WorkloadsRegistryEntry[];
+  shared_types?: {
+    primitives?: Record<
+      string,
+      {
+        type_name?: string;
+        category?: string;
+        primitive_kind?: string;
+        mime_type?: string;
+        format?: string;
+        capacity?: string;
+      }
+    >;
+    structs?: Record<
+      string,
+      {
+        type_name?: string | null;
+        fields?: Array<{
+          field_name: string;
+          field_type_name: string;
+          default_value?: string;
+        }>;
+      }
+    >;
+  };
+};
+
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
 
@@ -513,6 +594,34 @@ async function fetchProjectModelData(
   return await fetchJSON(url);
 }
 
+export async function fetchProjectWorkloadsRegistry(
+  projectPath: string,
+  target = "linux"
+): Promise<WorkloadsRegistryResponse> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(
+    LAUNCHER_LOCAL_API_BASE,
+    "/query/get-workloads-registry",
+    {
+      project_path: normalizedProjectPath,
+      target,
+    }
+  );
+  return await fetchJSON<WorkloadsRegistryResponse>(url);
+}
+
+export async function fetchProjectCoreModelSchema(
+  projectPath: string,
+  target = "linux"
+): Promise<Record<string, unknown>> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-core-model-schema", {
+    project_path: normalizedProjectPath,
+    target,
+  });
+  return await fetchJSON<Record<string, unknown>>(url);
+}
+
 async function buildModelDescriptors(
   projectPath: string
 ): Promise<ProjectModelDescriptor[]> {
@@ -580,9 +689,18 @@ async function buildModelDescriptors(
   const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
 
   return filteredDescriptors.map((descriptor) => {
+    const descriptorData =
+      descriptor.data && typeof descriptor.data === "object"
+        ? (descriptor.data as Record<string, unknown>)
+        : null;
+    const modelIdFromData = String(descriptorData?.id ?? "").trim();
+    if (!modelIdFromData) {
+      throw new Error(
+        `Model '${descriptor.modelPath}' is missing required 'id' for telemetry gateway routing`
+      );
+    }
     const registryEntry =
-      gatewayRegistry?.get(descriptor.modelShortName) ??
-      gatewayRegistry?.get(descriptor.modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") || "");
+      gatewayRegistry?.get(modelIdFromData);
     const telemetryPath =
       registryEntry?.telemetry_path?.trim() ||
       `/api/telemetry-gateway/${descriptor.modelShortName}`;
@@ -655,6 +773,8 @@ const currentProject: LauncherService = {
   fetchProjectSettingsData,
   fetchProjectRemoteControlSettings,
   fetchProjectModelPaths,
+  fetchProjectWorkloadsRegistry,
+  fetchProjectCoreModelSchema,
   getProjectModels,
   refreshProjectModels,
   clearProjectModelCache: invalidateModelCache,

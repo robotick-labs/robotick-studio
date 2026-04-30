@@ -250,7 +250,10 @@ def _close_log_subscribers():
     with log_lock:
         subscribers = list(log_subscribers)
     for subscriber in subscribers:
-        subscriber.put_nowait(None)
+        try:
+            subscriber.put_nowait(None)
+        except Exception:
+            pass
 
 
 def _status_consumer(loop: asyncio.AbstractEventLoop):
@@ -484,6 +487,7 @@ def _stop_launcher_worker() -> None:
     if thread and thread.is_alive():
         thread.join(timeout=1)
 
+    _close_log_subscribers()
     _set_stopped_status()
 
     with lifecycle_lock:

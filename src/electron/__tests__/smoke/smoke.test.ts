@@ -17,7 +17,11 @@ type BrowserWindowMock = {
   maximize: ReturnType<typeof vi.fn>;
   unmaximize: ReturnType<typeof vi.fn>;
   isMaximized: ReturnType<typeof vi.fn>;
+  isMinimized: ReturnType<typeof vi.fn>;
+  isDestroyed: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
+  restore: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   getBounds: ReturnType<typeof vi.fn>;
   webContents: {
@@ -38,7 +42,11 @@ const createElectronMocks = () => {
         maximize: vi.fn(),
         unmaximize: vi.fn(),
         isMaximized: vi.fn(() => false),
+        isMinimized: vi.fn(() => false),
+        isDestroyed: vi.fn(() => false),
         close: vi.fn(),
+        restore: vi.fn(),
+        focus: vi.fn(),
         on: vi.fn(),
         getBounds: vi.fn(() => ({
           x: 0,
@@ -61,6 +69,8 @@ const createElectronMocks = () => {
   );
 
   const eventHandlers = new Map<string, (...args: unknown[]) => void>();
+  const ipcOnHandlers = new Map<string, (...args: unknown[]) => void>();
+  const ipcHandleHandlers = new Map<string, (...args: unknown[]) => unknown>();
   const app = {
     commandLine: {
       appendSwitch: vi.fn(),
@@ -70,6 +80,14 @@ const createElectronMocks = () => {
       eventHandlers.set(event, handler);
     }),
     quit: vi.fn(),
+  };
+  const ipcMain = {
+    on: vi.fn((channel: string, handler: (...args: unknown[]) => void) => {
+      ipcOnHandlers.set(channel, handler);
+    }),
+    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+      ipcHandleHandlers.set(channel, handler);
+    }),
   };
 
   const webContents = {
@@ -82,7 +100,17 @@ const createElectronMocks = () => {
     })),
   };
 
-  return { app, BrowserWindow, windows, eventHandlers, webContents, Menu };
+  return {
+    app,
+    BrowserWindow,
+    windows,
+    eventHandlers,
+    webContents,
+    Menu,
+    ipcMain,
+    ipcOnHandlers,
+    ipcHandleHandlers,
+  };
 };
 
 const bootstrapWithMocks = async (env?: string) => {
@@ -91,6 +119,7 @@ const bootstrapWithMocks = async (env?: string) => {
     app: mocks.app,
     BrowserWindow: mocks.BrowserWindow as BrowserWindowConstructor,
     Menu: mocks.Menu as unknown as typeof import("electron").Menu,
+    ipcMain: mocks.ipcMain as unknown as import("electron").IpcMain,
     env: env ? { ELECTRON_DEV: env } : {},
     platform: "linux",
   });
@@ -111,7 +140,9 @@ describe("electron launch paths", () => {
       "remote-debugging-port",
       "9222",
     );
-    expect(window.loadURL).toHaveBeenCalledWith("http://localhost:5173");
+    await vi.waitFor(() => {
+      expect(window.loadURL).toHaveBeenCalledWith("http://localhost:5173");
+    });
     expect(window.loadFile).not.toHaveBeenCalled();
   });
 
@@ -178,5 +209,39 @@ describe("electron launch paths", () => {
         sandbox: true,
       }),
     );
+  });
+
+  it("reuses an existing child window when createWindow is called with the same scope", async () => {
+    const mocks = await bootstrapWithMocks();
+    const handler = mocks.ipcHandleHandlers.get("robotick-window-command");
+    expect(handler).toBeDefined();
+
+    const invokeEvent = { sender: {} };
+    await handler?.(invokeEvent, {
+      command: "createWindow",
+      scope: "child-preset-a",
+      seedUrl: "http://localhost:5173/#/dev",
+    });
+    expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
+
+    await handler?.(invokeEvent, {
+      command: "createWindow",
+      scope: "child-preset-a",
+      seedUrl: "http://localhost:5173/#/dev",
+    });
+    expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
+    expect(mocks.windows[1].focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("close command only closes target window and does not quit app", async () => {
+    const mocks = await bootstrapWithMocks();
+    const handler = mocks.ipcHandleHandlers.get("robotick-window-command");
+    expect(handler).toBeDefined();
+
+    const invokeEvent = { sender: {} };
+    await handler?.(invokeEvent, { command: "close" });
+
+    expect(mocks.windows[0].close).toHaveBeenCalledTimes(1);
+    expect(mocks.app.quit).not.toHaveBeenCalled();
   });
 });

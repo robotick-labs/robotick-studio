@@ -223,6 +223,7 @@ def test_launcher_generate(target, model):
 def test_prepare_codegen_model_data_flattens_nested_field_entries():
     cfg = SimpleNamespace(
         model={
+            "id": "mind_model_1234ABCD",
             "workloads": [
                 {
                     "name": "mind-workload",
@@ -372,22 +373,23 @@ def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path
     project_file = tmp_path / "test.project.yaml"
     project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
 
-    (tmp_path / "auditory.model.yaml").write_text("workloads: []\n")
+    (tmp_path / "auditory.model.yaml").write_text("id: auditory_model_A1\nworkloads: []\n")
     (tmp_path / "mind.model.yaml").write_text(
         """
+id: mind_model_B1
 remote_models:
-  - name: auditory
+  - model_id: auditory_model_A1
     mode: IP
     connections:
       - from_remote: prosody.outputs.prosody_state.is_voiced
-        to: voice_presence.inputs.is_present
+        to_local: voice_presence.inputs.is_present
 """
     )
 
     cfg = SimpleNamespace(
         model_name="auditory",
         project_file=project_file,
-        model={"workloads": []},
+        model={"id": "auditory_model_A1", "workloads": []},
     )
 
     workloads, connections, remote_models, telemetry, telemetry_peers = (
@@ -418,23 +420,24 @@ def test_prepare_codegen_model_data_propagates_receiver_side_remote_mode(tmp_pat
     project_file = tmp_path / "test.project.yaml"
     project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
 
-    (tmp_path / "spine.model.yaml").write_text("workloads: []\n")
+    (tmp_path / "spine.model.yaml").write_text("id: spine_model_A1\nworkloads: []\n")
     (tmp_path / "simulator.model.yaml").write_text(
         """
+id: simulator_model_B1
 remote_models:
-  - name: spine
+  - model_id: spine_model_A1
     mode: IP
     channel: 10.42.0.77
     connections:
       - from_remote: steering.outputs.left_motor
-        to: simulator.inputs.left_motor_power
+        to_local: simulator.inputs.left_motor_power
 """
     )
 
     cfg = SimpleNamespace(
         model_name="spine",
         project_file=project_file,
-        model={"workloads": []},
+        model={"id": "spine_model_A1", "workloads": []},
     )
 
     workloads, connections, remote_models, telemetry, telemetry_peers = (
@@ -465,45 +468,17 @@ remote_models:
     ]
 
 
-def test_prepare_codegen_model_data_preserves_remote_mode_and_channel():
+def test_prepare_codegen_model_data_requires_model_id():
     cfg = SimpleNamespace(
-        model_name="",
+        model_name="sample-robot-brain",
         model={
             "workloads": [],
-            "remote_models": [
-                {
-                    "name": "sample-robot-spine",
-                    "mode": "IP",
-                    "channel": "10.42.0.2",
-                    "connections": [
-                        {
-                            "from": "rc.outputs.x",
-                            "to_remote": "spine.inputs.x",
-                        }
-                    ],
-                }
-            ],
+            "remote_models": [],
         },
     )
 
-    _, _, remote_models, _, telemetry_peers = prepare_codegen_model_data(cfg)
-
-    assert remote_models == [
-        {
-            "name": "sample-robot-spine",
-            "name_safe": "sample_robot_spine",
-            "mode": "IP",
-            "channel": "10.42.0.2",
-            "connections": [
-                {
-                    "from": "rc.outputs.x",
-                    "to_remote": "spine.inputs.x",
-                    "var_name": "sample_robot_spine_conn_rc_outputs_x__to__spine_inputs_x",
-                }
-            ],
-        }
-    ]
-    assert telemetry_peers == []
+    with pytest.raises(ValueError, match="missing required 'id'"):
+        prepare_codegen_model_data(cfg)
 
 
 def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declarations(
@@ -514,30 +489,56 @@ def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declar
 
     (tmp_path / "auditory.model.yaml").write_text(
         """
+id: auditory_model_A1
 remote_models:
-  - name: mind
+  - model_id: mind_model_B1
     mode: IP
     connections:
-      - from: prosody.outputs.prosody_state.is_voiced
+      - from_local: prosody.outputs.prosody_state.is_voiced
         to_remote: voice_presence.inputs.is_present
 """
     )
     (tmp_path / "mind.model.yaml").write_text(
         """
+id: mind_model_B1
 remote_models:
-  - name: auditory
+  - model_id: auditory_model_A1
     mode: IP
     connections:
       - from_remote: prosody.outputs.prosody_state.is_voiced
-        to: voice_presence.inputs.is_present
+        to_local: voice_presence.inputs.is_present
 """
     )
 
     cfg = SimpleNamespace(
         model_name="auditory",
         project_file=project_file,
-        model={"workloads": []},
+        model={"id": "auditory_model_A1", "workloads": []},
     )
 
     with pytest.raises(ValueError, match="Duplicate remote connection declaration"):
+        prepare_codegen_model_data(cfg)
+
+
+def test_prepare_codegen_model_data_requires_remote_model_id():
+    cfg = SimpleNamespace(
+        model_name="sample-robot-brain",
+        model={
+            "id": "sample_robot_brain_model_A1",
+            "workloads": [],
+            "remote_models": [
+                {
+                    "mode": "IP",
+                    "connections": [
+                        {
+                            "from_local": "rc.outputs.x",
+                            "to_remote": "spine.inputs.x",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="remote_models entries require non-empty 'model_id'"):
         prepare_codegen_model_data(cfg)

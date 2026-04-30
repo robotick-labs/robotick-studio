@@ -34,8 +34,11 @@ import {
   createMaskPreviewImageDataFromPngBytes,
   createMaskPreviewImageDataFromSamples,
   extractObjectDetectionOverlays,
+  extractNormalizedRectOverlay,
   extractStreamingImageBytes,
   init,
+  normalizedRectOverlayEquals,
+  objectDetectionOverlaysEqual,
   renderObjectDetectionsOverlay,
   resolveStreamingImageSource,
   resolveStreamingImageStream,
@@ -502,6 +505,55 @@ describe("viewer-streaming-image stream selection", () => {
     expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
   });
 
+  it("persists the selected stream per panel instance", async () => {
+    const config = {
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      projectPath: "/tmp/robotick-project",
+      workspaceId: "remote-control-workspace",
+      selectedStream: "Head-RGB",
+      streams: {
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
+      },
+      frameRateHz: 30,
+    };
+
+    await init({ ...config, panelId: "panel-a" });
+
+    const firstSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(firstSelector?.value).toBe("Head-RGB");
+
+    firstSelector!.value = "Head-Depth";
+    firstSelector!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => {
+      expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
+    });
+
+    await uninit();
+    subscribeTelemetry.mockClear();
+
+    await init({ ...config, panelId: "panel-b" });
+
+    const secondSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(secondSelector?.value).toBe("Head-RGB");
+
+    await uninit();
+    subscribeTelemetry.mockClear();
+
+    await init({ ...config, panelId: "panel-a" });
+
+    const restoredSelector = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]'
+    );
+    expect(restoredSelector?.value).toBe("Head-Depth");
+  });
+
   it("labels and frames the stream selector", async () => {
     await init({
       camera: { fov: 60, near: 0.1, far: 100 },
@@ -638,24 +690,39 @@ describe("viewer-streaming-image transforms", () => {
 });
 
 describe("viewer-streaming-image detection overlays", () => {
+  it("extracts normalized field-of-view rect telemetry", () => {
+    const rect = extractNormalizedRectOverlay({
+      min: { x: 0.2, y: 0.15 },
+      max: { x: 0.8, y: 0.85 },
+    });
+
+    expect(rect).toEqual({
+      minXNorm: 0.2,
+      minYNorm: 0.15,
+      maxXNorm: 0.8,
+      maxYNorm: 0.85,
+    });
+  });
+
   it("extracts counted ObjectDetections telemetry vectors", () => {
     const detections = extractObjectDetectionOverlays({
       data_buffer: [
         {
           class_name: "chair",
           confidence: 0.82,
-          box_x1_norm: 0.1,
-          box_y1_norm: 0.2,
-          box_x2_norm: 0.4,
-          box_y2_norm: 0.6,
+          box_norm: {
+            min: { x: 0.1, y: 0.2 },
+            max: { x: 0.4, y: 0.6 },
+          },
+          track_id: 7,
         },
         {
           class_name: "ignored",
           confidence: 0.1,
-          box_x1_norm: 0,
-          box_y1_norm: 0,
-          box_x2_norm: 1,
-          box_y2_norm: 1,
+          box_norm: {
+            min: { x: 0, y: 0 },
+            max: { x: 1, y: 1 },
+          },
         },
       ],
       count: 1,
@@ -669,6 +736,7 @@ describe("viewer-streaming-image detection overlays", () => {
         boxY1Norm: 0.2,
         boxX2Norm: 0.4,
         boxY2Norm: 0.6,
+        trackId: 7,
       },
     ]);
   });
@@ -684,6 +752,7 @@ describe("viewer-streaming-image detection overlays", () => {
         boxY1Norm: 0.2,
         boxX2Norm: 0.4,
         boxY2Norm: 0.6,
+        trackId: 7,
       },
     ]);
 
@@ -698,8 +767,86 @@ describe("viewer-streaming-image detection overlays", () => {
     expect(box?.style.top).toBe("20%");
     expect(box?.style.width).toBe("30%");
     expect(box?.style.height).toBe("40%");
-    expect(label?.textContent).toBe("chair 82%");
+    expect(label?.textContent).toBe("chair #7 82%");
     expect(label?.style.background).toContain("var(--app-panel-backdrop");
+  });
+
+  it("renders a greyed-out surround outside the visible field of view", () => {
+    const overlay = document.createElement("div");
+
+    renderObjectDetectionsOverlay(
+      overlay,
+      [],
+      {
+        minXNorm: 0.2,
+        minYNorm: 0.15,
+        maxXNorm: 0.8,
+        maxYNorm: 0.85,
+      }
+    );
+
+    const topMask = overlay.querySelector<HTMLElement>(
+      '[data-role="field-of-view-mask-top"]'
+    );
+    const leftMask = overlay.querySelector<HTMLElement>(
+      '[data-role="field-of-view-mask-left"]'
+    );
+    const window = overlay.querySelector<HTMLElement>(
+      '[data-role="field-of-view-window"]'
+    );
+
+    expect(topMask?.style.height).toBe("15%");
+    expect(leftMask?.style.width).toBe("20%");
+    expect(window?.style.left).toBe("20%");
+    expect(window?.style.width).toBe("60%");
+  });
+
+  it("treats tiny field-of-view jitter as unchanged", () => {
+    expect(
+      normalizedRectOverlayEquals(
+        {
+          minXNorm: 0.2,
+          minYNorm: 0.15,
+          maxXNorm: 0.8,
+          maxYNorm: 0.85,
+        },
+        {
+          minXNorm: 0.2004,
+          minYNorm: 0.1504,
+          maxXNorm: 0.8004,
+          maxYNorm: 0.8504,
+        }
+      )
+    ).toBe(true);
+  });
+
+  it("detects materially different detection overlays", () => {
+    expect(
+      objectDetectionOverlaysEqual(
+        [
+          {
+            className: "chair",
+            confidence: 0.82,
+            boxX1Norm: 0.1,
+            boxY1Norm: 0.2,
+            boxX2Norm: 0.4,
+            boxY2Norm: 0.6,
+            trackId: 7,
+          },
+        ],
+        [
+          {
+            className: "chair",
+            confidence: 0.82,
+            boxX1Norm: 0.6,
+            boxY1Norm: 0.2,
+            boxX2Norm: 0.9,
+            boxY2Norm: 0.6,
+            trackId: 7,
+          },
+        ]
+      )
+    ).toBe(false);
   });
 
   it("aligns overlays to the contained image rect inside a wider canvas", () => {
