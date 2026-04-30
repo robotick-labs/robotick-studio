@@ -2,7 +2,11 @@ import { GraphDoc } from "./layout/editorNodeGraph";
 import { createSvgLayers, SvgView } from "./render/svgView";
 import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
-import { buildGraphDocFromModel } from "./layout/buildGraphDocFromModel";
+import {
+  buildGraphDocFromModel,
+  type ModelSortKey,
+} from "./layout/buildGraphDocFromModel";
+export type { ModelSortKey } from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
 
@@ -31,6 +35,8 @@ export type NodeGraphAPI = {
   getSelectedNodeId: () => string | null;
   /** Set selected node id and re-render */
   setSelectedNodeId: (nodeId: string | null) => void;
+  /** Replace model ordering and refresh layout */
+  setModelSortKey: (sortKey: ModelSortKey) => void;
 };
 
 export type EdgeVisibilityMode =
@@ -48,6 +54,7 @@ export type GraphDisplayOptions = {
 
 export type GraphLayoutOptions = {
   collapsedModelIds: string[];
+  modelSortKey: ModelSortKey;
 };
 
 const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
@@ -73,9 +80,11 @@ export function initNodeGraph(
   // Initial build (so we know sizes before first paint)
   let layoutOptions: GraphLayoutOptions = {
     collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
+    modelSortKey: initialLayoutOptions?.modelSortKey ?? "model_path",
   };
   buildGraphDocFromModel(store, doc, {
     collapsedModelIds: layoutOptions.collapsedModelIds,
+    modelSortKey: layoutOptions.modelSortKey,
   });
 
   const layers = createSvgLayers(svgElement);
@@ -174,6 +183,7 @@ export function initNodeGraph(
   const refreshLayout = () => {
     buildGraphDocFromModel(store, doc, {
       collapsedModelIds: layoutOptions.collapsedModelIds,
+      modelSortKey: layoutOptions.modelSortKey,
     });
     render();
   };
@@ -211,6 +221,10 @@ export function initNodeGraph(
     selectedNodeId = nodeId;
     render();
   };
+  const setModelSortKey = (sortKey: ModelSortKey) => {
+    layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
+    refreshLayout();
+  };
 
   return {
     svg: svgElement,
@@ -224,6 +238,7 @@ export function initNodeGraph(
     setCollapsedModelIds,
     getSelectedNodeId,
     setSelectedNodeId,
+    setModelSortKey,
   };
 }
 

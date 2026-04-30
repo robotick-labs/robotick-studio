@@ -425,6 +425,7 @@ function SchemaSection({
                 fieldPath={field.name}
                 label={field.name}
                 value={display}
+                rawValue={rawValue}
                 cppType={field.type}
                 enumValues={field.enum_values}
                 hasOverride={hasOverride}
@@ -493,6 +494,7 @@ function NestedStructFields({
                 fieldPath={childPath}
                 label={field.name}
                 value={display}
+                rawValue={childValue}
                 cppType={field.type}
                 enumValues={field.enum_values}
                 hasOverride={hasOverride}
@@ -560,6 +562,7 @@ function FieldRow({
   fieldPath,
   label,
   value,
+  rawValue,
   cppType,
   enumValues,
   hasOverride,
@@ -570,6 +573,7 @@ function FieldRow({
   fieldPath: string;
   label: string;
   value: string;
+  rawValue?: unknown;
   cppType: string;
   enumValues?: string[];
   hasOverride: boolean;
@@ -577,12 +581,25 @@ function FieldRow({
   readOnly: boolean;
   onRevert: () => void;
 }) {
+  const isBooleanField = isBooleanType(cppType);
+  const checkboxValue =
+    typeof rawValue === "boolean" ? rawValue : value.toLowerCase() === "true";
   return (
     <div className={styles.propRow}>
       <div className={styles.propLabel} title={fieldPath}>
         {label}
       </div>
-      {Array.isArray(enumValues) && enumValues.length > 0 ? (
+      {isBooleanField ? (
+        <input
+          className={hasOverride ? styles.propValueOverride : undefined}
+          type="checkbox"
+          checked={checkboxValue}
+          disabled
+          title={cppType}
+          data-prop={fieldPath}
+          readOnly={readOnly}
+        />
+      ) : Array.isArray(enumValues) && enumValues.length > 0 ? (
         <select
           className={hasOverride ? styles.propValueOverride : undefined}
           value={enumValues.includes(value) ? value : ""}
@@ -635,17 +652,19 @@ function PropertySection({
   return (
     <CollapsibleSection title={title}>
       {fields.map((field) => (
-        <FieldRow
-          key={`core:${field.name}`}
-          fieldPath={field.name}
-          label={field.name}
-          value={formatValue(field.value)}
-          cppType={field.type}
-          hasOverride={false}
-          showRevert={false}
-          readOnly={true}
-          onRevert={() => {}}
-        />
+        <div key={`core:${field.name}`} style={{ marginBottom: 8 }}>
+          <FieldRow
+            fieldPath={field.name}
+            label={field.name}
+            value={formatValue(field.value)}
+            rawValue={field.value}
+            cppType={field.type}
+            hasOverride={false}
+            showRevert={false}
+            readOnly={true}
+            onRevert={() => {}}
+          />
+        </div>
       ))}
     </CollapsibleSection>
   );
@@ -817,6 +836,7 @@ function ModelValueNode({
       fieldPath={path}
       label={label}
       value={formatValue(value)}
+      rawValue={value}
       cppType={schemaType}
       hasOverride={false}
       showRevert={false}
@@ -1275,6 +1295,15 @@ function getVectorInnerType(cppType: string): string | null {
     return cppType.slice(0, -2).trim();
   }
   return null;
+}
+
+function isBooleanType(cppType: string): boolean {
+  const normalized = cppType.toLowerCase();
+  return (
+    normalized === "bool" ||
+    normalized === "boolean" ||
+    normalized.includes("bool")
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

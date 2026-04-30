@@ -25,7 +25,10 @@ export interface LayoutSummary {
 
 export type BuildGraphOptions = {
   collapsedModelIds?: Iterable<string>;
+  modelSortKey?: ModelSortKey;
 };
+
+export type ModelSortKey = "telemetry_port" | "model_name" | "model_path";
 
 /**
  * Create a namespaced node identifier for an item defined in a model file.
@@ -62,7 +65,10 @@ export function buildGraphDocFromModel(
   const edges: Edge[] = [];
   const modelAliases = new Map<string, string>();
   const collapsedNodeIds = new Map<string, string>();
-  const modelIds = store.getModelIds();
+  const modelSortKey = options.modelSortKey ?? "model_path";
+  const modelIds = store
+    .getModelIds()
+    .sort((left, right) => compareModelIds(store, left, right, modelSortKey));
   for (const modelId of modelIds) {
     const base = modelBaseName(modelId);
     modelAliases.set(modelId, modelId);
@@ -279,6 +285,41 @@ export function buildGraphDocFromModel(
 
   doc.setEdges(edges);
   return { sections: doc.sections, totalHeight: yOffset, globalMaxNodes };
+}
+
+function compareModelIds(
+  store: DocumentStore,
+  leftModelId: string,
+  rightModelId: string,
+  sortKey: ModelSortKey
+): number {
+  const left = store.get(leftModelId);
+  const right = store.get(rightModelId);
+  const leftName =
+    typeof left?.name === "string" && left.name.trim()
+      ? left.name
+      : modelBaseName(leftModelId);
+  const rightName =
+    typeof right?.name === "string" && right.name.trim()
+      ? right.name
+      : modelBaseName(rightModelId);
+
+  if (sortKey === "model_name") {
+    const byName = leftName.localeCompare(rightName);
+    if (byName !== 0) return byName;
+    return leftModelId.localeCompare(rightModelId);
+  }
+
+  if (sortKey === "telemetry_port") {
+    const leftPort = Number(left?.telemetry?.port ?? 0);
+    const rightPort = Number(right?.telemetry?.port ?? 0);
+    if (leftPort !== rightPort) {
+      return leftPort - rightPort;
+    }
+    return leftModelId.localeCompare(rightModelId);
+  }
+
+  return leftModelId.localeCompare(rightModelId);
 }
 
 function modelBaseName(modelId: string): string {

@@ -15,6 +15,7 @@ import { editorSelectionStore } from "./document/editorSelectionStore";
 import {
   initNodeGraph,
   type EdgeVisibilityMode,
+  type ModelSortKey,
   type NodeGraphAPI,
 } from "./view/node-graph/initNodeGraph";
 import {
@@ -22,6 +23,12 @@ import {
   type PropertyPanelAPI,
 } from "./view/properties/InitPropertyPanel";
 import styles from "./styles/ModelsPage.module.css";
+
+const MODEL_SORT_OPTIONS: ReadonlyArray<{ value: ModelSortKey; label: string }> = [
+  { value: "telemetry_port", label: "Telemetry Port" },
+  { value: "model_name", label: "Model Name" },
+  { value: "model_path", label: "Model Path" },
+];
 
 export default function ModelsPage() {
   const { projectPath } = useProjectContext();
@@ -64,6 +71,19 @@ export default function ModelsPage() {
     () => readModelsViewState(panelViewStateStorageKey),
     [panelViewStateStorageKey]
   );
+  const modelSortStorageKey = useMemo(
+    () =>
+      buildNamespacedKey(
+        "robotick-studio.models.sort",
+        workspaceIdentifier,
+        panelIdentifier,
+        projectPath ?? "no-project"
+      ),
+    [panelIdentifier, projectPath, workspaceIdentifier]
+  );
+  const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() =>
+    readModelSortKey(modelSortStorageKey)
+  );
   const [edgeVisibilityMode, setEdgeVisibilityMode] =
     useState<EdgeVisibilityMode>(
       initialViewState?.edgeVisibilityMode ?? "selected-model"
@@ -92,6 +112,10 @@ export default function ModelsPage() {
     setEdgeVisibilityMode(stored?.edgeVisibilityMode ?? "selected-model");
     setSelectedNodeId(stored?.selectedNodeId ?? null);
   }, [panelViewStateStorageKey]);
+
+  useEffect(() => {
+    setModelSortKey(readModelSortKey(modelSortStorageKey));
+  }, [modelSortStorageKey]);
 
   useEffect(() => {
     const stored = readModelsViewState(panelViewStateStorageKey);
@@ -166,6 +190,7 @@ export default function ModelsPage() {
           },
           {
             collapsedModelIds: initialCollapsed,
+            modelSortKey,
           },
           {
             selectionScope: selectionScopeKey,
@@ -263,6 +288,7 @@ export default function ModelsPage() {
     projectPath,
     selectionScopeKey,
     viewportStorageKey,
+    modelSortKey,
     workspaceIdentifier,
   ]);
 
@@ -289,6 +315,14 @@ export default function ModelsPage() {
     if (!graphApi) {
       return;
     }
+    graphApi.setModelSortKey(modelSortKey);
+  }, [modelSortKey]);
+
+  useEffect(() => {
+    const graphApi = graphApiRef.current;
+    if (!graphApi) {
+      return;
+    }
     graphApi.setCollapsedModelIds(collapsedModelIds);
     const allModelIds = graphApi.getDoc().sections.map((section) => section.modelId);
     const expandedModelIds = allModelIds.filter(
@@ -302,6 +336,10 @@ export default function ModelsPage() {
     graphApiRef.current?.setSelectedNodeId(selectedNodeId);
   }, [collapsedModelIds, edgeVisibilityMode, selectedNodeId]);
 
+  useEffect(() => {
+    setStorageValue(modelSortStorageKey, modelSortKey);
+  }, [modelSortKey, modelSortStorageKey]);
+
   return (
     <div className={styles.layout}>
       <div className={styles.mainPanel}>
@@ -312,7 +350,7 @@ export default function ModelsPage() {
               id="models-edge-visibility"
               value={edgeVisibilityMode}
               onChange={(event) =>
-                setEdgeVisibilityMode(event.target.value as EdcgeVisibilityMode)
+                setEdgeVisibilityMode(event.target.value as EdgeVisibilityMode)
               }
             >
               <option value="none">None</option>
@@ -320,6 +358,22 @@ export default function ModelsPage() {
               <option value="selected-model">Selected Node - Model</option>
               <option value="expanded-models">Expanded Models</option>
               <option value="all">All</option>
+            </select>
+          </div>
+          <div className={styles.viewportSortControls}>
+            <label htmlFor="models-model-sort">Sort models by:</label>
+            <select
+              id="models-model-sort"
+              value={modelSortKey}
+              onChange={(event) =>
+                setModelSortKey(event.target.value as ModelSortKey)
+              }
+            >
+              {MODEL_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
           <svg ref={graphRef} className={styles.graph}>
@@ -715,6 +769,18 @@ function writeModelsViewState(storageKey: string, state: ModelsViewState): void 
     payload.collapsedModelIds = existing.collapsedModelIds;
   }
   setStorageValue(storageKey, JSON.stringify(payload));
+}
+
+function readModelSortKey(storageKey: string): ModelSortKey {
+  const value = readStorageValue(storageKey);
+  if (
+    value === "telemetry_port" ||
+    value === "model_name" ||
+    value === "model_path"
+  ) {
+    return value;
+  }
+  return "model_path";
 }
 
 function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
