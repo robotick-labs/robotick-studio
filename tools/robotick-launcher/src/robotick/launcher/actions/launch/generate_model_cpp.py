@@ -185,6 +185,9 @@ def _build_remote_models_codegen(config, workload_id_to_name):
     current_remote_models = config.model.get("remote_models", []) or []
     current_model_id = str(config.model.get("id", "")).strip()
     if not current_model_id:
+        if getattr(config, "dry_run", False) and not current_remote_models:
+            # Allow dry-run generation of minimal models that don't yet define an id.
+            return []
         raise ValueError("Model is missing required 'id'")
 
     for remote in current_remote_models:

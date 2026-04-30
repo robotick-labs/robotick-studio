@@ -105,8 +105,7 @@
       },
       "outputs": {
         "type": "HelloOutputs"
-      },
-      "schema_error": "Missing registration for referenced type 'HelloStatus' (from 'HelloOutputs')."
+      }
     },
     {
       "type": "ImageRefToImageWorkload",
@@ -178,8 +177,7 @@
       },
       "outputs": {
         "type": "MqttClientOutputs"
-      },
-      "schema_error": "Missing registration for referenced type 'MqttOpResult' (from 'MqttClientOutputs')."
+      }
     },
     {
       "type": "MuJoCoCameraWorkload",
@@ -619,6 +617,7 @@
           "name": "scene_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -643,6 +642,7 @@
           "name": "max_output_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "262144",
           "primitive_kind": "integer"
         }
       ]
@@ -753,6 +753,7 @@
           "name": "max_output_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "131072",
           "primitive_kind": "integer"
         },
         {
@@ -881,12 +882,28 @@
       "capacity": "256"
     },
     {
+      "name": "FixedString32",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "32"
+    },
+    {
       "name": "FixedString512",
       "type_category": "primitive",
       "primitive_kind": "string",
       "mime_type": "text/plain",
       "format": "fixed_string",
       "capacity": "512"
+    },
+    {
+      "name": "FixedString64",
+      "type_category": "primitive",
+      "primitive_kind": "string",
+      "mime_type": "text/plain",
+      "format": "fixed_string",
+      "capacity": "64"
     },
     {
       "name": "FixedString8",
@@ -1171,6 +1188,7 @@
           "name": "max_output_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "65536",
           "primitive_kind": "integer"
         }
       ]
@@ -1310,14 +1328,29 @@
           "name": "message",
           "type": "FixedString32",
           "element_count": 1,
-          "default_value": "Waiting..."
+          "default_value": "Waiting...",
+          "primitive_kind": "string"
         },
         {
           "name": "status",
           "type": "HelloStatus",
           "element_count": 1,
-          "default_value": "HelloStatus::NORMAL"
+          "default_value": "HelloStatus::NORMAL",
+          "primitive_kind": "enum",
+          "enum_values": [
+            "Normal",
+            "Magic"
+          ]
         }
+      ]
+    },
+    {
+      "name": "HelloStatus",
+      "type_category": "enum",
+      "primitive_kind": "enum",
+      "enum_values": [
+        "Normal",
+        "Magic"
       ]
     },
     {
@@ -1518,6 +1551,7 @@
           "name": "max_output_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "262144",
           "primitive_kind": "integer"
         }
       ]
@@ -1575,6 +1609,7 @@
           "name": "max_input_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "524288",
           "primitive_kind": "integer"
         },
         {
@@ -1845,13 +1880,15 @@
           "name": "broker_mqtt_port",
           "type": "uint16_t",
           "element_count": 1,
-          "default_value": "1883"
+          "default_value": "1883",
+          "primitive_kind": "integer"
         },
         {
           "name": "root_topic_namespace",
           "type": "FixedString64",
           "element_count": 1,
-          "default_value": "robotick"
+          "default_value": "robotick",
+          "primitive_kind": "string"
         },
         {
           "name": "enable_tls",
@@ -1881,12 +1918,6 @@
       "type_category": "struct",
       "fields": [
         {
-          "name": "last_subscribe",
-          "type": "MqttOpResult",
-          "element_count": 1,
-          "default_value": "MqttOpResult::Success"
-        },
-        {
           "name": "connected",
           "type": "bool",
           "element_count": 1,
@@ -1902,7 +1933,9 @@
         {
           "name": "camera_name",
           "type": "FixedString64",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
         },
         {
           "name": "texture_width",
@@ -1922,6 +1955,7 @@
           "name": "max_output_bytes",
           "type": "uint32_t",
           "element_count": 1,
+          "default_value": "262144",
           "primitive_kind": "integer"
         }
       ]
@@ -1965,12 +1999,14 @@
           "name": "workload_config_file_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
           "name": "model_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -2682,12 +2718,15 @@
           "name": "script_name",
           "type": "FixedString128",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
           "name": "class_name",
           "type": "FixedString64",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
         },
         {
           "name": "script",
@@ -3004,7 +3043,9 @@
         {
           "name": "last_queue_status",
           "type": "FixedString32",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
         }
       ]
     },
@@ -3089,13 +3130,15 @@
           "name": "model_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
           "name": "num_threads",
           "type": "uint16_t",
           "element_count": 1,
-          "default_value": "4"
+          "default_value": "4",
+          "primitive_kind": "integer"
         },
         {
           "name": "min_voiced_duration_sec",
@@ -3218,18 +3261,22 @@
           "name": "gain",
           "type": "float",
           "element_count": 1,
+          "default_value": "0.0",
           "primitive_kind": "number"
         },
         {
           "name": "threshold",
           "type": "int",
           "element_count": 1,
+          "default_value": "0",
           "primitive_kind": "integer"
         },
         {
           "name": "label",
           "type": "FixedString32",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
         },
         {
           "name": "blackboard",
@@ -3246,18 +3293,21 @@
           "name": "angle",
           "type": "float",
           "element_count": 1,
+          "default_value": "0",
           "primitive_kind": "number"
         },
         {
           "name": "sensor_value",
           "type": "int",
           "element_count": 1,
+          "default_value": "0",
           "primitive_kind": "integer"
         },
         {
           "name": "sensor_label",
           "type": "FixedString16",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -3275,12 +3325,15 @@
           "name": "command",
           "type": "float",
           "element_count": 1,
+          "default_value": "0.0",
           "primitive_kind": "number"
         },
         {
           "name": "status",
           "type": "FixedString64",
-          "element_count": 1
+          "element_count": 1,
+          "default_value": "",
+          "primitive_kind": "string"
         },
         {
           "name": "sensor_ok",
@@ -3416,6 +3469,7 @@
           "name": "text",
           "type": "FixedString512",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -3498,6 +3552,7 @@
           "name": "file_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -3566,6 +3621,7 @@
           "name": "file_path",
           "type": "FixedString256",
           "element_count": 1,
+          "default_value": "",
           "primitive_kind": "string"
         },
         {
@@ -3688,6 +3744,11 @@
       "primitive_kind": "integer"
     },
     {
+      "name": "uint16_t",
+      "type_category": "primitive",
+      "primitive_kind": "integer"
+    },
+    {
       "name": "uint32_t",
       "type_category": "primitive",
       "primitive_kind": "integer"
@@ -3704,28 +3765,5 @@
     }
   ],
   "writable_inputs": [],
-  "validation_errors": [
-    "HelloWorkload:$: Missing registration for referenced type 'HelloStatus' (from 'HelloOutputs').",
-    "MqttClientWorkload:$: Missing registration for referenced type 'MqttOpResult' (from 'MqttClientOutputs').",
-    "Missing default_value in schema metadata for primitive field 'CanvasConfig.scene_path' (FixedString256, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'CanvasConfig.max_output_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'CochlearVisualizerConfig.max_output_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'HeartbeatDisplayConfig.max_output_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'ImageRefToImageConfig.max_output_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'ImageToImageRefConfig.max_input_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'MuJoCoCameraConfig.max_output_bytes' (uint32_t, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.workload_config_file_path' (FixedString256, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'MuJoCoPhysicsConfig.model_path' (FixedString256, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'Transcript.text' (FixedString512, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'PythonConfig.script_name' (FixedString128, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'SpeechToTextSettings.model_path' (FixedString256, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'TemplateConfig.gain' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'TemplateConfig.threshold' (int, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'TemplateInputs.angle' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'TemplateInputs.sensor_value' (int, kind=integer).",
-    "Missing default_value in schema metadata for primitive field 'TemplateInputs.sensor_label' (FixedString16, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'TemplateOutputs.command' (float, kind=number).",
-    "Missing default_value in schema metadata for primitive field 'WavPlayerConfig.file_path' (FixedString256, kind=string).",
-    "Missing default_value in schema metadata for primitive field 'WavRecorderConfig.file_path' (FixedString256, kind=string)."
-  ]
+  "validation_errors": []
 }
