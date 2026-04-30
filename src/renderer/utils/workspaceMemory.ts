@@ -1,7 +1,6 @@
 import { readStorageValue, setStorageValue } from "../services/storage";
 
 const LAST_WORKSPACE_PREFIX = "robotick:last-workspace:";
-const PRIMARY_WINDOW_SCOPE = "primary";
 
 type WorkspaceMemoryOptions = {
   windowScope?: string;
@@ -48,8 +47,13 @@ export function rememberWorkspacePath(
       setStorageValue(getWorkspaceKey(projectPath), workspacePath);
       return;
     }
+    const scope = options.windowScope?.trim();
+    if (!scope) {
+      console.warn("[workspace-memory] Missing window scope for secondary window");
+      return;
+    }
     const scopedKey = getScopedWorkspaceKey(
-      options.windowScope ?? PRIMARY_WINDOW_SCOPE,
+      scope,
       projectPath
     );
     setStorageValue(scopedKey, workspacePath);
@@ -73,8 +77,13 @@ export function loadRememberedWorkspacePath(
     if (isPrimaryWindow) {
       return readStorageValue(getWorkspaceKey(projectPath));
     }
+    const scope = options.windowScope?.trim();
+    if (!scope) {
+      console.warn("[workspace-memory] Missing window scope for secondary window");
+      return null;
+    }
     const scopedKey = getScopedWorkspaceKey(
-      options.windowScope ?? PRIMARY_WINDOW_SCOPE,
+      scope,
       projectPath
     );
     return readStorageValue(scopedKey);

@@ -52,13 +52,14 @@ rsync_target "test_project_brain/linux"
 rsync_target "test_project_spine/esp32"
 
 log "📝 Regenerating workloads_discovery golden..."
-PYTHONPATH="${LAUNCHER_DIR}/src" \
+PYTHONPATH="${LAUNCHER_DIR}/src" LAUNCHER_DIR="${LAUNCHER_DIR}" \
 python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 from robotick.launcher.listen.routes_query import get_workloads_registry
 
-base_dir = Path("tools/robotick-launcher/tests")
+base_dir = Path(os.environ["LAUNCHER_DIR"]).resolve() / "tests"
 project_path = (base_dir / "test_data" / "test-project" / "test-project.project.yaml").resolve()
 registry = get_workloads_registry(project_path=project_path, target="linux")
 registry["project"] = "__PROJECT_PATH__"

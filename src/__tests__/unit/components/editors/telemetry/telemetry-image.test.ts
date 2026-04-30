@@ -106,9 +106,13 @@ describe("telemetry image helpers", () => {
   });
 
   it("sanitizes JPEG bytes by trimming to the final EOI marker", () => {
-    const bytes = new Uint8Array([0xff, 0xd8, 0x11, 0xff, 0xd9, 0x22, 0x33]);
+    const bytes = new Uint8Array([
+      0xff, 0xd8, 0x11, 0xff, 0xd9, 0x22, 0xff, 0xd9, 0x33,
+    ]);
     const safeBytes = sanitizeTelemetryImageBytes("image/jpeg", bytes);
-    expect(Array.from(safeBytes ?? [])).toEqual([0xff, 0xd8, 0x11, 0xff, 0xd9]);
+    expect(Array.from(safeBytes ?? [])).toEqual([
+      0xff, 0xd8, 0x11, 0xff, 0xd9, 0x22, 0xff, 0xd9,
+    ]);
   });
 
   it("returns null for malformed JPEG payloads without a valid SOI marker", () => {
@@ -122,6 +126,12 @@ describe("telemetry image helpers", () => {
       bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     };
     const signature = getTelemetryImagePayloadSignature(payload);
-    expect(signature).toMatch(/^image\/png:[0-9a-f]+$/);
+    expect(signature).toBe(getTelemetryImagePayloadSignature(payload));
+    expect(signature).not.toBe(
+      getTelemetryImagePayloadSignature({
+        mime: "image/png",
+        bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x48]),
+      }),
+    );
   });
 });

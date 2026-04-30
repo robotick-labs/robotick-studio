@@ -126,8 +126,16 @@ def _validate_core_model_yaml_against_schema(
 
     try:
         model_paths = list_project_models(str(project_path.resolve()))
-    except Exception:
-        model_paths = []
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to enumerate project models for schema validation: "
+                f"{exc}"
+            ),
+        ) from exc
 
     base_dir = project_path.parent.resolve()
     for rel_path in model_paths:
@@ -477,7 +485,7 @@ def get_workloads_registry(
     payload = {
         "project": str(project_path_full),
         "target": target,
-        "workloads": sorted(workloads, key=lambda w: str(w.get("name", ""))),
+        "workloads": sorted(workloads, key=lambda w: str(w.get("type", ""))),
         "types": sorted(types_map.values(), key=lambda t: str(t.get("name", ""))),
         "writable_inputs": [],
         "validation_errors": validation_errors,

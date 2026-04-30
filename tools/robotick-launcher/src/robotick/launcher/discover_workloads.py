@@ -748,9 +748,9 @@ def _extend_structs_recursively(
     resolved_type_cache: Dict[str, Optional[Dict[str, object]]],
 ) -> Set[str]:
     structs_index = registration_index.get("structs", {})
-    known_leaf_types = registration_index.get("known_leaf_types", set())
+    known_leaf_types = registration_index.get("known_leaf_types", {})
     if not isinstance(structs_index, dict):
-        return
+        return set()
     if not isinstance(known_leaf_types, dict):
         known_leaf_types = {}
 

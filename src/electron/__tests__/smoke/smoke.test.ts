@@ -217,14 +217,14 @@ describe("electron launch paths", () => {
     expect(handler).toBeDefined();
 
     const invokeEvent = { sender: {} };
-    handler?.(invokeEvent, {
+    await handler?.(invokeEvent, {
       command: "createWindow",
       scope: "child-preset-a",
       seedUrl: "http://localhost:5173/#/dev",
     });
     expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
 
-    handler?.(invokeEvent, {
+    await handler?.(invokeEvent, {
       command: "createWindow",
       scope: "child-preset-a",
       seedUrl: "http://localhost:5173/#/dev",
@@ -239,7 +239,7 @@ describe("electron launch paths", () => {
     expect(handler).toBeDefined();
 
     const invokeEvent = { sender: {} };
-    handler?.(invokeEvent, { command: "close" });
+    await handler?.(invokeEvent, { command: "close" });
 
     expect(mocks.windows[0].close).toHaveBeenCalledTimes(1);
     expect(mocks.app.quit).not.toHaveBeenCalled();

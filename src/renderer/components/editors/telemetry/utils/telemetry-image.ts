@@ -202,7 +202,7 @@ function hashBytes(bytes: Uint8Array): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < bytes.length; i += 1) {
     h ^= bytes[i];
-    h = (h * 0x01000193) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16);
 }
