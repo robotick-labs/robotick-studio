@@ -38,12 +38,7 @@ export type ModelSortKey = "telemetry_port" | "model_name" | "model_path";
  * @returns A string in the form `basename:localId`, where `basename` is the model file name with the `.model.yaml` extension removed
  */
 export function nodeIdFor(modelPath: string, id: string): string {
-  const base =
-    modelPath
-      .split("/")
-      .pop()
-      ?.replace(/\.model\.yaml$/, "") ?? "";
-  return `${base}:${id}`;
+  return `${modelPath}:${id}`;
 }
 
 /**
@@ -63,27 +58,24 @@ export function buildGraphDocFromModel(
   doc.nodes.clear();
   doc.sections = [];
   const edges: Edge[] = [];
-  const modelAliases = new Map<string, string>();
   const collapsedNodeIds = new Map<string, string>();
   const modelSortKey = options.modelSortKey ?? "model_path";
   const modelIds = store
     .getModelIds()
     .sort((left, right) => compareModelIds(store, left, right, modelSortKey));
-  for (const modelId of modelIds) {
-    const base = modelBaseName(modelId);
-    modelAliases.set(modelId, modelId);
-    modelAliases.set(base, modelId);
-  }
-
   let yOffset = 40,
     globalMaxNodes = 0,
     sectionIndex = 0;
 
   for (const modelId of modelIds) {
     const m = store.get(modelId)!;
-    const root = m.workloads.find((w: Workload) => w.name === m.root)!;
+    const root = m.workloads.find(
+      (w: Workload) => w.id === m.root.workload_id,
+    )!;
     const lanes =
-      root.type === "SyncedGroupWorkload" ? (root.children ?? []) : [root.name];
+      root.type === "SyncedGroupWorkload"
+        ? (root.children ?? []).map((child) => child.workload_id)
+        : [root.id];
     const hasSequencedGroup = m.workloads.some(
       (w: Workload) => w.type === "SequencedGroupWorkload",
     );
@@ -91,7 +83,7 @@ export function buildGraphDocFromModel(
     const modelName =
       typeof m.name === "string" && m.name.trim()
         ? m.name
-        : modelBaseName(modelId);
+        : modelId;
     const modelNodeId = nodeIdFor(modelId, "__model__");
     const modelNode: Node = {
       id: modelNodeId,
@@ -99,14 +91,17 @@ export function buildGraphDocFromModel(
       label: modelName,
       x: sectionHeaderX,
       y: yOffset + modelHeaderYFromSectionStart,
-      w: estimateModelHeaderWidth(modelName, modelFileName(modelId)),
+      w: estimateModelHeaderWidth(
+        modelName,
+        modelFileName(store.getModelSourcePath(modelId) ?? modelId),
+      ),
       h: modelHeaderHeight,
       lane: 0,
       meta: {
         modelId,
         section: sectionIndex,
         collapsed: isCollapsed,
-        subtitle: modelFileName(modelId),
+        subtitle: modelFileName(store.getModelSourcePath(modelId) ?? modelId),
       },
     };
     doc.upsertNode(modelNode);
@@ -136,19 +131,17 @@ export function buildGraphDocFromModel(
     let maxSlots = 0;
     for (let lane = 0; lane < lanes.length; lane++) {
       const laneY = yOffset + lane * laneHeight;
-      const names = store.laneChildren(modelId, lane);
-      maxSlots = Math.max(maxSlots, names.length);
+      const workloadIds = store.laneChildren(modelId, lane);
+      maxSlots = Math.max(maxSlots, workloadIds.length);
 
-      names.forEach((localName: string, slot: number) => {
-        const id = nodeIdFor(modelId, localName);
-        const workload = m.workloads.find(
-          (w: Workload) => w.name === localName,
-        );
+      workloadIds.forEach((workloadId: string, slot: number) => {
+        const workload = m.workloads.find((w: Workload) => w.id === workloadId);
         if (!workload) return;
+        const id = nodeIdFor(modelId, workload.id);
         const node: Node = {
           id,
           kind: "workload",
-          label: localName,
+          label: workload.name,
           x: startX + slot * spacing,
           y: laneY + lanePadY,
           w: nodeSize.width,
@@ -164,15 +157,15 @@ export function buildGraphDocFromModel(
         doc.upsertNode(node);
       });
 
-      const parentName = lanes[lane];
+      const parentId = lanes[lane];
       const groupWorkload = m.workloads.find(
-        (w: Workload) => w.name === parentName,
+        (w: Workload) => w.id === parentId,
       );
       if (groupWorkload && groupWorkload.children == null) {
         const group: Node = {
-          id: nodeIdFor(modelId, parentName),
+          id: nodeIdFor(modelId, parentId),
           kind: "workload",
-          label: parentName,
+          label: groupWorkload.name,
           x: startX,
           y: laneY + lanePadY,
           w: nodeSize.width,
@@ -182,7 +175,7 @@ export function buildGraphDocFromModel(
             modelId,
             section: sectionIndex,
             type: groupWorkload.type,
-            children: names.map((n: string) => nodeIdFor(modelId, n)),
+            children: workloadIds.map((id: string) => nodeIdFor(modelId, id)),
           },
         };
         doc.upsertNode(group);
@@ -217,14 +210,12 @@ export function buildGraphDocFromModel(
     if (!modelIsCollapsed) {
       for (const c of m.connections ?? []) {
         const from = resolveNodeId(
-          modelAliases,
           collapsedNodeIds,
           modelId,
           c.from.split(".")[0],
           false,
         );
         const to = resolveNodeId(
-          modelAliases,
           collapsedNodeIds,
           modelId,
           c.to.split(".")[0],
@@ -237,18 +228,19 @@ export function buildGraphDocFromModel(
     }
 
     for (const r of m.remote_models ?? []) {
-      const targetModelId = modelAliases.get(r.name) ?? r.name;
+      const targetModelId = r.model_id;
       for (const c of r.connections ?? []) {
-        if (typeof c.from === "string" && typeof c.to_remote === "string") {
+        if (
+          typeof c.from_local === "string" &&
+          typeof c.to_remote === "string"
+        ) {
           const from = resolveNodeId(
-            modelAliases,
             collapsedNodeIds,
             modelId,
-            c.from.split(".")[0],
+            c.from_local.split(".")[0],
             true,
           );
           const to = resolveNodeId(
-            modelAliases,
             collapsedNodeIds,
             targetModelId,
             c.to_remote.split(".")[0],
@@ -259,20 +251,18 @@ export function buildGraphDocFromModel(
           }
         } else if (
           typeof c.from_remote === "string" &&
-          typeof c.to === "string"
+          typeof c.to_local === "string"
         ) {
           const from = resolveNodeId(
-            modelAliases,
             collapsedNodeIds,
             targetModelId,
             c.from_remote.split(".")[0],
             true,
           );
           const to = resolveNodeId(
-            modelAliases,
             collapsedNodeIds,
             modelId,
-            c.to.split(".")[0],
+            c.to_local.split(".")[0],
             true,
           );
           if (from && to) {
@@ -298,11 +288,11 @@ function compareModelIds(
   const leftName =
     typeof left?.name === "string" && left.name.trim()
       ? left.name
-      : modelBaseName(leftModelId);
+      : leftModelId;
   const rightName =
     typeof right?.name === "string" && right.name.trim()
       ? right.name
-      : modelBaseName(rightModelId);
+      : rightModelId;
 
   if (sortKey === "model_name") {
     const byName = leftName.localeCompare(rightName);
@@ -322,15 +312,6 @@ function compareModelIds(
   return leftModelId.localeCompare(rightModelId);
 }
 
-function modelBaseName(modelId: string): string {
-  return (
-    modelId
-      .split("/")
-      .pop()
-      ?.replace(/\.model\.yaml$/, "") ?? modelId
-  );
-}
-
 function modelFileName(modelId: string): string {
   return modelId.split("/").pop() ?? modelId;
 }
@@ -341,18 +322,16 @@ function estimateModelHeaderWidth(modelName: string, subtitle: string): number {
 }
 
 function resolveNodeId(
-  modelAliases: Map<string, string>,
   collapsedNodeIds: Map<string, string>,
-  modelRef: string,
-  workloadName: string,
+  modelId: string,
+  workloadId: string,
   allowCollapsedAnchor: boolean,
 ): string | null {
-  const canonicalModelId = modelAliases.get(modelRef) ?? modelRef;
   if (allowCollapsedAnchor) {
-    const collapsedNodeId = collapsedNodeIds.get(canonicalModelId);
+    const collapsedNodeId = collapsedNodeIds.get(modelId);
     if (collapsedNodeId) {
       return collapsedNodeId;
     }
   }
-  return nodeIdFor(canonicalModelId, workloadName);
+  return nodeIdFor(modelId, workloadId);
 }

@@ -125,42 +125,28 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
     if (!selectedId) {
       return null;
     }
-    const [base, wname] = selectedId.split(":", 2);
-    if (!base || !wname || wname === "__model__") {
+    const [modelId, workloadId] = selectedId.split(":", 2);
+    if (!modelId || !workloadId || workloadId === "__model__") {
       return null;
     }
-    for (const [modelId, model] of store.entries()) {
-      const modelBase = modelId
-        .split("/")
-        .pop()
-        ?.replace(/\.model\.yaml$/, "");
-      if (modelBase !== base) continue;
-      const workload = model.workloads.find((w) => w.name === wname) ?? null;
-      if (workload) {
-        return { modelId, workload };
-      }
-    }
-    return null;
+    const model = store.get(modelId);
+    if (!model) return null;
+    const workload = model.workloads.find((w) => w.id === workloadId) ?? null;
+    if (!workload) return null;
+    return { modelId, workload };
   }, [selectedId, store]);
 
   const selectedModel = useMemo(() => {
     if (!selectedId) {
       return null;
     }
-    const [base, localId] = selectedId.split(":", 2);
-    if (!base || localId !== "__model__") {
+    const [modelId, localId] = selectedId.split(":", 2);
+    if (!modelId || localId !== "__model__") {
       return null;
     }
-    for (const [modelId, model] of store.entries()) {
-      const modelBase = modelId
-        .split("/")
-        .pop()
-        ?.replace(/\.model\.yaml$/, "");
-      if (modelBase === base) {
-        return { modelId, model };
-      }
-    }
-    return null;
+    const model = store.get(modelId);
+    if (!model) return null;
+    return { modelId, model };
   }, [selectedId, store]);
 
   if (!selectedWorkload && !selectedModel) {
@@ -181,7 +167,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
     const modelName =
       typeof model.name === "string" && model.name.trim()
         ? model.name
-        : modelId.split("/").pop()?.replace(/\.model\.yaml$/, "") ?? modelId;
+        : modelId;
     return (
       <div>
         <PanelHeader
@@ -196,7 +182,7 @@ export const PropertyPanel: React.FC<PropertyPanelProps> = ({
 
         <ModelSchemaSection
           title="Properties"
-          value={model as Record<string, unknown>}
+          value={model as unknown as Record<string, unknown>}
           schema={schemaState.coreSchema}
           path="$"
         />

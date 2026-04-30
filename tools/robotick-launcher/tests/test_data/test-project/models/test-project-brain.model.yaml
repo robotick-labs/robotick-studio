@@ -1,56 +1,52 @@
-# Robotick model: Test Project Brain (host-side UI, camera, and remote control)
-
 telemetry:
   port: 7090
-
 remote_models:
-  - name: spine
-    mode: IP
-
-    # remote connections:
-    connections:
-      - from: remote_control.outputs.left.x
-        to_remote: steering_mixer.inputs.turn_rate
-      - from: remote_control.outputs.left.y
-        to_remote: steering_mixer.inputs.speed
-
+- mode: IP
+  connections:
+  - to_remote: steering_mixer.inputs.turn_rate
+    from_local: remote_control_workload_59511193.outputs.left.x
+  - to_remote: steering_mixer.inputs.speed
+    from_local: remote_control_workload_59511193.outputs.left.y
+  model_id: test_project_spine_model_90287511
 workloads:
-  - name: remote_control
-    type: RemoteControlWorkload
-    tick_rate_hz: 30.0
-    inputs:
-      use_web_inputs: true
-      left.x: 0.0
-      left.y: 0.0
-
-  - name: face
-    type: FaceDisplayWorkload
-    tick_rate_hz: 30.0
-    config:
-      blink_min_interval_sec: 1.5
-      blink_max_interval_sec: 4.0
-      render_to_texture: true
-
-  - name: speech_to_text # included to ensure we're testing its "bespoke cmake file" usage is working
-    type: SpeechToTextWorkload
-    tick_rate_hz: 30.0
-
-  - name: camera
-    type: MonocularCameraWorkload
-    tick_rate_hz: 30.0
-
-  - name: mic
-    type: MicWorkload
-    tick_rate_hz: 30.0
-
-  - name: root_group
-    type: SyncedGroupWorkload
-    tick_rate_hz: 30.0
-    children:
-      - remote_control
-      - face
-      - camera
-      - mic
-      - speech_to_text
-
-root: root_group
+- name: remote_control
+  type: RemoteControlWorkload
+  tick_rate_hz: 30.0
+  inputs:
+    use_web_inputs: true
+    left.x: 0.0
+    left.y: 0.0
+  id: remote_control_workload_59511193
+- name: face
+  type: FaceDisplayWorkload
+  tick_rate_hz: 30.0
+  config:
+    blink_min_interval_sec: 1.5
+    blink_max_interval_sec: 4.0
+    render_to_texture: true
+  id: face_display_workload_EE6DA533
+- name: speech_to_text
+  type: SpeechToTextWorkload
+  tick_rate_hz: 30.0
+  id: speech_to_text_workload_8363FFF6
+- name: camera
+  type: MonocularCameraWorkload
+  tick_rate_hz: 30.0
+  id: monocular_camera_workload_09BDDA25
+- name: mic
+  type: MicWorkload
+  tick_rate_hz: 30.0
+  id: mic_workload_87EF9860
+- name: root_group
+  type: SyncedGroupWorkload
+  tick_rate_hz: 30.0
+  children:
+  - workload_id: remote_control_workload_59511193
+  - workload_id: face_display_workload_EE6DA533
+  - workload_id: monocular_camera_workload_09BDDA25
+  - workload_id: mic_workload_87EF9860
+  - workload_id: speech_to_text_workload_8363FFF6
+  id: synced_group_workload_E6E41091
+root:
+  workload_id: synced_group_workload_E6E41091
+id: test_project_brain_model_20D4813E

@@ -124,9 +124,6 @@ def _validate_core_model_yaml_against_schema(
     validator = Draft4Validator(schema)
     errors: List[str] = []
 
-    for err in validator.iter_errors(project_data):
-        errors.append(f"project.yaml:{_format_validation_error_path(err)}: {err.message}")
-
     try:
         model_paths = list_project_models(str(project_path.resolve()))
     except Exception:

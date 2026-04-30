@@ -1,46 +1,42 @@
 runtime:
   target_platform: linux
   target_variant: arm32
-
-# Robotick model: Test Project Linux ARM32 Spine
-
 telemetry:
   port: 7091
-
 workloads:
-  - name: steering_mixer
-    type: SteeringMixerWorkload
-    tick_rate_hz: 30.0
-
-  - name: basex
-    type: BaseXWorkload
-    tick_rate_hz: 30.0
-
-  - name: control_sequence
-    type: SequencedGroupWorkload
-    tick_rate_hz: 30.0
-    children:
-      - steering_mixer
-      - basex
-
-  - name: heart_ui
-    type: HeartbeatDisplayWorkload
-    tick_rate_hz: 30.0
-    config:
-      render_to_texture: true
-
-  - name: esp32_root
-    type: SequencedGroupWorkload
-    tick_rate_hz: 30.0
-    children:
-      - control_sequence
-      - heart_ui
-
+- name: steering_mixer
+  type: SteeringMixerWorkload
+  tick_rate_hz: 30.0
+  id: steering_mixer_workload_7F053B4D
+- name: basex
+  type: BaseXWorkload
+  tick_rate_hz: 30.0
+  id: base_xworkload_42539304
+- name: control_sequence
+  type: SequencedGroupWorkload
+  tick_rate_hz: 30.0
+  children:
+  - workload_id: steering_mixer_workload_7F053B4D
+  - workload_id: base_xworkload_42539304
+  id: sequenced_group_workload_60CC5403
+- name: heart_ui
+  type: HeartbeatDisplayWorkload
+  tick_rate_hz: 30.0
+  config:
+    render_to_texture: true
+  id: heartbeat_display_workload_664365AA
+- name: esp32_root
+  type: SequencedGroupWorkload
+  tick_rate_hz: 30.0
+  children:
+  - workload_id: sequenced_group_workload_60CC5403
+  - workload_id: heartbeat_display_workload_664365AA
+  id: sequenced_group_workload_81D5E279
 connections:
-  - from: steering_mixer.outputs.left_motor
-    to: basex.inputs.motor1_speed
-
-  - from: steering_mixer.outputs.right_motor
-    to: basex.inputs.motor2_speed
-
-root: esp32_root
+- from: steering_mixer_workload_7F053B4D.outputs.left_motor
+  to: base_xworkload_42539304.inputs.motor1_speed
+- from: steering_mixer_workload_7F053B4D.outputs.right_motor
+  to: base_xworkload_42539304.inputs.motor2_speed
+root:
+  workload_id: sequenced_group_workload_81D5E279
+id: test_project_spine_arm32_model_741834CD

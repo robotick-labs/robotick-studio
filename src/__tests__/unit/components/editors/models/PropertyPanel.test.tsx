@@ -63,10 +63,12 @@ describe("PropertyPanel Phase 2A", () => {
     });
 
     const store = new DocumentStore();
-    (store as any).models.set("models/sample.model.yaml", {
-      root: "node",
+    (store as any).models.set("sample_model_1", {
+      id: "sample_model_1",
+      root: { workload_id: "sample_workload_1" },
       workloads: [
         {
+          id: "sample_workload_1",
           name: "node",
           type: "SampleWorkload",
           tick_rate_hz: 30,
@@ -82,7 +84,7 @@ describe("PropertyPanel Phase 2A", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
-    editorSelectionStore.setSelection("sample:node", "test-scope");
+    editorSelectionStore.setSelection("sample_model_1:sample_workload_1", "test-scope");
 
     await act(async () => {
       root.render(
@@ -150,10 +152,12 @@ describe("PropertyPanel Phase 2A", () => {
     });
 
     const store = new DocumentStore();
-    (store as any).models.set("models/sample.model.yaml", {
-      root: "node",
+    (store as any).models.set("sample_model_1", {
+      id: "sample_model_1",
+      root: { workload_id: "sample_workload_1" },
       workloads: [
         {
+          id: "sample_workload_1",
           name: "node",
           type: "SampleWorkload",
           tick_rate_hz: 30,
@@ -168,7 +172,7 @@ describe("PropertyPanel Phase 2A", () => {
 
     const container = document.createElement("div");
     const root = createRoot(container);
-    editorSelectionStore.setSelection("sample:node", "test-scope");
+    editorSelectionStore.setSelection("sample_model_1:sample_workload_1", "test-scope");
 
     await act(async () => {
       root.render(
@@ -194,8 +198,8 @@ describe("PropertyPanel Phase 2A", () => {
       "input[data-prop='gain']"
     ) as HTMLInputElement | null;
 
-    expect(enabledInput?.value).toBe("false");
-    expect(readyInput?.value).toBe("false");
+    expect(enabledInput?.checked).toBe(false);
+    expect(readyInput?.checked).toBe(false);
     expect(nicknameInput?.value).toBe("default not available");
     expect(gainInput?.value).toBe("0.5");
 
@@ -247,10 +251,12 @@ describe("PropertyPanel Phase 2A", () => {
     });
 
     const store = new DocumentStore();
-    (store as any).models.set("models/sample.model.yaml", {
-      root: "node",
+    (store as any).models.set("sample_model_1", {
+      id: "sample_model_1",
+      root: { workload_id: "sample_workload_1" },
       workloads: [
         {
+          id: "sample_workload_1",
           name: "node",
           type: "SampleWorkload",
           tick_rate_hz: 30,
@@ -265,7 +271,7 @@ describe("PropertyPanel Phase 2A", () => {
 
     const container = document.createElement("div");
     const root = createRoot(container);
-    editorSelectionStore.setSelection("sample:node", "test-scope");
+    editorSelectionStore.setSelection("sample_model_1:sample_workload_1", "test-scope");
 
     await act(async () => {
       root.render(
@@ -305,10 +311,12 @@ describe("PropertyPanel Phase 2A", () => {
     });
 
     const store = new DocumentStore();
-    (store as any).models.set("models/sample.model.yaml", {
-      root: "node",
+    (store as any).models.set("sample_model_1", {
+      id: "sample_model_1",
+      root: { workload_id: "sample_workload_1" },
       workloads: [
         {
+          id: "sample_workload_1",
           name: "node",
           type: "SampleWorkload",
           tick_rate_hz: 30,
@@ -323,7 +331,7 @@ describe("PropertyPanel Phase 2A", () => {
 
     const container = document.createElement("div");
     const root = createRoot(container);
-    editorSelectionStore.setSelection("sample:node", "test-scope");
+    editorSelectionStore.setSelection("sample_model_1:sample_workload_1", "test-scope");
 
     await act(async () => {
       root.render(

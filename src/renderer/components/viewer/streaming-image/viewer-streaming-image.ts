@@ -715,7 +715,7 @@ async function renderFrameToCanvas(
     return false;
   }
 
-  const blob = new Blob([safeBytes], { type: frame.mime });
+  const blob = new Blob([toBlobPart(safeBytes)], { type: frame.mime });
   const bitmap = await createImageBitmap(blob);
   try {
     if (
@@ -745,6 +745,13 @@ async function renderFrameToCanvas(
   } finally {
     bitmap.close();
   }
+}
+
+function toBlobPart(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 }
 
 function schedulePendingFramePresentation() {
@@ -1431,7 +1438,7 @@ export function applyMaskPreviewTransformToImageData(
 }
 
 export function createDepthPreviewImageDataFromPngBytes(
-  bytes: Uint8Array<ArrayBuffer>,
+  bytes: Uint8Array,
 ): DepthPreviewImageData | null {
   try {
     const decoded = decodePng(bytes);
@@ -1500,7 +1507,7 @@ export function createDepthPreviewImageDataFromSamples(
 }
 
 export function createMaskPreviewImageDataFromPngBytes(
-  bytes: Uint8Array<ArrayBuffer>,
+  bytes: Uint8Array,
 ): MaskPreviewImageData | null {
   try {
     const decoded = decodePng(bytes);

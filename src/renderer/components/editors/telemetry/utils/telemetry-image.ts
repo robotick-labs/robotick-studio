@@ -182,13 +182,20 @@ export async function tryDecodeTelemetryImageBytes(
   }
 
   try {
-    const blob = new Blob([safeBytes], { type: mime });
+    const blob = new Blob([toBlobPart(safeBytes)], { type: mime });
     const bitmap = await createImageBitmap(blob);
     bitmap.close();
     return true;
   } catch {
     return false;
   }
+}
+
+function toBlobPart(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 }
 
 function hashBytes(bytes: Uint8Array): string {

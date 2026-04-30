@@ -61,7 +61,7 @@ function loadChildWindowPresets(): ChildWindowPreset[] {
         ) {
           return null;
         }
-        return {
+        const basePreset = {
           id: typed.id,
           name: typed.name,
           seedUrl: typed.seedUrl,
@@ -71,9 +71,11 @@ function loadChildWindowPresets(): ChildWindowPreset[] {
               : `child-preset-${typed.id}`,
           createdAt: typed.createdAt,
           updatedAt: typed.updatedAt,
-          lastUsedAt:
-            typeof typed.lastUsedAt === "string" ? typed.lastUsedAt : undefined,
         };
+        if (typeof typed.lastUsedAt === "string") {
+          return { ...basePreset, lastUsedAt: typed.lastUsedAt };
+        }
+        return basePreset;
       })
       .filter((entry): entry is ChildWindowPreset => entry !== null);
   } catch {

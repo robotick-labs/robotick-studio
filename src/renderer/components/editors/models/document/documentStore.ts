@@ -24,10 +24,12 @@ export class DocumentStore {
     return this.models.entries();
   }
   private models = new Map<string, ModelData>();
+  private modelSourcePaths = new Map<string, string>();
   version = 0;
 
   async load(projectPath: string | null | undefined) {
     this.models.clear();
+    this.modelSourcePaths.clear();
 
     if (!projectPath) {
       this.version++;
@@ -37,8 +39,11 @@ export class DocumentStore {
 
     const loadedModels = await loadAllModels(projectPath);
 
-    for (const m of loadedModels)
-      this.models.set(m.modelPath, structuredClone(m.data));
+    for (const m of loadedModels) {
+      const model = structuredClone(m.data);
+      this.models.set(model.id, model);
+      this.modelSourcePaths.set(model.id, m.modelPath);
+    }
     this.version++;
     this.notify();
   }
@@ -49,28 +54,41 @@ export class DocumentStore {
   get(modelId: string): ModelData | undefined {
     return this.models.get(modelId);
   }
+  getModelSourcePath(modelId: string): string | undefined {
+    return this.modelSourcePaths.get(modelId);
+  }
+
+  private requireWorkload(model: ModelData, workloadId: string) {
+    return model.workloads.find((w) => w.id === workloadId);
+  }
 
   laneChildren(modelId: string, laneIndex: number): string[] {
     const m = this.models.get(modelId)!;
-    const root = m.workloads.find((w) => w.name === m.root)!;
+    const root = this.requireWorkload(m, m.root.workload_id)!;
     const lanes =
-      root.type === "SyncedGroupWorkload" ? root.children ?? [] : [root.name];
-    const parentName = lanes[laneIndex];
-    const parent = m.workloads.find((w) => w.name === parentName)!;
-    return parent.children ? [...parent.children] : [parent.name];
+      root.type === "SyncedGroupWorkload"
+        ? (root.children ?? []).map((child) => child.workload_id)
+        : [root.id];
+    const parentId = lanes[laneIndex];
+    const parent = this.requireWorkload(m, parentId)!;
+    return parent.children
+      ? parent.children.map((child) => child.workload_id)
+      : [parent.id];
   }
 
-  private setLaneChildren(modelId: string, laneIndex: number, names: string[]) {
+  private setLaneChildren(modelId: string, laneIndex: number, ids: string[]) {
     const m = this.models.get(modelId)!;
-    const root = m.workloads.find((w) => w.name === m.root)!;
+    const root = this.requireWorkload(m, m.root.workload_id)!;
     const lanes =
-      root.type === "SyncedGroupWorkload" ? root.children ?? [] : [root.name];
-    const parentName = lanes[laneIndex];
-    const parent = m.workloads.find((w) => w.name === parentName)!;
+      root.type === "SyncedGroupWorkload"
+        ? (root.children ?? []).map((child) => child.workload_id)
+        : [root.id];
+    const parentId = lanes[laneIndex];
+    const parent = this.requireWorkload(m, parentId)!;
     if (!parent.children) {
-      parent.children = [parent.name];
+      parent.children = [{ workload_id: parent.id }];
     }
-    parent.children = names;
+    parent.children = ids.map((id) => ({ workload_id: id }));
     this.version++;
     this.notify();
   }
@@ -81,12 +99,12 @@ export class DocumentStore {
     fromSlot: number,
     toSlot: number
   ) {
-    const names = this.laneChildren(modelId, laneIndex);
-    if (fromSlot < 0 || fromSlot >= names.length) return;
-    const clampedTo = Math.max(0, Math.min(toSlot, names.length));
-    const [moved] = names.splice(fromSlot, 1);
-    names.splice(clampedTo, 0, moved);
-    this.setLaneChildren(modelId, laneIndex, names);
+    const ids = this.laneChildren(modelId, laneIndex);
+    if (fromSlot < 0 || fromSlot >= ids.length) return;
+    const clampedTo = Math.max(0, Math.min(toSlot, ids.length));
+    const [moved] = ids.splice(fromSlot, 1);
+    ids.splice(clampedTo, 0, moved);
+    this.setLaneChildren(modelId, laneIndex, ids);
   }
 
   insertAt(
@@ -98,6 +116,7 @@ export class DocumentStore {
     const m = this.models.get(modelId)!;
     if (!m.workloads.find((w) => w.name === spec.name)) {
       m.workloads.push({
+        id: `${spec.type ?? "workload"}_${crypto.randomUUID().slice(0, 8)}`,
         name: spec.name,
         type: spec.type,
         tick_rate_hz: 0,
@@ -105,10 +124,12 @@ export class DocumentStore {
         inputs: {},
       });
     }
-    const names = this.laneChildren(modelId, laneIndex);
-    const clamped = Math.max(0, Math.min(slot, names.length));
-    names.splice(clamped, 0, spec.name);
-    this.setLaneChildren(modelId, laneIndex, names);
+    const inserted = m.workloads.find((w) => w.name === spec.name);
+    if (!inserted) return;
+    const ids = this.laneChildren(modelId, laneIndex);
+    const clamped = Math.max(0, Math.min(slot, ids.length));
+    ids.splice(clamped, 0, inserted.id);
+    this.setLaneChildren(modelId, laneIndex, ids);
   }
 
   rename(modelId: string, oldName: string, next: string) {
@@ -116,14 +137,6 @@ export class DocumentStore {
     const w = m.workloads.find((x) => x.name === oldName);
     if (!w) return;
     w.name = next;
-    for (const ww of m.workloads) {
-      if (ww.children)
-        ww.children = ww.children.map((n) => (n === oldName ? next : n));
-    }
-    for (const c of m.connections ?? []) {
-      c.from = c.from.replace(new RegExp(`^${oldName}\.`), `${next}.`);
-      c.to = c.to.replace(new RegExp(`^${oldName}\.`), `${next}.`);
-    }
     this.version++;
     this.notify();
   }
