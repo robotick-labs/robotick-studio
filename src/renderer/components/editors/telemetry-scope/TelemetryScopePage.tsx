@@ -1227,6 +1227,15 @@ export default function TelemetryScopePage() {
     });
   };
 
+  const fitYToViewport = () => {
+    setSettings((current) => ({
+      ...current,
+      yMode: "manual",
+      yMin: autoYRange.min.toFixed(3),
+      yMax: autoYRange.max.toFixed(3),
+    }));
+  };
+
   const updateFreeze = (freeze: boolean) => {
     const getTimelineNowMs = (): number => {
       const latestSampleTime = getLatestTraceSampleTimeMs(settingsRef.current.traces);
@@ -1966,6 +1975,22 @@ export default function TelemetryScopePage() {
                 onClick={() => updateFreeze(!settings.freeze)}
               >
                 Freeze
+              </button>
+
+              <button
+                type="button"
+                className={styles.clearButton}
+                onClick={syncFieldTraceXOffsetsToFirst}
+              >
+                Sync All
+              </button>
+
+              <button
+                type="button"
+                className={styles.clearButton}
+                onClick={fitYToViewport}
+              >
+                Fit Y
               </button>
 
               <button type="button" className={styles.clearButton} onClick={clearHistory}>

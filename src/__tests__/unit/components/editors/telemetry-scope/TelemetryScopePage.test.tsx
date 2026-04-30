@@ -201,6 +201,9 @@ describe("TelemetryScopePage restore", () => {
       expect((selects[3] as HTMLSelectElement).value).toBe(
         "alpha.outputs.speed"
       );
+      expect(container.textContent).toContain("Sync All Fields");
+      expect(container.textContent).toContain("Sync All");
+      expect(container.textContent).toContain("Fit Y");
     } finally {
       act(() => {
         root.unmount();
