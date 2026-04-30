@@ -180,6 +180,28 @@ export function TelemetryModel({
   }, [latestModel?.workloads, workloadSortKey]);
   const workloadsMemoryUsed = latestModel?.workloads_buffer_size_used ?? 0;
   const processMemoryUsed = latestModel?.process_memory_used ?? 0;
+  const workloadSignatureMismatch = useMemo(() => {
+    const expected = model.expectedWorkloads ?? [];
+    const actual = latestModel?.workloads ?? [];
+    if (expected.length === 0 || actual.length === 0) return false;
+
+    const expectedPairs = new Set(
+      expected.map((workload) => `${workload.name}::${workload.type}`)
+    );
+    const actualPairs = new Set(
+      actual.map((workload) => `${workload.name}::${workload.type}`)
+    );
+
+    let matched = 0;
+    expectedPairs.forEach((pair) => {
+      if (actualPairs.has(pair)) matched += 1;
+    });
+
+    const expectedCount = expectedPairs.size;
+    if (expectedCount === 0) return false;
+    const ratio = matched / expectedCount;
+    return matched < Math.min(3, expectedCount) && ratio < 0.5;
+  }, [latestModel?.workloads, model.expectedWorkloads]);
   const engineClock = (() => {
     if (!latestModel?.getField) return null;
     const timeNow = Number(latestModel.getField("engine.clock.time_now")?.getValue());
@@ -320,35 +342,43 @@ export function TelemetryModel({
               Failed to load telemetry: {String(error)}
             </div>
           ) : null}
-          <table
-            id={`table-${urlToId(model.instanceURL)}`}
-            className={styles.table}
-          >
-            <thead>
-              <tr>
-                <th>Unique Name</th>
-                <th>Workload Type</th>
-                <th>Config</th>
-                <th>Inputs</th>
-                <th>Outputs</th>
-                <th>Workload Duration (ms)</th>
-                <th>Actual Period (ms)</th>
-                <th>Goal Period (ms)</th>
-                <th>Budget Usage %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workloads.map((w) => (
-                <TelemetryWorkload
-                  key={w.name}
-                  w={w}
-                  telemetryBaseUrl={model.instanceURL}
-                  modelName={model.modelName}
-                  fieldConnectionHints={fieldConnectionHints}
-                />
-              ))}
-            </tbody>
-          </table>
+          {workloadSignatureMismatch ? (
+            <div style={{ color: "#ffb86b", marginBottom: "0.5rem" }}>
+              Telemetry endpoint mismatch: {model.instanceURL} is serving a
+              different model than {model.modelName}. Another project/model is
+              likely bound to the same telemetry port.
+            </div>
+          ) : (
+            <table
+              id={`table-${urlToId(model.instanceURL)}`}
+              className={styles.table}
+            >
+              <thead>
+                <tr>
+                  <th>Unique Name</th>
+                  <th>Workload Type</th>
+                  <th>Config</th>
+                  <th>Inputs</th>
+                  <th>Outputs</th>
+                  <th>Workload Duration (ms)</th>
+                  <th>Actual Period (ms)</th>
+                  <th>Goal Period (ms)</th>
+                  <th>Budget Usage %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {workloads.map((w) => (
+                  <TelemetryWorkload
+                    key={w.name}
+                    w={w}
+                    telemetryBaseUrl={model.instanceURL}
+                    modelName={model.modelName}
+                    fieldConnectionHints={fieldConnectionHints}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

@@ -18,11 +18,13 @@ describe("modelData strict id-ref parsing", () => {
         data: {
           id: "example_model_ABCD1234",
           name: "Example",
+          comment: "Model-level description",
           root: { workload_id: "root_workload_1234" },
           workloads: [
             {
               id: "root_workload_1234",
               name: "root",
+              comment: "Root workload description",
               type: "SequencedGroupWorkload",
               tick_rate_hz: 60,
               children: [{ workload_id: "worker_workload_5678" }],
@@ -48,10 +50,12 @@ describe("modelData strict id-ref parsing", () => {
           remote_models: [
             {
               model_id: "remote_model_QWER9876",
+              comment: "Remote model link",
               connections: [
                 {
                   from_local: "worker_workload_5678.outputs.done",
                   to_remote: "remote_workload_ZZZZ1111.inputs.done",
+                  comment: "Send done flag",
                 },
               ],
             },
@@ -90,4 +94,3 @@ describe("modelData strict id-ref parsing", () => {
     );
   });
 });
-

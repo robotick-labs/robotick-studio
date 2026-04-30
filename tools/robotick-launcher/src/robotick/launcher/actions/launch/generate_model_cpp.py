@@ -182,24 +182,38 @@ def _build_telemetry_peers_codegen(config, telemetry):
 
 
 def _build_remote_models_codegen(config, workload_id_to_name):
-    current_model_name = getattr(config, "model_name", "") or ""
+    current_remote_models = config.model.get("remote_models", []) or []
     current_model_id = str(config.model.get("id", "")).strip()
-    if not current_model_name and not current_model_id:
-        # Backward-compatible fallback used by some unit tests.
-        return _build_remote_models_from_current_model_only(
-            config.model, workload_id_to_name
-        )
+    if not current_model_id:
+        raise ValueError("Model is missing required 'id'")
 
-    current_remote_config = {
-        str(remote.get("model_id", "")).strip(): remote
-        for remote in (config.model.get("remote_models", []) or [])
-        if isinstance(remote, dict) and str(remote.get("model_id", "")).strip()
-    }
+    for remote in current_remote_models:
+        if not isinstance(remote, dict):
+            continue
+        remote_model_id = str(remote.get("model_id", "")).strip()
+        if not remote_model_id:
+            raise ValueError(
+                "remote_models entries require non-empty 'model_id'"
+            )
 
     project_models = _collect_project_models(config)
-    canonical_edges = _collect_canonical_remote_edges(project_models)
     model_id_to_name = {
         str(model.get("id", "")).strip(): str(model.get("name", "")).strip()
+        for model in project_models
+        if str(model.get("id", "")).strip()
+    }
+    current_remote_config = {}
+    for remote in current_remote_models:
+        if not isinstance(remote, dict):
+            continue
+        remote_model_id = str(remote.get("model_id", "")).strip()
+        current_remote_config[remote_model_id] = remote
+
+    canonical_edges = _collect_canonical_remote_edges(project_models)
+    model_id_to_workload_names = {
+        str(model.get("id", "")).strip(): _build_workload_id_to_name_map(
+            model.get("data", {}) or {}
+        )
         for model in project_models
         if str(model.get("id", "")).strip()
     }
@@ -224,14 +238,19 @@ def _build_remote_models_codegen(config, workload_id_to_name):
         group["connections"].append(
             {
                 "from": _endpoint_id_to_name(edge["source_field"], workload_id_to_name),
-                "to_remote": edge["target_field"],
+                "to_remote": _endpoint_id_to_name(
+                    edge["target_field"],
+                    model_id_to_workload_names.get(target_model, {}),
+                ),
             }
         )
 
     remote_models = []
     for target_model_id in sorted(remote_grouped.keys()):
         remote_decl = current_remote_config.get(target_model_id, {})
-        remote_name = model_id_to_name.get(target_model_id, target_model_id)
+        remote_name = str(remote_decl.get("name", "")).strip() or model_id_to_name.get(
+            target_model_id, target_model_id
+        )
         name_safe = remote_name.replace("-", "_")
         remote_conns = []
         for conn in sorted(
@@ -250,7 +269,6 @@ def _build_remote_models_codegen(config, workload_id_to_name):
         remote_models.append(
             {
                 "name": remote_name,
-                "model_id": target_model_id,
                 "name_safe": name_safe,
                 "mode": str(
                     remote_decl.get("mode")
@@ -270,52 +288,23 @@ def _build_remote_models_codegen(config, workload_id_to_name):
     return remote_models
 
 
-def _build_remote_models_from_current_model_only(model, workload_id_to_name):
-    remote_models = []
-    for remote in model.get("remote_models", []):
-        remote_model_id = str(remote.get("model_id", "")).strip()
-        if not remote_model_id:
-            continue
-        remote_name = str(remote.get("name", remote_model_id)).strip()
-        name_safe = remote_name.replace("-", "_")
-        remote_conns = []
-        for conn in remote.get("connections", []):
-            source_path = str(conn.get("from_local", conn.get("from", ""))).strip()
-            dest_path = str(conn.get("to_remote", "")).strip()
-            if not source_path or not dest_path:
-                continue
-            source_path = _endpoint_id_to_name(source_path, workload_id_to_name)
-            remote_conns.append(
-                {
-                    "from": source_path,
-                    "to_remote": dest_path,
-                    "var_name": (
-                        f"{name_safe}_conn_"
-                        f"{source_path.replace('.', '_')}__to__{dest_path.replace('.', '_')}"
-                    ),
-                }
-            )
-        remote_models.append(
-            {
-                "model_id": remote_model_id,
-                "name": remote_name,
-                "name_safe": name_safe,
-                "mode": str(remote.get("mode", "")).strip(),
-                "channel": str(
-                    remote.get("channel") or remote.get("comms_channel") or ""
-                ).strip(),
-                "connections": remote_conns,
-            }
-        )
-    return remote_models
-
-
 def _collect_project_models(config):
-    project_file = Path(getattr(config, "project_file", ""))
-    if not project_file or not project_file.exists():
+    raw_project_file = str(getattr(config, "project_file", "")).strip()
+    if not raw_project_file:
         return [
             {
                 "name": getattr(config, "model_name", ""),
+                "id": str((getattr(config, "model", {}) or {}).get("id", "")).strip(),
+                "data": dict(config.model),
+            }
+        ]
+
+    project_file = Path(raw_project_file)
+    if not project_file.exists():
+        return [
+            {
+                "name": getattr(config, "model_name", ""),
+                "id": str((getattr(config, "model", {}) or {}).get("id", "")).strip(),
                 "data": dict(config.model),
             }
         ]
@@ -351,7 +340,9 @@ def _collect_canonical_remote_edges(project_models):
                 continue
             remote_id = str(remote.get("model_id", "")).strip()
             if not remote_id:
-                continue
+                raise ValueError(
+                    f"Remote model entry in '{model_name}' is missing required 'model_id'"
+                )
             connections = remote.get("connections", [])
             if not isinstance(connections, list):
                 continue
@@ -458,3 +449,16 @@ def _endpoint_id_to_name(path, workload_id_to_name):
 
 def _stable_suffix(value):
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:8].upper()
+
+
+def _build_workload_id_to_name_map(model_data):
+    mapping = {}
+    for workload in (model_data.get("workloads", []) or []):
+        if not isinstance(workload, dict):
+            continue
+        workload_id = str(workload.get("id", "")).strip()
+        if not workload_id:
+            continue
+        workload_name = str(workload.get("name", workload_id)).strip()
+        mapping[workload_id] = workload_name
+    return mapping

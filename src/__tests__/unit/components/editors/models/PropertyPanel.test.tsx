@@ -192,11 +192,11 @@ describe("PropertyPanel Phase 2A", () => {
       "input[data-prop='ready']"
     ) as HTMLInputElement | null;
     const nicknameInput = container.querySelector(
-      "input[data-prop='nickname']"
-    ) as HTMLInputElement | null;
+      "[data-prop='nickname']"
+    ) as HTMLInputElement | HTMLTextAreaElement | null;
     const gainInput = container.querySelector(
-      "input[data-prop='gain']"
-    ) as HTMLInputElement | null;
+      "[data-prop='gain']"
+    ) as HTMLInputElement | HTMLTextAreaElement | null;
 
     expect(enabledInput?.checked).toBe(false);
     expect(readyInput?.checked).toBe(false);
@@ -215,8 +215,8 @@ describe("PropertyPanel Phase 2A", () => {
     });
 
     const gainAfterRevert = container.querySelector(
-      "input[data-prop='gain']"
-    ) as HTMLInputElement | null;
+      "[data-prop='gain']"
+    ) as HTMLInputElement | HTMLTextAreaElement | null;
     expect(gainAfterRevert?.value).toBe("0.5");
     expect(revertGain?.disabled).toBe(true);
 
@@ -347,6 +347,95 @@ describe("PropertyPanel Phase 2A", () => {
     expect(container.textContent).toContain("Schema/YAML Errors");
     expect(container.textContent).toContain("Unknown config field in YAML");
     expect(container.textContent).toContain("Wrong type for config.enabled");
+
+    act(() => root.unmount());
+  });
+
+  it("honors schema key order in the model properties panel", async () => {
+    fetchProjectWorkloadsRegistryMock.mockResolvedValue({
+      project: "/tmp/order.project.yaml",
+      target: "linux",
+      registry: [],
+    });
+    fetchProjectCoreModelSchemaMock.mockResolvedValue({
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        comment: { type: "string" },
+        root: { type: "object" },
+        telemetry: { type: "object" },
+        workloads: { type: "array" },
+        connections: { type: "array" },
+        remote_models: { type: "array" },
+        runtime: { type: "object" },
+      },
+    });
+
+    const store = new DocumentStore();
+    (store as any).models.set("sample_model_1", {
+      id: "sample_model_1",
+      name: "Sample",
+      comment: "A comment",
+      root: { workload_id: "sample_workload_1" },
+      telemetry: { port: 7001 },
+      workloads: [
+        {
+          id: "sample_workload_1",
+          name: "root",
+          type: "SampleWorkload",
+          tick_rate_hz: 30,
+          config: {},
+          inputs: {},
+        },
+      ],
+      runtime: { target_platform: "linux" },
+      connections: [],
+      remote_models: [],
+    });
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    editorSelectionStore.setSelection("sample_model_1:__model__", "test-scope");
+
+    await act(async () => {
+      root.render(
+        <PropertyPanel
+          store={store}
+          selectionScope="test-scope"
+          projectPath="/tmp/order.project.yaml"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const titles = Array.from(
+      container.querySelectorAll("div[title]")
+    ).map((node) => node.getAttribute("title") ?? "");
+    const rootPaths = titles.filter((title) =>
+      [
+        "$.id",
+        "$.name",
+        "$.comment",
+        "$.root",
+        "$.telemetry",
+        "$.workloads",
+        "$.connections",
+        "$.remote_models",
+        "$.runtime",
+      ].includes(title)
+    );
+    expect(rootPaths.slice(0, 9)).toEqual([
+      "$.id",
+      "$.name",
+      "$.comment",
+      "$.root",
+      "$.telemetry",
+      "$.workloads",
+      "$.connections",
+      "$.remote_models",
+      "$.runtime",
+    ]);
 
     act(() => root.unmount());
   });

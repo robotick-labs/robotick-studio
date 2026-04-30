@@ -1,42 +1,51 @@
+id: test_project_spine_arm64_model_23DB3355
+
 runtime:
   target_platform: linux
   target_variant: arm64
+
 telemetry:
   port: 7091
+
+root:
+  workload_id: sequenced_group_workload_9E118BB4
+
 workloads:
-- name: steering_mixer
+- id: steering_mixer_workload_AF4A2C4E
+  name: steering_mixer
   type: SteeringMixerWorkload
   tick_rate_hz: 30.0
-  id: steering_mixer_workload_AF4A2C4E
-- name: basex
+
+- id: base_xworkload_F005FD16
+  name: basex
   type: BaseXWorkload
   tick_rate_hz: 30.0
-  id: base_xworkload_F005FD16
-- name: control_sequence
+
+- id: sequenced_group_workload_A14BB4A9
+  name: control_sequence
   type: SequencedGroupWorkload
   tick_rate_hz: 30.0
   children:
   - workload_id: steering_mixer_workload_AF4A2C4E
   - workload_id: base_xworkload_F005FD16
-  id: sequenced_group_workload_A14BB4A9
-- name: heart_ui
+
+- id: heartbeat_display_workload_CF792849
+  name: heart_ui
   type: HeartbeatDisplayWorkload
   tick_rate_hz: 30.0
   config:
     render_to_texture: true
-  id: heartbeat_display_workload_CF792849
-- name: esp32_root
+
+- id: sequenced_group_workload_9E118BB4
+  name: esp32_root
   type: SequencedGroupWorkload
   tick_rate_hz: 30.0
   children:
   - workload_id: sequenced_group_workload_A14BB4A9
   - workload_id: heartbeat_display_workload_CF792849
-  id: sequenced_group_workload_9E118BB4
+
 connections:
 - from: steering_mixer_workload_AF4A2C4E.outputs.left_motor
   to: base_xworkload_F005FD16.inputs.motor1_speed
 - from: steering_mixer_workload_AF4A2C4E.outputs.right_motor
   to: base_xworkload_F005FD16.inputs.motor2_speed
-root:
-  workload_id: sequenced_group_workload_9E118BB4
-id: test_project_spine_arm64_model_23DB3355

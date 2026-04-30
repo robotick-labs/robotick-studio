@@ -23,10 +23,15 @@ function createModel(
   name: string,
   port: number,
   preferredHost: string,
-  options: { isGateway?: boolean; preferredSampleRateHz?: number } = {},
+  options: {
+    modelId?: string;
+    isGateway?: boolean;
+    preferredSampleRateHz?: number;
+  } = {},
 ) {
   return {
     name,
+    id: options.modelId ?? "",
     telemetry: {
       port,
       ...(options.preferredSampleRateHz
@@ -70,7 +75,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", {
+            modelId: "sample-robot-face",
+            isGateway: true,
+          }),
         );
       }
 
@@ -79,7 +87,9 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2", {
+            modelId: "sample-robot-spine",
+          }),
         );
       }
 
@@ -139,7 +149,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", {
+            modelId: "sample-robot-face",
+            isGateway: true,
+          }),
         );
       }
 
@@ -148,7 +161,9 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2", {
+            modelId: "sample-robot-spine",
+          }),
         );
       }
 
@@ -208,7 +223,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", {
+            modelId: "sample-robot-face",
+            isGateway: true,
+          }),
         );
       }
 
@@ -217,7 +235,9 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2", {
+            modelId: "sample-robot-spine",
+          }),
         );
       }
 
@@ -289,7 +309,10 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-face.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Face", 7103, "192.168.5.16", { isGateway: true }),
+          createModel("SampleBot Face", 7103, "192.168.5.16", {
+            modelId: "sample-robot-face",
+            isGateway: true,
+          }),
         );
       }
 
@@ -298,7 +321,9 @@ describe("launcher-interface gateway telemetry resolution", () => {
         modelPath === "models/sample-robot-spine.model.yaml"
       ) {
         return createJsonResponse(
-          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+          createModel("SampleBot Spine", 7104, "10.42.0.2", {
+            modelId: "sample-robot-spine",
+          }),
         );
       }
 
@@ -355,6 +380,65 @@ describe("launcher-interface gateway telemetry resolution", () => {
     ).toBe(
       "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face/workloads_buffer/layout",
     );
+  });
+
+  it("rejects gateway telemetry routing when a model is missing stable id", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const modelPath = url.searchParams.get("model_path");
+
+      if (path === "/query/list-project-models") {
+        return createJsonResponse([
+          "models/sample-robot-face.model.yaml",
+          "models/sample-robot-spine.model.yaml",
+        ]);
+      }
+
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
+        return createJsonResponse(
+          createModel("SampleBot Face", 7103, "192.168.5.16", {
+            modelId: "sample-robot-face",
+            isGateway: true,
+          }),
+        );
+      }
+
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
+        return createJsonResponse(
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+        );
+      }
+
+      if (path === "/api/telemetry-gateway/models") {
+        return createJsonResponse({
+          gateway_model_id: "sample-robot-face",
+          models: [
+            {
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(
+      launcherInterface.refreshProjectModels("/tmp/sample-robot"),
+    ).rejects.toThrow("missing required 'id'");
   });
 
   it("builds routed telemetry websocket urls without duplicating the api prefix", async () => {

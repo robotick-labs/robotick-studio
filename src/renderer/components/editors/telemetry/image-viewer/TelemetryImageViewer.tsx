@@ -5,7 +5,12 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import { ProjectData } from "../../../../data-sources/launcher";
+import {
+  Project,
+  ProjectData,
+  useLauncherService,
+  type WorkloadsRegistryResponse,
+} from "../../../../data-sources/launcher";
 import { useTelemetryStream } from "../../../../data-sources/telemetry";
 import {
   ITelemetryField,
@@ -20,6 +25,7 @@ import {
   isTelemetryImageField,
   tryDecodeTelemetryImageBytes,
 } from "../utils/telemetry-image";
+import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import styles from "./TelemetryImageViewer.module.css";
 import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
 import {
@@ -32,8 +38,10 @@ import {
 
 type PanelSettings = {
   telemetryBaseUrl?: string;
+  modelId?: string;
   modelPath?: string;
   modelName?: string;
+  workloadId?: string;
   workloadName?: string;
   fieldPath?: string;
 };
@@ -49,8 +57,22 @@ type ImageFieldOption = {
   label: string;
 };
 
+type DeclaredWorkload = {
+  id: string;
+  name: string;
+};
+
+type RegistryTypeDef = {
+  name: string;
+  fields?: Array<{ type?: string }>;
+  mime_type?: string;
+  format?: string;
+};
+
 const STORAGE_KEYS = {
+  modelId: "robotick-studio.telemetry.image.modelId",
   model: "robotick-studio.telemetry.image.model",
+  workloadId: "robotick-studio.telemetry.image.workloadId",
   workload: "robotick-studio.telemetry.image.workload",
   field: "robotick-studio.telemetry.image.field",
 };
@@ -63,6 +85,8 @@ const STORAGE_KEYS = {
  * @returns The rendered React element for the telemetry image viewer.
  */
 export default function TelemetryImageViewer() {
+  const launcherService = useLauncherService();
+  const { projectPath } = Project.Context.use();
   const panel = useOptionalFloatingPanel();
   const panelInstance = usePanelInstance();
   const fallbackPanelIdRef = useRef<string | undefined>(undefined);
@@ -109,7 +133,9 @@ export default function TelemetryImageViewer() {
 
   const storedLocalSettings = useMemo<PanelSettings>(
     () => ({
+      modelId: readPreference(STORAGE_KEYS.modelId) ?? undefined,
       modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
+      workloadId: readPreference(STORAGE_KEYS.workloadId) ?? undefined,
       workloadName: readPreference(STORAGE_KEYS.workload) ?? undefined,
       fieldPath: readPreference(STORAGE_KEYS.field) ?? undefined,
     }),
@@ -121,8 +147,14 @@ export default function TelemetryImageViewer() {
 
   const persistLocalSettings = useCallback(
     (next: Partial<PanelSettings>) => {
+      if ("modelId" in next) {
+        persistPreference(STORAGE_KEYS.modelId, next.modelId);
+      }
       if ("modelPath" in next) {
         persistPreference(STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadId" in next) {
+        persistPreference(STORAGE_KEYS.workloadId, next.workloadId);
       }
       if ("workloadName" in next) {
         persistPreference(STORAGE_KEYS.workload, next.workloadName);
@@ -151,24 +183,98 @@ export default function TelemetryImageViewer() {
     (panel?.settings as PanelSettings | undefined) ?? localSettings;
 
   const { projectModels } = ProjectData.use();
+  const migratedSettings = useMemo(
+    () => migrateSelectionToStableIds(settings, projectModels.data),
+    [projectModels.data, settings]
+  );
+  useEffect(() => {
+    if (JSON.stringify(migratedSettings) === JSON.stringify(settings)) return;
+    updateSettings(migratedSettings);
+  }, [migratedSettings, settings, updateSettings]);
 
-  const modelOptions = projectModels.data;
+  const [imageCapableWorkloadTypes, setImageCapableWorkloadTypes] = useState<
+    Set<string> | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!projectPath) {
+      setImageCapableWorkloadTypes(null);
+      return;
+    }
+
+    void launcherService
+      .fetchProjectWorkloadsRegistry(projectPath, "linux")
+      .then((response) => {
+        if (cancelled) return;
+        setImageCapableWorkloadTypes(
+          collectImageCapableWorkloadTypes(response)
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setImageCapableWorkloadTypes(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [launcherService, projectPath]);
+
+  const modelOptions = useMemo(() => {
+    if (!imageCapableWorkloadTypes || imageCapableWorkloadTypes.size === 0) {
+      return projectModels.data;
+    }
+
+    return projectModels.data.filter((model) => {
+      const modelData =
+        model.data && typeof model.data === "object"
+          ? (model.data as Record<string, unknown>)
+          : null;
+      const workloads = Array.isArray(modelData?.workloads)
+        ? modelData.workloads
+        : [];
+      return workloads.some((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        const workloadType = String(
+          (entry as Record<string, unknown>).type ?? ""
+        ).trim();
+        return workloadType
+          ? imageCapableWorkloadTypes.has(workloadType)
+          : false;
+      });
+    });
+  }, [imageCapableWorkloadTypes, projectModels.data]);
   const hasModels = modelOptions.length > 0;
 
   const selectedModel = hasModels
     ? modelOptions.find((model) => {
-        if (settings.modelPath && settings.modelPath === model.modelPath) {
-          return true;
+        if (migratedSettings.modelId) {
+          const modelData =
+            model.data && typeof model.data === "object"
+              ? (model.data as Record<string, unknown>)
+              : null;
+          if (String(modelData?.id ?? "") === migratedSettings.modelId) {
+            return true;
+          }
         }
         if (
-          settings.telemetryBaseUrl &&
-          settings.telemetryBaseUrl === model.telemetryBaseUrl
+          migratedSettings.modelPath &&
+          migratedSettings.modelPath === model.modelPath
         ) {
           return true;
         }
         if (
-          settings.modelName &&
-          settings.modelName.toLowerCase() === model.modelName.toLowerCase()
+          migratedSettings.telemetryBaseUrl &&
+          migratedSettings.telemetryBaseUrl === model.telemetryBaseUrl
+        ) {
+          return true;
+        }
+        if (
+          migratedSettings.modelName &&
+          migratedSettings.modelName.toLowerCase() ===
+            model.modelName.toLowerCase()
         ) {
           return true;
         }
@@ -177,7 +283,7 @@ export default function TelemetryImageViewer() {
     : null;
 
   const telemetryBaseUrl =
-    settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
+    migratedSettings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
   const samplingRateHz = selectedModel?.preferredTelemetrySampleRateHz ?? 20;
 
   const { model } = useTelemetryStream(telemetryBaseUrl, samplingRateHz);
@@ -187,21 +293,48 @@ export default function TelemetryImageViewer() {
   const workloads = model?.workloads ?? [];
   const hasTelemetrySchema = !!model && !!schemaSessionId && workloads.length > 0;
 
-  const workloadName =
-    settings.workloadName && settings.workloadName.length > 0
-      ? settings.workloadName
-      : hasTelemetrySchema
-        ? workloads[0]?.name ?? ""
-        : "";
+  const declaredWorkloads = useMemo<DeclaredWorkload[]>(() => {
+    const raw = selectedModel?.data;
+    if (!raw || typeof raw !== "object") return [];
+    const modelData = raw as Record<string, unknown>;
+    const workloadEntries = Array.isArray(modelData.workloads)
+      ? modelData.workloads
+      : [];
+    const parsed: DeclaredWorkload[] = [];
+    for (const entry of workloadEntries) {
+      if (!entry || typeof entry !== "object") continue;
+      const workload = entry as Record<string, unknown>;
+      const name = String(workload.name ?? "").trim();
+      if (!name) continue;
+      const id = String(workload.id ?? "").trim();
+      parsed.push({ id, name });
+    }
+    return parsed;
+  }, [selectedModel?.data]);
 
-  const fieldPath = settings.fieldPath ?? "";
+  const declaredWorkloadNames = useMemo(
+    () => new Set(declaredWorkloads.map((workload) => workload.name)),
+    [declaredWorkloads]
+  );
+
+  const telemetryWorkloadsForSelectedModel = useMemo(() => {
+    if (declaredWorkloadNames.size === 0) return workloads;
+    return workloads.filter((workload) => declaredWorkloadNames.has(workload.name));
+  }, [declaredWorkloadNames, workloads]);
+
+  const workloadName =
+    migratedSettings.workloadName && migratedSettings.workloadName.length > 0
+      ? migratedSettings.workloadName
+      : "";
+
+  const fieldPath = migratedSettings.fieldPath ?? "";
 
   const workloadsWithImages = useMemo(() => {
     const set = new Set<string>();
 
     if (!model) return set;
 
-    for (const workload of workloads) {
+    for (const workload of telemetryWorkloadsForSelectedModel) {
       for (const section of SECTION_KEYS) {
         const struct = getStruct(workload, section);
         if (struct && hasImageField(struct.fields)) {
@@ -212,18 +345,33 @@ export default function TelemetryImageViewer() {
     }
 
     return set;
-  }, [model, workloads]);
+  }, [model, telemetryWorkloadsForSelectedModel]);
 
-  const filteredWorkloads = workloads.filter((w) =>
-    workloadsWithImages.has(w.name)
-  );
+  const declaredWorkloadsWithImages = useMemo<DeclaredWorkload[]>(() => {
+    if (declaredWorkloads.length === 0) return [];
+    return declaredWorkloads.filter((workload) =>
+      workloadsWithImages.has(workload.name)
+    );
+  }, [declaredWorkloads, workloadsWithImages]);
 
-  const availableWorkloads =
-    filteredWorkloads.length > 0 ? filteredWorkloads : workloads;
+  const availableWorkloads = useMemo<DeclaredWorkload[]>(() => {
+    if (declaredWorkloads.length > 0) return declaredWorkloadsWithImages;
+    return telemetryWorkloadsForSelectedModel
+      .filter((workload) => workloadsWithImages.has(workload.name))
+      .map((workload) => ({
+      id: "",
+      name: workload.name,
+    }));
+  }, [
+    declaredWorkloads,
+    declaredWorkloadsWithImages,
+    telemetryWorkloadsForSelectedModel,
+    workloadsWithImages,
+  ]);
 
   const workloadsToScan = workloadName
-    ? availableWorkloads.filter((w) => w.name === workloadName)
-    : availableWorkloads;
+    ? telemetryWorkloadsForSelectedModel.filter((w) => w.name === workloadName)
+    : telemetryWorkloadsForSelectedModel;
 
   const imageFieldOptions = useMemo(() => {
     if (!hasTelemetrySchema || workloadsToScan.length === 0) return [];
@@ -268,13 +416,21 @@ export default function TelemetryImageViewer() {
     if (availableWorkloads.length === 0) return;
 
     if (!availableWorkloads.some((w) => w.name === workloadName)) {
-      updateSettings({ workloadName: availableWorkloads[0].name });
+      updateSettings({
+        workloadId: "",
+        workloadName: availableWorkloads[0].name,
+      });
     }
   }, [hasTelemetrySchema, availableWorkloads, workloadName, updateSettings]);
 
   useEffect(() => {
     if (!hasTelemetrySchema) return;
-    if (imageFieldOptions.length === 0) return;
+    if (imageFieldOptions.length === 0) {
+      if (fieldPath) {
+        updateSettings({ fieldPath: "" });
+      }
+      return;
+    }
 
     if (
       !fieldPath ||
@@ -343,9 +499,16 @@ export default function TelemetryImageViewer() {
     );
 
     updateSettings({
+      modelId:
+        typeof descriptor?.data === "object" &&
+        descriptor?.data &&
+        "id" in (descriptor.data as Record<string, unknown>)
+          ? String((descriptor.data as Record<string, unknown>).id ?? "")
+          : "",
       modelPath,
       modelName: descriptor?.modelName,
       telemetryBaseUrl: descriptor?.telemetryBaseUrl,
+      workloadId: undefined,
       workloadName: undefined,
       fieldPath: undefined,
     });
@@ -354,7 +517,22 @@ export default function TelemetryImageViewer() {
   const handleWorkloadChange = (
     event: React.ChangeEvent<HTMLSelectElement>
   ) => {
-    updateSettings({ workloadName: event.target.value });
+    const selectedWorkloadName = event.target.value;
+    const workloadId =
+      Array.isArray(
+        (selectedModel?.data as { workloads?: Array<Record<string, unknown>> })
+          ?.workloads
+      )
+        ? (
+            (selectedModel?.data as {
+              workloads?: Array<Record<string, unknown>>;
+            }).workloads ?? []
+          ).find((workload) => String(workload?.name ?? "") === selectedWorkloadName)?.id
+        : "";
+    updateSettings({
+      workloadId: typeof workloadId === "string" ? workloadId : "",
+      workloadName: selectedWorkloadName,
+    });
   };
 
   const handleFieldSelection = (
@@ -398,7 +576,10 @@ export default function TelemetryImageViewer() {
             disabled={!hasTelemetrySchema || availableWorkloads.length === 0}
           >
             {availableWorkloads.map((workload) => (
-              <option value={workload.name} key={workload.name}>
+              <option
+                value={workload.name}
+                key={workload.id || workload.name}
+              >
                 {workload.name}
               </option>
             ))}
@@ -431,7 +612,9 @@ export default function TelemetryImageViewer() {
               ? "Waiting for telemetry schema…"
               : workloads.length === 0
                 ? "Waiting for telemetry…"
-                : "Select a field with image telemetry."}
+                : availableWorkloads.length === 0
+                  ? "No image telemetry workloads for this model."
+                  : "Select a field with image telemetry."}
           </div>
         )}
       </div>
@@ -491,4 +674,76 @@ function hasImageField(fields: ITelemetryField[]): boolean {
   }
 
   return false;
+}
+
+function collectImageCapableWorkloadTypes(
+  response: WorkloadsRegistryResponse
+): Set<string> {
+  const typeMap = new Map<string, RegistryTypeDef>();
+  for (const type of response.types ?? []) {
+    const name = String(type?.name ?? "").trim();
+    if (!name) continue;
+    typeMap.set(name, {
+      name,
+      fields: Array.isArray(type.fields)
+        ? type.fields.map((field) => ({ type: field?.type }))
+        : undefined,
+      mime_type: type.mime_type,
+      format: type.format,
+    });
+  }
+
+  const imageTypeMemo = new Map<string, boolean>();
+  const visiting = new Set<string>();
+
+  const typeContainsImage = (typeName: string): boolean => {
+    const normalized = typeName.trim();
+    if (!normalized) return false;
+    if (imageTypeMemo.has(normalized)) {
+      return imageTypeMemo.get(normalized) ?? false;
+    }
+    if (visiting.has(normalized)) return false;
+    visiting.add(normalized);
+
+    const def = typeMap.get(normalized);
+    if (!def) {
+      visiting.delete(normalized);
+      imageTypeMemo.set(normalized, false);
+      return false;
+    }
+
+    const mime = String(def.mime_type ?? "").toLowerCase();
+    const format = String(def.format ?? "").toLowerCase();
+    const isImagePrimitive =
+      mime.startsWith("image/") ||
+      format === "png" ||
+      format === "jpeg" ||
+      format === "jpg";
+
+    if (isImagePrimitive) {
+      visiting.delete(normalized);
+      imageTypeMemo.set(normalized, true);
+      return true;
+    }
+
+    const hasImageField =
+      def.fields?.some((field) =>
+        field?.type ? typeContainsImage(String(field.type)) : false
+      ) ?? false;
+
+    visiting.delete(normalized);
+    imageTypeMemo.set(normalized, hasImageField);
+    return hasImageField;
+  };
+
+  const imageCapableWorkloads = new Set<string>();
+  for (const workload of response.workloads ?? []) {
+    const workloadType = String(workload?.type ?? "").trim();
+    if (!workloadType) continue;
+    const roots = [workload.config?.type, workload.inputs?.type, workload.outputs?.type];
+    if (roots.some((root) => (root ? typeContainsImage(root) : false))) {
+      imageCapableWorkloads.add(workloadType);
+    }
+  }
+  return imageCapableWorkloads;
 }

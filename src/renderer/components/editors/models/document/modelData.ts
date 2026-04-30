@@ -3,6 +3,7 @@ import { launcherService } from "../../../../data-sources/launcher";
 export interface Workload {
   id: string;
   name: string;
+  comment?: string;
   type?: string;
   tick_rate_hz: number;
   children?: Array<{ workload_id: string }>;
@@ -14,21 +15,25 @@ export interface Workload {
 export interface DirectConnection {
   from: string;
   to: string;
+  comment?: string;
 }
 export interface RemoteDirectConnection {
   from_local?: string;
   to_remote?: string;
   from_remote?: string;
   to_local?: string;
+  comment?: string;
 }
 export interface RemoteModelSpec {
   model_id: string;
+  comment?: string;
   connections?: RemoteDirectConnection[];
 }
 
 export interface ModelData {
   id: string;
   name?: string;
+  comment?: string;
   telemetry?: {
     port?: number;
     preferred_sample_rate_hz?: number;
@@ -66,6 +71,9 @@ function parseStrictModelData(raw: unknown, modelPath: string): ModelData {
   if (typeof model.id !== "string" || model.id.trim().length === 0) {
     throw new Error(`${modelPath}: missing required top-level 'id'`);
   }
+  if (model.comment != null && typeof model.comment !== "string") {
+    throw new Error(`${modelPath}: optional 'comment' must be a string`);
+  }
   if (!model.root || typeof model.root !== "object") {
     throw new Error(`${modelPath}: root must be an object with workload_id`);
   }
@@ -86,6 +94,11 @@ function parseStrictModelData(raw: unknown, modelPath: string): ModelData {
     }
     if (typeof workload.id !== "string" || workload.id.trim().length === 0) {
       throw new Error(`${modelPath}: each workload requires non-empty 'id'`);
+    }
+    if (workload.comment != null && typeof workload.comment !== "string") {
+      throw new Error(
+        `${modelPath}: workload '${workload.id}' optional 'comment' must be a string`,
+      );
     }
     if (workloadIds.has(workload.id)) {
       throw new Error(`${modelPath}: duplicate workload id '${workload.id}'`);
@@ -148,6 +161,11 @@ function parseStrictModelData(raw: unknown, modelPath: string): ModelData {
     if (remoteModelIds.has(remoteModel.model_id)) {
       throw new Error(
         `${modelPath}: duplicate remote model_id '${remoteModel.model_id}'`,
+      );
+    }
+    if (remoteModel.comment != null && typeof remoteModel.comment !== "string") {
+      throw new Error(
+        `${modelPath}: remote model '${remoteModel.model_id}' optional 'comment' must be a string`,
       );
     }
     remoteModelIds.add(remoteModel.model_id);

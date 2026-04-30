@@ -1,43 +1,47 @@
+id: test_project_brain_model_20D4813E
+
 telemetry:
   port: 7090
-remote_models:
-- mode: IP
-  connections:
-  - to_remote: steering_mixer.inputs.turn_rate
-    from_local: remote_control_workload_59511193.outputs.left.x
-  - to_remote: steering_mixer.inputs.speed
-    from_local: remote_control_workload_59511193.outputs.left.y
-  model_id: test_project_spine_model_90287511
+
+root:
+  workload_id: synced_group_workload_E6E41091
+
 workloads:
-- name: remote_control
+- id: remote_control_workload_59511193
+  name: remote_control
   type: RemoteControlWorkload
   tick_rate_hz: 30.0
   inputs:
     use_web_inputs: true
     left.x: 0.0
     left.y: 0.0
-  id: remote_control_workload_59511193
-- name: face
+
+- id: face_display_workload_EE6DA533
+  name: face
   type: FaceDisplayWorkload
   tick_rate_hz: 30.0
   config:
     blink_min_interval_sec: 1.5
     blink_max_interval_sec: 4.0
     render_to_texture: true
-  id: face_display_workload_EE6DA533
-- name: speech_to_text
+
+- id: speech_to_text_workload_8363FFF6
+  name: speech_to_text
   type: SpeechToTextWorkload
   tick_rate_hz: 30.0
-  id: speech_to_text_workload_8363FFF6
-- name: camera
+
+- id: monocular_camera_workload_09BDDA25
+  name: camera
   type: MonocularCameraWorkload
   tick_rate_hz: 30.0
-  id: monocular_camera_workload_09BDDA25
-- name: mic
+
+- id: mic_workload_87EF9860
+  name: mic
   type: MicWorkload
   tick_rate_hz: 30.0
-  id: mic_workload_87EF9860
-- name: root_group
+
+- id: synced_group_workload_E6E41091
+  name: root_group
   type: SyncedGroupWorkload
   tick_rate_hz: 30.0
   children:
@@ -46,7 +50,12 @@ workloads:
   - workload_id: monocular_camera_workload_09BDDA25
   - workload_id: mic_workload_87EF9860
   - workload_id: speech_to_text_workload_8363FFF6
-  id: synced_group_workload_E6E41091
-root:
-  workload_id: synced_group_workload_E6E41091
-id: test_project_brain_model_20D4813E
+
+remote_models:
+- model_id: test_project_spine_model_90287511
+  mode: IP
+  connections:
+  - from_local: remote_control_workload_59511193.outputs.left.x
+    to_remote: steering_mixer_workload_31EFA630.inputs.turn_rate
+  - from_local: remote_control_workload_59511193.outputs.left.y
+    to_remote: steering_mixer_workload_31EFA630.inputs.speed

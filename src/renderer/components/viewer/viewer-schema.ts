@@ -93,8 +93,10 @@ export interface TelemetryFieldMap {
 export interface TelemetryAnimator {
   id: string;
   baseUrl?: string;
+  modelId?: string;
   modelName?: string;
-  workloadName: string;
+  workloadId?: string;
+  workloadName?: string;
   samplingRateHz?: number; // default 20Hz
   // Map response to scene changes:
   fields?: TelemetryFieldMap[];

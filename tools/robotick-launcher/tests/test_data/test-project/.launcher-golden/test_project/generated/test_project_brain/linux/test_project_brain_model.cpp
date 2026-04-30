@@ -110,32 +110,32 @@ void populate_model_test_project_brain(robotick::Model& model)
 
     // === Remote models ===
 
-    static const DataConnectionSeed spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed{
+    static const DataConnectionSeed test_project_spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed{
         "remote_control.outputs.left.y",
         "steering_mixer.inputs.speed"
     };
 
-    static const DataConnectionSeed spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate{
+    static const DataConnectionSeed test_project_spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate{
         "remote_control.outputs.left.x",
         "steering_mixer.inputs.turn_rate"
     };
 
-    static const DataConnectionSeed* const spine_connections[] = {
-        &spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed,
-        &spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate
+    static const DataConnectionSeed* const test_project_spine_connections[] = {
+        &test_project_spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed,
+        &test_project_spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate
     };
 
-    static const RemoteModelSeed remote_spine = []() {
+    static const RemoteModelSeed remote_test_project_spine = []() {
         RemoteModelSeed seed{
-            "spine",
-            spine_connections
+            "test-project-spine",
+            test_project_spine_connections
         };
         seed.comms_mode = RemoteModelSeed::Mode::IP;
         return seed;
     }();
 
     static const RemoteModelSeed* const all_remote_models[] = {
-        &remote_spine        
+        &remote_test_project_spine        
     };
 
     // === Finalize model ===

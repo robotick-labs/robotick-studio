@@ -32,6 +32,7 @@ import {
   formatEnumNumber,
 } from "../utils/telemetry-formatters";
 import { extractTelemetryImagePayload } from "../utils/telemetry-image";
+import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import {
   deriveWorkloadStats,
   formatDurationMs,
@@ -53,8 +54,10 @@ type DataKindSelection = SectionKind | "all";
 
 type PanelSettings = {
   telemetryBaseUrl?: string;
+  modelId?: string;
   modelPath?: string;
   modelName?: string;
+  workloadId?: string;
   workloadName?: string;
   fieldPath?: string;
   dataKind?: DataKindSelection;
@@ -97,7 +100,9 @@ type TelemetryTreeFilterTarget = {
 };
 
 const TREE_STORAGE_KEYS = {
+  modelId: "robotick-studio.telemetry.tree.modelId",
   model: "robotick-studio.telemetry.tree.model",
+  workloadId: "robotick-studio.telemetry.tree.workloadId",
   workload: "robotick-studio.telemetry.tree.workload",
   field: "robotick-studio.telemetry.tree.field",
   dataKind: "robotick-studio.telemetry.tree.dataKind",
@@ -199,7 +204,9 @@ export default function TelemetryTreeViewer() {
   );
   const storedLocalSettings = useMemo<PanelSettings>(
     () => ({
+      modelId: readPreference(TREE_STORAGE_KEYS.modelId) ?? undefined,
       modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
+      workloadId: readPreference(TREE_STORAGE_KEYS.workloadId) ?? undefined,
       workloadName: readPreference(TREE_STORAGE_KEYS.workload) ?? undefined,
       fieldPath: readPreference(TREE_STORAGE_KEYS.field) ?? undefined,
       dataKind: (readPreference(TREE_STORAGE_KEYS.dataKind) ?? undefined) as
@@ -224,8 +231,14 @@ export default function TelemetryTreeViewer() {
   );
   const persistLocalSettings = useCallback(
     (next: Partial<PanelSettings>) => {
+      if ("modelId" in next) {
+        persistPreference(TREE_STORAGE_KEYS.modelId, next.modelId);
+      }
       if ("modelPath" in next) {
         persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
+      }
+      if ("workloadId" in next) {
+        persistPreference(TREE_STORAGE_KEYS.workloadId, next.workloadId);
       }
       if ("workloadName" in next) {
         persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
@@ -253,6 +266,14 @@ export default function TelemetryTreeViewer() {
     [panel, persistLocalSettings]
   );
   const { projectModels } = ProjectData.use();
+  const migratedSettings = useMemo(
+    () => migrateSelectionToStableIds(settings, projectModels.data),
+    [projectModels.data, settings]
+  );
+  useEffect(() => {
+    if (JSON.stringify(migratedSettings) === JSON.stringify(settings)) return;
+    updateSettings(migratedSettings);
+  }, [migratedSettings, settings, updateSettings]);
   const fieldConnectionHintsByModelPath = useMemo(
     () =>
       buildFieldConnectionHintsByModelPath(
@@ -270,18 +291,31 @@ export default function TelemetryTreeViewer() {
   const hasModels = modelOptions.length > 0;
   const selectedModel = hasModels
     ? modelOptions.find((model) => {
-        if (settings.modelPath && settings.modelPath === model.modelPath) {
-          return true;
+        if (migratedSettings.modelId) {
+          const modelData =
+            model.data && typeof model.data === "object"
+              ? (model.data as Record<string, unknown>)
+              : null;
+          if (String(modelData?.id ?? "") === migratedSettings.modelId) {
+            return true;
+          }
         }
         if (
-          settings.telemetryBaseUrl &&
-          settings.telemetryBaseUrl === model.telemetryBaseUrl
+          migratedSettings.modelPath &&
+          migratedSettings.modelPath === model.modelPath
         ) {
           return true;
         }
         if (
-          settings.modelName &&
-          settings.modelName.toLowerCase() === model.modelName.toLowerCase()
+          migratedSettings.telemetryBaseUrl &&
+          migratedSettings.telemetryBaseUrl === model.telemetryBaseUrl
+        ) {
+          return true;
+        }
+        if (
+          migratedSettings.modelName &&
+          migratedSettings.modelName.toLowerCase() ===
+            model.modelName.toLowerCase()
         ) {
           return true;
         }
@@ -290,7 +324,7 @@ export default function TelemetryTreeViewer() {
     : null;
 
   const telemetryBaseUrl =
-    settings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
+    migratedSettings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
   const requestedSamplingRateHz =
     selectedModel?.preferredTelemetrySampleRateHz ?? 10;
   const samplingRateHz = Math.min(
@@ -323,8 +357,8 @@ export default function TelemetryTreeViewer() {
   );
   const workloads = model?.workloads ?? [];
   const workloadName =
-    settings.workloadName && settings.workloadName.length > 0
-      ? settings.workloadName
+    migratedSettings.workloadName && migratedSettings.workloadName.length > 0
+      ? migratedSettings.workloadName
       : "";
   const sectionSelection: DataKindSelection = settings.dataKind ?? "outputs";
   const activeSectionKinds: SectionKind[] =
@@ -342,14 +376,15 @@ export default function TelemetryTreeViewer() {
   );
 
   useEffect(() => {
-    if (!settings.modelPath && selectedModel) {
+    if (!migratedSettings.modelPath && selectedModel) {
       updateSettings({
+        modelId: migratedSettings.modelId,
         modelPath: selectedModel.modelPath,
         modelName: selectedModel.modelName,
         telemetryBaseUrl: selectedModel.telemetryBaseUrl,
       });
     }
-  }, [selectedModel, settings.modelPath, updateSettings]);
+  }, [migratedSettings.modelId, migratedSettings.modelPath, selectedModel, updateSettings]);
 
   useEffect(() => {
     persistPreference(
@@ -362,13 +397,15 @@ export default function TelemetryTreeViewer() {
 
   useEffect(() => {
     if (
-      settings.workloadName &&
+      migratedSettings.workloadName &&
       workloads.length > 0 &&
-      !workloads.some((workload) => workload.name === settings.workloadName)
+      !workloads.some(
+        (workload) => workload.name === migratedSettings.workloadName
+      )
     ) {
-      updateSettings({ workloadName: "" });
+      updateSettings({ workloadId: "", workloadName: "" });
     }
-  }, [settings.workloadName, updateSettings, workloads]);
+  }, [migratedSettings.workloadName, updateSettings, workloads]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -446,9 +483,16 @@ export default function TelemetryTreeViewer() {
       serializeExpandedPathsPreference({ paths: [] })
     );
     updateSettings({
+      modelId:
+        typeof descriptor?.data === "object" &&
+        descriptor?.data &&
+        "id" in (descriptor.data as Record<string, unknown>)
+          ? String((descriptor.data as Record<string, unknown>).id ?? "")
+          : "",
       modelPath,
       modelName: descriptor?.modelName,
       telemetryBaseUrl: descriptor?.telemetryBaseUrl,
+      workloadId: "",
       workloadName: "",
       fieldPath: "",
     });
@@ -457,8 +501,21 @@ export default function TelemetryTreeViewer() {
   const handleWorkloadChange = (
     event: React.ChangeEvent<HTMLSelectElement>
   ) => {
+    const selectedWorkloadName = event.target.value;
+    const workloadId =
+      Array.isArray(
+        (selectedModel?.data as { workloads?: Array<Record<string, unknown>> })
+          ?.workloads
+      )
+        ? (
+            (selectedModel?.data as {
+              workloads?: Array<Record<string, unknown>>;
+            }).workloads ?? []
+          ).find((workload) => String(workload?.name ?? "") === selectedWorkloadName)?.id
+        : "";
     updateSettings({
-      workloadName: event.target.value,
+      workloadId: typeof workloadId === "string" ? workloadId : "",
+      workloadName: selectedWorkloadName,
       fieldPath: "",
     });
   };
@@ -480,6 +537,7 @@ export default function TelemetryTreeViewer() {
   const handleFilterToItem = useCallback(
     (target: TelemetryTreeFilterTarget) => {
       updateSettings({
+        workloadId: "",
         workloadName: target.workloadName,
         dataKind: target.sectionKind ?? "all",
         fieldPath: target.fieldFilter,

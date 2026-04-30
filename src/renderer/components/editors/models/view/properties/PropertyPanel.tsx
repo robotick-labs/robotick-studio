@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -568,6 +569,8 @@ function FieldRow({
   onRevert: () => void;
 }) {
   const isBooleanField = isBooleanType(cppType);
+  const isStringField =
+    typeof rawValue === "string" || cppType.toLowerCase().includes("string");
   const checkboxValue =
     typeof rawValue === "boolean" ? rawValue : value.toLowerCase() === "true";
   return (
@@ -601,13 +604,13 @@ function FieldRow({
           ))}
         </select>
       ) : (
-        <input
+        <AutoGrowStringField
           className={hasOverride ? styles.propValueOverride : undefined}
-          type="text"
           value={value}
-          readOnly
           title={cppType}
-          data-prop={fieldPath}
+          dataProp={fieldPath}
+          readOnly={readOnly}
+          multiline={isStringField}
         />
       )}
       {showRevert ? (
@@ -625,6 +628,68 @@ function FieldRow({
         <span className={styles.propRevertSpacer} />
       )}
     </div>
+  );
+}
+
+function AutoGrowStringField({
+  className,
+  value,
+  title,
+  dataProp,
+  readOnly,
+  multiline,
+}: {
+  className?: string;
+  value: string;
+  title: string;
+  dataProp: string;
+  readOnly: boolean;
+  multiline: boolean;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!multiline || !textareaRef.current) {
+      return;
+    }
+    const el = textareaRef.current;
+    const computed = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || 20;
+    const maxHeight = lineHeight * 3.5;
+    el.style.height = "auto";
+    const nextHeight = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${Math.max(lineHeight, nextHeight)}px`;
+  }, [multiline, value]);
+
+  if (!multiline) {
+    return (
+      <input
+        className={className}
+        type="text"
+        value={value}
+        readOnly
+        title={title}
+        data-prop={dataProp}
+      />
+    );
+  }
+
+  return (
+    <textarea
+      ref={textareaRef}
+      className={className}
+      value={value}
+      readOnly={readOnly}
+      title={title}
+      data-prop={dataProp}
+      rows={1}
+      style={{
+        width: "100%",
+        minHeight: "1.6em",
+        resize: "vertical",
+        overflowY: "auto",
+      }}
+    />
   );
 }
 
@@ -708,7 +773,6 @@ function ModelValueNode({
     for (const key of Object.keys(objectValue)) {
       if (!orderedKeys.includes(key)) orderedKeys.push(key);
     }
-
     const isArrayItemLabel = /^\[\d+\]$/.test(label);
     const nameDisplay =
       isArrayItemLabel && isPlainObject(value) && typeof value.name === "string"

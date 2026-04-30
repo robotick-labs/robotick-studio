@@ -12,6 +12,7 @@ import {
   readStorageValue,
   setStorageValue,
 } from "../../../services/storage";
+import { migrateSelectionToStableIds } from "../telemetry/utils/persisted-selection-migration";
 import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
 import styles from "./TelemetryScopePage.module.css";
 
@@ -39,7 +40,9 @@ type BaseTraceConfig = {
 
 type FieldTraceConfig = BaseTraceConfig & {
   sourceKind: "field";
+  modelId?: string;
   modelPath: string;
+  workloadId?: string;
   workloadName: string;
   section: SectionKind;
   fieldPath: string;
@@ -262,11 +265,25 @@ function sanitizeTrace(
   return {
     ...base,
     sourceKind: "field",
+    modelId:
+      typeof data.modelId === "string"
+        ? data.modelId
+        : "modelId" in migrationDefaults &&
+            typeof migrationDefaults.modelId === "string"
+          ? migrationDefaults.modelId
+          : "",
     modelPath:
       typeof data.modelPath === "string"
         ? data.modelPath
         : "modelPath" in migrationDefaults && typeof migrationDefaults.modelPath === "string"
           ? migrationDefaults.modelPath
+          : "",
+    workloadId:
+      typeof data.workloadId === "string"
+        ? data.workloadId
+        : "workloadId" in migrationDefaults &&
+            typeof migrationDefaults.workloadId === "string"
+          ? migrationDefaults.workloadId
           : "",
     workloadName:
       typeof data.workloadName === "string"
@@ -305,7 +322,9 @@ function readScopePanelSettings(storageKeys: string[]): ScopePanelSettings {
     const data = parsed as Record<string, unknown>;
     const migrationDefaults: Partial<FieldTraceConfig> = {
       sourceKind: "field",
+      modelId: typeof data.modelId === "string" ? data.modelId : "",
       modelPath: typeof data.modelPath === "string" ? data.modelPath : "",
+      workloadId: typeof data.workloadId === "string" ? data.workloadId : "",
       workloadName:
         typeof data.workloadName === "string" ? data.workloadName : "",
       section: isSectionKind(data.section) ? data.section : "outputs",
@@ -738,6 +757,23 @@ export default function TelemetryScopePage() {
     historiesRef.current = {};
     modelTimingRef.current = {};
   }, [storageKeys]);
+
+  useEffect(() => {
+    if (projectModels.data.length === 0) return;
+    setSettings((current) => {
+      let changed = false;
+      const nextTraces = current.traces.map((trace) => {
+        if (!isFieldTrace(trace)) return trace;
+        const migrated = migrateSelectionToStableIds(trace, projectModels.data);
+        if (JSON.stringify(migrated) !== JSON.stringify(trace)) {
+          changed = true;
+        }
+        return migrated as FieldTraceConfig;
+      });
+      if (!changed) return current;
+      return { ...current, traces: nextTraces };
+    });
+  }, [projectModels.data]);
 
   useEffect(() => {
     return () => {
@@ -1457,11 +1493,27 @@ export default function TelemetryScopePage() {
                               value={selectedModel?.modelPath ?? ""}
                               disabled={modelOptions.length === 0}
                               onChange={(event) =>
-                                updateTrace(trace.id, {
-                                  modelPath: event.target.value,
-                                  workloadName: "",
-                                  fieldPath: "",
-                                } satisfies Partial<FieldTraceConfig>)
+                                {
+                                  const nextModelPath = event.target.value;
+                                  const descriptor = projectModels.data.find(
+                                    (model) => model.modelPath === nextModelPath
+                                  );
+                                  updateTrace(trace.id, {
+                                    modelId:
+                                      typeof descriptor?.data === "object" &&
+                                      descriptor?.data &&
+                                      "id" in (descriptor.data as Record<string, unknown>)
+                                        ? String(
+                                            (descriptor.data as Record<string, unknown>).id ??
+                                              ""
+                                          )
+                                        : "",
+                                    modelPath: nextModelPath,
+                                    workloadId: "",
+                                    workloadName: "",
+                                    fieldPath: "",
+                                  } satisfies Partial<FieldTraceConfig>);
+                                }
                               }
                             >
                               {modelOptions.length === 0 ? (
@@ -1481,10 +1533,40 @@ export default function TelemetryScopePage() {
                               value={trace.workloadName}
                               disabled={workloadOptions.length === 0}
                               onChange={(event) =>
-                                updateTrace(trace.id, {
-                                  workloadName: event.target.value,
-                                  fieldPath: "",
-                                } satisfies Partial<FieldTraceConfig>)
+                                {
+                                  const selectedWorkloadName = event.target.value;
+                                  const workloadId =
+                                    Array.isArray(
+                                      (
+                                        projectModels.data.find(
+                                          (model) => model.modelPath === trace.modelPath
+                                        )?.data as {
+                                          workloads?: Array<Record<string, unknown>>;
+                                        }
+                                      )?.workloads
+                                    )
+                                      ? (
+                                          (
+                                            projectModels.data.find(
+                                              (model) =>
+                                                model.modelPath === trace.modelPath
+                                            )?.data as {
+                                              workloads?: Array<Record<string, unknown>>;
+                                            }
+                                          ).workloads ?? []
+                                        ).find(
+                                          (workload) =>
+                                            String(workload?.name ?? "") ===
+                                            selectedWorkloadName
+                                        )?.id
+                                      : "";
+                                  updateTrace(trace.id, {
+                                    workloadId:
+                                      typeof workloadId === "string" ? workloadId : "",
+                                    workloadName: selectedWorkloadName,
+                                    fieldPath: "",
+                                  } satisfies Partial<FieldTraceConfig>);
+                                }
                               }
                             >
                               {workloadOptions.length === 0 ? (

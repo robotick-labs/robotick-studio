@@ -689,9 +689,18 @@ async function buildModelDescriptors(
   const gatewayRegistry = await tryFetchGatewayRegistry(gatewayBaseUrl);
 
   return filteredDescriptors.map((descriptor) => {
+    const descriptorData =
+      descriptor.data && typeof descriptor.data === "object"
+        ? (descriptor.data as Record<string, unknown>)
+        : null;
+    const modelIdFromData = String(descriptorData?.id ?? "").trim();
+    if (!modelIdFromData) {
+      throw new Error(
+        `Model '${descriptor.modelPath}' is missing required 'id' for telemetry gateway routing`
+      );
+    }
     const registryEntry =
-      gatewayRegistry?.get(descriptor.modelShortName) ??
-      gatewayRegistry?.get(descriptor.modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") || "");
+      gatewayRegistry?.get(modelIdFromData);
     const telemetryPath =
       registryEntry?.telemetry_path?.trim() ||
       `/api/telemetry-gateway/${descriptor.modelShortName}`;
