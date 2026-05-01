@@ -82,6 +82,7 @@ export function TelemetryModel({
   model: EngineModel;
   index: number;
 }) {
+  const MAX_UI_SAMPLE_RATE_HZ = 8;
   const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
   const sampleRateOverrideKey = `telemetry-sample-rate-${urlToId(model.instanceURL)}`;
@@ -126,6 +127,10 @@ export function TelemetryModel({
     Number.isFinite(parsedOverrideSampleRateHz) && parsedOverrideSampleRateHz > 0
       ? parsedOverrideSampleRateHz
       : preferredSampleRateHz ?? 20;
+  const uiSampleRateHz = Math.max(
+    1,
+    Math.min(effectiveSampleRateHz, MAX_UI_SAMPLE_RATE_HZ)
+  );
 
   useEffect(() => {
     try {
@@ -158,16 +163,10 @@ export function TelemetryModel({
 
   const { model: telemetryModel, error } = useTelemetryStream(
     model.instanceURL,
-    effectiveSampleRateHz,
+    uiSampleRateHz,
     { active: isExpanded, ensureLayout: true }
   );
-  const [latestModel, setLatestModel] = useState<ITelemetryModel | null>(null);
-
-  useEffect(() => {
-    if (telemetryModel) {
-      setLatestModel(telemetryModel);
-    }
-  }, [telemetryModel]);
+  const latestModel: ITelemetryModel | null = telemetryModel;
 
   const workloads = useMemo(() => {
     const unsorted = latestModel?.workloads ?? [];
@@ -301,7 +300,10 @@ export function TelemetryModel({
               />
               {" "}
               <span className={styles.sampleRateInfo}>
-                using {effectiveSampleRateHz} Hz
+                using {uiSampleRateHz} Hz in UI
+                {effectiveSampleRateHz !== uiSampleRateHz
+                  ? ` (capped from ${effectiveSampleRateHz} Hz)`
+                  : ""}
                 {preferredSampleRateHz
                   ? ` (model hint ${preferredSampleRateHz} Hz)`
                   : " (default 20 Hz)"}

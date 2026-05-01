@@ -10,6 +10,7 @@ import {
   useTelemetryStream,
 } from "../../../../data-sources/telemetry";
 import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
+import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
 import {
   ITelemetryField,
   ITelemetryModel,
@@ -32,6 +33,7 @@ import {
   formatEnumNumber,
 } from "../utils/telemetry-formatters";
 import { extractTelemetryImagePayload } from "../utils/telemetry-image";
+import { spawnTelemetryImagePanel } from "../panels";
 import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import {
   deriveWorkloadStats,
@@ -168,6 +170,7 @@ function getConnectionCapsuleClass(kind: ConnectionKind | null): string {
  */
 export default function TelemetryTreeViewer() {
   const panel = useOptionalFloatingPanel();
+  const floatingPanelScope = useFloatingPanelsScope();
   const panelInstance = usePanelInstance();
   const fallbackPanelIdRef = useRef<string | undefined>(undefined);
   if (!fallbackPanelIdRef.current) {
@@ -654,6 +657,8 @@ export default function TelemetryTreeViewer() {
                       isArrayField={row.isArrayField}
                       toggle={toggleNode}
                       telemetryBaseUrl={telemetryBaseUrl}
+                      panelScope={panel?.scope ?? floatingPanelScope}
+                      modelName={selectedModel?.modelName}
                       fieldConnectionHints={fieldConnectionHints}
                       onTextContextMenu={(event) => {
                         if (!row.filterTarget) {
@@ -939,6 +944,8 @@ const TreeRow = React.memo(function TreeRow({
   isArrayField,
   toggle,
   telemetryBaseUrl,
+  panelScope,
+  modelName,
   fieldConnectionHints,
   onTextContextMenu,
 }: {
@@ -949,6 +956,8 @@ const TreeRow = React.memo(function TreeRow({
   isArrayField: boolean;
   toggle: (path: string) => void;
   telemetryBaseUrl?: string;
+  panelScope: string;
+  modelName?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
   onTextContextMenu?: React.MouseEventHandler<HTMLElement>;
 }) {
@@ -956,6 +965,32 @@ const TreeRow = React.memo(function TreeRow({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
+  const imagePayload = extractTelemetryImagePayload(field);
+  const fieldValue = field.getValue?.();
+  const isImageBufferField =
+    field.name === "data_buffer" &&
+    (
+      Boolean(imagePayload) ||
+      fieldValue instanceof Uint8Array ||
+      field.path.toLowerCase().includes(".image.data_buffer")
+    );
+  const showChildren = hasChildren && !isImageBufferField;
+  const workloadName = field.path.includes(".")
+    ? field.path.split(".")[0]
+    : undefined;
+  const handleOpenImagePanel = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    spawnTelemetryImagePanel({
+      scope: panelScope,
+      settings: {
+        panelTitle: field.path,
+        telemetryBaseUrl,
+        workloadName,
+        modelName,
+        fieldPath: field.path,
+      },
+    });
+  };
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
@@ -964,7 +999,7 @@ const TreeRow = React.memo(function TreeRow({
   return (
     <div className={styles.node} style={{ paddingLeft: `${depth * 16}px` }}>
       <div className={styles.nodeRow}>
-        {hasChildren ? (
+        {showChildren ? (
           <button
             type="button"
             className={styles.nodeToggle}
@@ -993,12 +1028,23 @@ const TreeRow = React.memo(function TreeRow({
               data-testid="telemetry-tree-node-text"
               onContextMenu={onTextContextMenu}
             >
-              <span>{field.name}:</span>
-              <TreeNodeValue
-                field={field}
-                isArrayField={isArrayField}
-                hasChildren={hasChildren}
-              />
+              <span>{field.name}:</span>{" "}
+              {isImageBufferField ? (
+                <button
+                  type="button"
+                  className={sharedStyles.telemetryInlineButton}
+                  onClick={handleOpenImagePanel}
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  Open image panel
+                </button>
+              ) : (
+                <TreeNodeValue
+                  field={field}
+                  isArrayField={isArrayField}
+                  hasChildren={hasChildren}
+                />
+              )}
             </span>
           </span>
         )}
@@ -1012,12 +1058,16 @@ function TreeArrayChildren({
   expandedPaths,
   toggle,
   telemetryBaseUrl,
+  panelScope,
+  modelName,
   fieldConnectionHints,
 }: {
   field: ITelemetryField;
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
   telemetryBaseUrl?: string;
+  panelScope: string;
+  modelName?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
   React.useContext(TelemetrySampleRevisionContext);
@@ -1028,15 +1078,17 @@ function TreeArrayChildren({
     return null;
   }
   return arrayChildren.map((entry) => (
-    <TreeNode
-      key={entry.path}
-      field={entry}
-      expanded={expandedPaths.has(entry.path)}
-      expandedPaths={expandedPaths}
-      toggle={toggle}
-      telemetryBaseUrl={telemetryBaseUrl}
-      fieldConnectionHints={fieldConnectionHints}
-    />
+      <TreeNode
+        key={entry.path}
+        field={entry}
+        expanded={expandedPaths.has(entry.path)}
+        expandedPaths={expandedPaths}
+        toggle={toggle}
+        telemetryBaseUrl={telemetryBaseUrl}
+        panelScope={panelScope}
+        modelName={modelName}
+        fieldConnectionHints={fieldConnectionHints}
+      />
   ));
 }
 
@@ -1047,6 +1099,8 @@ const TreeNodeChildren = React.memo(function TreeNodeChildren({
   expandedPaths,
   toggle,
   telemetryBaseUrl,
+  panelScope,
+  modelName,
   fieldConnectionHints,
 }: {
   field: ITelemetryField;
@@ -1055,6 +1109,8 @@ const TreeNodeChildren = React.memo(function TreeNodeChildren({
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
   telemetryBaseUrl?: string;
+  panelScope: string;
+  modelName?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
   if (!expanded) {
@@ -1062,13 +1118,15 @@ const TreeNodeChildren = React.memo(function TreeNodeChildren({
   }
   if (isArrayField) {
     return (
-      <TreeArrayChildren
-        field={field}
-        expandedPaths={expandedPaths}
-        toggle={toggle}
-        telemetryBaseUrl={telemetryBaseUrl}
-        fieldConnectionHints={fieldConnectionHints}
-      />
+    <TreeArrayChildren
+      field={field}
+      expandedPaths={expandedPaths}
+      toggle={toggle}
+      telemetryBaseUrl={telemetryBaseUrl}
+      panelScope={panelScope}
+      modelName={modelName}
+      fieldConnectionHints={fieldConnectionHints}
+    />
     );
   }
   return field.fields?.map((child) => (
@@ -1079,6 +1137,8 @@ const TreeNodeChildren = React.memo(function TreeNodeChildren({
       expandedPaths={expandedPaths}
       toggle={toggle}
       telemetryBaseUrl={telemetryBaseUrl}
+      panelScope={panelScope}
+      modelName={modelName}
       fieldConnectionHints={fieldConnectionHints}
     />
   ));
@@ -1090,6 +1150,8 @@ const TreeNode = React.memo(function TreeNode({
   expandedPaths,
   toggle,
   telemetryBaseUrl,
+  panelScope,
+  modelName,
   fieldConnectionHints,
 }: {
   field: ITelemetryField;
@@ -1097,14 +1159,42 @@ const TreeNode = React.memo(function TreeNode({
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
   telemetryBaseUrl?: string;
+  panelScope: string;
+  modelName?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }) {
   const isArrayField = field.elementCount > 1;
   const hasChildren = isArrayField || Boolean(field.fields?.length);
+  const imagePayload = extractTelemetryImagePayload(field);
+  const fieldValue = field.getValue?.();
+  const isImageBufferField =
+    field.name === "data_buffer" &&
+    (
+      Boolean(imagePayload) ||
+      fieldValue instanceof Uint8Array ||
+      field.path.toLowerCase().includes(".image.data_buffer")
+    );
+  const showChildren = hasChildren && !isImageBufferField;
   const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
+  const workloadName = field.path.includes(".")
+    ? field.path.split(".")[0]
+    : undefined;
+  const handleOpenImagePanel = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    spawnTelemetryImagePanel({
+      scope: panelScope,
+      settings: {
+        panelTitle: field.path,
+        telemetryBaseUrl,
+        workloadName,
+        modelName,
+        fieldPath: field.path,
+      },
+    });
+  };
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
@@ -1113,7 +1203,7 @@ const TreeNode = React.memo(function TreeNode({
   return (
     <div className={styles.node}>
       <div className={styles.nodeRow}>
-        {hasChildren ? (
+        {showChildren ? (
           <button
             type="button"
             className={styles.nodeToggle}
@@ -1136,24 +1226,39 @@ const TreeNode = React.memo(function TreeNode({
             className={`${styles.nodeEntry} ${capsuleClass}`.trim()}
             title={tooltipText ?? undefined}
           >
-            <span>{field.name}:</span>
-            <TreeNodeValue
-              field={field}
-              isArrayField={isArrayField}
-              hasChildren={hasChildren}
-            />
+            <span>{field.name}:</span>{" "}
+            {isImageBufferField ? (
+              <button
+                type="button"
+                className={sharedStyles.telemetryInlineButton}
+                onClick={handleOpenImagePanel}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                Open image panel
+              </button>
+            ) : (
+              <TreeNodeValue
+                field={field}
+                isArrayField={isArrayField}
+                hasChildren={hasChildren}
+              />
+            )}
           </span>
         )}
       </div>
-      <TreeNodeChildren
-        field={field}
-        expanded={expanded}
-        isArrayField={isArrayField}
-        expandedPaths={expandedPaths}
-        toggle={toggle}
-        telemetryBaseUrl={telemetryBaseUrl}
-        fieldConnectionHints={fieldConnectionHints}
-      />
+      {showChildren && (
+        <TreeNodeChildren
+          field={field}
+          expanded={expanded}
+          isArrayField={isArrayField}
+          expandedPaths={expandedPaths}
+          toggle={toggle}
+          telemetryBaseUrl={telemetryBaseUrl}
+          panelScope={panelScope}
+          modelName={modelName}
+          fieldConnectionHints={fieldConnectionHints}
+        />
+      )}
     </div>
   );
 });

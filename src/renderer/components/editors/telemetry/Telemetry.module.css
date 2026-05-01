@@ -192,6 +192,27 @@
   border-radius: 4px;
 }
 
+.telemetryInlineButton {
+  border: none;
+  background: rgba(12, 147, 225, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  align-self: auto;
+}
+
+.telemetryInlineButton:hover {
+  border: none;
+  background: rgba(12, 147, 225, 0.3);
+  color: white;
+  outline: none;
+}
+
 .inputWriteRow {
   display: flex;
   align-items: flex-start;

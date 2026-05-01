@@ -29,6 +29,10 @@ interface BlobCacheEntry {
 // Global blob cache (map raw signature → URL)
 // -----------------------------------------------------------------------------
 const blobCache = new Map<string, BlobCacheEntry>();
+const hashByBuffer = new WeakMap<
+  ArrayBufferLike,
+  { hash: string; byteOffset: number; byteLength: number; mime: string }
+>();
 
 // Utility: fast signature (hash of contents)
 function hashBytes(bytes: Uint8Array): string {
@@ -39,6 +43,27 @@ function hashBytes(bytes: Uint8Array): string {
     h = (h * 0x01000193) >>> 0;
   }
   return h.toString(16);
+}
+
+function getHashedSignature(bytes: Uint8Array, mime: string): string {
+  const cached = hashByBuffer.get(bytes.buffer);
+  if (
+    cached &&
+    cached.byteOffset === bytes.byteOffset &&
+    cached.byteLength === bytes.byteLength &&
+    cached.mime === mime
+  ) {
+    return `${mime}:${cached.hash}`;
+  }
+
+  const hash = hashBytes(bytes);
+  hashByBuffer.set(bytes.buffer, {
+    hash,
+    byteOffset: bytes.byteOffset,
+    byteLength: bytes.byteLength,
+    mime,
+  });
+  return `${mime}:${hash}`;
 }
 
 // -----------------------------------------------------------------------------
@@ -71,7 +96,7 @@ function enforceLRU() {
 export function getOrCreateBlobURL(raw: Uint8Array, mime: string): string {
   if (!raw || raw.length === 0) return "";
 
-  const signature = `${mime}:${hashBytes(raw)}`;
+  const signature = getHashedSignature(raw, mime);
 
   const now = performance.now();
 
@@ -114,8 +139,9 @@ export function useBlobURL(raw: Uint8Array | null, mime: string | undefined) {
 
   const signature = useMemo(() => {
     if (!raw || !mime) return null;
+    const key = getHashedSignature(raw, mime);
     return {
-      key: `${mime}:${hashBytes(raw)}`,
+      key,
       raw,
       mime,
     };

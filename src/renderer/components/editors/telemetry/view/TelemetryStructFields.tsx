@@ -31,6 +31,8 @@ import {
   isTelemetryImageField,
 } from "../utils/telemetry-image";
 
+const ENABLE_INLINE_IMAGE_PREVIEW = false;
+
 /**
  * Produce a human-readable string representation of a telemetry field's value.
  *
@@ -192,7 +194,10 @@ function ImageField({
   const label = field.name;
 
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const url = useBlobURL(imagePayload?.bytes ?? null, imagePayload?.mime);
+  const url = useBlobURL(
+    ENABLE_INLINE_IMAGE_PREVIEW ? imagePayload?.bytes ?? null : null,
+    ENABLE_INLINE_IMAGE_PREVIEW ? imagePayload?.mime : undefined,
+  );
 
   if (!imagePayload) {
     return <div>{label}: &lt;invalid image data&gt;</div>;
@@ -212,41 +217,84 @@ function ImageField({
     });
   };
 
+  const renderMetadataField = (child: TelemetryField): React.ReactNode => {
+    if (child.name === "data_buffer") {
+      return null;
+    }
+
+    if (child.fields && child.fields.length > 0) {
+      return (
+        <div key={child.path}>
+          <b>{child.name}</b>
+          <div style={{ marginLeft: 10 }}>
+            {child.fields.map((nested) => renderMetadataField(nested))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={child.path}>
+        {child.name}: {formatValue(child.getValue(), child)}
+      </div>
+    );
+  };
+
+  const metadataFields = (field.fields ?? []).filter(
+    (child) => child.name !== "data_buffer",
+  );
+
   return (
     <>
       <div>
         {label}:{" "}
-        {url && (
-          <img
-            src={url}
-            alt={label}
-            className={styles.thumb}
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
-            }}
-            onLoad={(e) => {
-              const target = e.currentTarget as HTMLImageElement | null;
-              if (!target) {
-                return;
-              }
-              setDims((prev) => {
-                if (prev) {
-                  return prev;
+        {ENABLE_INLINE_IMAGE_PREVIEW && url ? (
+          <>
+            <img
+              src={url}
+              alt={label}
+              className={styles.thumb}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+              onLoad={(e) => {
+                const target = e.currentTarget as HTMLImageElement | null;
+                if (!target) {
+                  return;
                 }
-                const width = target.naturalWidth;
-                const height = target.naturalHeight;
-                if (!width || !height) {
-                  return prev;
-                }
-                return { w: width, h: height };
-              });
-            }}
+                setDims((prev) => {
+                  if (prev) {
+                    return prev;
+                  }
+                  const width = target.naturalWidth;
+                  const height = target.naturalHeight;
+                  if (!width || !height) {
+                    return prev;
+                  }
+                  return { w: width, h: height };
+                });
+              }}
+              onClick={handleThumbClick}
+              onMouseDown={(e) => e.stopPropagation()}
+            />
+            {dims && ` (${dims.w}×${dims.h})`}
+          </>
+        ) : (
+          <button
+            type="button"
+            className={styles.telemetryInlineButton}
             onClick={handleThumbClick}
             onMouseDown={(e) => e.stopPropagation()}
-          />
+          >
+            Open image panel
+          </button>
         )}
-        {dims && ` (${dims.w}×${dims.h})`}
       </div>
+      {metadataFields.length > 0 && (
+        <div style={{ marginLeft: 10 }}>
+          {metadataFields.map((child) => renderMetadataField(child))}
+        </div>
+      )}
 
       {/* Floating panel handles full image rendering */}
     </>
