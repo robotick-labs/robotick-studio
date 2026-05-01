@@ -81,18 +81,22 @@ const SECTION_OPTIONS: { value: DataKindSelection; label: string }[] = [
 const FILTER_DEBOUNCE_MS = 160;
 const TREE_REFRESH_INTERVAL_MS = 200;
 const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 5;
+const TREE_ARRAY_PAGE_SIZE = 64;
 const TelemetrySampleRevisionContext = React.createContext(0);
 const TelemetryValueReaderContext = React.createContext<
   ((field: ITelemetryField) => unknown) | null
 >(null);
 
 type FlatTreeRow = {
+  kind: "field" | "array_pager";
   field: ITelemetryField;
   depth: number;
   expanded: boolean;
   hasChildren: boolean;
   isArrayField: boolean;
   filterTarget?: TelemetryTreeFilterTarget;
+  arrayVisibleCount?: number;
+  arrayTotalCount?: number;
 };
 
 type TelemetryTreeFilterTarget = {
@@ -225,6 +229,25 @@ export default function TelemetryTreeViewer() {
     y: number;
     target: TelemetryTreeFilterTarget;
   } | null>(null);
+  const [arrayVisibleCounts, setArrayVisibleCounts] = useState<
+    Record<string, number>
+  >({});
+  const getVisibleCountForPath = useCallback(
+    (path: string, total: number) => {
+      if (total <= 0) return 0;
+      const configured = arrayVisibleCounts[path] ?? TREE_ARRAY_PAGE_SIZE;
+      return Math.max(1, Math.min(total, configured));
+    },
+    [arrayVisibleCounts]
+  );
+  const showNextArrayPage = useCallback((path: string, total: number) => {
+    setArrayVisibleCounts((prev) => {
+      const current = prev[path] ?? TREE_ARRAY_PAGE_SIZE;
+      const next = Math.min(total, current + TREE_ARRAY_PAGE_SIZE);
+      if (next === current) return prev;
+      return { ...prev, [path]: next };
+    });
+  }, []);
   const storedExpandedPathsPreference = useMemo(
     () =>
       parseExpandedPathsPreference(
@@ -450,8 +473,8 @@ export default function TelemetryTreeViewer() {
     sectionSelection,
   ]);
   const flatRows = useMemo(
-    () => flattenTreeRows(rootNodes, expandedNodes),
-    [expandedNodes, rootNodes]
+    () => flattenTreeRows(rootNodes, expandedNodes, getVisibleCountForPath),
+    [expandedNodes, getVisibleCountForPath, rootNodes]
   );
   const valueReader = useMemo(() => {
     const cache = new WeakMap<ITelemetryField, unknown>();
@@ -645,34 +668,64 @@ export default function TelemetryTreeViewer() {
               <div className={styles.treeRows}>
                 {flatRows.map((row) => (
                   <div
-                    key={row.field.path}
+                    key={
+                      row.kind === "array_pager"
+                        ? `${row.field.path}::pager`
+                        : row.field.path
+                    }
                     className={styles.treeRow}
                     data-testid="telemetry-tree-row"
                   >
-                    <TreeRow
-                      field={row.field}
-                      depth={row.depth}
-                      expanded={row.expanded}
-                      hasChildren={row.hasChildren}
-                      isArrayField={row.isArrayField}
-                      toggle={toggleNode}
-                      telemetryBaseUrl={telemetryBaseUrl}
-                      panelScope={panel?.scope ?? floatingPanelScope}
-                      modelName={selectedModel?.modelName}
-                      fieldConnectionHints={fieldConnectionHints}
-                      onTextContextMenu={(event) => {
-                        if (!row.filterTarget) {
-                          return;
-                        }
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setTreeContextMenu({
-                          x: event.clientX,
-                          y: event.clientY,
-                          target: row.filterTarget,
-                        });
-                      }}
-                    />
+                    {row.kind === "array_pager" ? (
+                      <div
+                        className={styles.node}
+                        style={{
+                          paddingLeft: `${row.depth * 16}px`,
+                          display: "flex",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className={sharedStyles.telemetryInlineButton}
+                          onClick={() =>
+                            showNextArrayPage(
+                              row.field.path,
+                              row.arrayTotalCount ?? row.field.elementCount
+                            )
+                          }
+                        >
+                          Show next {TREE_ARRAY_PAGE_SIZE} (
+                          {row.arrayVisibleCount ?? 0}/
+                          {row.arrayTotalCount ?? row.field.elementCount})
+                        </button>
+                      </div>
+                    ) : (
+                      <TreeRow
+                        field={row.field}
+                        depth={row.depth}
+                        expanded={row.expanded}
+                        hasChildren={row.hasChildren}
+                        isArrayField={row.isArrayField}
+                        toggle={toggleNode}
+                        telemetryBaseUrl={telemetryBaseUrl}
+                        panelScope={panel?.scope ?? floatingPanelScope}
+                        modelName={selectedModel?.modelName}
+                        fieldConnectionHints={fieldConnectionHints}
+                        onTextContextMenu={(event) => {
+                          if (!row.filterTarget) {
+                            return;
+                          }
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setTreeContextMenu({
+                            x: event.clientX,
+                            y: event.clientY,
+                            target: row.filterTarget,
+                          });
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -772,6 +825,7 @@ function useElementActive(ref: React.RefObject<HTMLElement | null>): boolean {
 function flattenTreeRows(
   fields: ITelemetryField[],
   expandedPaths: Set<string>,
+  getArrayVisibleCount: (path: string, total: number) => number,
   options: {
     depth?: number;
     context?: Partial<TelemetryTreeFilterTarget>;
@@ -788,6 +842,7 @@ function flattenTreeRows(
     const expanded = expandedPaths.has(field.path) || autoExpandOnlyChild;
     const rowContext = getTelemetryTreeRowFilterTarget(field, context);
     rows.push({
+      kind: "field",
       field,
       depth,
       expanded,
@@ -801,24 +856,37 @@ function flattenTreeRows(
     }
 
     if (isArrayField) {
-      for (let index = 0; index < field.elementCount; index += 1) {
+      const visibleCount = getArrayVisibleCount(field.path, field.elementCount);
+      for (let index = 0; index < visibleCount; index += 1) {
         const child = field.getArrayElement?.(index);
         if (!child) {
           continue;
         }
         rows.push(
-          ...flattenTreeRows([child], expandedPaths, {
+          ...flattenTreeRows([child], expandedPaths, getArrayVisibleCount, {
             depth: depth + 1,
             context: rowContext ?? context,
           })
         );
+      }
+      if (visibleCount < field.elementCount) {
+        rows.push({
+          kind: "array_pager",
+          field,
+          depth: depth + 1,
+          expanded: false,
+          hasChildren: false,
+          isArrayField: false,
+          arrayVisibleCount: visibleCount,
+          arrayTotalCount: field.elementCount,
+        });
       }
       continue;
     }
 
     if (field.fields?.length) {
       rows.push(
-        ...flattenTreeRows(field.fields, expandedPaths, {
+        ...flattenTreeRows(field.fields, expandedPaths, getArrayVisibleCount, {
           depth: depth + 1,
           context: rowContext ?? context,
         })
@@ -1276,6 +1344,16 @@ const JsonNode = React.memo(function JsonNode({
   expandedPaths: Set<string>;
   toggle: (path: string) => void;
 }) {
+  const [visibleCount, setVisibleCount] = useState(() =>
+    Array.isArray(value) ? Math.min(TREE_ARRAY_PAGE_SIZE, value.length) : 0
+  );
+  useEffect(() => {
+    if (!Array.isArray(value)) {
+      setVisibleCount(0);
+      return;
+    }
+    setVisibleCount(Math.min(TREE_ARRAY_PAGE_SIZE, value.length));
+  }, [path, value]);
   const isArray = Array.isArray(value);
   const isObject =
     value !== null &&
@@ -1303,7 +1381,9 @@ const JsonNode = React.memo(function JsonNode({
       <span className={styles.nodeValue}>{formatJsonValue(value)}</span>
       {expanded && hasChildren
         ? isArray && Array.isArray(value)
-          ? value.map((entry, index) => (
+          ? value
+              .slice(0, Math.max(0, Math.min(value.length, visibleCount)))
+              .map((entry, index) => (
               <JsonNode
                 key={`${path}[${index}]`}
                 label={`[${index}]`}
@@ -1326,6 +1406,21 @@ const JsonNode = React.memo(function JsonNode({
               )
             )
         : null}
+      {expanded && isArray && Array.isArray(value) && visibleCount < value.length ? (
+        <div className={styles.node}>
+          <button
+            type="button"
+            className={sharedStyles.telemetryInlineButton}
+            onClick={() =>
+              setVisibleCount((prev) =>
+                Math.min(value.length, prev + TREE_ARRAY_PAGE_SIZE)
+              )
+            }
+          >
+            Show next {TREE_ARRAY_PAGE_SIZE} ({visibleCount}/{value.length})
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 });
