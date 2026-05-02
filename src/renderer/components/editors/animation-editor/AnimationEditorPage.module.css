@@ -46,35 +46,48 @@
 .transportNumericGroup {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .transportNumericField {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
-  color: var(--app-text-muted);
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.transportNumericLabel {
+  line-height: 1;
+  text-align: left;
 }
 
 .transportNumericField input {
-  width: 74px;
-  border: 1px solid var(--app-input-border);
-  background: var(--app-input-background);
-  color: var(--app-text-primary);
-  border-radius: 6px;
-  padding: 0.15rem 0.35rem;
-  font-size: 0.82rem;
+  width: 72px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(9, 22, 12, 0.36);
+  color: #f7fff6;
+  border-radius: 8px;
+  padding: 0.12rem 0.3rem;
+  font-size: 0.78rem;
+  text-align: center !important;
 }
 
 .transportCluster {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid var(--app-input-border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 4px 6px;
+  gap: 8px;
+}
+
+.transportLauncherStrip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(116, 186, 110, 0.75);
+  border: 1px solid rgba(132, 208, 126, 0.6);
+  border-radius: 14px;
+  padding: 0.3rem 0.5rem;
 }
 
 .transportCenter input[type="range"] {
@@ -107,25 +120,22 @@
   width: 30px;
   height: 25px;
   border-radius: 10px;
-  background-color: rgba(150, 255, 150, 0.25);
+  background-color: rgba(255, 255, 255, 0.18);
   color: white;
-  font-size: 14px;
+  font-size: 24px !important;
   line-height: 1;
   border: none;
   transition: background-color 180ms ease-out, transform 120ms ease-out;
+  text-align: center;
 }
 
 .transportIconButton:hover,
 .transportIconButton:focus {
-  background-color: rgba(150, 255, 150, 0.35);
+  background-color: rgba(255, 255, 255, 0.28);
 }
 
 .transportIconButton:active {
-  background-color: rgba(150, 255, 150, 0.5);
-}
-
-.iconPlay {
-  font-size: 16px;
+  background-color: rgba(255, 255, 255, 0.34);
 }
 
 .iconPlayPause {
@@ -133,13 +143,31 @@
 }
 
 .iconStop {
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .iconRecord {
-  color: #ff9b9b;
+  color: #ff7f7f;
   font-size: 12px;
 }
+
+.loopLauncherButton {
+  border: none;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.18);
+  color: white;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  min-width: 58px;
+  text-align: center;
+}
+
+.loopLauncherButton:hover,
+.loopLauncherButton:focus {
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
 
 .transportChipButton {
   border: 1px solid var(--app-input-border);
@@ -149,11 +177,24 @@
   padding: 0.3rem 0.65rem;
   cursor: pointer;
   font-size: 0.8rem;
+  min-width: 74px;
+  text-align: center;
 }
 
 .transportChipButton:hover,
 .transportChipButton:focus {
   background: rgba(150, 255, 150, 0.22);
+}
+
+.transportChipButtonActive {
+  border-color: rgba(15, 136, 255, 0.85);
+  background: rgba(15, 136, 255, 0.9);
+  color: #ffffff;
+}
+
+.transportChipButtonActive:hover,
+.transportChipButtonActive:focus {
+  background: rgba(15, 136, 255, 0.95);
 }
 
 .mainGrid {
@@ -338,6 +379,29 @@
   touch-action: none;
 }
 
+.loopResetRuler {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.loopResetSlug {
+  position: absolute;
+  left: 100%;
+  right: 0;
+  top: 4px;
+  height: 5px;
+  border-radius: 2px;
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(255, 224, 132, 0.95) 0%,
+      rgba(255, 214, 106, 0.78) 36%,
+      rgba(255, 206, 84, 0.28) 68%,
+      rgba(255, 206, 84, 0.0) 100%
+    );
+}
+
 .rulerMark {
   color: inherit;
   text-align: left;
@@ -349,11 +413,45 @@
 .lanes {
   display: flex;
   flex-direction: column;
-  height: calc(100% - 37px);
+  height: calc(100% - 74px);
   overflow: hidden;
   gap: 6px;
   padding: 6px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.timeRulerBottom {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  padding: 8px 14px 10px;
+  color: var(--app-text-muted);
+  font-size: 0.76rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rulerBottomPip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 6px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 206, 84, 1);
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
+  pointer-events: none;
+}
+
+.playheadViewport {
+  position: absolute;
+  top: 35px;
+  bottom: 31px;
+  left: 77px;
+  right: 14px;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .laneRow {
@@ -492,7 +590,8 @@
   width: 2px;
   background: rgba(255, 206, 84, 0.95);
   box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.4);
-  z-index: 4;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .playheadGrab {
@@ -506,6 +605,7 @@
   background: transparent;
   cursor: ew-resize;
   padding: 0;
+  pointer-events: auto;
 }
 
 .playheadPip {
@@ -519,6 +619,50 @@
   background: rgba(255, 206, 84, 1);
   box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
   pointer-events: none;
+}
+
+.iconPlayGlyph {
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  transform: translateY(-0.04em);
+}
+
+.iconPauseGlyph {
+  font-size: 24px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  transform: translateY(0.0em);
+}
+
+.iconStopGlyph {
+  font-size: 24px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  transform: translateY(-0.04em);
+}
+
+.iconRecordGlyph {
+  font-size: 24px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  transform: translateY(-0.02em);
 }
 
 

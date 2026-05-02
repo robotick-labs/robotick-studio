@@ -1,12 +1,32 @@
 import React from "react";
+import {
+  ProjectData,
+  useLauncherService,
+  type WorkloadsRegistryResponse,
+} from "../../../data-sources/launcher";
+import {
+  useTelemetryService,
+  useTelemetryStream,
+  type ITelemetryField,
+} from "../../../data-sources/telemetry";
 import { useProjectContext } from "../../../data-sources/launcher/internal/ProjectContext";
 import { buildProjectAssetUrl } from "../../../data-sources/launcher/internal/launcher-interface";
+import { normalizedFromClientX } from "./playhead-math";
 import styles from "./AnimationEditorPage.module.css";
 
 type Point = { t: number; v: number };
 type ClipRef = { name: string; animclipPath: string };
 type ClipData = { name: string; channels: Record<string, Point[]>; durationSec: number };
 type LaneRange = { min: number; max: number };
+type CompatibleSourceRef = {
+  id: string;
+  type: string;
+  label: string;
+  modelName: string;
+  modelPath: string;
+  telemetryBaseUrl: string;
+  workloadName: string;
+};
 
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
 const TOOL_SECTIONS = [
@@ -143,11 +163,54 @@ function fitRangeWithPadding(points: Point[]): LaneRange {
   return { min: quantMin, max: quantMax };
 }
 
+function collectAnimCompatibleWorkloadTypes(response: WorkloadsRegistryResponse): Set<string> {
+  const out = new Set<string>();
+  const typeByName = new Map<string, { fields?: Array<{ name?: string; type?: string }> }>();
+  for (const entry of response.types ?? []) {
+    if (entry?.name) {
+      typeByName.set(String(entry.name), entry);
+    }
+  }
+
+  for (const workload of response.workloads ?? []) {
+    const inputTypeName = workload.inputs?.type;
+    const outputTypeName = workload.outputs?.type;
+    if (!inputTypeName || !outputTypeName) continue;
+    const inputsDef = typeByName.get(inputTypeName);
+    const outputsDef = typeByName.get(outputTypeName);
+    if (!inputsDef?.fields || !outputsDef?.fields) continue;
+
+    const hasAnimControls = inputsDef.fields.some((f) => {
+      const name = String(f?.name ?? "").toLowerCase();
+      const type = String(f?.type ?? "");
+      return name === "anim_controls" && type === "AnimControls";
+    });
+    const hasAnimState = outputsDef.fields.some((f) => {
+      const name = String(f?.name ?? "").toLowerCase();
+      const type = String(f?.type ?? "");
+      return name === "anim_state" && type === "AnimState";
+    });
+
+    if (hasAnimControls && hasAnimState) {
+      out.add(workload.type);
+    }
+  }
+  return out;
+}
+
 export default function AnimationEditorPage() {
+  const launcherService = useLauncherService();
+  const telemetryService = useTelemetryService();
   const { projectPath } = useProjectContext();
+  const { projectModels } = ProjectData.use();
   const [playhead, setPlayhead] = React.useState(280);
   const [isPlaying, setIsPlaying] = React.useState(true);
+  const [loopEnabled, setLoopEnabled] = React.useState(true);
+  const [autoSaveEnabled, setAutoSaveEnabled] = React.useState(true);
+  const [animCompatibleWorkloadTypes, setAnimCompatibleWorkloadTypes] = React.useState<Set<string>>(new Set());
+  const [selectedSourceId, setSelectedSourceId] = React.useState("");
   const [animsetPath, setAnimsetPath] = React.useState(DEFAULT_ANIMSET);
+  const [animsetPendingRestartPath, setAnimsetPendingRestartPath] = React.useState("");
   const [clipRefs, setClipRefs] = React.useState<ClipRef[]>([]);
   const [selectedClipPath, setSelectedClipPath] = React.useState("");
   const [clipData, setClipData] = React.useState<ClipData>({ name: "clip", channels: {}, durationSec: 10 });
@@ -157,12 +220,38 @@ export default function AnimationEditorPage() {
   const [selectedChannel, setSelectedChannel] = React.useState<string | null>(null);
   const [laneRange, setLaneRange] = React.useState<Record<string, LaneRange>>({});
   const timelineRef = React.useRef<HTMLDivElement | null>(null);
+  const playheadViewportRef = React.useRef<HTMLDivElement | null>(null);
+  const firstLaneSvgRef = React.useRef<SVGSVGElement | null>(null);
+  const [playheadViewportInsetsPx, setPlayheadViewportInsetsPx] = React.useState({ left: 77, right: 14 });
+  const [localScrubTimeSec, setLocalScrubTimeSec] = React.useState<number | null>(null);
+  const [pendingScrubAdoptSec, setPendingScrubAdoptSec] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadRegistry() {
+      if (!projectPath) return;
+      try {
+        const response = await launcherService.fetchProjectWorkloadsRegistry(projectPath, "linux");
+        if (cancelled) return;
+        setAnimCompatibleWorkloadTypes(collectAnimCompatibleWorkloadTypes(response));
+      } catch {
+        if (cancelled) return;
+        setAnimCompatibleWorkloadTypes(new Set());
+      }
+    }
+    void loadRegistry();
+    return () => {
+      cancelled = true;
+    };
+  }, [launcherService, projectPath]);
 
   React.useEffect(() => {
     let cancelled = false;
     async function loadAnimset() {
       if (!projectPath) return;
-      const url = buildProjectAssetUrl(projectPath, animsetPath);
+      const resolvedAnimsetPath = animsetPendingRestartPath || animsetPath;
+      if (!resolvedAnimsetPath) return;
+      const url = buildProjectAssetUrl(projectPath, resolvedAnimsetPath);
       const text = await (await fetch(url)).text();
       const parsed = parseAnimsetYaml(text);
       if (cancelled) return;
@@ -173,7 +262,7 @@ export default function AnimationEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectPath, animsetPath]);
+  }, [animsetPath, animsetPendingRestartPath, projectPath]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -212,28 +301,404 @@ export default function AnimationEditorPage() {
     };
   }, [projectPath, selectedClipPath]);
 
+  const compatibleSources = React.useMemo(() => {
+    if (animCompatibleWorkloadTypes.size === 0) {
+      return [] as CompatibleSourceRef[];
+    }
+    const refs: CompatibleSourceRef[] = [];
+    projectModels.data.forEach((model) => {
+      const modelData =
+        model.data && typeof model.data === "object"
+          ? (model.data as Record<string, unknown>)
+          : null;
+      const workloads = Array.isArray(modelData?.workloads) ? modelData.workloads : [];
+      workloads.forEach((entry, index) => {
+        if (!entry || typeof entry !== "object") return;
+        const obj = entry as Record<string, unknown>;
+        const type = String((entry as Record<string, unknown>).type ?? "").trim();
+        if (!type || !animCompatibleWorkloadTypes.has(type)) return;
+        const workloadName = String(obj.name ?? obj.id ?? type).trim();
+        const modelName = model.modelName || model.modelPath;
+        refs.push({
+          id: `${model.modelPath}::${String(obj.id ?? obj.name ?? `${type}#${index}`)}`,
+          type,
+          label: `${modelName} | ${workloadName}`,
+          modelName,
+          modelPath: model.modelPath,
+          telemetryBaseUrl: model.telemetryBaseUrl ?? "",
+          workloadName,
+        });
+      });
+    });
+    return refs;
+  }, [animCompatibleWorkloadTypes, projectModels.data]);
+
+  React.useEffect(() => {
+    if (!compatibleSources.length) {
+      setSelectedSourceId("");
+      return;
+    }
+    if (!selectedSourceId || !compatibleSources.some((s) => s.id === selectedSourceId)) {
+      setSelectedSourceId(compatibleSources[0].id);
+    }
+  }, [compatibleSources, selectedSourceId]);
+
+  const selectedSource = React.useMemo(
+    () => compatibleSources.find((source) => source.id === selectedSourceId) ?? null,
+    [compatibleSources, selectedSourceId]
+  );
+  const telemetryBaseUrl = selectedSource?.telemetryBaseUrl ?? "";
+  const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, 20);
+  const selectedTelemetryWorkload = React.useMemo(() => {
+    if (!telemetryModel || !selectedSource?.workloadName) return null;
+    return (
+      telemetryModel.workloads.find((workload) => workload.name === selectedSource.workloadName) ?? null
+    );
+  }, [selectedSource?.workloadName, telemetryModel]);
+  const selectedWorkloadName = selectedTelemetryWorkload?.name ?? "";
+
+  const readFieldValue = React.useCallback(
+    (fieldPath: string) => telemetryModel?.getField?.(fieldPath)?.getValue?.(),
+    [telemetryModel]
+  );
+
+  const resolveWritableField = React.useCallback(
+    (fieldPath: string): ITelemetryField | null => {
+      const field = telemetryModel?.getField?.(fieldPath);
+      if (!field) return null;
+      if (typeof field.writable_input_handle !== "number") return null;
+      return field;
+    },
+    [telemetryModel]
+  );
+
+  const scrubWriteStateRef = React.useRef<{
+    active: boolean;
+    pendingValueSec: number | null;
+    inFlight: boolean;
+    lastSentAtMs: number;
+    timerId: ReturnType<typeof setTimeout> | null;
+    connectionSuppressed: boolean;
+  }>({
+    active: false,
+    pendingValueSec: null,
+    inFlight: false,
+    lastSentAtMs: 0,
+    timerId: null,
+    connectionSuppressed: false,
+  });
+  const SCRUB_MIN_SEND_INTERVAL_MS = 50;
+
+  const clearScrubTimer = React.useCallback(() => {
+    const state = scrubWriteStateRef.current;
+    if (state.timerId !== null) {
+      clearTimeout(state.timerId);
+      state.timerId = null;
+    }
+  }, []);
+
+  const setAnimControlConnectionState = React.useCallback(
+    async (fieldName: string, enabled: boolean) => {
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
+      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
+      const field = resolveWritableField(fieldPath);
+      if (!field || typeof field.writable_input_handle !== "number") return false;
+      if (typeof field.incoming_connection_handle !== "number") return false;
+      const result = await telemetryService.setWorkloadInputConnectionState(telemetryBaseUrl, {
+        engine_session_id: telemetryModel.schemaSessionId,
+        updates: [{ field_handle: field.writable_input_handle, field_path: fieldPath, enabled }],
+      });
+      return result.ok;
+    },
+    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+  );
+
+  const writeAnimControlFieldRaw = React.useCallback(
+    async (fieldName: string, value: unknown) => {
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
+      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
+      const field = resolveWritableField(fieldPath);
+      if (!field || typeof field.writable_input_handle !== "number") return false;
+      const result = await telemetryService.setWorkloadInputFieldsData(telemetryBaseUrl, {
+        engine_session_id: telemetryModel.schemaSessionId,
+        writes: [{ field_handle: field.writable_input_handle, field_path: fieldPath, value }],
+      });
+      return result.ok;
+    },
+    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+  );
+
+  const writeAnimControlField = React.useCallback(
+    async (fieldName: string, value: unknown) => {
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return;
+      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
+      const field = resolveWritableField(fieldPath);
+      if (!field) return;
+
+      const incomingConnectionHandle = field.incoming_connection_handle;
+      const incomingConnectionEnabled = field.incoming_connection_enabled !== false;
+      if (typeof incomingConnectionHandle === "number" && incomingConnectionEnabled) {
+        await telemetryService.setWorkloadInputConnectionState(telemetryBaseUrl, {
+          engine_session_id: telemetryModel.schemaSessionId,
+          updates: [{ field_handle: field.writable_input_handle, field_path: fieldPath, enabled: false }],
+        });
+      }
+
+      await telemetryService.setWorkloadInputFieldsData(telemetryBaseUrl, {
+        engine_session_id: telemetryModel.schemaSessionId,
+        writes: [{ field_handle: field.writable_input_handle, field_path: fieldPath, value }],
+      });
+
+      if (typeof incomingConnectionHandle === "number" && incomingConnectionEnabled) {
+        await telemetryService.setWorkloadInputConnectionState(telemetryBaseUrl, {
+          engine_session_id: telemetryModel.schemaSessionId,
+          updates: [{ field_handle: field.writable_input_handle, field_path: fieldPath, enabled: true }],
+        });
+      }
+    },
+    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+  );
+
+  const flushScrubTimeOverride = React.useCallback(
+    async (force: boolean) => {
+      const state = scrubWriteStateRef.current;
+      if (!state.active && !force) return;
+      if (state.inFlight) return;
+      if (state.pendingValueSec === null) return;
+
+      const now = Date.now();
+      const elapsed = now - state.lastSentAtMs;
+      if (!force && elapsed < SCRUB_MIN_SEND_INTERVAL_MS) {
+        if (state.timerId === null) {
+          state.timerId = setTimeout(() => {
+            state.timerId = null;
+            void flushScrubTimeOverride(false);
+          }, SCRUB_MIN_SEND_INTERVAL_MS - elapsed);
+        }
+        return;
+      }
+
+      const valueToSend = state.pendingValueSec;
+      state.pendingValueSec = null;
+      state.inFlight = true;
+      const ok = await writeAnimControlFieldRaw("time_override_sec", valueToSend);
+      if (ok) {
+        state.lastSentAtMs = Date.now();
+      }
+      state.inFlight = false;
+
+      if (state.pendingValueSec !== null) {
+        void flushScrubTimeOverride(false);
+      }
+    },
+    [writeAnimControlFieldRaw]
+  );
+
+  const beginScrubSession = React.useCallback(async () => {
+    const state = scrubWriteStateRef.current;
+    state.active = true;
+    state.pendingValueSec = null;
+    clearScrubTimer();
+    if (!state.connectionSuppressed) {
+      const suppressed = await setAnimControlConnectionState("time_override_sec", false);
+      state.connectionSuppressed = suppressed;
+    }
+  }, [clearScrubTimer, setAnimControlConnectionState]);
+
+  const queueScrubTimeOverride = React.useCallback(
+    (valueSec: number) => {
+      const state = scrubWriteStateRef.current;
+      state.pendingValueSec = valueSec;
+      void flushScrubTimeOverride(false);
+    },
+    [flushScrubTimeOverride]
+  );
+
+  const endScrubSession = React.useCallback(async () => {
+    const state = scrubWriteStateRef.current;
+    state.active = false;
+    clearScrubTimer();
+    await flushScrubTimeOverride(true);
+    if (state.connectionSuppressed) {
+      await setAnimControlConnectionState("time_override_sec", true);
+      state.connectionSuppressed = false;
+    }
+    if (localScrubTimeSec !== null) {
+      setPendingScrubAdoptSec(localScrubTimeSec);
+      setTimeout(() => {
+        setPendingScrubAdoptSec((current) => {
+          if (current !== null) {
+            setLocalScrubTimeSec(null);
+          }
+          return null;
+        });
+      }, 900);
+    } else {
+      setLocalScrubTimeSec(null);
+    }
+  }, [clearScrubTimer, flushScrubTimeOverride, localScrubTimeSec, setAnimControlConnectionState]);
+
+  React.useEffect(
+    () => () => {
+      const state = scrubWriteStateRef.current;
+      state.active = false;
+      clearScrubTimer();
+      if (state.connectionSuppressed) {
+        void setAnimControlConnectionState("time_override_sec", true);
+        state.connectionSuppressed = false;
+      }
+    },
+    [clearScrubTimer, setAnimControlConnectionState]
+  );
+
+  React.useEffect(() => {
+    if (!selectedWorkloadName) return;
+    const runtimeAnimsetPath = readFieldValue(`${selectedWorkloadName}.config.animset_path`);
+    if (typeof runtimeAnimsetPath === "string" && runtimeAnimsetPath.length > 0) {
+      setAnimsetPath(runtimeAnimsetPath);
+      setAnimsetPendingRestartPath(runtimeAnimsetPath);
+    }
+  }, [readFieldValue, selectedWorkloadName]);
+
+  const playbackStateRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.playback_state`)
+    : null;
+  const playheadTimeRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.playhead_time_sec`)
+    : null;
+  const effectiveEvalTimeRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.effective_eval_time_sec`)
+    : null;
+  const isLoopResetActiveRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.is_loop_reset_active`)
+    : null;
+  const loopResetProgressRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.loop_reset_progress_norm`)
+    : null;
+  const recordedSampleCountRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.recorded_sample_count`)
+    : null;
+  const lastRecordedClipPathRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.last_recorded_clip_path`)
+    : null;
+
   const channelNames = Object.keys(clipData.channels);
   const visibleChannels = channelNames.filter((n) => channelVisible[n] !== false);
   const allChannelsVisible = channelNames.length > 0 && visibleChannels.length === channelNames.length;
   const durationSec = Math.max(0.01, clipData.durationSec);
-  const playheadSec = (playhead / 1000) * durationSec;
+  const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
+  const runtimeEffectiveEvalSec =
+    typeof effectiveEvalTimeRaw === "number" ? Math.max(0, effectiveEvalTimeRaw) : null;
+  const playheadSec = localScrubTimeSec ?? runtimeEffectiveEvalSec ?? runtimePlayheadSec ?? (playhead / 1000) * durationSec;
+  const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
+  const isLoopResetActive = Boolean(isLoopResetActiveRaw);
+  const loopResetProgressNorm =
+    typeof loopResetProgressRaw === "number"
+      ? Math.min(1, Math.max(0, loopResetProgressRaw))
+      : 0;
+  const loopResetSlugRangeNorm = (() => {
+    if (!isLoopResetActive) return { left: 1, right: 1 };
+    if (loopResetProgressNorm <= 0.5) {
+      const widthNorm = loopResetProgressNorm / 0.5;
+      return { left: 1 - widthNorm, right: 1 };
+    }
+    const collapse = (loopResetProgressNorm - 0.5) / 0.5;
+    return { left: 0, right: 1 - collapse };
+  })();
+  const recordedSampleCount = typeof recordedSampleCountRaw === "number" ? recordedSampleCountRaw : null;
+  const lastRecordedClipPath = typeof lastRecordedClipPathRaw === "string" ? lastRecordedClipPathRaw : "";
+  const animsetOptions = React.useMemo(
+    () => Array.from(new Set([animsetPath, animsetPendingRestartPath, DEFAULT_ANIMSET].filter(Boolean))),
+    [animsetPath, animsetPendingRestartPath]
+  );
 
-  function seekFromClientX(clientX: number) {
-    const element = timelineRef.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)));
+  React.useEffect(() => {
+    if (localScrubTimeSec !== null || playheadSec === null || durationSec <= 0) return;
+    const ratio = Math.min(1, Math.max(0, playheadSec / durationSec));
     setPlayhead(Math.round(ratio * 1000));
+  }, [durationSec, localScrubTimeSec, playheadSec]);
+
+  React.useEffect(() => {
+    if (pendingScrubAdoptSec === null || runtimeEffectiveEvalSec === null) return;
+    if (Math.abs(runtimeEffectiveEvalSec - pendingScrubAdoptSec) <= 0.02) {
+      setPendingScrubAdoptSec(null);
+      setLocalScrubTimeSec(null);
+    }
+  }, [pendingScrubAdoptSec, runtimeEffectiveEvalSec]);
+
+  React.useEffect(() => {
+    if (playbackState === null) return;
+    setIsPlaying(playbackState === 2 || playbackState === 3);
+  }, [playbackState]);
+
+  React.useEffect(() => {
+    if (!selectedWorkloadName) return;
+    const loopValue = readFieldValue(`${selectedWorkloadName}.inputs.anim_controls.loop`);
+    if (typeof loopValue === "boolean") {
+      setLoopEnabled(loopValue);
+    }
+  }, [readFieldValue, selectedWorkloadName]);
+
+  React.useEffect(() => {
+    if (!selectedWorkloadName || clipRefs.length === 0) return;
+    const activeClipName = readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_name`);
+    if (typeof activeClipName !== "string" || activeClipName.length === 0) return;
+    const matched = clipRefs.find((clip) => clip.name === activeClipName);
+    if (matched && matched.animclipPath !== selectedClipPath) {
+      setSelectedClipPath(matched.animclipPath);
+    }
+  }, [clipRefs, readFieldValue, selectedClipPath, selectedWorkloadName]);
+
+  React.useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    const laneSvg = firstLaneSvgRef.current;
+    if (!timeline || !laneSvg) return;
+
+    const measure = () => {
+      const timelineRect = timeline.getBoundingClientRect();
+      const laneRect = laneSvg.getBoundingClientRect();
+      const left = Math.max(0, laneRect.left - timelineRect.left);
+      const right = Math.max(0, timelineRect.right - laneRect.right);
+      setPlayheadViewportInsetsPx({ left, right });
+    };
+
+    measure();
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(timeline);
+    observer.observe(laneSvg);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [visibleChannels.join("|"), channelNames.join("|")]);
+
+  function seekFromClientX(clientX: number): number | undefined {
+    const element = playheadViewportRef.current;
+    if (!element) return undefined;
+    const rect = element.getBoundingClientRect();
+    const ratio = normalizedFromClientX(clientX, rect.left, rect.width);
+    setPlayhead(Math.round(ratio * 1000));
+    setLocalScrubTimeSec(ratio * durationSec);
+    return ratio;
   }
 
   function beginPlayheadDrag(event: React.PointerEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
-    seekFromClientX(event.clientX);
-    const onMove = (moveEvent: PointerEvent) => seekFromClientX(moveEvent.clientX);
+    const startRatio = seekFromClientX(event.clientX);
+    void beginScrubSession();
+    const startTimeSec = (startRatio ?? Math.min(1, Math.max(0, playhead / 1000))) * durationSec;
+    queueScrubTimeOverride(startTimeSec);
+    const onMove = (moveEvent: PointerEvent) => {
+      const ratio = seekFromClientX(moveEvent.clientX);
+      if (ratio === undefined) return;
+      queueScrubTimeOverride(ratio * durationSec);
+    };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      void endScrubSession();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -252,16 +717,43 @@ export default function AnimationEditorPage() {
       <div className={styles.mainGrid}>
         <aside className={styles.sidebar}>
           <section className={styles.panelCard}>
-            <h3>AnimSet</h3>
-            <select value={animsetPath} onChange={(e) => setAnimsetPath(e.target.value)} className={styles.selectControl}>
-              <option value="content/animsets/barr_e_expression_mvp.animset.yaml">
-                barr_e_expression_mvp.animset.yaml
-              </option>
+            <h3>Target</h3>
+            <select
+              value={selectedSourceId}
+              onChange={(e) => setSelectedSourceId(e.target.value)}
+              className={styles.selectControl}
+            >
+              {compatibleSources.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.label}
+                </option>
+              ))}
             </select>
-            <h3>Clip</h3>
+            <h3>AnimSet</h3>
+            <select
+              value={animsetPendingRestartPath || animsetPath}
+              onChange={(e) => setAnimsetPendingRestartPath(e.target.value)}
+              className={styles.selectControl}
+              title="AnimSet changes require restart to apply in runtime."
+            >
+              {animsetOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <div className={styles.metaLine}>Restart Required</div>
+            <h3>Active Clip</h3>
             <select
               value={selectedClipPath}
-              onChange={(e) => setSelectedClipPath(e.target.value)}
+              onChange={(e) => {
+                const nextPath = e.target.value;
+                setSelectedClipPath(nextPath);
+                const selected = clipRefs.find((clip) => clip.animclipPath === nextPath);
+                if (selected) {
+                  void writeAnimControlField("active_clip_name", selected.name);
+                }
+              }}
               className={styles.selectControl}
             >
               {clipRefs.map((c) => (
@@ -319,11 +811,29 @@ export default function AnimationEditorPage() {
                     type="button"
                     title={channelVisible[channel] !== false ? "Hide channel" : "Show channel"}
                     aria-label={channelVisible[channel] !== false ? "Hide channel" : "Show channel"}
-                    onClick={() =>
-                      setChannelVisible((p) => ({
-                        ...p,
-                        [channel]: p[channel] === false,
-                      }))
+                    onClick={(event) =>
+                      setChannelVisible((p) => {
+                        if (event.shiftKey) {
+                          const currentlyVisible = channelNames.filter((name) => p[name] !== false);
+                          const isSolo = currentlyVisible.length === 1 && currentlyVisible[0] === channel;
+                          if (isSolo) {
+                            const showAll: Record<string, boolean> = { ...p };
+                            for (const name of channelNames) {
+                              showAll[name] = true;
+                            }
+                            return showAll;
+                          }
+                          const solo: Record<string, boolean> = { ...p };
+                          for (const name of channelNames) {
+                            solo[name] = name === channel;
+                          }
+                          return solo;
+                        }
+                        return {
+                          ...p,
+                          [channel]: p[channel] === false,
+                        };
+                      })
                     }
                   >
                     {channelVisible[channel] !== false ? "👁" : "◌"}
@@ -335,13 +845,19 @@ export default function AnimationEditorPage() {
         </aside>
 
         <main className={styles.timelineArea}>
-          <section className={styles.timelineHeader}>
-            <h2>{clipData.name || "clip"}</h2>
-            <div className={styles.metaLine}>Mode: AnimDriven</div>
-          </section>
-
           <section ref={timelineRef} className={styles.timelineCanvas} aria-label="Animation timeline">
             <div className={styles.timeRuler}>
+              <div className={styles.loopResetRuler} aria-hidden="true">
+                {isLoopResetActive ? (
+                  <div
+                    className={styles.loopResetSlug}
+                    style={{
+                      left: `${Math.max(0, Math.min(100, loopResetSlugRangeNorm.left * 100))}%`,
+                      right: `${Math.max(0, Math.min(100, (1 - loopResetSlugRangeNorm.right) * 100))}%`,
+                    }}
+                  />
+                ) : null}
+              </div>
               <span className={styles.rulerMark}>0.0s</span>
               <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
               <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
@@ -413,7 +929,13 @@ export default function AnimationEditorPage() {
                       >
                         Fit Y
                       </button>
-                      <svg className={styles.laneSvg} viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true">
+                      <svg
+                        ref={visibleChannels[0] === channel ? firstLaneSvgRef : undefined}
+                        className={styles.laneSvg}
+                        viewBox="0 0 1000 40"
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                      >
                         <path
                           d={areaPath(points, durationSec, 1000, 34, minV, maxV)}
                           className={styles.laneArea}
@@ -430,15 +952,33 @@ export default function AnimationEditorPage() {
                 );
               })}
             </div>
-            <div className={styles.playhead} style={{ left: `${playhead / 10}%` }}>
-              <button
-                className={styles.playheadGrab}
-                type="button"
-                onPointerDown={beginPlayheadDrag}
-                title="Drag playhead"
-                aria-label="Drag playhead"
-              />
-              <div className={styles.playheadPip} />
+            <div className={styles.timeRulerBottom}>
+              <span className={styles.rulerMark}>0.0s</span>
+              <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
+              <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
+              <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
+              <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
+              <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
+            </div>
+            <div
+              ref={playheadViewportRef}
+              className={styles.playheadViewport}
+              style={{
+                left: `${playheadViewportInsetsPx.left}px`,
+                right: `${playheadViewportInsetsPx.right}px`,
+              }}
+            >
+              <div className={styles.rulerBottomPip} style={{ left: `${playhead / 10}%` }} />
+              <div className={styles.playhead} style={{ left: `${playhead / 10}%` }}>
+                <button
+                  className={styles.playheadGrab}
+                  type="button"
+                  onPointerDown={beginPlayheadDrag}
+                  title="Drag playhead"
+                  aria-label="Drag playhead"
+                />
+                <div className={styles.playheadPip} />
+              </div>
             </div>
           </section>
         </main>
@@ -465,60 +1005,106 @@ export default function AnimationEditorPage() {
 
       <footer className={styles.transportBar}>
         <div className={styles.transportLeft}>
-          <button className={styles.transportChipButton} type="button">
-            Loop: On
+          <button
+            className={`${styles.transportChipButton} ${autoSaveEnabled ? styles.transportChipButtonActive : ""}`}
+            type="button"
+            title="Enable or disable automatic debounced save while editing."
+            onClick={() => setAutoSaveEnabled((value) => !value)}
+          >
+            Auto-save
           </button>
           <button className={styles.transportChipButton} type="button">
-            Save Clip
+            Save
           </button>
         </div>
         <div className={styles.transportCenter}>
-          <div className={styles.transportCluster} role="group" aria-label="Playback controls">
-            <button className={`${styles.transportIconButton} ${styles.iconStop}`} type="button" aria-label="Stop">
-              ⏹
-            </button>
+          <div className={styles.transportLauncherStrip}>
             <button
-              className={`${styles.transportIconButton} ${styles.iconPlayPause}`}
+              className={styles.loopLauncherButton}
               type="button"
-              aria-label={isPlaying ? "Pause" : "Play"}
-              onClick={() => setIsPlaying((value) => !value)}
+              title="Toggle loop playback."
+              onClick={() =>
+                setLoopEnabled((value) => {
+                  const next = !value;
+                  void writeAnimControlField("loop", next);
+                  return next;
+                })
+              }
             >
-              {isPlaying ? "⏸" : "▶"}
+              {loopEnabled ? "Loop" : "Once"}
             </button>
-            <button className={`${styles.transportIconButton} ${styles.iconRecord}`} type="button" aria-label="Record">
-              ●
-            </button>
-          </div>
-          <div className={styles.transportNumericGroup}>
-            <label className={styles.transportNumericField}>
-              Current Time
-              <input
-                type="number"
-                min={0}
-                max={durationSec}
-                step={0.1}
-                value={playheadSec.toFixed(2)}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (!Number.isFinite(value)) return;
-                  const clamped = Math.min(durationSec, Math.max(0, value));
-                  setPlayhead(Math.round((clamped / durationSec) * 1000));
+            <div className={styles.transportCluster} role="group" aria-label="Playback controls">
+              <button
+                className={`${styles.transportIconButton} ${styles.iconStop}`}
+                type="button"
+                aria-label="Stop"
+                onClick={() => {
+                  setIsPlaying(false);
+                  void writeAnimControlField("playback_state", 0);
                 }}
-              />
-            </label>
-            <label className={styles.transportNumericField}>
-              Duration
-              <input
-                type="number"
-                min={0.01}
-                step={0.01}
-                value={durationSec.toFixed(2)}
-                readOnly
-              />
-            </label>
+              >
+                <span className={styles.iconStopGlyph}>⏹</span>
+              </button>
+              <button
+                className={`${styles.transportIconButton} ${styles.iconPlayPause}`}
+                type="button"
+                aria-label={isPlaying ? "Pause" : "Play"}
+                onClick={() => {
+                  const nextPlaying = !isPlaying;
+                  setIsPlaying(nextPlaying);
+                  void writeAnimControlField("playback_state", nextPlaying ? 2 : 1);
+                }}
+              >
+                <span className={isPlaying ? styles.iconPauseGlyph : styles.iconPlayGlyph}>
+                  {isPlaying ? "⏸" : "▶"}
+                </span>
+              </button>
+              <button
+                className={`${styles.transportIconButton} ${styles.iconRecord}`}
+                type="button"
+                aria-label="Record"
+                onClick={() => void writeAnimControlField("playback_state", 3)}
+              >
+                <span className={styles.iconRecordGlyph}>●</span>
+              </button>
+            </div>
+            <div className={styles.transportNumericGroup}>
+              <label className={styles.transportNumericField}>
+                <span className={styles.transportNumericLabel}>Current</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={durationSec}
+                  step={0.1}
+                  value={playheadSec.toFixed(2)}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (!Number.isFinite(value)) return;
+                    const clamped = Math.min(durationSec, Math.max(0, value));
+                    setPlayhead(Math.round((clamped / durationSec) * 1000));
+                    void writeAnimControlField("time_override_sec", clamped);
+                  }}
+                />
+              </label>
+              <label className={styles.transportNumericField}>
+                <span className={styles.transportNumericLabel}>Duration</span>
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  value={durationSec.toFixed(2)}
+                  readOnly
+                />
+              </label>
+            </div>
           </div>
         </div>
-        <div className={styles.transportRight} />
+        <div className={styles.transportRight}>
+          <div className={styles.metaLine}>
+            Samples: {recordedSampleCount ?? 0}
+            {lastRecordedClipPath ? ` | Last: ${lastRecordedClipPath}` : ""}
+          </div>
+        </div>
       </footer>
     </div>
   );
