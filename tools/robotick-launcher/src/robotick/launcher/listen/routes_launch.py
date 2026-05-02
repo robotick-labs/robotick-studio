@@ -339,6 +339,7 @@ def _set_model_run_status(
     detail: Optional[str] = None,
     returncode: Optional[int] = None,
     pid: Optional[int] = None,
+    shared: Optional[bool] = None,
 ) -> None:
     with status_lock:
         model_entry = current_status.setdefault("models", {}).setdefault(model_id, {})
@@ -349,9 +350,25 @@ def _set_model_run_status(
             model_entry["returncode"] = returncode
         if pid is not None:
             model_entry["pid"] = pid
+        if shared is not None:
+            model_entry["shared"] = shared
         if status in {"starting", "running"}:
             current_status["status"] = "running"
             current_status["phase"] = "run"
+
+
+def _is_model_runtime_healthy(project_path: Path, platform: str, model_id: str) -> bool:
+    if platform != "local":
+        return False
+    project_name = project_path.name.removesuffix(".project.yaml")
+    base_dir = project_path.parent
+    model_target = run_profile_module._resolve_profile_model_target(
+        project_name, base_dir, platform, model_id
+    )
+    health_url = run_profile_module._resolve_model_health_url(
+        project_name, model_id, model_target, base_dir, platform
+    )
+    return bool(health_url and run_profile_module._health_ready(health_url))
 
 
 def _run_single_model_worker(
@@ -412,6 +429,18 @@ def _run_single_model_worker(
                 print(stripped)
 
     rc = proc.wait()
+    # The launcher helper can return non-zero while the model is still up
+    # (e.g. duplicate run/container conflict). Prefer runtime health.
+    if rc != 0:
+        try:
+            if _is_model_runtime_healthy(project_path, platform, model_id):
+                _set_model_run_status(
+                    model_id, "running", returncode=rc, pid=proc.pid, shared=True
+                )
+                return
+        except Exception:
+            pass
+
     _set_model_run_status(
         model_id,
         "succeeded" if rc == 0 else "failed",
@@ -594,6 +623,17 @@ async def run_model(
             }
         current_status["status"] = "running"
         current_status["phase"] = "run"
+
+    # If runtime is already healthy, don't spawn another launcher helper.
+    try:
+        if _is_model_runtime_healthy(project_path, normalized_platform, trimmed_model_id):
+            _set_model_run_status(trimmed_model_id, "running", shared=True)
+            return {
+                "status": "already running",
+                "model": trimmed_model_id,
+            }
+    except Exception:
+        pass
 
     worker = threading.Thread(
         target=_run_single_model_worker,
