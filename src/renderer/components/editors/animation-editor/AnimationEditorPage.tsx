@@ -979,6 +979,7 @@ export default function AnimationEditorPage() {
                       />
                     </div>
                     <div className={styles.laneTrack}>
+                      <div className={styles.laneChannelOverlay}>{channel}</div>
                       <button
                         className={styles.laneFitButton}
                         type="button"

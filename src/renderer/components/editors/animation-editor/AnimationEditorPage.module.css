@@ -479,6 +479,23 @@
   border-left: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.laneChannelOverlay {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 2;
+  pointer-events: none;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: rgba(233, 244, 255, 0.95);
+  opacity: 0.5;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  max-width: calc(100% - 78px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .laneAxis {
   height: 100%;
   display: flex;
