@@ -82,6 +82,24 @@ function curvePath(points: Point[], durationSec: number, width: number, height: 
   return d;
 }
 
+function areaPath(points: Point[], durationSec: number, width: number, height: number, minV: number, maxV: number) {
+  if (!points.length || durationSec <= 0) return "";
+  const span = Math.max(1e-6, maxV - minV);
+  let d = "";
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const x = (p.t / durationSec) * width;
+    const y = height - ((p.v - minV) / span) * height;
+    d += `${i === 0 ? "M" : " L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+  const last = points[points.length - 1];
+  const first = points[0];
+  const xLast = (last.t / durationSec) * width;
+  const xFirst = (first.t / durationSec) * width;
+  d += ` L ${xLast.toFixed(2)} ${height.toFixed(2)} L ${xFirst.toFixed(2)} ${height.toFixed(2)} Z`;
+  return d;
+}
+
 function fitRangeWithPadding(points: Point[]): LaneRange {
   if (!points.length) return { min: -1, max: 1 };
   const min = Math.min(...points.map((p) => p.v));
@@ -315,9 +333,6 @@ export default function AnimationEditorPage() {
               <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
               <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
               <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
-              <div className={styles.rulerPlayheadHandle} style={{ left: `${playhead / 10}%` }}>
-                <button className={styles.rulerHandleGrip} type="button" onPointerDown={beginPlayheadDrag} />
-              </div>
             </div>
             <div className={styles.lanes}>
               {visibleChannels.map((channel) => {
@@ -385,6 +400,11 @@ export default function AnimationEditorPage() {
                       </button>
                       <svg className={styles.laneSvg} viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true">
                         <path
+                          d={areaPath(points, durationSec, 1000, 34, minV, maxV)}
+                          className={styles.laneArea}
+                          style={{ fill: channelColor[channel] ?? "#77ceff" }}
+                        />
+                        <path
                           d={curvePath(points, durationSec, 1000, 34, minV, maxV)}
                           className={styles.laneCurve}
                           style={{ stroke: channelColor[channel] ?? "#77ceff" }}
@@ -395,7 +415,16 @@ export default function AnimationEditorPage() {
                 );
               })}
             </div>
-            <div className={styles.playhead} style={{ left: `${playhead / 10}%` }} />
+            <div className={styles.playhead} style={{ left: `${playhead / 10}%` }}>
+              <button
+                className={styles.playheadGrab}
+                type="button"
+                onPointerDown={beginPlayheadDrag}
+                title="Drag playhead"
+                aria-label="Drag playhead"
+              />
+              <div className={styles.playheadPip} />
+            </div>
           </section>
         </main>
 

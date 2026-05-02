@@ -350,27 +350,6 @@
   padding: 0;
 }
 
-.rulerPlayheadHandle {
-  position: absolute;
-  top: 2px;
-  bottom: 0;
-  width: 0;
-}
-
-.rulerHandleGrip {
-  position: absolute;
-  top: 0;
-  left: -6px;
-  width: 12px;
-  height: 8px;
-  border-radius: 0 0 4px 4px;
-  border: none;
-  background: rgba(255, 206, 84, 1);
-  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
-  cursor: ew-resize;
-  padding: 0;
-}
-
 .lanes {
   display: flex;
   flex-direction: column;
@@ -475,6 +454,10 @@
   filter: drop-shadow(0 0 3px rgba(89, 173, 255, 0.45));
 }
 
+.laneArea {
+  opacity: 0.2;
+}
+
 .mockPoints {
   position: absolute;
   left: 5%;
@@ -513,7 +496,35 @@
   width: 2px;
   background: rgba(255, 206, 84, 0.95);
   box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.4);
+  z-index: 4;
 }
+
+.playheadGrab {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  border: none;
+  background: transparent;
+  cursor: ew-resize;
+  padding: 0;
+}
+
+.playheadPip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, 0);
+  width: 10px;
+  height: 6px;
+  border-radius: 0 0 3px 3px;
+  background: rgba(255, 206, 84, 1);
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
+  pointer-events: none;
+}
+
 
 .toolButtons {
   display: grid;
