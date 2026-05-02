@@ -1,0 +1,554 @@
+.root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background:
+    radial-gradient(1200px 500px at 85% -120px, rgba(15, 115, 180, 0.2), transparent 55%),
+    linear-gradient(180deg, rgba(5, 13, 24, 0.92), rgba(4, 10, 18, 0.96));
+}
+
+.transportBar {
+  border: 1px solid var(--app-panel-border);
+  border-radius: 10px;
+  background: var(--app-panel-overlay);
+  backdrop-filter: var(--app-panel-blur);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding-right: 84px;
+}
+
+.transportLeft,
+.transportRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.transportRight {
+  min-width: 1px;
+  justify-content: flex-end;
+}
+
+.transportCenter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--app-text-muted);
+  font-size: 0.85rem;
+}
+
+.transportNumericGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transportNumericField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--app-text-muted);
+}
+
+.transportNumericField input {
+  width: 74px;
+  border: 1px solid var(--app-input-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.82rem;
+}
+
+.transportSlash {
+  opacity: 0.75;
+}
+
+.transportCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--app-input-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 4px 6px;
+}
+
+.transportCenter input[type="range"] {
+  width: 100%;
+  cursor: ew-resize;
+}
+
+.transportButton {
+  border: 1px solid var(--app-input-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.primaryButton {
+  background: rgba(16, 137, 255, 0.24);
+  border-color: rgba(16, 137, 255, 0.52);
+}
+
+.transportIconButton {
+  cursor: pointer;
+  user-select: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 25px;
+  border-radius: 10px;
+  background-color: rgba(150, 255, 150, 0.25);
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  border: none;
+  transition: background-color 180ms ease-out, transform 120ms ease-out;
+}
+
+.transportIconButton:hover,
+.transportIconButton:focus {
+  background-color: rgba(150, 255, 150, 0.35);
+}
+
+.transportIconButton:active {
+  background-color: rgba(150, 255, 150, 0.5);
+}
+
+.iconPlay {
+  font-size: 16px;
+}
+
+.iconPlayPause {
+  font-size: 15px;
+}
+
+.iconStop {
+  font-size: 18px;
+}
+
+.iconRecord {
+  color: #ff9b9b;
+  font-size: 12px;
+}
+
+.transportChipButton {
+  border: 1px solid var(--app-input-border);
+  background: rgba(150, 255, 150, 0.1);
+  color: var(--app-text-primary);
+  border-radius: 10px;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.transportChipButton:hover,
+.transportChipButton:focus {
+  background: rgba(150, 255, 150, 0.22);
+}
+
+.mainGrid {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) 1fr minmax(220px, 290px);
+  gap: 10px;
+}
+
+.sidebar,
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.panelCard {
+  border: 1px solid var(--app-panel-border);
+  border-radius: 10px;
+  background: var(--app-panel-overlay);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.panelCard h3 {
+  margin: 0;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--app-text-muted);
+}
+
+.channelsHeader {
+  display: grid;
+  grid-template-columns: 24px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0.1rem 0.4rem;
+}
+
+.channelsHeader h3 {
+  grid-column: 1 / span 2;
+  margin: 0;
+}
+
+.metaLine {
+  color: var(--app-text-primary);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selectControl {
+  border: 1px solid var(--app-input-border);
+  background: var(--app-input-background);
+  color: var(--app-text-primary);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.84rem;
+}
+
+.channelKeyRow {
+  border: 1px solid var(--app-input-border);
+  border-radius: 8px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.8rem;
+  color: var(--app-text-primary);
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  grid-template-columns: 24px 1fr 28px;
+  gap: 8px;
+  align-items: center;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.channelKeyRow input[type="color"] {
+  width: 22px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.eyeToggle {
+  width: 24px;
+  height: 22px;
+  border: 1px solid var(--app-input-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--app-text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.channelKeyRowHovered {
+  border-color: rgba(101, 176, 255, 0.5);
+  background: rgba(60, 118, 184, 0.18);
+}
+
+.channelKeyRowSelected {
+  border-color: rgba(133, 203, 255, 0.85);
+  background: rgba(66, 129, 191, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(154, 219, 255, 0.35);
+}
+
+.listItem,
+.listItemActive {
+  border: 1px solid var(--app-input-border);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.84rem;
+  color: var(--app-text-primary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.listItemActive {
+  border-color: rgba(27, 147, 255, 0.6);
+  background: rgba(27, 147, 255, 0.18);
+}
+
+.timelineArea {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timelineHeader {
+  border: 1px solid var(--app-panel-border);
+  border-radius: 10px;
+  background: var(--app-panel-overlay);
+  padding: 10px;
+}
+
+.timelineHeader h2 {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+  color: var(--app-text-primary);
+}
+
+.timelineCanvas {
+  position: relative;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px) 0 0 / 10% 100%,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 100% 46px,
+    rgba(4, 11, 20, 0.8);
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.timeRuler {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  padding: 8px 14px 10px;
+  color: var(--app-text-muted);
+  font-size: 0.76rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  touch-action: none;
+}
+
+.rulerMark {
+  color: inherit;
+  text-align: left;
+  font-size: inherit;
+  cursor: default;
+  padding: 0;
+}
+
+.rulerPlayheadHandle {
+  position: absolute;
+  top: 2px;
+  bottom: 0;
+  width: 0;
+}
+
+.rulerHandleGrip {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 12px;
+  height: 8px;
+  border-radius: 0 0 4px 4px;
+  border: none;
+  background: rgba(255, 206, 84, 1);
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
+  cursor: ew-resize;
+  padding: 0;
+}
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 37px);
+  overflow: hidden;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.laneRow {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  min-height: 0;
+  flex: 1 1 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(14, 27, 45, 0.55), rgba(9, 20, 35, 0.5));
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.laneLabel {
+  padding: 0 12px;
+  font-size: 0.8rem;
+  color: var(--app-text-primary);
+}
+
+.laneTrack {
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.laneAxis {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 6px 6px 6px 4px;
+  color: var(--app-text-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  background: rgba(5, 12, 22, 0.5);
+}
+
+.laneAxisMax,
+.laneAxisMin {
+  line-height: 1;
+}
+
+.laneRowHovered {
+  border-color: rgba(101, 176, 255, 0.5);
+  background: linear-gradient(180deg, rgba(28, 51, 79, 0.62), rgba(14, 32, 52, 0.58));
+}
+
+.laneRowSelected {
+  border-color: rgba(133, 203, 255, 0.85);
+  background: linear-gradient(180deg, rgba(34, 62, 93, 0.72), rgba(18, 38, 61, 0.68));
+  box-shadow: inset 0 0 0 1px rgba(154, 219, 255, 0.34);
+}
+
+.laneAxisInput {
+  width: 52px;
+  border: 1px solid var(--app-input-border);
+  background: rgba(8, 17, 30, 0.9);
+  color: var(--app-text-primary);
+  border-radius: 5px;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.66rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.laneFitButton {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: 1px solid var(--app-input-border);
+  border-radius: 6px;
+  background: rgba(7, 16, 28, 0.8);
+  color: var(--app-text-primary);
+  padding: 0.15rem 0.4rem;
+  font-size: 0.72rem;
+  z-index: 2;
+}
+
+.laneSvg {
+  position: absolute;
+  inset: 3px 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 6px);
+}
+
+.laneCurve {
+  fill: none;
+  stroke: #77ceff;
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px rgba(89, 173, 255, 0.45));
+}
+
+.mockPoints {
+  position: absolute;
+  left: 5%;
+  right: 6%;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(120, 196, 255, 0.85), rgba(58, 148, 255, 0.92));
+}
+
+.mockPoints::before,
+.mockPoints::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(14, 24, 38, 1);
+  background: #77ceff;
+  transform: translate(-50%, -50%);
+}
+
+.mockPoints::before {
+  left: 28%;
+}
+
+.mockPoints::after {
+  left: 72%;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 206, 84, 0.95);
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.4);
+}
+
+.toolButtons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.toolButton {
+  border: 1px solid var(--app-input-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--app-text-primary);
+  border-radius: 8px;
+  padding: 0.34rem 0.5rem;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--app-text-muted);
+}
+
+@media (max-width: 1200px) {
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .transportBar {
+    grid-template-columns: 1fr;
+  }
+
+  .transportCenter {
+    order: 3;
+  }
+}
