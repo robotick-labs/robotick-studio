@@ -10,10 +10,25 @@ type LaneRange = { min: number; max: number };
 
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
 const TOOL_SECTIONS = [
-  { title: "Brushes", items: ["Draw", "Smooth", "Flatten", "Push/Pull"] },
-  { title: "Range", items: ["Scale", "Offset", "Ramp Up", "Ramp Down"] },
-  { title: "Timing", items: ["Snap to 0.1s", "Hold Keys", "Mirror Range"] },
+  { title: "Sculpting", items: ["Draw", "Smooth", "Flatten", "Push/Pull"] },
+  { title: "Keying", items: ["Select", "Move", "Add Point", "Delete Point"] },
+  { title: "Scaling", items: ["Scale", "Offset", "Ramp Up", "Ramp Down"] },
 ];
+
+const TOOL_TIPS: Record<string, string> = {
+  Draw: "Paint values across a time window toward the cursor path.",
+  Smooth: "Reduce local jitter by smoothing points in the selected region.",
+  Flatten: "Collapse local variance toward a flatter profile.",
+  "Push/Pull": "Nudge values up or down without changing timing.",
+  Select: "Select one or more keys/points.",
+  Move: "Move selected keys in time and/or value.",
+  "Add Point": "Insert a new key at the cursor time/value.",
+  "Delete Point": "Delete selected keys.",
+  Scale: "Scale amplitude over a selected time span.",
+  Offset: "Apply a constant value offset over the selected span.",
+  "Ramp Up": "Apply an increasing linear offset over the selected span.",
+  "Ramp Down": "Apply a decreasing linear offset over the selected span.",
+};
 
 function parseAnimsetYaml(yaml: string): ClipRef[] {
   const clips: ClipRef[] = [];
@@ -435,7 +450,11 @@ export default function AnimationEditorPage() {
               <div className={styles.toolButtons}>
                 {section.items.map((item) => (
                   <button key={item} className={styles.toolButton} type="button">
-                    {item}
+                    {/*
+                      Tooltips are explicit per tool so behavior intent remains clear
+                      while this remains a mock-up.
+                    */}
+                    <span title={TOOL_TIPS[item] ?? `Activate ${item} tool`}>{item}</span>
                   </button>
                 ))}
               </div>
@@ -472,12 +491,12 @@ export default function AnimationEditorPage() {
           </div>
           <div className={styles.transportNumericGroup}>
             <label className={styles.transportNumericField}>
-              Playhead
+              Current Time
               <input
                 type="number"
                 min={0}
                 max={durationSec}
-                step={0.01}
+                step={0.1}
                 value={playheadSec.toFixed(2)}
                 onChange={(event) => {
                   const value = Number(event.target.value);
@@ -487,7 +506,6 @@ export default function AnimationEditorPage() {
                 }}
               />
             </label>
-            <span className={styles.transportSlash}>/</span>
             <label className={styles.transportNumericField}>
               Duration
               <input

@@ -67,10 +67,6 @@
   font-size: 0.82rem;
 }
 
-.transportSlash {
-  opacity: 0.75;
-}
-
 .transportCluster {
   display: inline-flex;
   align-items: center;
