@@ -103,6 +103,7 @@ function parseAnimclipYaml(yaml: string): ClipData {
       if (time > maxT) maxT = time;
     }
   }
+  console.log("[parseAnimclipYaml] channels:", Object.keys(channels));
   return { name: clipName, channels, durationSec: Math.max(0.01, maxT) };
 }
 
