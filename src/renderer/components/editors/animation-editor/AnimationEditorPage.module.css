@@ -186,6 +186,17 @@
   background: rgba(150, 255, 150, 0.22);
 }
 
+.transportChipButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+.transportChipButton:disabled:hover,
+.transportChipButton:disabled:focus {
+  background: rgba(150, 255, 150, 0.1);
+}
+
 .transportChipButtonActive {
   border-color: rgba(15, 136, 255, 0.85);
   background: rgba(15, 136, 255, 0.9);
@@ -270,6 +281,11 @@
   border-radius: 8px;
   padding: 0.35rem 0.5rem;
   font-size: 0.84rem;
+}
+
+.selectControl:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
 }
 
 .channelKeyRow {
@@ -697,6 +713,12 @@
   padding: 0.34rem 0.5rem;
   font-size: 0.8rem;
   text-align: left;
+}
+
+.toolButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
 }
 
 .field {

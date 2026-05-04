@@ -10,13 +10,12 @@ import {
   type ITelemetryField,
 } from "../../../data-sources/telemetry";
 import { useProjectContext } from "../../../data-sources/launcher/internal/ProjectContext";
-import { buildProjectAssetUrl } from "../../../data-sources/launcher/internal/launcher-interface";
-import { buildSampledCurve } from "./anim-curve-sampling";
+import { buildUrl } from "../../../data-sources/launcher/internal/launcher-interface";
 import { normalizedFromClientX } from "./playhead-math";
 import styles from "./AnimationEditorPage.module.css";
 
 type Point = { t: number; v: number };
-type ClipRef = { name: string; animclipPath: string };
+type ClipRef = { name: string; animclipPath: string; durationSec?: number; channels?: string[] };
 type ClipData = { name: string; channels: Record<string, Point[]>; durationSec: number };
 type LaneRange = { min: number; max: number };
 type CompatibleSourceRef = {
@@ -27,6 +26,51 @@ type CompatibleSourceRef = {
   modelPath: string;
   telemetryBaseUrl: string;
   workloadName: string;
+};
+type AnimTelemetryServiceDescriptor = {
+  service_id: string;
+  service_type: string;
+  display_name: string;
+  capabilities?: string[];
+};
+type AnimTelemetryServicesResponse = {
+  services?: AnimTelemetryServiceDescriptor[];
+};
+type AnimTelemetryAnimsetClip = {
+  clip_index: number;
+  clip_name: string;
+  animclip_path: string;
+  duration_sec?: number;
+  channels?: string[];
+};
+type AnimTelemetryAnimsetResponse = {
+  service_id: string;
+  animset_path: string;
+  animset_name?: string;
+  animset_revision?: number;
+  clips?: AnimTelemetryAnimsetClip[];
+};
+type AnimTelemetryClipPayload = {
+  name?: string;
+  duration_sec?: number;
+  channels?: Array<{
+    channel?: string;
+    keys?: Array<{ time_sec?: number; value?: number }>;
+  }>;
+};
+type AnimTelemetryClipResponse = {
+  service_id: string;
+  revision?: number;
+  clip?: AnimTelemetryClipPayload;
+};
+type AnimTelemetrySampleResponse = {
+  service_id: string;
+  revision?: number;
+  duration_sec?: number;
+  channels?: Array<{
+    channel?: string;
+    samples?: Array<{ time_sec?: number; value?: number }>;
+  }>;
 };
 
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
@@ -51,60 +95,56 @@ const TOOL_TIPS: Record<string, string> = {
   "Ramp Down": "Apply a decreasing linear offset over the selected span.",
 };
 
-function parseAnimsetYaml(yaml: string): ClipRef[] {
-  const clips: ClipRef[] = [];
-  const lines = yaml.split(/\r?\n/);
-  let pendingName = "";
-  for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (t.startsWith("- name:")) {
-      pendingName = t.slice("- name:".length).trim().replace(/^['"]|['"]$/g, "");
-      continue;
-    }
-    if (t.startsWith("animclip_path:")) {
-      const p = t.slice("animclip_path:".length).trim().replace(/^['"]|['"]$/g, "");
-      if (p) clips.push({ name: pendingName || p.split("/").pop() || "clip", animclipPath: p });
-      pendingName = "";
-    }
-  }
-  return clips;
+function clipRefsFromAnimsetResponse(response: AnimTelemetryAnimsetResponse): ClipRef[] {
+  return (response.clips ?? []).map((clip) => ({
+    name: clip.clip_name || clip.animclip_path || "clip",
+    animclipPath: clip.animclip_path,
+    durationSec: typeof clip.duration_sec === "number" ? clip.duration_sec : undefined,
+    channels: Array.isArray(clip.channels) ? clip.channels.filter(Boolean) : undefined,
+  }));
 }
 
-function parseAnimclipYaml(yaml: string): ClipData {
-  const lines = yaml.split(/\r?\n/);
-  let clipName = "clip";
+function clipDataFromTelemetryPayload(payload: AnimTelemetryClipPayload | undefined): ClipData {
   const channels: Record<string, Point[]> = {};
-  let currentChannel = "";
-  let pendingTime: number | null = null;
-  let maxT = 0;
-  for (const raw of lines) {
-    const t = raw.trim();
-    const tNoDash = t.startsWith("- ") ? t.slice(2).trim() : t;
-    if (t.startsWith("name:")) {
-      clipName = t.slice("name:".length).trim().replace(/^['"]|['"]$/g, "") || clipName;
-      continue;
+  let durationSec = 0;
+  for (const channel of payload?.channels ?? []) {
+    const channelName = String(channel?.channel ?? "").trim();
+    if (!channelName) continue;
+    const keys: Point[] = [];
+    for (const key of channel?.keys ?? []) {
+      const t = Number(key?.time_sec);
+      const v = Number(key?.value);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+      keys.push({ t, v });
+      durationSec = Math.max(durationSec, t);
     }
-    if (t.startsWith("- channel:")) {
-      currentChannel = t.slice("- channel:".length).trim().replace(/^['"]|['"]$/g, "");
-      if (!channels[currentChannel]) channels[currentChannel] = [];
-      pendingTime = null;
-      continue;
-    }
-    if (tNoDash.startsWith("time_sec:")) {
-      const tv = Number(tNoDash.slice("time_sec:".length).trim());
-      pendingTime = Number.isFinite(tv) ? tv : null;
-      continue;
-    }
-    if (tNoDash.startsWith("value:") && currentChannel) {
-      const vv = Number(tNoDash.slice("value:".length).trim());
-      if (!Number.isFinite(vv)) continue;
-      const time = pendingTime ?? (channels[currentChannel].length * (1 / 60));
-      channels[currentChannel].push({ t: time, v: vv });
-      if (time > maxT) maxT = time;
-    }
+    channels[channelName] = keys;
   }
-  console.log("[parseAnimclipYaml] channels:", Object.keys(channels));
-  return { name: clipName, channels, durationSec: Math.max(0.01, maxT) };
+  if (typeof payload?.duration_sec === "number" && Number.isFinite(payload.duration_sec)) {
+    durationSec = Math.max(durationSec, payload.duration_sec);
+  }
+  return {
+    name: String(payload?.name ?? "clip").trim() || "clip",
+    channels,
+    durationSec: Math.max(0.01, durationSec),
+  };
+}
+
+function sampledCurvesFromTelemetryResponse(response: AnimTelemetrySampleResponse): Record<string, Point[]> {
+  const out: Record<string, Point[]> = {};
+  for (const channel of response.channels ?? []) {
+    const channelName = String(channel?.channel ?? "").trim();
+    if (!channelName) continue;
+    const samples: Point[] = [];
+    for (const sample of channel?.samples ?? []) {
+      const t = Number(sample?.time_sec);
+      const v = Number(sample?.value);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+      samples.push({ t, v });
+    }
+    out[channelName] = samples;
+  }
+  return out;
 }
 
 function curvePath(points: Point[], durationSec: number, width: number, height: number, minV: number, maxV: number) {
@@ -209,14 +249,14 @@ export default function AnimationEditorPage() {
   const [playhead, setPlayhead] = React.useState(280);
   const [isPlaying, setIsPlaying] = React.useState(true);
   const [loopEnabled, setLoopEnabled] = React.useState(true);
-  const [autoSaveEnabled, setAutoSaveEnabled] = React.useState(true);
   const [animCompatibleWorkloadTypes, setAnimCompatibleWorkloadTypes] = React.useState<Set<string>>(new Set());
   const [selectedSourceId, setSelectedSourceId] = React.useState("");
   const [animsetPath, setAnimsetPath] = React.useState(DEFAULT_ANIMSET);
-  const [animsetPendingRestartPath, setAnimsetPendingRestartPath] = React.useState("");
   const [clipRefs, setClipRefs] = React.useState<ClipRef[]>([]);
   const [selectedClipPath, setSelectedClipPath] = React.useState("");
   const [clipData, setClipData] = React.useState<ClipData>({ name: "clip", channels: {}, durationSec: 10 });
+  const [sampledCurvesByChannel, setSampledCurvesByChannel] = React.useState<Record<string, Point[]>>({});
+  const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -249,63 +289,6 @@ export default function AnimationEditorPage() {
       cancelled = true;
     };
   }, [launcherService, projectPath]);
-
-  const reloadAnimsetClipRefs = React.useCallback(async () => {
-    if (!projectPath) return;
-    const resolvedAnimsetPath = animsetPendingRestartPath || animsetPath;
-    if (!resolvedAnimsetPath) return;
-    const url = buildProjectAssetUrl(projectPath, resolvedAnimsetPath);
-    const text = await (await fetch(url, { cache: "no-store" })).text();
-    const parsed = parseAnimsetYaml(text);
-    setClipRefs(parsed);
-    setSelectedClipPath((prev) => {
-      if (prev && parsed.some((clip) => clip.animclipPath === prev)) {
-        return prev;
-      }
-      return parsed.length > 0 ? parsed[0].animclipPath : "";
-    });
-  }, [animsetPath, animsetPendingRestartPath, projectPath]);
-
-  React.useEffect(() => {
-    void reloadAnimsetClipRefs();
-  }, [reloadAnimsetClipRefs]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    async function loadClip() {
-      if (!projectPath || !selectedClipPath) return;
-      const url = buildProjectAssetUrl(projectPath, selectedClipPath);
-      const text = await (await fetch(url, { cache: "no-store" })).text();
-      const parsed = parseAnimclipYaml(text);
-      if (cancelled) return;
-      setClipData(parsed);
-      setPlayhead((p) => Math.min(p, 1000));
-      const names = Object.keys(parsed.channels);
-      setChannelVisible((prev) => {
-        const next: Record<string, boolean> = {};
-        names.forEach((n) => (next[n] = prev[n] ?? true));
-        return next;
-      });
-      setChannelColor((prev) => {
-        const palette = ["#77ceff", "#7ef9a9", "#ffd166", "#ff7b72", "#d9a3ff", "#7afcff", "#fcbf49", "#f07167"];
-        const next: Record<string, string> = {};
-        names.forEach((n, i) => (next[n] = prev[n] ?? palette[i % palette.length]));
-        return next;
-      });
-      setLaneRange(() => {
-        const next: Record<string, LaneRange> = {};
-        names.forEach((n) => {
-          next[n] = fitRangeWithPadding(parsed.channels[n] ?? []);
-        });
-        return next;
-      });
-      setSelectedChannel((prev) => (prev && names.includes(prev) ? prev : names[0] ?? null));
-    }
-    void loadClip();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectPath, selectedClipPath]);
 
   const compatibleSources = React.useMemo(() => {
     if (animCompatibleWorkloadTypes.size === 0) {
@@ -354,6 +337,17 @@ export default function AnimationEditorPage() {
     [compatibleSources, selectedSourceId]
   );
   const telemetryBaseUrl = selectedSource?.telemetryBaseUrl ?? "";
+  const buildAnimServiceUrl = React.useCallback(
+    (suffix = "", params?: Record<string, string | number | undefined>) => {
+      if (!telemetryBaseUrl || !animTelemetryServiceId) return "";
+      return buildUrl(
+        telemetryBaseUrl,
+        `/api/telemetry/services/${animTelemetryServiceId}${suffix}`,
+        params
+      );
+    },
+    [animTelemetryServiceId, telemetryBaseUrl]
+  );
   const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, 20);
   const selectedTelemetryWorkload = React.useMemo(() => {
     if (!telemetryModel || !selectedSource?.workloadName) return null;
@@ -377,6 +371,138 @@ export default function AnimationEditorPage() {
     },
     [telemetryModel]
   );
+
+  const reloadAnimsetClipRefs = React.useCallback(async () => {
+    const url = buildAnimServiceUrl("/animset");
+    if (!url) return;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Failed to load animset: ${response.status}`);
+    }
+    const payload = (await response.json()) as AnimTelemetryAnimsetResponse;
+    const parsed = clipRefsFromAnimsetResponse(payload);
+    setClipRefs(parsed);
+    if (payload.animset_path) {
+      setAnimsetPath(payload.animset_path);
+    }
+    setSelectedClipPath((prev) => {
+      if (prev && parsed.some((clip) => clip.animclipPath === prev)) {
+        return prev;
+      }
+      return parsed.length > 0 ? parsed[0].animclipPath : "";
+    });
+  }, [buildAnimServiceUrl]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function discoverAnimService() {
+      if (!telemetryBaseUrl) {
+        setAnimTelemetryServiceId("");
+        setClipRefs([]);
+        setSampledCurvesByChannel({});
+        return;
+      }
+      try {
+        const response = await fetch(buildUrl(telemetryBaseUrl, "/api/telemetry/services"), {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to load services: ${response.status}`);
+        }
+        const payload = (await response.json()) as AnimTelemetryServicesResponse;
+        if (cancelled) return;
+        const services = (payload.services ?? []).filter((service) => service.service_type === "anim");
+        const exactDisplay = services.find((service) => service.display_name === selectedWorkloadName);
+        const exactServiceId = services.find((service) => service.service_id === `anim:${selectedWorkloadName}`);
+        const fallback = services[0];
+        setAnimTelemetryServiceId(exactDisplay?.service_id ?? exactServiceId?.service_id ?? fallback?.service_id ?? "");
+      } catch {
+        if (cancelled) return;
+        setAnimTelemetryServiceId("");
+      }
+    }
+    void discoverAnimService();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkloadName, telemetryBaseUrl]);
+
+  React.useEffect(() => {
+    if (!animTelemetryServiceId) return;
+    void reloadAnimsetClipRefs();
+  }, [animTelemetryServiceId, reloadAnimsetClipRefs]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadClip() {
+      if (!animTelemetryServiceId || !selectedClipPath) return;
+      const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
+      const url = buildAnimServiceUrl("/clip", {
+        clip_name: selectedClip?.name,
+      });
+      if (!url) return;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Failed to load clip: ${response.status}`);
+      }
+      const payload = (await response.json()) as AnimTelemetryClipResponse;
+      const parsed = clipDataFromTelemetryPayload(payload.clip);
+      if (cancelled) return;
+      setClipData(parsed);
+      setPlayhead((p) => Math.min(p, 1000));
+      const names = Object.keys(parsed.channels);
+      setChannelVisible((prev) => {
+        const next: Record<string, boolean> = {};
+        names.forEach((n) => (next[n] = prev[n] ?? true));
+        return next;
+      });
+      setChannelColor((prev) => {
+        const palette = ["#77ceff", "#7ef9a9", "#ffd166", "#ff7b72", "#d9a3ff", "#7afcff", "#fcbf49", "#f07167"];
+        const next: Record<string, string> = {};
+        names.forEach((n, i) => (next[n] = prev[n] ?? palette[i % palette.length]));
+        return next;
+      });
+      setLaneRange(() => {
+        const next: Record<string, LaneRange> = {};
+        names.forEach((n) => {
+          next[n] = fitRangeWithPadding(parsed.channels[n] ?? []);
+        });
+        return next;
+      });
+      setSelectedChannel((prev) => (prev && names.includes(prev) ? prev : names[0] ?? null));
+    }
+    void loadClip();
+    return () => {
+      cancelled = true;
+    };
+  }, [animTelemetryServiceId, buildAnimServiceUrl, clipRefs, selectedClipPath]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadSamples() {
+      if (!animTelemetryServiceId || !selectedClipPath) {
+        setSampledCurvesByChannel({});
+        return;
+      }
+      const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
+      const url = buildAnimServiceUrl("/sample", {
+        clip_name: selectedClip?.name,
+        samples_per_channel: 256,
+      });
+      if (!url) return;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Failed to load sampled curves: ${response.status}`);
+      }
+      const payload = (await response.json()) as AnimTelemetrySampleResponse;
+      if (cancelled) return;
+      setSampledCurvesByChannel(sampledCurvesFromTelemetryResponse(payload));
+    }
+    void loadSamples();
+    return () => {
+      cancelled = true;
+    };
+  }, [animTelemetryServiceId, buildAnimServiceUrl, clipRefs, selectedClipPath]);
 
   const scrubWriteStateRef = React.useRef<{
     active: boolean;
@@ -597,7 +723,6 @@ export default function AnimationEditorPage() {
     const runtimeAnimsetPath = readFieldValue(`${selectedWorkloadName}.config.animset_path`);
     if (typeof runtimeAnimsetPath === "string" && runtimeAnimsetPath.length > 0) {
       setAnimsetPath(runtimeAnimsetPath);
-      setAnimsetPendingRestartPath(runtimeAnimsetPath);
     }
   }, [readFieldValue, selectedWorkloadName]);
 
@@ -646,17 +771,7 @@ export default function AnimationEditorPage() {
   })();
   const recordedSampleCount = typeof recordedSampleCountRaw === "number" ? recordedSampleCountRaw : null;
   const lastRecordedClipPath = typeof lastRecordedClipPathRaw === "string" ? lastRecordedClipPathRaw : "";
-  const sampledCurvesByChannel = React.useMemo(() => {
-    const out: Record<string, Point[]> = {};
-    for (const channel of visibleChannels) {
-      out[channel] = buildSampledCurve(clipData.channels[channel] ?? [], durationSec);
-    }
-    return out;
-  }, [clipData.channels, durationSec, visibleChannels]);
-  const animsetOptions = React.useMemo(
-    () => Array.from(new Set([animsetPath, animsetPendingRestartPath, DEFAULT_ANIMSET].filter(Boolean))),
-    [animsetPath, animsetPendingRestartPath]
-  );
+  const animsetOptions = React.useMemo(() => Array.from(new Set([animsetPath, DEFAULT_ANIMSET].filter(Boolean))), [animsetPath]);
 
   React.useEffect(() => {
     if (localScrubTimeSec !== null || playheadSec === null || durationSec <= 0) return;
@@ -785,10 +900,11 @@ export default function AnimationEditorPage() {
             </select>
             <h3>AnimSet</h3>
             <select
-              value={animsetPendingRestartPath || animsetPath}
-              onChange={(e) => setAnimsetPendingRestartPath(e.target.value)}
+              value={animsetPath}
               className={styles.selectControl}
-              title="AnimSet changes require restart to apply in runtime."
+              title="AnimSet is currently runtime-owned and read-only."
+              disabled
+              aria-readonly="true"
             >
               {animsetOptions.map((option) => (
                 <option key={option} value={option}>
@@ -796,7 +912,7 @@ export default function AnimationEditorPage() {
                 </option>
               ))}
             </select>
-            <div className={styles.metaLine}>Restart Required</div>
+            <div className={styles.metaLine}>Read-only</div>
             <h3>Active Clip</h3>
             <select
               value={selectedClipPath}
@@ -1054,7 +1170,13 @@ export default function AnimationEditorPage() {
               <h3>{section.title}</h3>
               <div className={styles.toolButtons}>
                 {section.items.map((item) => (
-                  <button key={item} className={styles.toolButton} type="button">
+                  <button
+                    key={item}
+                    className={styles.toolButton}
+                    type="button"
+                    title={`${item} is not implemented yet.`}
+                    disabled
+                  >
                     {/*
                       Tooltips are explicit per tool so behavior intent remains clear
                       while this remains a mock-up.
@@ -1071,14 +1193,14 @@ export default function AnimationEditorPage() {
       <footer className={styles.transportBar}>
         <div className={styles.transportLeft}>
           <button
-            className={`${styles.transportChipButton} ${autoSaveEnabled ? styles.transportChipButtonActive : ""}`}
+            className={styles.transportChipButton}
             type="button"
-            title="Enable or disable automatic debounced save while editing."
-            onClick={() => setAutoSaveEnabled((value) => !value)}
+            title="Auto-save is not implemented yet."
+            disabled
           >
             Auto-save
           </button>
-          <button className={styles.transportChipButton} type="button">
+          <button className={styles.transportChipButton} type="button" title="Save is not implemented yet." disabled>
             Save
           </button>
         </div>
@@ -1156,12 +1278,6 @@ export default function AnimationEditorPage() {
                 />
               </label>
             </div>
-          </div>
-        </div>
-        <div className={styles.transportRight}>
-          <div className={styles.metaLine}>
-            Samples: {recordedSampleCount ?? 0}
-            {lastRecordedClipPath ? ` | Last: ${lastRecordedClipPath}` : ""}
           </div>
         </div>
       </footer>
