@@ -18,6 +18,7 @@ type Point = { t: number; v: number };
 type ClipRef = { name: string; animclipPath: string; durationSec?: number; channels?: string[] };
 type ClipData = { name: string; channels: Record<string, Point[]>; durationSec: number };
 type LaneRange = { min: number; max: number };
+type AnimToolName = "Draw";
 type CompatibleSourceRef = {
   id: string;
   type: string;
@@ -67,6 +68,8 @@ type AnimTelemetrySampleResponse = {
   service_id: string;
   revision?: number;
   duration_sec?: number;
+  dirty?: boolean;
+  live_sample_rate_hz?: number;
   channels?: Array<{
     channel?: string;
     samples?: Array<{ time_sec?: number; value?: number }>;
@@ -74,6 +77,9 @@ type AnimTelemetrySampleResponse = {
 };
 
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
+const LANE_VIEWBOX_WIDTH = 1000;
+const LANE_VIEWBOX_HEIGHT = 40;
+const LANE_CURVE_DRAW_HEIGHT = 34;
 const TOOL_SECTIONS = [
   { title: "Sculpting", items: ["Draw", "Smooth", "Flatten", "Push/Pull"] },
   { title: "Keying", items: ["Select", "Move", "Add Point", "Delete Point"] },
@@ -145,6 +151,58 @@ function sampledCurvesFromTelemetryResponse(response: AnimTelemetrySampleRespons
     out[channelName] = samples;
   }
   return out;
+}
+
+function mergeChannelPoints(
+  existing: Record<string, Point[]>,
+  updates: Record<string, Point[]>
+): Record<string, Point[]> {
+  return { ...existing, ...updates };
+}
+
+function applyDrawStrokeToSamples(samples: Point[], durationSec: number, stroke: Point[]): Point[] {
+  if (samples.length === 0 || stroke.length === 0) return samples;
+  const next = samples.map((sample) => ({ ...sample }));
+  const lastIndex = Math.max(0, next.length - 1);
+  const timeToIndex = (timeSec: number) => {
+    if (durationSec <= 0 || lastIndex === 0) return 0;
+    const clamped = Math.min(durationSec, Math.max(0, timeSec));
+    return Math.min(lastIndex, Math.max(0, Math.round((clamped / durationSec) * lastIndex)));
+  };
+
+  let previousIndex: number | null = null;
+  let previousValue = 0;
+  for (const point of stroke) {
+    const index = timeToIndex(point.t);
+    if (previousIndex === null) {
+      next[index] = { t: next[index]?.t ?? point.t, v: point.v };
+      previousIndex = index;
+      previousValue = point.v;
+      continue;
+    }
+
+    const start = Math.min(previousIndex, index);
+    const end = Math.max(previousIndex, index);
+    if (start === end) {
+      next[index] = { t: next[index]?.t ?? point.t, v: point.v };
+      previousIndex = index;
+      previousValue = point.v;
+      continue;
+    }
+
+    for (let i = start; i <= end; i += 1) {
+      const alpha = (i - start) / (end - start);
+      const value =
+        index >= previousIndex
+          ? previousValue + (point.v - previousValue) * alpha
+          : point.v + (previousValue - point.v) * alpha;
+      next[i] = { t: next[i]?.t ?? (durationSec * i) / lastIndex, v: value };
+    }
+    previousIndex = index;
+    previousValue = point.v;
+  }
+
+  return next;
 }
 
 function curvePath(points: Point[], durationSec: number, width: number, height: number, minV: number, maxV: number) {
@@ -257,6 +315,7 @@ export default function AnimationEditorPage() {
   const [clipData, setClipData] = React.useState<ClipData>({ name: "clip", channels: {}, durationSec: 10 });
   const [sampledCurvesByChannel, setSampledCurvesByChannel] = React.useState<Record<string, Point[]>>({});
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
+  const [activeTool, setActiveTool] = React.useState<AnimToolName>("Draw");
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -270,6 +329,19 @@ export default function AnimationEditorPage() {
   const [pendingScrubAdoptSec, setPendingScrubAdoptSec] = React.useState<number | null>(null);
   const [pendingActiveClipIndex, setPendingActiveClipIndex] = React.useState<number | null>(null);
   const heldSuppressedAnimControlFieldsRef = React.useRef<Set<string>>(new Set());
+  const drawWriteStateRef = React.useRef<{
+    clipIndex: number;
+    channel: string;
+    queuedPoints: Point[];
+    inFlight: boolean;
+    timerId: ReturnType<typeof setTimeout> | null;
+  }>({
+    clipIndex: -1,
+    channel: "",
+    queuedPoints: [],
+    inFlight: false,
+    timerId: null,
+  });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -347,6 +419,36 @@ export default function AnimationEditorPage() {
       );
     },
     [animTelemetryServiceId, telemetryBaseUrl]
+  );
+  const applyAuthoritativeChannelSamples = React.useCallback(
+    (channelUpdates: Record<string, Point[]>) => {
+      setSampledCurvesByChannel((prev) => mergeChannelPoints(prev, channelUpdates));
+      setClipData((prev) => {
+        const nextChannels = { ...prev.channels };
+        for (const [channel, points] of Object.entries(channelUpdates)) {
+          nextChannels[channel] = points;
+        }
+        return { ...prev, channels: nextChannels };
+      });
+      setLaneRange((prev) => {
+        const next = { ...prev };
+        for (const [channel, points] of Object.entries(channelUpdates)) {
+          if (points.length === 0) continue;
+          const fitted = fitRangeWithPadding(points);
+          const current = next[channel];
+          if (!current) {
+            next[channel] = fitted;
+            continue;
+          }
+          next[channel] = {
+            min: Math.min(current.min, fitted.min),
+            max: Math.max(current.max, fitted.max),
+          };
+        }
+        return next;
+      });
+    },
+    []
   );
   const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, 20);
   const selectedTelemetryWorkload = React.useMemo(() => {
@@ -487,7 +589,6 @@ export default function AnimationEditorPage() {
       const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
       const url = buildAnimServiceUrl("/sample", {
         clip_name: selectedClip?.name,
-        samples_per_channel: 256,
       });
       if (!url) return;
       const response = await fetch(url, { cache: "no-store" });
@@ -496,13 +597,13 @@ export default function AnimationEditorPage() {
       }
       const payload = (await response.json()) as AnimTelemetrySampleResponse;
       if (cancelled) return;
-      setSampledCurvesByChannel(sampledCurvesFromTelemetryResponse(payload));
+      applyAuthoritativeChannelSamples(sampledCurvesFromTelemetryResponse(payload));
     }
     void loadSamples();
     return () => {
       cancelled = true;
     };
-  }, [animTelemetryServiceId, buildAnimServiceUrl, clipRefs, selectedClipPath]);
+  }, [animTelemetryServiceId, applyAuthoritativeChannelSamples, buildAnimServiceUrl, clipRefs, selectedClipPath]);
 
   const scrubWriteStateRef = React.useRef<{
     active: boolean;
@@ -718,6 +819,17 @@ export default function AnimationEditorPage() {
     [clearScrubTimer, setAnimControlConnectionState]
   );
 
+  React.useEffect(
+    () => () => {
+      const state = drawWriteStateRef.current;
+      if (state.timerId !== null) {
+        clearTimeout(state.timerId);
+        state.timerId = null;
+      }
+    },
+    []
+  );
+
   React.useEffect(() => {
     if (!selectedWorkloadName) return;
     const runtimeAnimsetPath = readFieldValue(`${selectedWorkloadName}.config.animset_path`);
@@ -873,6 +985,185 @@ export default function AnimationEditorPage() {
     window.addEventListener("pointerup", onUp);
   }
 
+  const clearDrawFlushTimer = React.useCallback(() => {
+    const state = drawWriteStateRef.current;
+    if (state.timerId !== null) {
+      clearTimeout(state.timerId);
+      state.timerId = null;
+    }
+  }, []);
+
+  const flushDrawStroke = React.useCallback(
+    async (force: boolean) => {
+      const state = drawWriteStateRef.current;
+      if (state.inFlight || state.queuedPoints.length === 0 || !state.channel) return;
+      if (!force && state.queuedPoints.length < 2) return;
+
+      const clipIndex = state.clipIndex;
+      const channel = state.channel;
+      const batch = state.queuedPoints.splice(0, Math.min(state.queuedPoints.length, 8));
+      state.inFlight = true;
+      try {
+        const url = buildAnimServiceUrl("/draw", { clip_index: clipIndex >= 0 ? clipIndex : undefined });
+        if (!url) return;
+        const response = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            channel,
+            points: batch.map((point) => ({ time_sec: point.t, value: point.v })),
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to draw live samples: ${response.status}`);
+        }
+        const payload = (await response.json()) as AnimTelemetrySampleResponse;
+        applyAuthoritativeChannelSamples(sampledCurvesFromTelemetryResponse(payload));
+      } catch (error) {
+        console.warn("Live draw request failed", { clipIndex, channel, error });
+        const recoveryUrl = buildAnimServiceUrl("/sample", {
+          clip_index: clipIndex >= 0 ? clipIndex : undefined,
+        });
+        if (recoveryUrl) {
+          fetch(recoveryUrl, { cache: "no-store" })
+            .then((recovery) => (recovery.ok ? recovery.json() : null))
+            .then((payload) => {
+              if (payload) {
+                applyAuthoritativeChannelSamples(
+                  sampledCurvesFromTelemetryResponse(payload as AnimTelemetrySampleResponse)
+                );
+              }
+            })
+            .catch(() => undefined);
+        }
+      } finally {
+        state.inFlight = false;
+        if (state.queuedPoints.length > 0) {
+          if (force) {
+            void flushDrawStroke(true);
+          } else {
+            state.timerId = setTimeout(() => {
+              state.timerId = null;
+              void flushDrawStroke(false);
+            }, 40);
+          }
+        }
+      }
+    },
+    [applyAuthoritativeChannelSamples, buildAnimServiceUrl]
+  );
+
+  const queueDrawStrokePoint = React.useCallback(
+    (clipIndex: number, channel: string, point: Point) => {
+      const state = drawWriteStateRef.current;
+      if (state.channel !== channel || state.clipIndex !== clipIndex) {
+        state.clipIndex = clipIndex;
+        state.channel = channel;
+        state.queuedPoints = [];
+      }
+      const lastPoint = state.queuedPoints[state.queuedPoints.length - 1];
+      if (lastPoint && Math.abs(lastPoint.t - point.t) < 1e-4 && Math.abs(lastPoint.v - point.v) < 1e-4) {
+        return;
+      }
+      state.queuedPoints.push(point);
+      if (state.queuedPoints.length >= 8) {
+        clearDrawFlushTimer();
+        void flushDrawStroke(false);
+        return;
+      }
+      if (state.timerId === null) {
+        state.timerId = setTimeout(() => {
+          state.timerId = null;
+          void flushDrawStroke(false);
+        }, 40);
+      }
+    },
+    [clearDrawFlushTimer, flushDrawStroke]
+  );
+
+  const pointerToDrawPoint = React.useCallback(
+    (svg: SVGSVGElement, clientX: number, clientY: number, minV: number, maxV: number): Point | null => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const xNorm = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const viewboxY = ((clientY - rect.top) / rect.height) * LANE_VIEWBOX_HEIGHT;
+      const clampedCurveY = Math.min(LANE_CURVE_DRAW_HEIGHT, Math.max(0, viewboxY));
+      const yNorm = clampedCurveY / LANE_CURVE_DRAW_HEIGHT;
+      const span = Math.max(1e-6, maxV - minV);
+      return {
+        t: xNorm * durationSec,
+        v: maxV - yNorm * span,
+      };
+    },
+    [durationSec]
+  );
+
+  const beginDrawStroke = React.useCallback(
+    (
+      event: React.PointerEvent<SVGSVGElement>,
+      channel: string,
+      sampledPoints: Point[],
+      minV: number,
+      maxV: number
+    ) => {
+      if (activeTool !== "Draw") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
+      const clipIndex = selectedClip ? clipRefs.findIndex((clip) => clip.animclipPath === selectedClip.animclipPath) : -1;
+      const svg = event.currentTarget;
+      setSelectedChannel(channel);
+
+      let previousPoint: Point | null = null;
+
+      const applyLocalPoint = (point: Point) => {
+        setSampledCurvesByChannel((prev) => {
+          const current =
+            prev[channel] ??
+            (sampledPoints.length > 0 ? sampledPoints : (clipData.channels[channel] ?? []));
+          return {
+            ...prev,
+            [channel]: applyDrawStrokeToSamples(current, durationSec, previousPoint ? [previousPoint, point] : [point]),
+          };
+        });
+        previousPoint = point;
+      };
+
+      const startPoint = pointerToDrawPoint(svg, event.clientX, event.clientY, minV, maxV);
+      if (!startPoint) return;
+      applyLocalPoint(startPoint);
+      queueDrawStrokePoint(clipIndex, channel, startPoint);
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+        if (!point) return;
+        applyLocalPoint(point);
+        queueDrawStrokePoint(clipIndex, channel, point);
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        clearDrawFlushTimer();
+        void flushDrawStroke(true);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [
+      activeTool,
+      clearDrawFlushTimer,
+      clipData.name,
+      clipData.channels,
+      clipRefs,
+      durationSec,
+      flushDrawStroke,
+      pointerToDrawPoint,
+      queueDrawStrokePoint,
+      selectedClipPath,
+    ]
+  );
+
   function formatAxisValue(value: number): string {
     const abs = Math.abs(value);
     if (abs >= 100) return value.toFixed(0);
@@ -912,7 +1203,6 @@ export default function AnimationEditorPage() {
                 </option>
               ))}
             </select>
-            <div className={styles.metaLine}>Read-only</div>
             <h3>Active Clip</h3>
             <select
               value={selectedClipPath}
@@ -1046,8 +1336,9 @@ export default function AnimationEditorPage() {
             </div>
             <div className={styles.lanes}>
               {visibleChannels.map((channel) => {
-                const points = clipData.channels[channel] ?? [];
+                const clipPoints = clipData.channels[channel] ?? [];
                 const sampledPoints = sampledCurvesByChannel[channel] ?? [];
+                const points = sampledPoints.length > 0 ? sampledPoints : clipPoints;
                 const range = laneRange[channel] ?? fitRangeWithPadding(points);
                 const minV = range.min;
                 const maxV = range.max;
@@ -1095,7 +1386,14 @@ export default function AnimationEditorPage() {
                         title="Channel Y min"
                       />
                     </div>
-                    <div className={styles.laneTrack}>
+                    <div
+                      className={[
+                        styles.laneTrack,
+                        activeTool === "Draw" ? styles.laneTrackDrawActive : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
                       <div className={styles.laneChannelOverlay}>{channel}</div>
                       <button
                         className={styles.laneFitButton}
@@ -1116,6 +1414,7 @@ export default function AnimationEditorPage() {
                         viewBox="0 0 1000 40"
                         preserveAspectRatio="none"
                         aria-hidden="true"
+                        onPointerDown={(event) => beginDrawStroke(event, channel, sampledPoints, minV, maxV)}
                       >
                         <path
                           d={areaPath(sampledPoints, durationSec, 1000, 34, minV, maxV)}
@@ -1172,14 +1471,19 @@ export default function AnimationEditorPage() {
                 {section.items.map((item) => (
                   <button
                     key={item}
-                    className={styles.toolButton}
+                    className={`${styles.toolButton} ${item === activeTool ? styles.toolButtonActive : ""}`}
                     type="button"
-                    title={`${item} is not implemented yet.`}
-                    disabled
+                    title={item === "Draw" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
+                    disabled={item !== "Draw"}
+                    onClick={() => {
+                      if (item === "Draw") {
+                        setActiveTool("Draw");
+                      }
+                    }}
                   >
                     {/*
-                      Tooltips are explicit per tool so behavior intent remains clear
-                      while this remains a mock-up.
+                      Tooltips stay explicit per tool so the intended authoring
+                      semantics remain visible as the palette fills out.
                     */}
                     <span title={TOOL_TIPS[item] ?? `Activate ${item} tool`}>{item}</span>
                   </button>
