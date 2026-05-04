@@ -275,7 +275,7 @@ export default function AnimationEditorPage() {
     async function loadClip() {
       if (!projectPath || !selectedClipPath) return;
       const url = buildProjectAssetUrl(projectPath, selectedClipPath);
-      const text = await (await fetch(url)).text();
+      const text = await (await fetch(url, { cache: "no-store" })).text();
       const parsed = parseAnimclipYaml(text);
       if (cancelled) return;
       setClipData(parsed);
