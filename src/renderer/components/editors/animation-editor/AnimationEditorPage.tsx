@@ -14,7 +14,9 @@ import { buildUrl } from "../../../data-sources/launcher/internal/launcher-inter
 import { normalizedFromClientX } from "./playhead-math";
 import {
   applySampleDeltaToBuffer,
+  applyOffsetToSampleRange,
   buildInterpolatedDrawDelta,
+  sampleIndexRangeFromTimes,
   type Point,
 } from "./anim-sample-editing";
 import styles from "./AnimationEditorPage.module.css";
@@ -30,7 +32,8 @@ type ClipData = {
   dirty: boolean;
 };
 type LaneRange = { min: number; max: number };
-type AnimToolName = "Pencil" | "Line";
+type AnimToolName = "Pencil" | "Line" | "Range";
+type TimeSelectionRange = { startSec: number; endSec: number };
 type CompatibleSourceRef = {
   id: string;
   type: string;
@@ -82,14 +85,13 @@ const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
 const TOOL_SECTIONS = [
-  { title: "Sculpting", items: ["Pencil", "Line", "Smooth", "Flatten", "Push/Pull"] },
-  { title: "Keying", items: ["Select", "Move", "Add Point", "Delete Point"] },
-  { title: "Scaling", items: ["Scale", "Offset", "Ramp Up", "Ramp Down"] },
+  { title: "Sculpting", items: ["Pencil", "Line", "Range", "Smooth", "Flatten", "Push/Pull"] },
 ];
 
 const TOOL_TIPS: Record<string, string> = {
   Pencil: "Paint values freely across a time window toward the cursor path.",
   Line: "Preview and place a straight line across a sample range. Esc cancels; mouse-up applies.",
+  Range: "Select a time range in the ruler, then offset that span per channel with the handle.",
   Smooth: "Reduce local jitter by smoothing points in the selected region.",
   Flatten: "Collapse local variance toward a flatter profile.",
   "Push/Pull": "Nudge values up or down without changing timing.",
@@ -245,6 +247,30 @@ function formatAxisValue(value: number): string {
   return value.toFixed(3);
 }
 
+function normalizeTimeRange(durationSec: number, range: TimeSelectionRange | null) {
+  if (!range || durationSec <= 0) return null;
+  const startNorm = Math.min(1, Math.max(0, range.startSec / durationSec));
+  const endNorm = Math.min(1, Math.max(0, range.endSec / durationSec));
+  return {
+    startNorm: Math.min(startNorm, endNorm),
+    endNorm: Math.max(startNorm, endNorm),
+  };
+}
+
+function computeSampleRangeMean(samples: ArrayLike<number>, startSampleIndex: number, endSampleIndex: number): number {
+  const sampleCount = samples.length ?? 0;
+  if (sampleCount <= 0 || endSampleIndex < startSampleIndex) return 0;
+  const start = Math.max(0, startSampleIndex);
+  const end = Math.min(sampleCount - 1, endSampleIndex);
+  let sum = 0;
+  let count = 0;
+  for (let i = start; i <= end; i += 1) {
+    sum += Number(samples[i] ?? 0);
+    count += 1;
+  }
+  return count > 0 ? sum / count : 0;
+}
+
 type LaneRowProps = {
   channel: string;
   samples: Float32Array;
@@ -254,6 +280,7 @@ type LaneRowProps = {
   isHovered: boolean;
   isSelected: boolean;
   drawActive: boolean;
+  selectedTimeRange: TimeSelectionRange | null;
   isFirstVisible: boolean;
   onHoverChange: (channel: string, hovered: boolean) => void;
   onSelect: (channel: string) => void;
@@ -261,6 +288,13 @@ type LaneRowProps = {
   onFitRange: (channel: string) => void;
   onBeginDraw: (
     event: React.PointerEvent<SVGSVGElement>,
+    channel: string,
+    channelSamples: Float32Array,
+    minV: number,
+    maxV: number
+  ) => void;
+  onBeginRangeOffset: (
+    event: React.PointerEvent<HTMLButtonElement>,
     channel: string,
     channelSamples: Float32Array,
     minV: number,
@@ -278,12 +312,14 @@ const LaneRow = React.memo(function LaneRow({
   isHovered,
   isSelected,
   drawActive,
+  selectedTimeRange,
   isFirstVisible,
   onHoverChange,
   onSelect,
   onRangeChange,
   onFitRange,
   onBeginDraw,
+  onBeginRangeOffset,
   firstLaneSvgRef,
 }: LaneRowProps) {
   const minV = range.min;
@@ -307,6 +343,39 @@ const LaneRow = React.memo(function LaneRow({
     () => curvePath(samples, durationSec, 1000, 34, minV, maxV),
     [samples, durationSec, minV, maxV]
   );
+  const normalizedTimeRange = React.useMemo(
+    () => normalizeTimeRange(durationSec, selectedTimeRange),
+    [durationSec, selectedTimeRange]
+  );
+  const selectedSampleRange = React.useMemo(
+    () =>
+      normalizedTimeRange
+        ? sampleIndexRangeFromTimes(
+            samples.length,
+            durationSec,
+            normalizedTimeRange.startNorm * durationSec,
+            normalizedTimeRange.endNorm * durationSec
+          )
+        : null,
+    [durationSec, normalizedTimeRange, samples.length]
+  );
+  const rangeHandleStyle = React.useMemo(() => {
+    if (!selectedSampleRange) return null;
+    const meanValue = computeSampleRangeMean(
+      samples,
+      selectedSampleRange.startSampleIndex,
+      selectedSampleRange.endSampleIndex
+    );
+    const span = Math.max(1e-6, maxV - minV);
+    const yNorm = (maxV - meanValue) / span;
+    const centerNorm = normalizedTimeRange
+      ? (normalizedTimeRange.startNorm + normalizedTimeRange.endNorm) * 0.5
+      : 0.5;
+    return {
+      left: `${centerNorm * 100}%`,
+      top: `${Math.min(100, Math.max(0, yNorm * 100))}%`,
+    };
+  }, [maxV, minV, normalizedTimeRange, samples, selectedSampleRange]);
 
   const commitMax = React.useCallback(() => {
     const value = Number(draftMax);
@@ -375,6 +444,7 @@ const LaneRow = React.memo(function LaneRow({
         className={[styles.laneTrack, drawActive ? styles.laneTrackDrawActive : ""]
           .filter(Boolean)
           .join(" ")}
+        data-lane-track="true"
       >
         <div className={styles.laneChannelOverlay}>{channel}</div>
         <button
@@ -385,6 +455,24 @@ const LaneRow = React.memo(function LaneRow({
         >
           Fit Y
         </button>
+        {normalizedTimeRange ? (
+          <div
+            className={styles.rangeSelectionBandLane}
+            style={{
+              left: `${normalizedTimeRange.startNorm * 100}%`,
+              width: `${Math.max(0.3, (normalizedTimeRange.endNorm - normalizedTimeRange.startNorm) * 100)}%`,
+            }}
+          />
+        ) : null}
+        {rangeHandleStyle ? (
+          <button
+            type="button"
+            className={styles.rangeOffsetHandle}
+            style={rangeHandleStyle}
+            onPointerDown={(event) => onBeginRangeOffset(event, channel, samples, minV, maxV)}
+            title="Drag to offset the selected range in this channel"
+          />
+        ) : null}
         <svg
           ref={isFirstVisible ? firstLaneSvgRef : undefined}
           className={styles.laneSvg}
@@ -410,6 +498,8 @@ const LaneRow = React.memo(function LaneRow({
   prev.isHovered === next.isHovered &&
   prev.isSelected === next.isSelected &&
   prev.drawActive === next.drawActive &&
+  prev.selectedTimeRange?.startSec === next.selectedTimeRange?.startSec &&
+  prev.selectedTimeRange?.endSec === next.selectedTimeRange?.endSec &&
   prev.isFirstVisible === next.isFirstVisible
 );
 
@@ -473,6 +563,7 @@ export default function AnimationEditorPage() {
   const clipDataRef = React.useRef(clipData);
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
   const [activeTool, setActiveTool] = React.useState<AnimToolName>("Pencil");
+  const [selectedTimeRange, setSelectedTimeRange] = React.useState<TimeSelectionRange | null>(null);
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -488,6 +579,27 @@ export default function AnimationEditorPage() {
   const heldSuppressedAnimControlFieldsRef = React.useRef<Set<string>>(new Set());
   const pendingClipDataRenderRef = React.useRef<ClipData | null>(null);
   const pendingClipDataRafRef = React.useRef<number | null>(null);
+  const rangeOffsetStateRef = React.useRef<{
+    active: boolean;
+    clipIndex: number;
+    channel: string;
+    range: { startSampleIndex: number; endSampleIndex: number } | null;
+    baseSamples: Float32Array | null;
+    baseDirty: boolean;
+    startClientY: number;
+    laneHeightPx: number;
+    laneValueSpan: number;
+  }>({
+    active: false,
+    clipIndex: -1,
+    channel: "",
+    range: null,
+    baseSamples: null,
+    baseDirty: false,
+    startClientY: 0,
+    laneHeightPx: 1,
+    laneValueSpan: 1,
+  });
   const linePreviewStateRef = React.useRef<{
     active: boolean;
     clipIndex: number;
@@ -1093,6 +1205,10 @@ export default function AnimationEditorPage() {
     const collapse = (loopResetProgressNorm - 0.5) / 0.5;
     return { left: 0, right: 1 - collapse };
   })();
+  const normalizedSelectedTimeRange = React.useMemo(
+    () => normalizeTimeRange(durationSec, selectedTimeRange),
+    [durationSec, selectedTimeRange]
+  );
   const animsetOptions = React.useMemo(() => Array.from(new Set([animsetPath, DEFAULT_ANIMSET].filter(Boolean))), [animsetPath]);
 
   React.useEffect(() => {
@@ -1194,6 +1310,41 @@ export default function AnimationEditorPage() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   }
+
+  const beginRangeSelection = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (activeTool !== "Range") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const ruler = event.currentTarget;
+      const rect = ruler.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const timeFromClientX = (clientX: number) =>
+        Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * durationSec;
+
+      const startSec = timeFromClientX(event.clientX);
+      setSelectedTimeRange({ startSec, endSec: startSec });
+
+      const onMove = (moveEvent: PointerEvent) => {
+        setSelectedTimeRange({
+          startSec,
+          endSec: timeFromClientX(moveEvent.clientX),
+        });
+      };
+      const onUp = (upEvent: PointerEvent) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const endSec = timeFromClientX(upEvent.clientX);
+        setSelectedTimeRange({
+          startSec: Math.min(startSec, endSec),
+          endSec: Math.max(startSec, endSec),
+        });
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [activeTool, durationSec]
+  );
 
   const clearDrawFlushTimer = React.useCallback(() => {
     const state = drawWriteStateRef.current;
@@ -1360,6 +1511,131 @@ export default function AnimationEditorPage() {
       };
     },
     [durationSec]
+  );
+
+  const beginRangeOffset = React.useCallback(
+    (
+      event: React.PointerEvent<HTMLButtonElement>,
+      channel: string,
+      channelSamples: Float32Array,
+      minV: number,
+      maxV: number
+    ) => {
+      if (activeTool !== "Range" || !selectedTimeRange) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
+      const clipIndex = selectedClip ? clipRefs.findIndex((clip) => clip.animclipPath === selectedClip.animclipPath) : -1;
+      if (clipIndex < 0) return;
+      const sampleRange = sampleIndexRangeFromTimes(
+        channelSamples.length,
+        durationSec,
+        selectedTimeRange.startSec,
+        selectedTimeRange.endSec
+      );
+      if (!sampleRange) return;
+
+      const laneTrack = (event.currentTarget.closest('[data-lane-track="true"]') as HTMLElement | null) ?? event.currentTarget.parentElement;
+      const laneRect = laneTrack?.getBoundingClientRect();
+      const laneHeightPx = Math.max(1, laneRect?.height ?? 1);
+      const laneValueSpan = Math.max(1e-6, maxV - minV);
+
+      beginDrawStrokeSession(clipIndex, channel);
+      rangeOffsetStateRef.current = {
+        active: true,
+        clipIndex,
+        channel,
+        range: sampleRange,
+        baseSamples: (clipDataRef.current.channels[channel] ?? channelSamples).slice(),
+        baseDirty: clipDataRef.current.dirty,
+        startClientY: event.clientY,
+        laneHeightPx,
+        laneValueSpan,
+      };
+
+      const applyOffsetPreview = (clientY: number) => {
+        const state = rangeOffsetStateRef.current;
+        if (!state.active || !state.baseSamples || !state.range) return;
+        const offset = -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan;
+        const nextChannel = applyOffsetToSampleRange(state.baseSamples, state.range, offset);
+        scheduleClipDataRender({
+          ...clipDataRef.current,
+          dirty: true,
+          channels: {
+            ...clipDataRef.current.channels,
+            [channel]: nextChannel,
+          },
+        });
+        queueDrawStrokeRange(clipIndex, channel, state.range.startSampleIndex, state.range.endSampleIndex);
+      };
+
+      const finishRangeOffset = (applyEdit: boolean) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("keydown", onKeyDown);
+        const state = rangeOffsetStateRef.current;
+        rangeOffsetStateRef.current = {
+          active: false,
+          clipIndex: -1,
+          channel: "",
+          range: null,
+          baseSamples: null,
+          baseDirty: false,
+          startClientY: 0,
+          laneHeightPx: 1,
+          laneValueSpan: 1,
+        };
+        if (!state.baseSamples || !state.range) return;
+
+        if (!applyEdit) {
+          clearDrawFlushTimer();
+          drawWriteStateRef.current.queuedStartSampleIndex = null;
+          drawWriteStateRef.current.queuedEndSampleIndex = null;
+          scheduleClipDataRender({
+            ...clipDataRef.current,
+            dirty: state.baseDirty,
+            channels: {
+              ...clipDataRef.current.channels,
+              [channel]: state.baseSamples,
+            },
+          });
+          flushPendingClipDataRender();
+          queueDrawStrokeRange(clipIndex, channel, state.range.startSampleIndex, state.range.endSampleIndex);
+          void flushDrawStroke(true);
+          return;
+        }
+
+        flushPendingClipDataRender();
+        void flushDrawStroke(true);
+      };
+
+      const onMove = (moveEvent: PointerEvent) => {
+        applyOffsetPreview(moveEvent.clientY);
+      };
+      const onUp = () => finishRangeOffset(true);
+      const onKeyDown = (keyEvent: KeyboardEvent) => {
+        if (keyEvent.key === "Escape") {
+          keyEvent.preventDefault();
+          finishRangeOffset(false);
+        }
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("keydown", onKeyDown);
+    },
+    [
+      activeTool,
+      beginDrawStrokeSession,
+      clearDrawFlushTimer,
+      clipRefs,
+      durationSec,
+      flushDrawStroke,
+      flushPendingClipDataRender,
+      queueDrawStrokeRange,
+      scheduleClipDataRender,
+      selectedClipPath,
+      selectedTimeRange,
+    ]
   );
 
   const beginDrawStroke = React.useCallback(
@@ -1714,7 +1990,7 @@ export default function AnimationEditorPage() {
 
         <main className={styles.timelineArea}>
           <section ref={timelineRef} className={styles.timelineCanvas} aria-label="Animation timeline">
-            <div className={styles.timeRuler}>
+            <div className={styles.timeRuler} onPointerDown={beginRangeSelection}>
               <div className={styles.loopResetRuler} aria-hidden="true">
                 {isLoopResetActive ? (
                   <div
@@ -1726,6 +2002,16 @@ export default function AnimationEditorPage() {
                   />
                 ) : null}
               </div>
+              {normalizedSelectedTimeRange ? (
+                <div
+                  className={styles.rangeSelectionBandRuler}
+                  aria-hidden="true"
+                  style={{
+                    left: `${normalizedSelectedTimeRange.startNorm * 100}%`,
+                    width: `${Math.max(0.3, (normalizedSelectedTimeRange.endNorm - normalizedSelectedTimeRange.startNorm) * 100)}%`,
+                  }}
+                />
+              ) : null}
               <span className={styles.rulerMark}>0.0s</span>
               <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
               <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
@@ -1746,13 +2032,15 @@ export default function AnimationEditorPage() {
                     color={channelColor[channel] ?? "#77ceff"}
                     isHovered={hoveredChannel === channel}
                     isSelected={selectedChannel === channel}
-                    drawActive={activeTool === "Pencil" || activeTool === "Line"}
+                    drawActive={activeTool === "Pencil" || activeTool === "Line" || activeTool === "Range"}
+                    selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
                     isFirstVisible={visibleChannels[0] === channel}
                     onHoverChange={handleLaneHoverChange}
                     onSelect={handleLaneSelect}
                     onRangeChange={setLaneRangeForChannel}
                     onFitRange={fitLaneRangeForChannel}
                     onBeginDraw={beginDrawStroke}
+                    onBeginRangeOffset={beginRangeOffset}
                     firstLaneSvgRef={firstLaneSvgRef}
                   />
                 );
@@ -1799,10 +2087,10 @@ export default function AnimationEditorPage() {
                     key={item}
                     className={`${styles.toolButton} ${item === activeTool ? styles.toolButtonActive : ""}`}
                     type="button"
-                    title={item === "Pencil" || item === "Line" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
-                    disabled={item !== "Pencil" && item !== "Line"}
+                    title={item === "Pencil" || item === "Line" || item === "Range" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
+                    disabled={item !== "Pencil" && item !== "Line" && item !== "Range"}
                     onClick={() => {
-                      if (item === "Pencil" || item === "Line") {
+                      if (item === "Pencil" || item === "Line" || item === "Range") {
                         setActiveTool(item);
                       }
                     }}

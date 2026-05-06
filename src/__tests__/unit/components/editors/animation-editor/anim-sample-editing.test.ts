@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applySampleDeltaToBuffer,
+  applyOffsetToSampleRange,
   buildInterpolatedDrawDelta,
+  sampleIndexRangeFromTimes,
   sampleIndexFromTime,
 } from "../../../../../renderer/components/editors/animation-editor/anim-sample-editing";
 
@@ -28,5 +30,18 @@ describe("anim-sample-editing", () => {
     const samples = new Float32Array([0, 0, 0, 0, 0]);
     const next = applySampleDeltaToBuffer(samples, { startSampleIndex: 1, values: [0.25, 0.5, 0.75] });
     expect(Array.from(next)).toEqual([0, 0.25, 0.5, 0.75, 0]);
+  });
+
+  it("builds stable sample index ranges from time ranges", () => {
+    expect(sampleIndexRangeFromTimes(11, 1, 0.7, 0.2)).toEqual({
+      startSampleIndex: 2,
+      endSampleIndex: 7,
+    });
+  });
+
+  it("offsets all samples in a selected range", () => {
+    const samples = new Float32Array([0, 1, 2, 3, 4]);
+    const next = applyOffsetToSampleRange(samples, { startSampleIndex: 1, endSampleIndex: 3 }, -0.5);
+    expect(Array.from(next)).toEqual([0, 0.5, 1.5, 2.5, 4]);
   });
 });
