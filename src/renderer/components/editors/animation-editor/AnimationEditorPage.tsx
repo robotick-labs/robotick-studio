@@ -226,6 +226,9 @@ function fitRangeWithPadding(samples: ArrayLike<number>): LaneRange {
 }
 
 function defaultLaneRangeForChannel(channel: string, samples: ArrayLike<number>): LaneRange {
+  if (channel.endsWith("_x") || channel.endsWith("_y")) {
+    return { min: -1, max: 1 };
+  }
   if (channel.endsWith("_norm")) {
     let hasNegativeValue = false;
     for (let i = 0; i < (samples.length ?? 0); i += 1) {
