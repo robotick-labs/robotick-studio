@@ -257,6 +257,30 @@ function normalizeTimeRange(durationSec: number, range: TimeSelectionRange | nul
   };
 }
 
+function axisViewportPositionStyle(
+  startNorm: number,
+  endNorm: number,
+  leftInsetPx: number,
+  rightInsetPx: number
+) {
+  const clampedStart = Math.min(1, Math.max(0, startNorm));
+  const clampedEnd = Math.min(1, Math.max(0, endNorm));
+  const start = Math.min(clampedStart, clampedEnd);
+  const end = Math.max(clampedStart, clampedEnd);
+  const span = Math.max(0.003, end - start);
+  const innerWidthPx = leftInsetPx + rightInsetPx;
+  return {
+    left: `calc(${leftInsetPx}px + (100% - ${innerWidthPx}px) * ${start})`,
+    width: `calc((100% - ${innerWidthPx}px) * ${span})`,
+  };
+}
+
+function axisViewportHandleLeft(centerNorm: number, leftInsetPx: number, rightInsetPx: number) {
+  const clamped = Math.min(1, Math.max(0, centerNorm));
+  const innerWidthPx = leftInsetPx + rightInsetPx;
+  return `calc(${leftInsetPx}px + (100% - ${innerWidthPx}px) * ${clamped})`;
+}
+
 function computeSampleRangeMean(samples: ArrayLike<number>, startSampleIndex: number, endSampleIndex: number): number {
   const sampleCount = samples.length ?? 0;
   if (sampleCount <= 0 || endSampleIndex < startSampleIndex) return 0;
@@ -301,6 +325,7 @@ type LaneRowProps = {
     maxV: number
   ) => void;
   firstLaneSvgRef: React.RefObject<SVGSVGElement | null>;
+  laneViewportInsetsPx: { left: number; right: number };
 };
 
 const LaneRow = React.memo(function LaneRow({
@@ -321,6 +346,7 @@ const LaneRow = React.memo(function LaneRow({
   onBeginDraw,
   onBeginRangeOffset,
   firstLaneSvgRef,
+  laneViewportInsetsPx,
 }: LaneRowProps) {
   const minV = range.min;
   const maxV = range.max;
@@ -372,10 +398,10 @@ const LaneRow = React.memo(function LaneRow({
       ? (normalizedTimeRange.startNorm + normalizedTimeRange.endNorm) * 0.5
       : 0.5;
     return {
-      left: `${centerNorm * 100}%`,
+      left: axisViewportHandleLeft(centerNorm, laneViewportInsetsPx.left, laneViewportInsetsPx.right),
       top: `${Math.min(100, Math.max(0, yNorm * 100))}%`,
     };
-  }, [maxV, minV, normalizedTimeRange, samples, selectedSampleRange]);
+  }, [laneViewportInsetsPx.left, laneViewportInsetsPx.right, maxV, minV, normalizedTimeRange, samples, selectedSampleRange]);
 
   const commitMax = React.useCallback(() => {
     const value = Number(draftMax);
@@ -458,10 +484,12 @@ const LaneRow = React.memo(function LaneRow({
         {normalizedTimeRange ? (
           <div
             className={styles.rangeSelectionBandLane}
-            style={{
-              left: `${normalizedTimeRange.startNorm * 100}%`,
-              width: `${Math.max(0.3, (normalizedTimeRange.endNorm - normalizedTimeRange.startNorm) * 100)}%`,
-            }}
+            style={axisViewportPositionStyle(
+              normalizedTimeRange.startNorm,
+              normalizedTimeRange.endNorm,
+              laneViewportInsetsPx.left,
+              laneViewportInsetsPx.right
+            )}
           />
         ) : null}
         {rangeHandleStyle ? (
@@ -1316,8 +1344,7 @@ export default function AnimationEditorPage() {
       if (activeTool !== "Range") return;
       event.preventDefault();
       event.stopPropagation();
-      const ruler = event.currentTarget;
-      const rect = ruler.getBoundingClientRect();
+      const rect = playheadViewportRef.current?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
       if (rect.width <= 0) return;
       const timeFromClientX = (clientX: number) =>
         Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * durationSec;
@@ -2006,10 +2033,12 @@ export default function AnimationEditorPage() {
                 <div
                   className={styles.rangeSelectionBandRuler}
                   aria-hidden="true"
-                  style={{
-                    left: `${normalizedSelectedTimeRange.startNorm * 100}%`,
-                    width: `${Math.max(0.3, (normalizedSelectedTimeRange.endNorm - normalizedSelectedTimeRange.startNorm) * 100)}%`,
-                  }}
+                  style={axisViewportPositionStyle(
+                    normalizedSelectedTimeRange.startNorm,
+                    normalizedSelectedTimeRange.endNorm,
+                    playheadViewportInsetsPx.left,
+                    playheadViewportInsetsPx.right
+                  )}
                 />
               ) : null}
               <span className={styles.rulerMark}>0.0s</span>
@@ -2042,6 +2071,7 @@ export default function AnimationEditorPage() {
                     onBeginDraw={beginDrawStroke}
                     onBeginRangeOffset={beginRangeOffset}
                     firstLaneSvgRef={firstLaneSvgRef}
+                    laneViewportInsetsPx={{ left: 8, right: 8 }}
                   />
                 );
               })}
