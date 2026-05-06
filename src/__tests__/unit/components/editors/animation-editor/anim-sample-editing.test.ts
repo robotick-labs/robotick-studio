@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySampleDeltaToBuffer,
   applyOffsetToSampleRange,
+  applyOffsetToSampleRangeWithFalloff,
   buildInterpolatedDrawDelta,
   sampleIndexRangeFromTimes,
   sampleIndexFromTime,
@@ -43,5 +44,19 @@ describe("anim-sample-editing", () => {
     const samples = new Float32Array([0, 1, 2, 3, 4]);
     const next = applyOffsetToSampleRange(samples, { startSampleIndex: 1, endSampleIndex: 3 }, -0.5);
     expect(Array.from(next)).toEqual([0, 0.5, 1.5, 2.5, 4]);
+  });
+
+  it("offsets a selected range with smooth falloff outside the core span", () => {
+    const result = applyOffsetToSampleRangeWithFalloff(
+      new Float32Array([0, 0, 0, 0, 0, 0, 0]),
+      { startSampleIndex: 2, endSampleIndex: 4 },
+      1,
+      2
+    );
+    expect(result.writeRange).toEqual({ startSampleIndex: 0, endSampleIndex: 6 });
+    const expected = [7 / 27, 20 / 27, 1, 1, 1, 20 / 27, 7 / 27];
+    Array.from(result.samples).forEach((value, index) => {
+      expect(value).toBeCloseTo(expected[index] ?? 0, 6);
+    });
   });
 });

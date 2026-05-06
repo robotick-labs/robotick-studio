@@ -10,6 +10,11 @@ export type SampleIndexRange = {
   endSampleIndex: number;
 };
 
+export type RangeOffsetWithFalloffResult = {
+  samples: Float32Array;
+  writeRange: SampleIndexRange;
+};
+
 export function sampleIndexFromTime(durationSec: number, sampleCount: number, timeSec: number): number {
   if (sampleCount <= 1 || durationSec <= 0) return 0;
   const clamped = Math.min(durationSec, Math.max(0, timeSec));
@@ -94,4 +99,45 @@ export function applyOffsetToSampleRange(
     next[i] = next[i] + offset;
   }
   return next;
+}
+
+export function applyOffsetToSampleRangeWithFalloff(
+  samples: ArrayLike<number>,
+  coreRange: SampleIndexRange,
+  offset: number,
+  falloffSampleCount: number
+): RangeOffsetWithFalloffResult {
+  const sampleCount = samples.length ?? 0;
+  const next = samples instanceof Float32Array ? samples.slice() : Float32Array.from(samples);
+  const clampedCoreStart = Math.max(0, coreRange.startSampleIndex);
+  const clampedCoreEnd = Math.min(sampleCount - 1, coreRange.endSampleIndex);
+  const clampedFalloffCount = Math.max(0, Math.floor(falloffSampleCount));
+  const writeRange = {
+    startSampleIndex: Math.max(0, clampedCoreStart - clampedFalloffCount),
+    endSampleIndex: Math.min(sampleCount - 1, clampedCoreEnd + clampedFalloffCount),
+  };
+
+  if (
+    sampleCount === 0 ||
+    clampedCoreEnd < clampedCoreStart ||
+    writeRange.endSampleIndex < writeRange.startSampleIndex ||
+    offset === 0
+  ) {
+    return { samples: next, writeRange };
+  }
+
+  const leftShoulderCount = clampedCoreStart - writeRange.startSampleIndex;
+  const rightShoulderCount = writeRange.endSampleIndex - clampedCoreEnd;
+  const smoothstep = (t: number) => t * t * (3 - 2 * t);
+  for (let i = writeRange.startSampleIndex; i <= writeRange.endSampleIndex; i += 1) {
+    let weight = 1;
+    if (i < clampedCoreStart && leftShoulderCount > 0) {
+      weight = smoothstep((i - writeRange.startSampleIndex + 1) / (leftShoulderCount + 1));
+    } else if (i > clampedCoreEnd && rightShoulderCount > 0) {
+      weight = smoothstep((writeRange.endSampleIndex - i + 1) / (rightShoulderCount + 1));
+    }
+    next[i] = next[i] + offset * weight;
+  }
+
+  return { samples: next, writeRange };
 }

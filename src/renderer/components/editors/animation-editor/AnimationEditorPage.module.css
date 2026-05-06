@@ -419,6 +419,12 @@
   stroke-width: 1;
 }
 
+.rangeFalloffBandRuler {
+  fill: rgba(126, 190, 255, 0.1);
+  stroke: rgba(126, 190, 255, 0.24);
+  stroke-width: 1;
+}
+
 .loopResetSlugSvg {
   fill: rgba(255, 224, 132, 0.85);
 }
@@ -648,6 +654,13 @@
   pointer-events: none;
 }
 
+.rangeFalloffBandLane {
+  fill: rgba(126, 190, 255, 0.08);
+  stroke: rgba(126, 190, 255, 0.18);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
 .rangeOffsetHandle {
   fill: rgba(255, 206, 84, 0.92);
   stroke: rgba(255, 240, 182, 0.9);
@@ -828,6 +841,20 @@
   opacity: 0.45;
   cursor: not-allowed;
   filter: grayscale(0.35);
+}
+
+.toolSettingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--app-text-primary);
+}
+
+.toolSettingHint {
+  font-size: 0.74rem;
+  color: var(--app-text-muted);
 }
 
 .field {

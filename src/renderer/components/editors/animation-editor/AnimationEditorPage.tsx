@@ -14,7 +14,7 @@ import { buildUrl } from "../../../data-sources/launcher/internal/launcher-inter
 import { normalizedFromClientX } from "./playhead-math";
 import {
   applySampleDeltaToBuffer,
-  applyOffsetToSampleRange,
+  applyOffsetToSampleRangeWithFalloff,
   buildInterpolatedDrawDelta,
   sampleIndexRangeFromTimes,
   type Point,
@@ -84,6 +84,7 @@ const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
 const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
+const DEFAULT_RANGE_FALLOFF_SEC = 0.12;
 const TOOL_SECTIONS = [
   { title: "Sculpting", items: ["Pencil", "Line", "Range", "Smooth", "Flatten", "Push/Pull"] },
 ];
@@ -91,7 +92,7 @@ const TOOL_SECTIONS = [
 const TOOL_TIPS: Record<string, string> = {
   Pencil: "Paint values freely across a time window toward the cursor path.",
   Line: "Preview and place a straight line across a sample range. Esc cancels; mouse-up applies.",
-  Range: "Select a time range in the ruler, then offset that span per channel with the handle.",
+  Range: "Select a time range in the ruler, then offset that span per channel with the handle. [ and ] adjust falloff.",
   Smooth: "Reduce local jitter by smoothing points in the selected region.",
   Flatten: "Collapse local variance toward a flatter profile.",
   "Push/Pull": "Nudge values up or down without changing timing.",
@@ -260,6 +261,12 @@ function normalizeTimeRange(durationSec: number, range: TimeSelectionRange | nul
   };
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
 function computeSampleRangeMean(samples: ArrayLike<number>, startSampleIndex: number, endSampleIndex: number): number {
   const sampleCount = samples.length ?? 0;
   if (sampleCount <= 0 || endSampleIndex < startSampleIndex) return 0;
@@ -284,6 +291,7 @@ type LaneRowProps = {
   isSelected: boolean;
   drawActive: boolean;
   selectedTimeRange: TimeSelectionRange | null;
+  rangeFalloffSec: number;
   isFirstVisible: boolean;
   onHoverChange: (channel: string, hovered: boolean) => void;
   onSelect: (channel: string) => void;
@@ -316,6 +324,7 @@ const LaneRow = React.memo(function LaneRow({
   isSelected,
   drawActive,
   selectedTimeRange,
+  rangeFalloffSec,
   isFirstVisible,
   onHoverChange,
   onSelect,
@@ -372,13 +381,20 @@ const LaneRow = React.memo(function LaneRow({
     const span = Math.max(1e-6, maxV - minV);
     const yNorm = (maxV - meanValue) / span;
     const centerNorm = (normalizedTimeRange.startNorm + normalizedTimeRange.endNorm) * 0.5;
+    const falloffNorm = durationSec > 0 ? Math.min(1, Math.max(0, rangeFalloffSec / durationSec)) : 0;
+    const falloffStartNorm = Math.max(0, normalizedTimeRange.startNorm - falloffNorm);
+    const falloffEndNorm = Math.min(1, normalizedTimeRange.endNorm + falloffNorm);
     return {
+      falloffLeftX: falloffStartNorm * LANE_VIEWBOX_WIDTH,
+      falloffLeftWidth: Math.max(0, (normalizedTimeRange.startNorm - falloffStartNorm) * LANE_VIEWBOX_WIDTH),
       bandX: normalizedTimeRange.startNorm * LANE_VIEWBOX_WIDTH,
       bandWidth: Math.max(3, (normalizedTimeRange.endNorm - normalizedTimeRange.startNorm) * LANE_VIEWBOX_WIDTH),
+      falloffRightX: normalizedTimeRange.endNorm * LANE_VIEWBOX_WIDTH,
+      falloffRightWidth: Math.max(0, (falloffEndNorm - normalizedTimeRange.endNorm) * LANE_VIEWBOX_WIDTH),
       handleCx: centerNorm * LANE_VIEWBOX_WIDTH,
       handleCy: Math.min(LANE_CURVE_DRAW_HEIGHT, Math.max(0, yNorm * LANE_CURVE_DRAW_HEIGHT)),
     };
-  }, [maxV, minV, normalizedTimeRange, samples, selectedSampleRange]);
+  }, [durationSec, maxV, minV, normalizedTimeRange, rangeFalloffSec, samples, selectedSampleRange]);
 
   const commitMax = React.useCallback(() => {
     const value = Number(draftMax);
@@ -466,6 +482,15 @@ const LaneRow = React.memo(function LaneRow({
           aria-hidden="true"
           onPointerDown={(event) => onBeginDraw(event, channel, samples, minV, maxV)}
         >
+          {rangeOverlay && rangeOverlay.falloffLeftWidth > 0 ? (
+            <rect
+              x={rangeOverlay.falloffLeftX}
+              y={0}
+              width={rangeOverlay.falloffLeftWidth}
+              height={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.rangeFalloffBandLane}
+            />
+          ) : null}
           {rangeOverlay ? (
             <rect
               x={rangeOverlay.bandX}
@@ -473,6 +498,15 @@ const LaneRow = React.memo(function LaneRow({
               width={rangeOverlay.bandWidth}
               height={LANE_CURVE_DRAW_HEIGHT}
               className={styles.rangeSelectionBandLane}
+            />
+          ) : null}
+          {rangeOverlay && rangeOverlay.falloffRightWidth > 0 ? (
+            <rect
+              x={rangeOverlay.falloffRightX}
+              y={0}
+              width={rangeOverlay.falloffRightWidth}
+              height={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.rangeFalloffBandLane}
             />
           ) : null}
           <path d={areaD} className={styles.laneArea} style={{ fill: color }} />
@@ -503,6 +537,7 @@ const LaneRow = React.memo(function LaneRow({
   prev.drawActive === next.drawActive &&
   prev.selectedTimeRange?.startSec === next.selectedTimeRange?.startSec &&
   prev.selectedTimeRange?.endSec === next.selectedTimeRange?.endSec &&
+  prev.rangeFalloffSec === next.rangeFalloffSec &&
   prev.isFirstVisible === next.isFirstVisible
 );
 
@@ -567,6 +602,7 @@ export default function AnimationEditorPage() {
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
   const [activeTool, setActiveTool] = React.useState<AnimToolName | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = React.useState<TimeSelectionRange | null>(null);
+  const [rangeFalloffSec, setRangeFalloffSec] = React.useState(DEFAULT_RANGE_FALLOFF_SEC);
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -597,7 +633,8 @@ export default function AnimationEditorPage() {
     active: boolean;
     clipIndex: number;
     channel: string;
-    range: { startSampleIndex: number; endSampleIndex: number } | null;
+    coreRange: { startSampleIndex: number; endSampleIndex: number } | null;
+    writeRange: { startSampleIndex: number; endSampleIndex: number } | null;
     baseSamples: Float32Array | null;
     baseDirty: boolean;
     startClientY: number;
@@ -607,7 +644,8 @@ export default function AnimationEditorPage() {
     active: false,
     clipIndex: -1,
     channel: "",
-    range: null,
+    coreRange: null,
+    writeRange: null,
     baseSamples: null,
     baseDirty: false,
     startClientY: 0,
@@ -1223,6 +1261,10 @@ export default function AnimationEditorPage() {
     () => normalizeTimeRange(durationSec, selectedTimeRange),
     [durationSec, selectedTimeRange]
   );
+  const normalizedRangeFalloff = React.useMemo(
+    () => (durationSec > 0 ? Math.min(1, Math.max(0, rangeFalloffSec / durationSec)) : 0),
+    [durationSec, rangeFalloffSec]
+  );
   const rulerMarks = React.useMemo(
     () => [0, 0.2, 0.4, 0.6, 0.8, 1].map((norm) => ({ norm, label: `${(durationSec * norm).toFixed(1)}s` })),
     [durationSec]
@@ -1230,6 +1272,10 @@ export default function AnimationEditorPage() {
   const animsetOptions = React.useMemo(() => Array.from(new Set([animsetPath, DEFAULT_ANIMSET].filter(Boolean))), [animsetPath]);
   const overlayWidth = playheadOverlayMetrics.width;
   const playheadX = (playhead / LANE_VIEWBOX_WIDTH) * overlayWidth;
+  const rangeFalloffStepSec = React.useMemo(
+    () => Math.min(0.1, Math.max(0.005, durationSec * 0.005)),
+    [durationSec]
+  );
 
   React.useEffect(() => {
     if (localScrubTimeSec !== null || playheadSec === null || durationSec <= 0) return;
@@ -1249,6 +1295,21 @@ export default function AnimationEditorPage() {
     if (playbackState === null) return;
     setIsPlaying(playbackState === 2 || playbackState === 3);
   }, [playbackState]);
+
+  React.useEffect(() => {
+    if (activeTool !== "Range") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (event.key !== "[" && event.key !== "]") return;
+      event.preventDefault();
+      setRangeFalloffSec((current) => {
+        const direction = event.key === "]" ? 1 : -1;
+        return Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec));
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTool, durationSec, rangeFalloffStepSec]);
 
   React.useEffect(() => {
     if (!selectedWorkloadName) return;
@@ -1584,6 +1645,10 @@ export default function AnimationEditorPage() {
         selectedTimeRange.endSec
       );
       if (!sampleRange) return;
+      const falloffSampleCount =
+        channelSamples.length > 1 && durationSec > 0
+          ? Math.max(0, Math.round((rangeFalloffSec / durationSec) * (channelSamples.length - 1)))
+          : 0;
 
       const laneTrack = (event.currentTarget.closest('[data-lane-track="true"]') as HTMLElement | null) ?? event.currentTarget.ownerSVGElement?.parentElement;
       const laneRect = laneTrack?.getBoundingClientRect();
@@ -1595,7 +1660,8 @@ export default function AnimationEditorPage() {
         active: true,
         clipIndex,
         channel,
-        range: sampleRange,
+        coreRange: sampleRange,
+        writeRange: sampleRange,
         baseSamples: (clipDataRef.current.channels[channel] ?? channelSamples).slice(),
         baseDirty: clipDataRef.current.dirty,
         startClientY: event.clientY,
@@ -1605,18 +1671,19 @@ export default function AnimationEditorPage() {
 
       const applyOffsetPreview = (clientY: number) => {
         const state = rangeOffsetStateRef.current;
-        if (!state.active || !state.baseSamples || !state.range) return;
+        if (!state.active || !state.baseSamples || !state.coreRange) return;
         const offset = -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan;
-        const nextChannel = applyOffsetToSampleRange(state.baseSamples, state.range, offset);
+        const result = applyOffsetToSampleRangeWithFalloff(state.baseSamples, state.coreRange, offset, falloffSampleCount);
+        state.writeRange = result.writeRange;
         scheduleClipDataRender({
           ...clipDataRef.current,
           dirty: true,
           channels: {
             ...clipDataRef.current.channels,
-            [channel]: nextChannel,
+            [channel]: result.samples,
           },
         });
-        queueDrawStrokeRange(clipIndex, channel, state.range.startSampleIndex, state.range.endSampleIndex);
+        queueDrawStrokeRange(clipIndex, channel, result.writeRange.startSampleIndex, result.writeRange.endSampleIndex);
       };
 
       const finishRangeOffset = (applyEdit: boolean) => {
@@ -1628,14 +1695,15 @@ export default function AnimationEditorPage() {
           active: false,
           clipIndex: -1,
           channel: "",
-          range: null,
+          coreRange: null,
+          writeRange: null,
           baseSamples: null,
           baseDirty: false,
           startClientY: 0,
           laneHeightPx: 1,
           laneValueSpan: 1,
         };
-        if (!state.baseSamples || !state.range) return;
+        if (!state.baseSamples || !state.coreRange || !state.writeRange) return;
 
         if (!applyEdit) {
           clearDrawFlushTimer();
@@ -1650,7 +1718,7 @@ export default function AnimationEditorPage() {
             },
           });
           flushPendingClipDataRender();
-          queueDrawStrokeRange(clipIndex, channel, state.range.startSampleIndex, state.range.endSampleIndex);
+          queueDrawStrokeRange(clipIndex, channel, state.writeRange.startSampleIndex, state.writeRange.endSampleIndex);
           void flushDrawStroke(true);
           return;
         }
@@ -1684,6 +1752,7 @@ export default function AnimationEditorPage() {
       queueDrawStrokeRange,
       scheduleClipDataRender,
       selectedClipPath,
+      rangeFalloffSec,
       selectedTimeRange,
     ]
   );
@@ -2056,6 +2125,7 @@ export default function AnimationEditorPage() {
                     isSelected={selectedChannel === channel}
                     drawActive={activeTool !== null}
                     selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
+                    rangeFalloffSec={activeTool === "Range" ? rangeFalloffSec : 0}
                     isFirstVisible={visibleChannels[0] === channel}
                     onHoverChange={handleLaneHoverChange}
                     onSelect={handleLaneSelect}
@@ -2091,6 +2161,36 @@ export default function AnimationEditorPage() {
                   className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect}
                   onPointerDown={beginRangeSelection}
                 />
+                {normalizedSelectedTimeRange ? (
+                  normalizedRangeFalloff > 0 ? (
+                    <>
+                      {normalizedSelectedTimeRange.startNorm > 0 ? (
+                        <rect
+                          x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedRangeFalloff) * overlayWidth)}
+                          y={2}
+                          width={Math.max(
+                            0,
+                            Math.min(normalizedSelectedTimeRange.startNorm, normalizedRangeFalloff) * overlayWidth
+                          )}
+                          height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
+                          className={styles.rangeFalloffBandRuler}
+                        />
+                      ) : null}
+                      {normalizedSelectedTimeRange.endNorm < 1 ? (
+                        <rect
+                          x={normalizedSelectedTimeRange.endNorm * overlayWidth}
+                          y={2}
+                          width={Math.max(
+                            0,
+                            Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedRangeFalloff) * overlayWidth
+                          )}
+                          height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
+                          className={styles.rangeFalloffBandRuler}
+                        />
+                      ) : null}
+                    </>
+                  ) : null
+                ) : null}
                 {normalizedSelectedTimeRange ? (
                   <rect
                     x={normalizedSelectedTimeRange.startNorm * overlayWidth}
@@ -2220,6 +2320,16 @@ export default function AnimationEditorPage() {
               </div>
             </section>
           ))}
+          {activeTool === "Range" ? (
+            <section className={styles.panelCard}>
+              <h3>Tool Settings</h3>
+              <div className={styles.toolSettingRow}>
+                <span>Falloff</span>
+                <strong>{rangeFalloffSec.toFixed(2)}s</strong>
+              </div>
+              <div className={styles.toolSettingHint}>`[` / `]` adjust shoulder width</div>
+            </section>
+          ) : null}
         </aside>
       </div>
 
