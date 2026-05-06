@@ -590,7 +590,7 @@ export default function AnimationEditorPage() {
   });
   const clipDataRef = React.useRef(clipData);
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
-  const [activeTool, setActiveTool] = React.useState<AnimToolName>("Pencil");
+  const [activeTool, setActiveTool] = React.useState<AnimToolName | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = React.useState<TimeSelectionRange | null>(null);
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
@@ -2041,12 +2041,20 @@ export default function AnimationEditorPage() {
                   )}
                 />
               ) : null}
-              <span className={styles.rulerMark}>0.0s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
+              <div
+                className={styles.rulerScaleViewport}
+                style={{
+                  left: `${playheadViewportInsetsPx.left}px`,
+                  right: `${playheadViewportInsetsPx.right}px`,
+                }}
+              >
+                <span className={styles.rulerMark}>0.0s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
+              </div>
             </div>
             <div className={styles.lanes}>
               {visibleChannels.map((channel) => {
@@ -2061,7 +2069,7 @@ export default function AnimationEditorPage() {
                     color={channelColor[channel] ?? "#77ceff"}
                     isHovered={hoveredChannel === channel}
                     isSelected={selectedChannel === channel}
-                    drawActive={activeTool === "Pencil" || activeTool === "Line" || activeTool === "Range"}
+                    drawActive={activeTool !== null}
                     selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
                     isFirstVisible={visibleChannels[0] === channel}
                     onHoverChange={handleLaneHoverChange}
@@ -2077,12 +2085,20 @@ export default function AnimationEditorPage() {
               })}
             </div>
             <div className={styles.timeRulerBottom}>
-              <span className={styles.rulerMark}>0.0s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
-              <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
+              <div
+                className={styles.rulerScaleViewport}
+                style={{
+                  left: `${playheadViewportInsetsPx.left}px`,
+                  right: `${playheadViewportInsetsPx.right}px`,
+                }}
+              >
+                <span className={styles.rulerMark}>0.0s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.2).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.4).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.6).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{(durationSec * 0.8).toFixed(1)}s</span>
+                <span className={styles.rulerMark}>{durationSec.toFixed(1)}s</span>
+              </div>
             </div>
             <div
               ref={playheadViewportRef}
@@ -2092,16 +2108,32 @@ export default function AnimationEditorPage() {
                 right: `${playheadViewportInsetsPx.right}px`,
               }}
             >
-              <div className={styles.rulerBottomPip} style={{ left: `${playhead / 10}%` }} />
-              <div className={styles.playhead} style={{ left: `${playhead / 10}%` }}>
+              <button
+                className={styles.rulerBottomPip}
+                style={{ left: `${playhead / 10}%` }}
+                type="button"
+                onPointerDown={beginPlayheadDrag}
+                title="Drag playhead"
+                aria-label="Drag playhead"
+              />
+              <div
+                className={`${styles.playhead} ${activeTool !== null ? styles.playheadToolMuted : ""}`}
+                style={{ left: `${playhead / 10}%` }}
+              >
                 <button
-                  className={styles.playheadGrab}
+                  className={`${styles.playheadGrab} ${activeTool !== null ? styles.playheadGrabDisabled : ""}`}
                   type="button"
                   onPointerDown={beginPlayheadDrag}
                   title="Drag playhead"
                   aria-label="Drag playhead"
                 />
-                <div className={styles.playheadPip} />
+                <button
+                  className={styles.playheadPip}
+                  type="button"
+                  onPointerDown={beginPlayheadDrag}
+                  title="Drag playhead"
+                  aria-label="Drag playhead"
+                />
               </div>
             </div>
           </section>
@@ -2121,7 +2153,7 @@ export default function AnimationEditorPage() {
                     disabled={item !== "Pencil" && item !== "Line" && item !== "Range"}
                     onClick={() => {
                       if (item === "Pencil" || item === "Line" || item === "Range") {
-                        setActiveTool(item);
+                        setActiveTool((current) => (current === item ? null : item));
                       }
                     }}
                   >

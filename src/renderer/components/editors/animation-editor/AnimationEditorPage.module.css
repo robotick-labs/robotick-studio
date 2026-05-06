@@ -385,14 +385,22 @@
 
 .timeRuler {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
   padding: 8px 14px 10px;
   color: var(--app-text-muted);
   font-size: 0.76rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
   touch-action: none;
+}
+
+.rulerScaleViewport {
+  position: absolute;
+  top: 8px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  align-items: center;
+  pointer-events: none;
 }
 
 .rangeSelectionBandRuler {
@@ -448,8 +456,6 @@
 
 .timeRulerBottom {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
   padding: 8px 14px 10px;
   color: var(--app-text-muted);
   font-size: 0.76rem;
@@ -459,15 +465,19 @@
 
 .rulerBottomPip {
   position: absolute;
-  bottom: 0;
+  bottom: -6px;
   left: 0;
   transform: translateX(-50%);
   width: 10px;
-  height: 6px;
-  border-radius: 3px 3px 0 0;
+  height: 12px;
+  border-radius: 4px 4px 0 0;
   background: rgba(255, 206, 84, 1);
   box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
-  pointer-events: none;
+  pointer-events: auto;
+  border: none;
+  padding: 0;
+  cursor: ew-resize;
+  z-index: 5;
 }
 
 .playheadViewport {
@@ -667,6 +677,11 @@
   pointer-events: none;
 }
 
+.playheadToolMuted {
+  background: rgba(255, 206, 84, 0.3);
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.18);
+}
+
 .playheadGrab {
   position: absolute;
   top: 0;
@@ -681,17 +696,25 @@
   pointer-events: auto;
 }
 
+.playheadGrabDisabled {
+  pointer-events: none;
+}
+
 .playheadPip {
   position: absolute;
-  top: 0;
+  top: -6px;
   left: 50%;
   transform: translate(-50%, 0);
   width: 10px;
-  height: 6px;
-  border-radius: 0 0 3px 3px;
+  height: 12px;
+  border-radius: 0 0 4px 4px;
   background: rgba(255, 206, 84, 1);
   box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.45);
-  pointer-events: none;
+  pointer-events: auto;
+  border: none;
+  padding: 0;
+  cursor: ew-resize;
+  z-index: 5;
 }
 
 .iconPlayGlyph {
