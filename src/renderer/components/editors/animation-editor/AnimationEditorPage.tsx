@@ -30,7 +30,7 @@ type ClipData = {
   dirty: boolean;
 };
 type LaneRange = { min: number; max: number };
-type AnimToolName = "Draw";
+type AnimToolName = "Pencil" | "Line";
 type CompatibleSourceRef = {
   id: string;
   type: string;
@@ -82,13 +82,14 @@ const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
 const TOOL_SECTIONS = [
-  { title: "Sculpting", items: ["Draw", "Smooth", "Flatten", "Push/Pull"] },
+  { title: "Sculpting", items: ["Pencil", "Line", "Smooth", "Flatten", "Push/Pull"] },
   { title: "Keying", items: ["Select", "Move", "Add Point", "Delete Point"] },
   { title: "Scaling", items: ["Scale", "Offset", "Ramp Up", "Ramp Down"] },
 ];
 
 const TOOL_TIPS: Record<string, string> = {
-  Draw: "Paint values across a time window toward the cursor path.",
+  Pencil: "Paint values freely across a time window toward the cursor path.",
+  Line: "Preview and place a straight line across a sample range. Esc cancels; mouse-up applies.",
   Smooth: "Reduce local jitter by smoothing points in the selected region.",
   Flatten: "Collapse local variance toward a flatter profile.",
   "Push/Pull": "Nudge values up or down without changing timing.",
@@ -471,7 +472,7 @@ export default function AnimationEditorPage() {
   });
   const clipDataRef = React.useRef(clipData);
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
-  const [activeTool, setActiveTool] = React.useState<AnimToolName>("Draw");
+  const [activeTool, setActiveTool] = React.useState<AnimToolName>("Pencil");
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -487,6 +488,23 @@ export default function AnimationEditorPage() {
   const heldSuppressedAnimControlFieldsRef = React.useRef<Set<string>>(new Set());
   const pendingClipDataRenderRef = React.useRef<ClipData | null>(null);
   const pendingClipDataRafRef = React.useRef<number | null>(null);
+  const linePreviewStateRef = React.useRef<{
+    active: boolean;
+    clipIndex: number;
+    channel: string;
+    baseSamples: Float32Array | null;
+    baseDirty: boolean;
+    startPoint: Point | null;
+    touchedRange: { startSampleIndex: number; endSampleIndex: number } | null;
+  }>({
+    active: false,
+    clipIndex: -1,
+    channel: "",
+    baseSamples: null,
+    baseDirty: false,
+    startPoint: null,
+    touchedRange: null,
+  });
   const drawWriteStateRef = React.useRef<{
     clipIndex: number;
     channel: string;
@@ -1206,6 +1224,47 @@ export default function AnimationEditorPage() {
     [clipRefs, loadLiveClipData]
   );
 
+  const writeSampleRange = React.useCallback(
+    async (clipIndex: number, channel: string, startSampleIndex: number, endSampleIndex: number) => {
+      const currentClip = clipDataRef.current;
+      const channelSamples = currentClip.channels[channel] ?? new Float32Array(0);
+      if (startSampleIndex < 0 || endSampleIndex < startSampleIndex || endSampleIndex >= channelSamples.length) {
+        throw new Error("Invalid sample range");
+      }
+      const url = buildAnimServiceUrl("/samples-write-range", { clip_index: clipIndex >= 0 ? clipIndex : undefined });
+      if (!url) {
+        throw new Error("Missing samples-write-range URL");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clip_revision: drawWriteStateRef.current.acceptedClipRevision,
+          channel,
+          start_sample_index: startSampleIndex,
+          values: Array.from(channelSamples.subarray(startSampleIndex, endSampleIndex + 1)),
+        }),
+      });
+      const payload = (await response.json()) as { clip_revision?: string; error?: string };
+      if (!response.ok) {
+        if (response.status === 409 && typeof payload.clip_revision === "string") {
+          drawWriteStateRef.current.acceptedClipRevision = payload.clip_revision;
+        }
+        throw new Error(`Failed to write live samples: ${response.status}`);
+      }
+      if (typeof payload.clip_revision === "string") {
+        drawWriteStateRef.current.acceptedClipRevision = payload.clip_revision;
+      }
+      scheduleClipDataRender({
+        ...clipDataRef.current,
+        clipRevision: drawWriteStateRef.current.acceptedClipRevision,
+        dirty: true,
+      });
+    },
+    [buildAnimServiceUrl, scheduleClipDataRender]
+  );
+
   const flushDrawStroke = React.useCallback(
     async (force: boolean) => {
       const state = drawWriteStateRef.current;
@@ -1227,43 +1286,8 @@ export default function AnimationEditorPage() {
       state.queuedEndSampleIndex = null;
       state.inFlight = true;
       try {
-        const currentClip = clipDataRef.current;
-        const channelSamples = currentClip.channels[channel] ?? [];
-        if (
-          startSampleIndex < 0 ||
-          endSampleIndex < startSampleIndex ||
-          endSampleIndex >= channelSamples.length
-        ) {
-          throw new Error("Invalid queued sample range");
-        }
-        const url = buildAnimServiceUrl("/samples-write-range", { clip_index: clipIndex >= 0 ? clipIndex : undefined });
-        if (!url) return;
-        const response = await fetch(url, {
-          method: "POST",
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clip_revision: clipRevision,
-            channel,
-            start_sample_index: startSampleIndex,
-            values: Array.from(channelSamples.subarray(startSampleIndex, endSampleIndex + 1)),
-          }),
-        });
-        const payload = (await response.json()) as { clip_revision?: string; error?: string };
-        if (!response.ok) {
-          if (response.status === 409 && typeof payload.clip_revision === "string") {
-            state.acceptedClipRevision = payload.clip_revision;
-          }
-          throw new Error(`Failed to draw live samples: ${response.status}`);
-        }
-        if (typeof payload.clip_revision === "string") {
-          state.acceptedClipRevision = payload.clip_revision;
-        }
-        scheduleClipDataRender({
-          ...clipDataRef.current,
-          clipRevision: state.acceptedClipRevision,
-          dirty: true,
-        });
+        state.acceptedClipRevision = clipRevision;
+        await writeSampleRange(clipIndex, channel, startSampleIndex, endSampleIndex);
       } catch (error) {
         console.warn("Live draw request failed", { clipIndex, channel, startSampleIndex, endSampleIndex, error });
         state.queuedStartSampleIndex = null;
@@ -1283,7 +1307,7 @@ export default function AnimationEditorPage() {
         }
       }
     },
-    [buildAnimServiceUrl, refreshSelectedClipFromEngine, scheduleClipDataRender]
+    [refreshSelectedClipFromEngine, writeSampleRange]
   );
 
   const queueDrawStrokeRange = React.useCallback(
@@ -1346,7 +1370,7 @@ export default function AnimationEditorPage() {
       minV: number,
       maxV: number
     ) => {
-      if (activeTool !== "Draw") return;
+      if (activeTool !== "Pencil" && activeTool !== "Line") return;
       event.preventDefault();
       event.stopPropagation();
       const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
@@ -1354,6 +1378,117 @@ export default function AnimationEditorPage() {
       const svg = event.currentTarget;
       setSelectedChannel(channel);
       beginDrawStrokeSession(clipIndex, channel);
+
+      const startPoint = pointerToDrawPoint(svg, event.clientX, event.clientY, minV, maxV);
+      if (!startPoint) return;
+
+      if (activeTool === "Line") {
+        const baseSamples = (clipDataRef.current.channels[channel] ?? channelSamples).slice();
+        linePreviewStateRef.current = {
+          active: true,
+          clipIndex,
+          channel,
+          baseSamples,
+          baseDirty: clipDataRef.current.dirty,
+          startPoint,
+          touchedRange: null,
+        };
+
+        const applyLinePreview = (point: Point) => {
+          const lineState = linePreviewStateRef.current;
+          const currentBase = lineState.baseSamples ?? baseSamples;
+          const delta = buildInterpolatedDrawDelta(currentBase.length, durationSec, startPoint, point);
+          if (!delta) return;
+          const nextChannel = applySampleDeltaToBuffer(currentBase, delta);
+          const rangeStart = delta.startSampleIndex;
+          const rangeEnd = delta.startSampleIndex + delta.values.length - 1;
+          lineState.touchedRange = lineState.touchedRange
+            ? {
+                startSampleIndex: Math.min(lineState.touchedRange.startSampleIndex, rangeStart),
+                endSampleIndex: Math.max(lineState.touchedRange.endSampleIndex, rangeEnd),
+              }
+            : {
+                startSampleIndex: rangeStart,
+                endSampleIndex: rangeEnd,
+              };
+          scheduleClipDataRender({
+            ...clipDataRef.current,
+            dirty: true,
+            channels: {
+              ...clipDataRef.current.channels,
+              [channel]: nextChannel,
+            },
+          });
+          queueDrawStrokeRange(clipIndex, channel, rangeStart, rangeEnd);
+        };
+
+        applyLinePreview(startPoint);
+
+        const finishLineSession = (applyEdit: boolean) => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("keydown", onKeyDown);
+          clearDrawFlushTimer();
+          flushPendingClipDataRender();
+
+          const lineState = linePreviewStateRef.current;
+          const base = lineState.baseSamples;
+          const baseDirty = lineState.baseDirty;
+          const touchedRange = lineState.touchedRange;
+          linePreviewStateRef.current = {
+            active: false,
+            clipIndex: -1,
+            channel: "",
+            baseSamples: null,
+            baseDirty: false,
+            startPoint: null,
+            touchedRange: null,
+          };
+
+          if (!applyEdit) {
+            if (base) {
+              clearDrawFlushTimer();
+              drawWriteStateRef.current.queuedStartSampleIndex = null;
+              drawWriteStateRef.current.queuedEndSampleIndex = null;
+              scheduleClipDataRender({
+                ...clipDataRef.current,
+                dirty: baseDirty,
+                channels: {
+                  ...clipDataRef.current.channels,
+                  [channel]: base,
+                },
+              });
+              if (touchedRange) {
+                queueDrawStrokeRange(clipIndex, channel, touchedRange.startSampleIndex, touchedRange.endSampleIndex);
+                flushPendingClipDataRender();
+                void flushDrawStroke(true);
+              }
+            }
+            return;
+          }
+          if (touchedRange) {
+            flushPendingClipDataRender();
+            void flushDrawStroke(true);
+          }
+        };
+
+        const onMove = (moveEvent: PointerEvent) => {
+          const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+          if (!point) return;
+          applyLinePreview(point);
+        };
+        const onUp = () => finishLineSession(true);
+        const onKeyDown = (keyEvent: KeyboardEvent) => {
+          if (keyEvent.key === "Escape") {
+            keyEvent.preventDefault();
+            finishLineSession(false);
+          }
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("keydown", onKeyDown);
+        return;
+      }
 
       let previousPoint: Point | null = null;
       const previewPoint = (point: Point) => {
@@ -1380,8 +1515,6 @@ export default function AnimationEditorPage() {
         previousPoint = point;
       };
 
-      const startPoint = pointerToDrawPoint(svg, event.clientX, event.clientY, minV, maxV);
-      if (!startPoint) return;
       previewPoint(startPoint);
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -1613,7 +1746,7 @@ export default function AnimationEditorPage() {
                     color={channelColor[channel] ?? "#77ceff"}
                     isHovered={hoveredChannel === channel}
                     isSelected={selectedChannel === channel}
-                    drawActive={activeTool === "Draw"}
+                    drawActive={activeTool === "Pencil" || activeTool === "Line"}
                     isFirstVisible={visibleChannels[0] === channel}
                     onHoverChange={handleLaneHoverChange}
                     onSelect={handleLaneSelect}
@@ -1666,11 +1799,11 @@ export default function AnimationEditorPage() {
                     key={item}
                     className={`${styles.toolButton} ${item === activeTool ? styles.toolButtonActive : ""}`}
                     type="button"
-                    title={item === "Draw" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
-                    disabled={item !== "Draw"}
+                    title={item === "Pencil" || item === "Line" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
+                    disabled={item !== "Pencil" && item !== "Line"}
                     onClick={() => {
-                      if (item === "Draw") {
-                        setActiveTool("Draw");
+                      if (item === "Pencil" || item === "Line") {
+                        setActiveTool(item);
                       }
                     }}
                   >
