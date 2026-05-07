@@ -15,6 +15,16 @@ export type RangeOffsetWithFalloffResult = {
   writeRange: SampleIndexRange;
 };
 
+export type SmoothRangeWithFalloffResult = {
+  samples: Float32Array;
+  writeRange: SampleIndexRange;
+};
+
+export type SmoothBrushResult = {
+  samples: Float32Array;
+  writeRange: SampleIndexRange;
+};
+
 export function sampleIndexFromTime(durationSec: number, sampleCount: number, timeSec: number): number {
   if (sampleCount <= 1 || durationSec <= 0) return 0;
   const clamped = Math.min(durationSec, Math.max(0, timeSec));
@@ -105,7 +115,8 @@ export function applyOffsetToSampleRangeWithFalloff(
   samples: ArrayLike<number>,
   coreRange: SampleIndexRange,
   offset: number,
-  falloffSampleCount: number
+  falloffSampleCount: number,
+  falloffCurve = 1
 ): RangeOffsetWithFalloffResult {
   const sampleCount = samples.length ?? 0;
   const next = samples instanceof Float32Array ? samples.slice() : Float32Array.from(samples);
@@ -128,16 +139,119 @@ export function applyOffsetToSampleRangeWithFalloff(
 
   const leftShoulderCount = clampedCoreStart - writeRange.startSampleIndex;
   const rightShoulderCount = writeRange.endSampleIndex - clampedCoreEnd;
+  const clampedCurve = Math.min(1, Math.max(0, falloffCurve));
   const smoothstep = (t: number) => t * t * (3 - 2 * t);
+  const shapedFalloff = (t: number) => t + (smoothstep(t) - t) * clampedCurve;
   for (let i = writeRange.startSampleIndex; i <= writeRange.endSampleIndex; i += 1) {
     let weight = 1;
     if (i < clampedCoreStart && leftShoulderCount > 0) {
-      weight = smoothstep((i - writeRange.startSampleIndex + 1) / (leftShoulderCount + 1));
+      weight = shapedFalloff((i - writeRange.startSampleIndex + 1) / (leftShoulderCount + 1));
     } else if (i > clampedCoreEnd && rightShoulderCount > 0) {
-      weight = smoothstep((writeRange.endSampleIndex - i + 1) / (rightShoulderCount + 1));
+      weight = shapedFalloff((writeRange.endSampleIndex - i + 1) / (rightShoulderCount + 1));
     }
     next[i] = next[i] + offset * weight;
   }
 
   return { samples: next, writeRange };
+}
+
+export function applySmoothToSampleRangeWithFalloff(
+  samples: ArrayLike<number>,
+  coreRange: SampleIndexRange,
+  strength: number,
+  falloffSampleCount: number,
+  falloffCurve = 1
+): SmoothRangeWithFalloffResult {
+  const sampleCount = samples.length ?? 0;
+  const next = samples instanceof Float32Array ? samples.slice() : Float32Array.from(samples);
+  const clampedCoreStart = Math.max(0, coreRange.startSampleIndex);
+  const clampedCoreEnd = Math.min(sampleCount - 1, coreRange.endSampleIndex);
+  const clampedFalloffCount = Math.max(0, Math.floor(falloffSampleCount));
+  const writeRange = {
+    startSampleIndex: Math.max(0, clampedCoreStart - clampedFalloffCount),
+    endSampleIndex: Math.min(sampleCount - 1, clampedCoreEnd + clampedFalloffCount),
+  };
+  const clampedStrength = Math.min(1, Math.max(0, strength));
+
+  if (
+    sampleCount === 0 ||
+    clampedCoreEnd < clampedCoreStart ||
+    writeRange.endSampleIndex < writeRange.startSampleIndex ||
+    clampedStrength <= 0
+  ) {
+    return { samples: next, writeRange };
+  }
+
+  const coreCount = clampedCoreEnd - clampedCoreStart + 1;
+  const smoothingRadius = Math.max(1, Math.min(24, Math.round(coreCount * 0.08)));
+  const leftShoulderCount = clampedCoreStart - writeRange.startSampleIndex;
+  const rightShoulderCount = writeRange.endSampleIndex - clampedCoreEnd;
+  const clampedCurve = Math.min(1, Math.max(0, falloffCurve));
+  const smoothstep = (t: number) => t * t * (3 - 2 * t);
+  const shapedFalloff = (t: number) => t + (smoothstep(t) - t) * clampedCurve;
+
+  for (let i = writeRange.startSampleIndex; i <= writeRange.endSampleIndex; i += 1) {
+    let influenceWeight = 1;
+    if (i < clampedCoreStart && leftShoulderCount > 0) {
+      influenceWeight = shapedFalloff((i - writeRange.startSampleIndex + 1) / (leftShoulderCount + 1));
+    } else if (i > clampedCoreEnd && rightShoulderCount > 0) {
+      influenceWeight = shapedFalloff((writeRange.endSampleIndex - i + 1) / (rightShoulderCount + 1));
+    }
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+    const sampleStart = Math.max(0, i - smoothingRadius);
+    const sampleEnd = Math.min(sampleCount - 1, i + smoothingRadius);
+    for (let s = sampleStart; s <= sampleEnd; s += 1) {
+      const kernelWeight = smoothingRadius + 1 - Math.abs(s - i);
+      weightedSum += Number(samples[s] ?? 0) * kernelWeight;
+      totalWeight += kernelWeight;
+    }
+    const smoothedValue = totalWeight > 0 ? weightedSum / totalWeight : Number(samples[i] ?? 0);
+    const blend = clampedStrength * influenceWeight;
+    next[i] = Number(samples[i] ?? 0) * (1 - blend) + smoothedValue * blend;
+  }
+
+  return { samples: next, writeRange };
+}
+
+export function applySmoothBrushToSamples(
+  samples: ArrayLike<number>,
+  durationSec: number,
+  centerTimeSec: number,
+  coreRangeSec: number,
+  strength: number,
+  falloffSec: number,
+  falloffCurve = 1
+): SmoothBrushResult {
+  const sampleCount = samples.length ?? 0;
+  const next = samples instanceof Float32Array ? samples.slice() : Float32Array.from(samples);
+  if (sampleCount <= 0 || durationSec <= 0) {
+    return {
+      samples: next,
+      writeRange: { startSampleIndex: 0, endSampleIndex: -1 },
+    };
+  }
+
+  const lastIndex = sampleCount - 1;
+  const centerIndex = sampleIndexFromTime(durationSec, sampleCount, centerTimeSec);
+  const coreRadiusSamples = Math.max(
+    0,
+    Math.round((Math.max(0, coreRangeSec) * 0.5 / durationSec) * lastIndex)
+  );
+  const falloffRadiusSamples = Math.max(
+    0,
+    Math.round((Math.max(0, falloffSec) / durationSec) * lastIndex)
+  );
+
+  return applySmoothToSampleRangeWithFalloff(
+    next,
+    {
+      startSampleIndex: Math.max(0, centerIndex - coreRadiusSamples),
+      endSampleIndex: Math.min(lastIndex, centerIndex + coreRadiusSamples),
+    },
+    strength,
+    falloffRadiusSamples,
+    falloffCurve
+  );
 }

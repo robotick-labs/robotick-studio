@@ -15,7 +15,9 @@ import { normalizedFromClientX } from "./playhead-math";
 import {
   applySampleDeltaToBuffer,
   applyOffsetToSampleRangeWithFalloff,
+  applySmoothBrushToSamples,
   buildInterpolatedDrawDelta,
+  sampleIndexFromTime,
   sampleIndexRangeFromTimes,
   type Point,
 } from "./anim-sample-editing";
@@ -32,7 +34,7 @@ type ClipData = {
   dirty: boolean;
 };
 type LaneRange = { min: number; max: number };
-type AnimToolName = "Pencil" | "Line" | "Range";
+type AnimToolName = "Pencil" | "Line" | "Range" | "Smooth";
 type TimeSelectionRange = { startSec: number; endSec: number };
 type CompatibleSourceRef = {
   id: string;
@@ -84,7 +86,12 @@ const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
 const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
+const DEFAULT_RANGE_SIZE_SEC = 0.45;
 const DEFAULT_RANGE_FALLOFF_SEC = 0.12;
+const DEFAULT_FALLOFF_CURVE = 1;
+const DEFAULT_SMOOTH_FALLOFF_SEC = 0.18;
+const DEFAULT_SMOOTH_STRENGTH = 0.65;
+const DEFAULT_SMOOTH_RANGE_SEC = 0.45;
 const TOOL_SECTIONS = [
   { title: "Sculpting", items: ["Pencil", "Line", "Range", "Smooth", "Flatten", "Push/Pull"] },
 ];
@@ -92,8 +99,8 @@ const TOOL_SECTIONS = [
 const TOOL_TIPS: Record<string, string> = {
   Pencil: "Paint values freely across a time window toward the cursor path.",
   Line: "Preview and place a straight line across a sample range. Esc cancels; mouse-up applies.",
-  Range: "Select a time range in the ruler, then offset that span per channel with the handle. [ and ] adjust falloff.",
-  Smooth: "Reduce local jitter by smoothing points in the selected region.",
+  Range: "Select a time range in the ruler, then offset that span per channel with the handle. [ / ] adjust size, Shift+[ / ] adjust falloff.",
+  Smooth: "Brush over the curve to smooth it locally. [ / ] adjust size, Shift+[ / ] adjust falloff, + / - adjust strength.",
   Flatten: "Collapse local variance toward a flatter profile.",
   "Push/Pull": "Nudge values up or down without changing timing.",
   Select: "Select one or more keys/points.",
@@ -281,6 +288,171 @@ function computeSampleRangeMean(samples: ArrayLike<number>, startSampleIndex: nu
   return count > 0 ? sum / count : 0;
 }
 
+function closestSamplePointToClientPoint(
+  samples: ArrayLike<number>,
+  durationSec: number,
+  minV: number,
+  maxV: number,
+  clientX: number,
+  clientY: number,
+  svg: SVGSVGElement
+): Point {
+  const sampleCount = samples.length ?? 0;
+  if (sampleCount <= 0 || durationSec <= 0) {
+    return { t: 0, v: 0 };
+  }
+  const rect = svg.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return { t: 0, v: Number(samples[0] ?? 0) };
+  }
+  const span = Math.max(1e-6, maxV - minV);
+  let bestIndex = 0;
+  let bestDistSq = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < sampleCount; i += 1) {
+    const xNorm = sampleCount > 1 ? i / (sampleCount - 1) : 0;
+    const value = Number(samples[i] ?? 0);
+    const yNorm = Math.min(1, Math.max(0, (maxV - value) / span));
+    const sampleClientX = rect.left + xNorm * rect.width;
+    const sampleClientY = rect.top + yNorm * rect.height;
+    const dx = sampleClientX - clientX;
+    const dy = sampleClientY - clientY;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      bestIndex = i;
+    }
+  }
+  const t = sampleCount > 1 ? (bestIndex / (sampleCount - 1)) * durationSec : 0;
+  return {
+    t,
+    v: Number(samples[bestIndex] ?? 0),
+  };
+}
+
+type ToolSettingNumberControlProps = {
+  label: string;
+  value: string;
+  numericValue: number;
+  title: string;
+  onChange: (next: string) => void;
+  onCommit: () => void;
+  onReset: () => void;
+  onDelta: (delta: number) => void;
+  onScrubValue: (next: number) => void;
+  stepSize: number;
+};
+
+function ToolSettingNumberControl({
+  label,
+  value,
+  numericValue,
+  title,
+  onChange,
+  onCommit,
+  onReset,
+  onDelta,
+  onScrubValue,
+  stepSize,
+}: ToolSettingNumberControlProps) {
+  const scrubRef = React.useRef<{
+    onMove: (event: MouseEvent) => void;
+    onUp: () => void;
+    previousUserSelect: string;
+  } | null>(null);
+
+  const beginScrub = React.useCallback(
+    (startX: number) => {
+      const existing = scrubRef.current;
+      if (existing) {
+        window.removeEventListener("mousemove", existing.onMove);
+        window.removeEventListener("mouseup", existing.onUp);
+        document.body.style.userSelect = existing.previousUserSelect;
+      }
+      const previousUserSelect = document.body.style.userSelect;
+      document.body.style.userSelect = "none";
+      const pixelsPerStep = 6;
+      const startValue = numericValue;
+      const scrubState = {
+        previousUserSelect,
+        onMove: (moveEvent: MouseEvent) => {
+          moveEvent.preventDefault();
+          const multiplier = moveEvent.shiftKey ? 10 : moveEvent.altKey ? 0.1 : 1;
+          const deltaUnits = ((moveEvent.clientX - startX) / pixelsPerStep) * stepSize * multiplier;
+          onScrubValue(startValue + deltaUnits);
+        },
+        onUp: () => {
+          window.removeEventListener("mousemove", scrubState.onMove);
+          window.removeEventListener("mouseup", scrubState.onUp);
+          document.body.style.userSelect = scrubState.previousUserSelect;
+          scrubRef.current = null;
+        },
+      };
+      scrubRef.current = scrubState;
+      window.addEventListener("mousemove", scrubState.onMove);
+      window.addEventListener("mouseup", scrubState.onUp);
+    },
+    [numericValue, onScrubValue, stepSize]
+  );
+
+  return (
+    <div className={styles.toolSettingRow}>
+      <span>{label}</span>
+      <div className={styles.toolSettingControl}>
+        <button
+          type="button"
+          className={styles.toolSettingScrubHotspot}
+          onMouseDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            beginScrub(event.clientX);
+          }}
+          title={`${title} (drag horizontally to scrub, Shift x10, Alt /10)`}
+          aria-label={`Scrub ${label}`}
+        >
+          <span className={styles.toolSettingScrubDot} />
+        </button>
+        <input
+          className={styles.toolSettingInput}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={onCommit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            } else if (event.key === "Escape") {
+              onReset();
+              event.currentTarget.blur();
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              onDelta(stepSize * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1));
+            } else if (event.key === "ArrowDown") {
+              event.preventDefault();
+              onDelta(-stepSize * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1));
+            }
+          }}
+          title={title}
+        />
+        <button
+          type="button"
+          className={styles.toolSettingStepperButton}
+          onClick={(event) => onDelta(-stepSize * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1))}
+          title={`Decrease ${label} (Shift x10, Alt /10)`}
+        >
+          -
+        </button>
+        <button
+          type="button"
+          className={styles.toolSettingStepperButton}
+          onClick={(event) => onDelta(stepSize * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1))}
+          title={`Increase ${label} (Shift x10, Alt /10)`}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type LaneRowProps = {
   channel: string;
   samples: Float32Array;
@@ -292,6 +464,7 @@ type LaneRowProps = {
   drawActive: boolean;
   selectedTimeRange: TimeSelectionRange | null;
   rangeFalloffSec: number;
+  smoothBrushPreview: { centerSec: number; coreRangeSec: number; falloffSec: number } | null;
   isFirstVisible: boolean;
   onHoverChange: (channel: string, hovered: boolean) => void;
   onSelect: (channel: string) => void;
@@ -311,6 +484,7 @@ type LaneRowProps = {
     minV: number,
     maxV: number
   ) => void;
+  onSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
   firstLaneSvgRef: React.RefObject<SVGSVGElement | null>;
 };
 
@@ -325,6 +499,7 @@ const LaneRow = React.memo(function LaneRow({
   drawActive,
   selectedTimeRange,
   rangeFalloffSec,
+  smoothBrushPreview,
   isFirstVisible,
   onHoverChange,
   onSelect,
@@ -332,6 +507,7 @@ const LaneRow = React.memo(function LaneRow({
   onFitRange,
   onBeginDraw,
   onBeginRangeOffset,
+  onSmoothBrushPreviewChange,
   firstLaneSvgRef,
 }: LaneRowProps) {
   const minV = range.min;
@@ -395,6 +571,25 @@ const LaneRow = React.memo(function LaneRow({
       handleCy: Math.min(LANE_CURVE_DRAW_HEIGHT, Math.max(0, yNorm * LANE_CURVE_DRAW_HEIGHT)),
     };
   }, [durationSec, maxV, minV, normalizedTimeRange, rangeFalloffSec, samples, selectedSampleRange]);
+  const smoothOverlay = React.useMemo(() => {
+    if (!smoothBrushPreview || durationSec <= 0) return null;
+    const centerNorm = Math.min(1, Math.max(0, smoothBrushPreview.centerSec / durationSec));
+    const halfCoreNorm = Math.min(0.5, Math.max(0, (smoothBrushPreview.coreRangeSec * 0.5) / durationSec));
+    const falloffNorm = Math.min(1, Math.max(0, smoothBrushPreview.falloffSec / durationSec));
+    const coreStartNorm = Math.max(0, centerNorm - halfCoreNorm);
+    const coreEndNorm = Math.min(1, centerNorm + halfCoreNorm);
+    const falloffStartNorm = Math.max(0, coreStartNorm - falloffNorm);
+    const falloffEndNorm = Math.min(1, coreEndNorm + falloffNorm);
+    return {
+      falloffLeftX: falloffStartNorm * LANE_VIEWBOX_WIDTH,
+      falloffLeftWidth: Math.max(0, (coreStartNorm - falloffStartNorm) * LANE_VIEWBOX_WIDTH),
+      bandX: coreStartNorm * LANE_VIEWBOX_WIDTH,
+      bandWidth: Math.max(3, (coreEndNorm - coreStartNorm) * LANE_VIEWBOX_WIDTH),
+      falloffRightX: coreEndNorm * LANE_VIEWBOX_WIDTH,
+      falloffRightWidth: Math.max(0, (falloffEndNorm - coreEndNorm) * LANE_VIEWBOX_WIDTH),
+      centerX: centerNorm * LANE_VIEWBOX_WIDTH,
+    };
+  }, [durationSec, smoothBrushPreview]);
 
   const commitMax = React.useCallback(() => {
     const value = Number(draftMax);
@@ -481,7 +676,50 @@ const LaneRow = React.memo(function LaneRow({
           preserveAspectRatio="none"
           aria-hidden="true"
           onPointerDown={(event) => onBeginDraw(event, channel, samples, minV, maxV)}
+          onPointerMove={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const timeSec = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * durationSec;
+            onSmoothBrushPreviewChange(channel, timeSec);
+          }}
+          onPointerLeave={() => onSmoothBrushPreviewChange(channel, null)}
         >
+          {smoothOverlay && smoothOverlay.falloffLeftWidth > 0 ? (
+            <rect
+              x={smoothOverlay.falloffLeftX}
+              y={0}
+              width={smoothOverlay.falloffLeftWidth}
+              height={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.smoothBrushFalloffBandLane}
+            />
+          ) : null}
+          {smoothOverlay ? (
+            <rect
+              x={smoothOverlay.bandX}
+              y={0}
+              width={smoothOverlay.bandWidth}
+              height={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.smoothBrushCoreBandLane}
+            />
+          ) : null}
+          {smoothOverlay && smoothOverlay.falloffRightWidth > 0 ? (
+            <rect
+              x={smoothOverlay.falloffRightX}
+              y={0}
+              width={smoothOverlay.falloffRightWidth}
+              height={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.smoothBrushFalloffBandLane}
+            />
+          ) : null}
+          {smoothOverlay ? (
+            <line
+              x1={smoothOverlay.centerX}
+              y1={0}
+              x2={smoothOverlay.centerX}
+              y2={LANE_CURVE_DRAW_HEIGHT}
+              className={styles.smoothBrushCenterLineLane}
+            />
+          ) : null}
           {rangeOverlay && rangeOverlay.falloffLeftWidth > 0 ? (
             <rect
               x={rangeOverlay.falloffLeftX}
@@ -538,6 +776,9 @@ const LaneRow = React.memo(function LaneRow({
   prev.selectedTimeRange?.startSec === next.selectedTimeRange?.startSec &&
   prev.selectedTimeRange?.endSec === next.selectedTimeRange?.endSec &&
   prev.rangeFalloffSec === next.rangeFalloffSec &&
+  prev.smoothBrushPreview?.centerSec === next.smoothBrushPreview?.centerSec &&
+  prev.smoothBrushPreview?.coreRangeSec === next.smoothBrushPreview?.coreRangeSec &&
+  prev.smoothBrushPreview?.falloffSec === next.smoothBrushPreview?.falloffSec &&
   prev.isFirstVisible === next.isFirstVisible
 );
 
@@ -602,7 +843,22 @@ export default function AnimationEditorPage() {
   const [animTelemetryServiceId, setAnimTelemetryServiceId] = React.useState("");
   const [activeTool, setActiveTool] = React.useState<AnimToolName | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = React.useState<TimeSelectionRange | null>(null);
+  const [lineSnapStart, setLineSnapStart] = React.useState(true);
+  const [lineSnapEnd, setLineSnapEnd] = React.useState(true);
   const [rangeFalloffSec, setRangeFalloffSec] = React.useState(DEFAULT_RANGE_FALLOFF_SEC);
+  const [rangeSizeDraft, setRangeSizeDraft] = React.useState(() => DEFAULT_RANGE_SIZE_SEC.toFixed(3));
+  const [rangeFalloffDraft, setRangeFalloffDraft] = React.useState(() => DEFAULT_RANGE_FALLOFF_SEC.toFixed(3));
+  const [rangeFalloffCurve, setRangeFalloffCurve] = React.useState(DEFAULT_FALLOFF_CURVE);
+  const [rangeFalloffCurveDraft, setRangeFalloffCurveDraft] = React.useState(() => DEFAULT_FALLOFF_CURVE.toFixed(2));
+  const [smoothFalloffSec, setSmoothFalloffSec] = React.useState(DEFAULT_SMOOTH_FALLOFF_SEC);
+  const [smoothFalloffDraft, setSmoothFalloffDraft] = React.useState(() => DEFAULT_SMOOTH_FALLOFF_SEC.toFixed(3));
+  const [smoothFalloffCurve, setSmoothFalloffCurve] = React.useState(DEFAULT_FALLOFF_CURVE);
+  const [smoothFalloffCurveDraft, setSmoothFalloffCurveDraft] = React.useState(() => DEFAULT_FALLOFF_CURVE.toFixed(2));
+  const [smoothStrength, setSmoothStrength] = React.useState(DEFAULT_SMOOTH_STRENGTH);
+  const [smoothStrengthDraft, setSmoothStrengthDraft] = React.useState(() => DEFAULT_SMOOTH_STRENGTH.toFixed(2));
+  const [smoothRangeSec, setSmoothRangeSec] = React.useState(DEFAULT_SMOOTH_RANGE_SEC);
+  const [smoothRangeDraft, setSmoothRangeDraft] = React.useState(() => DEFAULT_SMOOTH_RANGE_SEC.toFixed(3));
+  const [smoothBrushPreview, setSmoothBrushPreview] = React.useState<{ channel: string; centerSec: number } | null>(null);
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>({});
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>({});
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
@@ -633,6 +889,7 @@ export default function AnimationEditorPage() {
     active: boolean;
     clipIndex: number;
     channel: string;
+    mode: "Range" | "Smooth" | null;
     coreRange: { startSampleIndex: number; endSampleIndex: number } | null;
     writeRange: { startSampleIndex: number; endSampleIndex: number } | null;
     baseSamples: Float32Array | null;
@@ -640,10 +897,12 @@ export default function AnimationEditorPage() {
     startClientY: number;
     laneHeightPx: number;
     laneValueSpan: number;
+    startStrength: number;
   }>({
     active: false,
     clipIndex: -1,
     channel: "",
+    mode: null,
     coreRange: null,
     writeRange: null,
     baseSamples: null,
@@ -651,6 +910,7 @@ export default function AnimationEditorPage() {
     startClientY: 0,
     laneHeightPx: 1,
     laneValueSpan: 1,
+    startStrength: DEFAULT_SMOOTH_STRENGTH,
   });
   const linePreviewStateRef = React.useRef<{
     active: boolean;
@@ -1097,6 +1357,12 @@ export default function AnimationEditorPage() {
     [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
   );
 
+  const toggleLoopEnabled = React.useCallback(() => {
+    const nextLoopEnabled = !loopEnabled;
+    setLoopEnabled(nextLoopEnabled);
+    void writeAnimControlField("loop", nextLoopEnabled);
+  }, [loopEnabled, writeAnimControlField]);
+
   const ensureAnimControlSuppressed = React.useCallback(
     async (fieldName: string): Promise<boolean> => {
       if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
@@ -1261,9 +1527,10 @@ export default function AnimationEditorPage() {
     () => normalizeTimeRange(durationSec, selectedTimeRange),
     [durationSec, selectedTimeRange]
   );
-  const normalizedRangeFalloff = React.useMemo(
-    () => (durationSec > 0 ? Math.min(1, Math.max(0, rangeFalloffSec / durationSec)) : 0),
-    [durationSec, rangeFalloffSec]
+  const activeSelectionFalloffSec = rangeFalloffSec;
+  const normalizedSelectionFalloff = React.useMemo(
+    () => (durationSec > 0 ? Math.min(1, Math.max(0, activeSelectionFalloffSec / durationSec)) : 0),
+    [activeSelectionFalloffSec, durationSec]
   );
   const rulerMarks = React.useMemo(
     () => [0, 0.2, 0.4, 0.6, 0.8, 1].map((norm) => ({ norm, label: `${(durationSec * norm).toFixed(1)}s` })),
@@ -1276,6 +1543,60 @@ export default function AnimationEditorPage() {
     () => Math.min(0.1, Math.max(0.005, durationSec * 0.005)),
     [durationSec]
   );
+  const smoothRangeStepSec = React.useMemo(
+    () => Math.min(0.08, Math.max(0.0025, durationSec * 0.0025)),
+    [durationSec]
+  );
+  const playheadSampleStepSec = React.useMemo(
+    () =>
+      clipData.liveSampleRateHz > 0
+        ? Math.max(0.001, 1 / clipData.liveSampleRateHz)
+        : 0.01,
+    [clipData.liveSampleRateHz]
+  );
+  const rangeSizeSec = React.useMemo(
+    () =>
+      selectedTimeRange
+        ? Math.max(0.01, Math.abs(selectedTimeRange.endSec - selectedTimeRange.startSec))
+        : DEFAULT_RANGE_SIZE_SEC,
+    [selectedTimeRange]
+  );
+
+  const setSelectedTimeRangeDurationSec = React.useCallback(
+    (nextDurationSec: number) => {
+      if (!(durationSec > 0)) return;
+      const clampedDuration = Math.min(durationSec, Math.max(0.01, nextDurationSec));
+      setSelectedTimeRange((current) => {
+        const centerSec = current ? (current.startSec + current.endSec) * 0.5 : Math.min(durationSec, Math.max(0, playheadSec));
+        let startSec = centerSec - clampedDuration * 0.5;
+        let endSec = centerSec + clampedDuration * 0.5;
+        if (startSec < 0) {
+          endSec = Math.min(durationSec, endSec - startSec);
+          startSec = 0;
+        }
+        if (endSec > durationSec) {
+          const overshoot = endSec - durationSec;
+          startSec = Math.max(0, startSec - overshoot);
+          endSec = durationSec;
+        }
+        return { startSec, endSec };
+      });
+    },
+    [durationSec, playheadSec]
+  );
+
+  const seekPlayheadToTimeSec = React.useCallback(
+    (nextTimeSec: number) => {
+      const clamped = Math.min(durationSec, Math.max(0, nextTimeSec));
+      const ratio = durationSec > 0 ? Math.min(1, Math.max(0, clamped / durationSec)) : 0;
+      setPlayhead(Math.round(ratio * 1000));
+      setLocalScrubTimeSec(clamped);
+      setPendingScrubAdoptSec(clamped);
+      void writeAnimControlField("time_override_sec", clamped);
+    },
+    [durationSec, writeAnimControlField]
+  );
+
 
   React.useEffect(() => {
     if (localScrubTimeSec !== null || playheadSec === null || durationSec <= 0) return;
@@ -1285,11 +1606,12 @@ export default function AnimationEditorPage() {
 
   React.useEffect(() => {
     if (pendingScrubAdoptSec === null || runtimePlayheadSec === null) return;
-    if (Math.abs(runtimePlayheadSec - pendingScrubAdoptSec) <= 0.02) {
+    const adoptToleranceSec = Math.max(0.0005, Math.min(0.005, playheadSampleStepSec * 0.25));
+    if (Math.abs(runtimePlayheadSec - pendingScrubAdoptSec) <= adoptToleranceSec) {
       setPendingScrubAdoptSec(null);
       setLocalScrubTimeSec(null);
     }
-  }, [pendingScrubAdoptSec, runtimePlayheadSec]);
+  }, [pendingScrubAdoptSec, playheadSampleStepSec, runtimePlayheadSec]);
 
   React.useEffect(() => {
     if (playbackState === null) return;
@@ -1297,19 +1619,119 @@ export default function AnimationEditorPage() {
   }, [playbackState]);
 
   React.useEffect(() => {
-    if (activeTool !== "Range") return;
+    setRangeSizeDraft(rangeSizeSec.toFixed(3));
+  }, [rangeSizeSec]);
+
+  React.useEffect(() => {
+    setRangeFalloffDraft(rangeFalloffSec.toFixed(3));
+  }, [rangeFalloffSec]);
+
+  React.useEffect(() => {
+    setRangeFalloffCurveDraft(rangeFalloffCurve.toFixed(2));
+  }, [rangeFalloffCurve]);
+
+  React.useEffect(() => {
+    setSmoothFalloffDraft(smoothFalloffSec.toFixed(3));
+  }, [smoothFalloffSec]);
+
+  React.useEffect(() => {
+    setSmoothFalloffCurveDraft(smoothFalloffCurve.toFixed(2));
+  }, [smoothFalloffCurve]);
+
+  React.useEffect(() => {
+    setSmoothStrengthDraft(smoothStrength.toFixed(2));
+  }, [smoothStrength]);
+
+  React.useEffect(() => {
+    setSmoothRangeDraft(smoothRangeSec.toFixed(3));
+  }, [smoothRangeSec]);
+
+  React.useEffect(() => {
+    if (activeTool !== "Range" && activeTool !== "Smooth") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableKeyboardTarget(event.target)) return;
-      if (event.key !== "[" && event.key !== "]") return;
-      event.preventDefault();
-      setRangeFalloffSec((current) => {
-        const direction = event.key === "]" ? 1 : -1;
-        return Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec));
-      });
+      if (event.code === "BracketLeft" || event.code === "BracketRight") {
+        event.preventDefault();
+        const direction = event.code === "BracketRight" ? 1 : -1;
+        if (event.shiftKey) {
+          if (activeTool === "Range") {
+            setRangeFalloffSec((current) => Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec)));
+          } else {
+            setSmoothFalloffSec((current) => Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec)));
+          }
+          return;
+        }
+        if (activeTool === "Range") {
+          setSelectedTimeRangeDurationSec(rangeSizeSec + direction * smoothRangeStepSec);
+        } else {
+          setSmoothRangeSec((current) => Math.min(durationSec, Math.max(0.01, current + direction * smoothRangeStepSec)));
+        }
+        return;
+      }
+      if (activeTool === "Smooth" && (event.key === "-" || event.key === "_" || event.key === "=" || event.key === "+")) {
+        event.preventDefault();
+        const direction = event.key === "-" || event.key === "_" ? -1 : 1;
+        setSmoothStrength((current) => Math.min(1, Math.max(0, current + direction * 0.02)));
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeTool, durationSec, rangeFalloffStepSec]);
+  }, [activeTool, durationSec, rangeFalloffStepSec, rangeSizeSec, setSelectedTimeRangeDurationSec, smoothRangeStepSec]);
+
+  React.useEffect(() => {
+    if (activeTool !== "Line") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (event.code === "BracketLeft") {
+        event.preventDefault();
+        setLineSnapStart((current) => !current);
+        return;
+      }
+      if (event.code === "BracketRight") {
+        event.preventDefault();
+        setLineSnapEnd((current) => !current);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTool]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (isPlaying) {
+          void writeAnimControlField("playback_state", 1);
+          return;
+        }
+        void writeAnimControlField("playback_state", 2);
+        return;
+      }
+      if (event.code === "NumpadDivide" || (event.key === "/" && event.location === 3)) {
+        event.preventDefault();
+        toggleLoopEnabled();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isPlaying, toggleLoopEnabled, writeAnimControlField]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (isPlaying) return;
+      if (event.code !== "ArrowLeft" && event.code !== "ArrowRight") return;
+      event.preventDefault();
+      const direction = event.code === "ArrowRight" ? 1 : -1;
+      const multiplier = event.shiftKey ? 10 : 1;
+      seekPlayheadToTimeSec(playheadSec + direction * playheadSampleStepSec * multiplier);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isPlaying, playheadSampleStepSec, playheadSec, seekPlayheadToTimeSec]);
 
   React.useEffect(() => {
     if (!selectedWorkloadName) return;
@@ -1318,6 +1740,12 @@ export default function AnimationEditorPage() {
       setLoopEnabled(loopValue);
     }
   }, [readFieldValue, selectedWorkloadName]);
+
+  React.useEffect(() => {
+    if (activeTool === "Smooth") return;
+    setSmoothBrushPreview(null);
+  }, [activeTool]);
+
 
   React.useEffect(() => {
     if (!selectedWorkloadName || clipRefs.length === 0) return;
@@ -1645,9 +2073,10 @@ export default function AnimationEditorPage() {
         selectedTimeRange.endSec
       );
       if (!sampleRange) return;
+      const falloffSec = rangeFalloffSec;
       const falloffSampleCount =
         channelSamples.length > 1 && durationSec > 0
-          ? Math.max(0, Math.round((rangeFalloffSec / durationSec) * (channelSamples.length - 1)))
+          ? Math.max(0, Math.round((falloffSec / durationSec) * (channelSamples.length - 1)))
           : 0;
 
       const laneTrack = (event.currentTarget.closest('[data-lane-track="true"]') as HTMLElement | null) ?? event.currentTarget.ownerSVGElement?.parentElement;
@@ -1660,6 +2089,7 @@ export default function AnimationEditorPage() {
         active: true,
         clipIndex,
         channel,
+        mode: "Range",
         coreRange: sampleRange,
         writeRange: sampleRange,
         baseSamples: (clipDataRef.current.channels[channel] ?? channelSamples).slice(),
@@ -1667,13 +2097,19 @@ export default function AnimationEditorPage() {
         startClientY: event.clientY,
         laneHeightPx,
         laneValueSpan,
+        startStrength: DEFAULT_SMOOTH_STRENGTH,
       };
 
-      const applyOffsetPreview = (clientY: number) => {
+      const applyRangePreview = (clientY: number) => {
         const state = rangeOffsetStateRef.current;
         if (!state.active || !state.baseSamples || !state.coreRange) return;
-        const offset = -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan;
-        const result = applyOffsetToSampleRangeWithFalloff(state.baseSamples, state.coreRange, offset, falloffSampleCount);
+        const result = applyOffsetToSampleRangeWithFalloff(
+          state.baseSamples,
+          state.coreRange,
+          -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan,
+          falloffSampleCount,
+          rangeFalloffCurve
+        );
         state.writeRange = result.writeRange;
         scheduleClipDataRender({
           ...clipDataRef.current,
@@ -1695,6 +2131,7 @@ export default function AnimationEditorPage() {
           active: false,
           clipIndex: -1,
           channel: "",
+          mode: null,
           coreRange: null,
           writeRange: null,
           baseSamples: null,
@@ -1702,6 +2139,7 @@ export default function AnimationEditorPage() {
           startClientY: 0,
           laneHeightPx: 1,
           laneValueSpan: 1,
+          startStrength: DEFAULT_SMOOTH_STRENGTH,
         };
         if (!state.baseSamples || !state.coreRange || !state.writeRange) return;
 
@@ -1728,7 +2166,7 @@ export default function AnimationEditorPage() {
       };
 
       const onMove = (moveEvent: PointerEvent) => {
-        applyOffsetPreview(moveEvent.clientY);
+        applyRangePreview(moveEvent.clientY);
       };
       const onUp = () => finishRangeOffset(true);
       const onKeyDown = (keyEvent: KeyboardEvent) => {
@@ -1750,6 +2188,7 @@ export default function AnimationEditorPage() {
       flushDrawStroke,
       flushPendingClipDataRender,
       queueDrawStrokeRange,
+      rangeFalloffCurve,
       scheduleClipDataRender,
       selectedClipPath,
       rangeFalloffSec,
@@ -1765,7 +2204,7 @@ export default function AnimationEditorPage() {
       minV: number,
       maxV: number
     ) => {
-      if (activeTool !== "Pencil" && activeTool !== "Line") return;
+      if (activeTool !== "Pencil" && activeTool !== "Line" && activeTool !== "Smooth") return;
       event.preventDefault();
       event.stopPropagation();
       const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
@@ -1777,22 +2216,113 @@ export default function AnimationEditorPage() {
       const startPoint = pointerToDrawPoint(svg, event.clientX, event.clientY, minV, maxV);
       if (!startPoint) return;
 
+      if (activeTool === "Smooth") {
+        const baseSamples = (clipDataRef.current.channels[channel] ?? channelSamples).slice();
+        const baseDirty = clipDataRef.current.dirty;
+        let touchedRange: { startSampleIndex: number; endSampleIndex: number } | null = null;
+        setSmoothBrushPreview({ channel, centerSec: startPoint.t });
+        const commitBrushPoint = (point: Point) => {
+          const currentClip = clipDataRef.current;
+          const current = currentClip.channels[channel] ?? channelSamples;
+          const brushRangeSec = Math.min(durationSec, Math.max(0.01, smoothRangeSec));
+          setSmoothBrushPreview({ channel, centerSec: point.t });
+          const result = applySmoothBrushToSamples(
+            current,
+            durationSec,
+            point.t,
+            brushRangeSec,
+            smoothStrength,
+            smoothFalloffSec,
+            smoothFalloffCurve
+          );
+          if (result.writeRange.endSampleIndex < result.writeRange.startSampleIndex) return;
+          touchedRange = touchedRange
+            ? {
+                startSampleIndex: Math.min(touchedRange.startSampleIndex, result.writeRange.startSampleIndex),
+                endSampleIndex: Math.max(touchedRange.endSampleIndex, result.writeRange.endSampleIndex),
+              }
+            : result.writeRange;
+          scheduleClipDataRender({
+            ...currentClip,
+            dirty: true,
+            channels: {
+              ...currentClip.channels,
+              [channel]: result.samples,
+            },
+          });
+          queueDrawStrokeRange(clipIndex, channel, result.writeRange.startSampleIndex, result.writeRange.endSampleIndex);
+        };
+
+        commitBrushPoint(startPoint);
+
+        const onMove = (moveEvent: PointerEvent) => {
+          const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+          if (!point) return;
+          commitBrushPoint(point);
+        };
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("keydown", onKeyDown);
+          setSmoothBrushPreview(null);
+          clearDrawFlushTimer();
+          flushPendingClipDataRender();
+          void flushDrawStroke(true);
+        };
+        const onKeyDown = (keyEvent: KeyboardEvent) => {
+          if (keyEvent.key !== "Escape") return;
+          keyEvent.preventDefault();
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("keydown", onKeyDown);
+          setSmoothBrushPreview(null);
+          clearDrawFlushTimer();
+          drawWriteStateRef.current.queuedStartSampleIndex = null;
+          drawWriteStateRef.current.queuedEndSampleIndex = null;
+          scheduleClipDataRender({
+            ...clipDataRef.current,
+            dirty: baseDirty,
+            channels: {
+              ...clipDataRef.current.channels,
+              [channel]: baseSamples,
+            },
+          });
+          if (touchedRange) {
+            queueDrawStrokeRange(clipIndex, channel, touchedRange.startSampleIndex, touchedRange.endSampleIndex);
+          }
+          flushPendingClipDataRender();
+          void flushDrawStroke(true);
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("keydown", onKeyDown);
+        return;
+      }
+
       if (activeTool === "Line") {
         const baseSamples = (clipDataRef.current.channels[channel] ?? channelSamples).slice();
+        const anchoredStartPoint =
+          lineSnapStart
+            ? closestSamplePointToClientPoint(baseSamples, durationSec, minV, maxV, event.clientX, event.clientY, svg)
+            : startPoint;
         linePreviewStateRef.current = {
           active: true,
           clipIndex,
           channel,
           baseSamples,
           baseDirty: clipDataRef.current.dirty,
-          startPoint,
+          startPoint: anchoredStartPoint,
           touchedRange: null,
         };
 
-        const applyLinePreview = (point: Point) => {
+        const applyLinePreview = (point: Point, clientX: number, clientY: number) => {
           const lineState = linePreviewStateRef.current;
           const currentBase = lineState.baseSamples ?? baseSamples;
-          const delta = buildInterpolatedDrawDelta(currentBase.length, durationSec, startPoint, point);
+          const nextPoint =
+            lineSnapEnd
+              ? closestSamplePointToClientPoint(currentBase, durationSec, minV, maxV, clientX, clientY, svg)
+              : point;
+          const delta = buildInterpolatedDrawDelta(currentBase.length, durationSec, anchoredStartPoint, nextPoint);
           if (!delta) return;
           const nextChannel = applySampleDeltaToBuffer(currentBase, delta);
           const rangeStart = delta.startSampleIndex;
@@ -1817,7 +2347,7 @@ export default function AnimationEditorPage() {
           queueDrawStrokeRange(clipIndex, channel, rangeStart, rangeEnd);
         };
 
-        applyLinePreview(startPoint);
+        applyLinePreview(anchoredStartPoint, event.clientX, event.clientY);
 
         const finishLineSession = (applyEdit: boolean) => {
           window.removeEventListener("pointermove", onMove);
@@ -1870,7 +2400,7 @@ export default function AnimationEditorPage() {
         const onMove = (moveEvent: PointerEvent) => {
           const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
           if (!point) return;
-          applyLinePreview(point);
+          applyLinePreview(point, moveEvent.clientX, moveEvent.clientY);
         };
         const onUp = () => finishLineSession(true);
         const onKeyDown = (keyEvent: KeyboardEvent) => {
@@ -1939,6 +2469,12 @@ export default function AnimationEditorPage() {
       queueDrawStrokeRange,
       scheduleClipDataRender,
       selectedClipPath,
+      lineSnapEnd,
+      lineSnapStart,
+      smoothFalloffSec,
+      smoothFalloffCurve,
+      smoothRangeSec,
+      smoothStrength,
     ]
   );
 
@@ -1965,6 +2501,18 @@ export default function AnimationEditorPage() {
   const handleLaneSelect = React.useCallback((channel: string) => {
     setSelectedChannel(channel);
   }, []);
+
+  const handleSmoothBrushPreviewChange = React.useCallback(
+    (channel: string, timeSec: number | null) => {
+      if (activeTool !== "Smooth") return;
+      if (timeSec === null) {
+        setSmoothBrushPreview((current) => (current?.channel === channel ? null : current));
+        return;
+      }
+      setSmoothBrushPreview({ channel, centerSec: Math.min(durationSec, Math.max(0, timeSec)) });
+    },
+    [activeTool, durationSec]
+  );
 
   return (
     <div className={styles.root} data-testid="animation-editor-panel">
@@ -2126,6 +2674,15 @@ export default function AnimationEditorPage() {
                     drawActive={activeTool !== null}
                     selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
                     rangeFalloffSec={activeTool === "Range" ? rangeFalloffSec : 0}
+                    smoothBrushPreview={
+                      activeTool === "Smooth" && smoothBrushPreview?.channel === channel
+                        ? {
+                            centerSec: smoothBrushPreview.centerSec,
+                            coreRangeSec: smoothRangeSec,
+                            falloffSec: smoothFalloffSec,
+                          }
+                        : null
+                    }
                     isFirstVisible={visibleChannels[0] === channel}
                     onHoverChange={handleLaneHoverChange}
                     onSelect={handleLaneSelect}
@@ -2133,6 +2690,7 @@ export default function AnimationEditorPage() {
                     onFitRange={fitLaneRangeForChannel}
                     onBeginDraw={beginDrawStroke}
                     onBeginRangeOffset={beginRangeOffset}
+                    onSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
                     firstLaneSvgRef={firstLaneSvgRef}
                   />
                 );
@@ -2162,15 +2720,15 @@ export default function AnimationEditorPage() {
                   onPointerDown={beginRangeSelection}
                 />
                 {normalizedSelectedTimeRange ? (
-                  normalizedRangeFalloff > 0 ? (
+                  normalizedSelectionFalloff > 0 ? (
                     <>
                       {normalizedSelectedTimeRange.startNorm > 0 ? (
                         <rect
-                          x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedRangeFalloff) * overlayWidth)}
+                          x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedSelectionFalloff) * overlayWidth)}
                           y={2}
                           width={Math.max(
                             0,
-                            Math.min(normalizedSelectedTimeRange.startNorm, normalizedRangeFalloff) * overlayWidth
+                            Math.min(normalizedSelectedTimeRange.startNorm, normalizedSelectionFalloff) * overlayWidth
                           )}
                           height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
                           className={styles.rangeFalloffBandRuler}
@@ -2182,7 +2740,7 @@ export default function AnimationEditorPage() {
                           y={2}
                           width={Math.max(
                             0,
-                            Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedRangeFalloff) * overlayWidth
+                            Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedSelectionFalloff) * overlayWidth
                           )}
                           height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
                           className={styles.rangeFalloffBandRuler}
@@ -2302,10 +2860,10 @@ export default function AnimationEditorPage() {
                     key={item}
                     className={`${styles.toolButton} ${item === activeTool ? styles.toolButtonActive : ""}`}
                     type="button"
-                    title={item === "Pencil" || item === "Line" || item === "Range" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
-                    disabled={item !== "Pencil" && item !== "Line" && item !== "Range"}
+                    title={item === "Pencil" || item === "Line" || item === "Range" || item === "Smooth" ? TOOL_TIPS[item] : `${item} is not implemented yet.`}
+                    disabled={item !== "Pencil" && item !== "Line" && item !== "Range" && item !== "Smooth"}
                     onClick={() => {
-                      if (item === "Pencil" || item === "Line" || item === "Range") {
+                      if (item === "Pencil" || item === "Line" || item === "Range" || item === "Smooth") {
                         setActiveTool((current) => (current === item ? null : item));
                       }
                     }}
@@ -2320,14 +2878,173 @@ export default function AnimationEditorPage() {
               </div>
             </section>
           ))}
-          {activeTool === "Range" ? (
+          {activeTool === "Line" ? (
             <section className={styles.panelCard}>
               <h3>Tool Settings</h3>
-              <div className={styles.toolSettingRow}>
-                <span>Falloff</span>
-                <strong>{rangeFalloffSec.toFixed(2)}s</strong>
+              <div className={styles.toolButtons}>
+                <button
+                  type="button"
+                  className={`${styles.toolButton} ${lineSnapStart ? styles.toolButtonActive : ""}`}
+                  onClick={() => setLineSnapStart((current) => !current)}
+                  title="Anchor the line start to the current curve value at its time."
+                >
+                  Snap Start
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.toolButton} ${lineSnapEnd ? styles.toolButtonActive : ""}`}
+                  onClick={() => setLineSnapEnd((current) => !current)}
+                  title="Anchor the line end to the current curve value at its time."
+                >
+                  Snap End
+                </button>
               </div>
-              <div className={styles.toolSettingHint}>`[` / `]` adjust shoulder width</div>
+            </section>
+          ) : null}
+          {activeTool === "Range" || activeTool === "Smooth" ? (
+            <section className={styles.panelCard}>
+              <h3>Tool Settings</h3>
+              {activeTool === "Range" ? (
+                <>
+                  <ToolSettingNumberControl
+                    label="Size"
+                    value={rangeSizeDraft}
+                    numericValue={rangeSizeSec}
+                    title="Selected range width in seconds ([ / ])"
+                    onChange={setRangeSizeDraft}
+                    onCommit={() => {
+                      const parsed = Number(rangeSizeDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setRangeSizeDraft(rangeSizeSec.toFixed(3));
+                        return;
+                      }
+                      setSelectedTimeRangeDurationSec(parsed);
+                    }}
+                    onReset={() => setRangeSizeDraft(rangeSizeSec.toFixed(3))}
+                    onDelta={(delta) => setSelectedTimeRangeDurationSec(rangeSizeSec + delta)}
+                    onScrubValue={(next) => setSelectedTimeRangeDurationSec(next)}
+                    stepSize={smoothRangeStepSec}
+                  />
+                  <ToolSettingNumberControl
+                    label="Falloff Range"
+                    value={rangeFalloffDraft}
+                    numericValue={rangeFalloffSec}
+                    title="Falloff range in seconds (Shift + [ / ])"
+                    onChange={setRangeFalloffDraft}
+                    onCommit={() => {
+                      const parsed = Number(rangeFalloffDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setRangeFalloffDraft(rangeFalloffSec.toFixed(3));
+                        return;
+                      }
+                      setRangeFalloffSec(Math.min(durationSec, Math.max(0, parsed)));
+                    }}
+                    onReset={() => setRangeFalloffDraft(rangeFalloffSec.toFixed(3))}
+                    onDelta={(delta) => setRangeFalloffSec((current) => Math.min(durationSec, Math.max(0, current + delta)))}
+                    onScrubValue={(next) => setRangeFalloffSec(Math.min(durationSec, Math.max(0, next)))}
+                    stepSize={rangeFalloffStepSec}
+                  />
+                  <ToolSettingNumberControl
+                    label="Falloff Curve"
+                    value={rangeFalloffCurveDraft}
+                    numericValue={rangeFalloffCurve}
+                    title="Falloff curve from 0.0 linear to 1.0 fully eased"
+                    onChange={setRangeFalloffCurveDraft}
+                    onCommit={() => {
+                      const parsed = Number(rangeFalloffCurveDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setRangeFalloffCurveDraft(rangeFalloffCurve.toFixed(2));
+                        return;
+                      }
+                      setRangeFalloffCurve(Math.min(1, Math.max(0, parsed)));
+                    }}
+                    onReset={() => setRangeFalloffCurveDraft(rangeFalloffCurve.toFixed(2))}
+                    onDelta={(delta) => setRangeFalloffCurve((current) => Math.min(1, Math.max(0, current + delta)))}
+                    onScrubValue={(next) => setRangeFalloffCurve(Math.min(1, Math.max(0, next)))}
+                    stepSize={0.05}
+                  />
+                </>
+              ) : null}
+              {activeTool === "Smooth" ? (
+                <>
+                  <ToolSettingNumberControl
+                    label="Size"
+                    value={smoothRangeDraft}
+                    numericValue={smoothRangeSec}
+                    title="Smooth brush width in seconds ([ / ])"
+                    onChange={setSmoothRangeDraft}
+                    onCommit={() => {
+                      const parsed = Number(smoothRangeDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setSmoothRangeDraft(smoothRangeSec.toFixed(3));
+                        return;
+                      }
+                      setSmoothRangeSec(Math.min(durationSec, Math.max(0.01, parsed)));
+                    }}
+                    onReset={() => setSmoothRangeDraft(smoothRangeSec.toFixed(3))}
+                    onDelta={(delta) => setSmoothRangeSec((current) => Math.min(durationSec, Math.max(0.01, current + delta)))}
+                    onScrubValue={(next) => setSmoothRangeSec(Math.min(durationSec, Math.max(0.01, next)))}
+                    stepSize={smoothRangeStepSec}
+                  />
+                  <ToolSettingNumberControl
+                    label="Falloff Range"
+                    value={smoothFalloffDraft}
+                    numericValue={smoothFalloffSec}
+                    title="Falloff range in seconds (Shift + [ / ])"
+                    onChange={setSmoothFalloffDraft}
+                    onCommit={() => {
+                      const parsed = Number(smoothFalloffDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setSmoothFalloffDraft(smoothFalloffSec.toFixed(3));
+                        return;
+                      }
+                      setSmoothFalloffSec(Math.min(durationSec, Math.max(0, parsed)));
+                    }}
+                    onReset={() => setSmoothFalloffDraft(smoothFalloffSec.toFixed(3))}
+                    onDelta={(delta) => setSmoothFalloffSec((current) => Math.min(durationSec, Math.max(0, current + delta)))}
+                    onScrubValue={(next) => setSmoothFalloffSec(Math.min(durationSec, Math.max(0, next)))}
+                    stepSize={rangeFalloffStepSec}
+                  />
+                  <ToolSettingNumberControl
+                    label="Falloff Curve"
+                    value={smoothFalloffCurveDraft}
+                    numericValue={smoothFalloffCurve}
+                    title="Falloff curve from 0.0 linear to 1.0 fully eased"
+                    onChange={setSmoothFalloffCurveDraft}
+                    onCommit={() => {
+                      const parsed = Number(smoothFalloffCurveDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setSmoothFalloffCurveDraft(smoothFalloffCurve.toFixed(2));
+                        return;
+                      }
+                      setSmoothFalloffCurve(Math.min(1, Math.max(0, parsed)));
+                    }}
+                    onReset={() => setSmoothFalloffCurveDraft(smoothFalloffCurve.toFixed(2))}
+                    onDelta={(delta) => setSmoothFalloffCurve((current) => Math.min(1, Math.max(0, current + delta)))}
+                    onScrubValue={(next) => setSmoothFalloffCurve(Math.min(1, Math.max(0, next)))}
+                    stepSize={0.05}
+                  />
+                  <ToolSettingNumberControl
+                    label="Strength"
+                    value={smoothStrengthDraft}
+                    numericValue={smoothStrength}
+                    title="Base smoothing strength (+ / -)"
+                    onChange={setSmoothStrengthDraft}
+                    onCommit={() => {
+                      const parsed = Number(smoothStrengthDraft);
+                      if (!Number.isFinite(parsed)) {
+                        setSmoothStrengthDraft(smoothStrength.toFixed(2));
+                        return;
+                      }
+                      setSmoothStrength(Math.min(1, Math.max(0, parsed)));
+                    }}
+                    onReset={() => setSmoothStrengthDraft(smoothStrength.toFixed(2))}
+                    onDelta={(delta) => setSmoothStrength((current) => Math.min(1, Math.max(0, current + delta)))}
+                    onScrubValue={(next) => setSmoothStrength(Math.min(1, Math.max(0, next)))}
+                    stepSize={0.02}
+                  />
+                </>
+              ) : null}
             </section>
           ) : null}
         </aside>
@@ -2353,7 +3070,7 @@ export default function AnimationEditorPage() {
             className={styles.loopLauncherButton}
             type="button"
             title="Toggle loop playback."
-            onClick={() => void writeAnimControlField("loop", !loopEnabled)}
+            onClick={toggleLoopEnabled}
           >
             {loopEnabled ? "Loop" : "Once"}
           </button>

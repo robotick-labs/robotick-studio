@@ -669,6 +669,28 @@
   pointer-events: auto;
 }
 
+.smoothBrushCoreBandLane {
+  fill: rgba(119, 206, 255, 0.1);
+  stroke: rgba(119, 206, 255, 0.26);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.smoothBrushFalloffBandLane {
+  fill: rgba(126, 255, 212, 0.06);
+  stroke: rgba(126, 255, 212, 0.18);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.smoothBrushCenterLineLane {
+  stroke: rgba(210, 248, 255, 0.85);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .laneSvg {
   position: absolute;
   inset: 3px 8px;
@@ -855,6 +877,61 @@
 .toolSettingHint {
   font-size: 0.74rem;
   color: var(--app-text-muted);
+}
+
+.toolSettingInput {
+  width: 132px;
+  min-width: 132px;
+  max-width: 132px;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 4px;
+  background: var(--app-surface-base);
+  color: var(--app-text-primary);
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.toolSettingControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolSettingStepperButton {
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-panel-soft);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toolSettingScrubHotspot {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 1px solid var(--app-panel-border);
+  border-radius: 999px;
+  background: var(--app-panel-soft);
+  color: var(--app-text-muted);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+}
+
+.toolSettingScrubDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .field {

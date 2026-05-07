@@ -4,6 +4,8 @@ import {
   applySampleDeltaToBuffer,
   applyOffsetToSampleRange,
   applyOffsetToSampleRangeWithFalloff,
+  applySmoothBrushToSamples,
+  applySmoothToSampleRangeWithFalloff,
   buildInterpolatedDrawDelta,
   sampleIndexRangeFromTimes,
   sampleIndexFromTime,
@@ -58,5 +60,41 @@ describe("anim-sample-editing", () => {
     Array.from(result.samples).forEach((value, index) => {
       expect(value).toBeCloseTo(expected[index] ?? 0, 6);
     });
+  });
+
+  it("supports linear falloff when falloff curve is zero", () => {
+    const result = applyOffsetToSampleRangeWithFalloff(
+      new Float32Array([0, 0, 0, 0, 0, 0, 0]),
+      { startSampleIndex: 2, endSampleIndex: 4 },
+      1,
+      2,
+      0
+    );
+    const expected = [1 / 3, 2 / 3, 1, 1, 1, 2 / 3, 1 / 3];
+    Array.from(result.samples).forEach((value, index) => {
+      expect(value).toBeCloseTo(expected[index] ?? 0, 6);
+    });
+  });
+
+  it("smooths a selected range with falloff shoulders", () => {
+    const result = applySmoothToSampleRangeWithFalloff(
+      new Float32Array([0, 0, 1, 0, 0, 0, 0]),
+      { startSampleIndex: 2, endSampleIndex: 4 },
+      1,
+      1
+    );
+    expect(result.writeRange).toEqual({ startSampleIndex: 1, endSampleIndex: 5 });
+    expect(result.samples[2]).toBeLessThan(1);
+    expect(result.samples[2]).toBeGreaterThan(0);
+    expect(result.samples[1]).toBeGreaterThan(0);
+    expect(result.samples[5]).toBeCloseTo(0, 6);
+  });
+
+  it("smooths around a brush-centered time window", () => {
+    const result = applySmoothBrushToSamples(new Float32Array([0, 0, 1, 0, 0]), 1, 0.5, 0.4, 1, 0.1);
+    expect(result.writeRange.startSampleIndex).toBeLessThanOrEqual(1);
+    expect(result.writeRange.endSampleIndex).toBeGreaterThanOrEqual(3);
+    expect(result.samples[2]).toBeLessThan(1);
+    expect(result.samples[2]).toBeGreaterThan(0);
   });
 });
