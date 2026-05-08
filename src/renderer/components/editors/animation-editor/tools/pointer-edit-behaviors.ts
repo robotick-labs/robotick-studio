@@ -8,6 +8,8 @@ import {
   type Point,
 } from "../anim-sample-editing";
 
+const SMOOTH_STRENGTH_APPLY_SCALE = 0.08;
+
 type ClipRef = { name: string; animclipPath: string };
 type ClipDataLike = {
   channels: Record<string, Float32Array>;
@@ -387,7 +389,8 @@ export function runBeginDrawStrokeBehavior<
         durationSec,
         Math.max(0.01, smoothRangeSec),
       );
-      const effectiveSmoothStrength = smoothStrength * 0.1;
+      const effectiveSmoothStrength =
+        smoothStrength * SMOOTH_STRENGTH_APPLY_SCALE;
       setSmoothBrushPreview({ channel, centerSec: point.t });
       const result = applySmoothBrushToSamples(
         current,
