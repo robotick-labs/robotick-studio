@@ -117,6 +117,7 @@ type PersistedAnimEditorState = {
   smoothStrength?: number;
   smoothRangeSec?: number;
   channelVisible?: Record<string, boolean>;
+  channelRecordArm?: Record<string, boolean>;
   channelColor?: Record<string, string>;
   selectedChannel?: string | null;
   laneRange?: Record<string, LaneRange>;
@@ -464,6 +465,9 @@ export default function AnimationEditorPage() {
   const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = React.useState<string | null>(
     () => initialPersistedState?.selectedChannel ?? null
+  );
+  const [recordArmByChannel, setRecordArmByChannel] = React.useState<Record<string, boolean>>(
+    () => initialPersistedState?.channelRecordArm ?? {}
   );
   const [laneRange, setLaneRange] = React.useState<Record<string, LaneRange>>(
     () => initialPersistedState?.laneRange ?? {}
@@ -983,6 +987,8 @@ export default function AnimationEditorPage() {
   const channelNames = Object.keys(clipData.channels);
   const visibleChannels = channelNames.filter((n) => channelVisible[n] !== false);
   const allChannelsVisible = channelNames.length > 0 && visibleChannels.length === channelNames.length;
+  const armedChannels = channelNames.filter((n) => recordArmByChannel[n] === true);
+  const allChannelsArmed = channelNames.length > 0 && armedChannels.length === channelNames.length;
   const hasClipSamples = React.useMemo(
     () => Object.values(clipData.channels).some((samples) => (samples?.length ?? 0) > 0),
     [clipData.channels]
@@ -1156,6 +1162,7 @@ export default function AnimationEditorPage() {
       smoothStrength,
       smoothRangeSec,
       channelVisible,
+      channelRecordArm: recordArmByChannel,
       channelColor,
       selectedChannel,
       laneRange,
@@ -1178,6 +1185,7 @@ export default function AnimationEditorPage() {
     panelStorageKey,
     rangeFalloffCurve,
     rangeFalloffSec,
+    recordArmByChannel,
     selectedChannel,
     selectedClipPath,
     selectedSourceId,
@@ -1624,51 +1632,27 @@ export default function AnimationEditorPage() {
             </div>
           </section>
           <section className={styles.panelCard}>
-            <h3>Recording (Stub)</h3>
-            <div className={styles.toolButtons}>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Record to New
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Record to Active
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Commit Take
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Discard Take
-              </button>
-            </div>
-            <label className={styles.field} title="Read-only stub for future take/punch policy controls.">
-              Take / Punch Policy
-              <select className={styles.selectControl} value="basic" disabled>
-                <option value="basic">Basic (planned)</option>
-              </select>
-            </label>
-          </section>
-          <section className={styles.panelCard}>
-            <h3>Edit History (Stub)</h3>
-            <div className={styles.toolButtons}>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Undo
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Redo
-              </button>
-            </div>
-            <label className={styles.field}>
-              History Scope
-              <select className={styles.selectControl} value="clip-local" disabled>
-                <option value="clip-local">Active Clip</option>
-                <option value="animset-global">AnimSet</option>
-              </select>
-            </label>
-          </section>
-          <section className={styles.panelCard}>
             <div className={styles.channelsHeader}>
               <h3>Channels</h3>
               <button
-                className={styles.eyeToggle}
+                className={`${styles.recordArmToggle} ${allChannelsArmed ? styles.recordArmToggleActive : ""}`}
+                type="button"
+                title={allChannelsArmed ? "Disarm all channels (stub)." : "Arm all channels (stub)."}
+                aria-label={allChannelsArmed ? "Disarm all channels" : "Arm all channels"}
+                onClick={() =>
+                  setRecordArmByChannel((prev) => {
+                    const next: Record<string, boolean> = { ...prev };
+                    for (const name of channelNames) {
+                      next[name] = !allChannelsArmed;
+                    }
+                    return next;
+                  })
+                }
+              >
+                ●
+              </button>
+              <button
+                className={`${styles.eyeToggle} ${allChannelsVisible ? styles.eyeToggleActive : ""}`}
                 type="button"
                 title={allChannelsVisible ? "Hide all channels" : "Show all channels"}
                 aria-label={allChannelsVisible ? "Hide all channels" : "Show all channels"}
@@ -1682,7 +1666,7 @@ export default function AnimationEditorPage() {
                   })
                 }
               >
-                {allChannelsVisible ? "👁" : "◌"}
+                👁
               </button>
             </div>
             <ul className={styles.list}>
@@ -1708,7 +1692,19 @@ export default function AnimationEditorPage() {
                   />
                   <span className={styles.channelLabel} title={channel}>{channel}</span>
                   <button
-                    className={styles.eyeToggle}
+                    className={`${styles.recordArmToggle} ${recordArmByChannel[channel] ? styles.recordArmToggleActive : ""}`}
+                    type="button"
+                    title={recordArmByChannel[channel] ? "Disarm recording for this channel (stub)." : "Arm recording for this channel (stub)."}
+                    aria-label={recordArmByChannel[channel] ? "Disarm recording for this channel" : "Arm recording for this channel"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setRecordArmByChannel((prev) => ({ ...prev, [channel]: !prev[channel] }));
+                    }}
+                  >
+                    ●
+                  </button>
+                  <button
+                    className={`${styles.eyeToggle} ${channelVisible[channel] !== false ? styles.eyeToggleActive : ""}`}
                     type="button"
                     title={channelVisible[channel] !== false ? "Hide channel" : "Show channel"}
                     aria-label={channelVisible[channel] !== false ? "Hide channel" : "Show channel"}
@@ -1737,7 +1733,7 @@ export default function AnimationEditorPage() {
                       })
                     }
                   >
-                    {channelVisible[channel] !== false ? "👁" : "◌"}
+                    👁
                   </button>
                 </li>
               ))}

@@ -24,6 +24,17 @@ export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: T
 
   return (
     <aside className={styles.animationToolBar}>
+      <section className={styles.panelCard}>
+        <h3>History</h3>
+        <div className={styles.toolButtons}>
+          <button className={styles.toolButton} type="button" title="Undo is not implemented yet." disabled>
+            Undo
+          </button>
+          <button className={styles.toolButton} type="button" title="Redo is not implemented yet." disabled>
+            Redo
+          </button>
+        </div>
+      </section>
       {sections.map((section) => (
         <section key={section.title} className={styles.panelCard}>
           <h3>{section.title}</h3>
