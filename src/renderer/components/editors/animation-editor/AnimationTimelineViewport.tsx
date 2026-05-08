@@ -42,6 +42,7 @@ type LaneRowProps = {
   ) => void;
   onSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
   firstLaneSvgRef: React.RefObject<SVGSVGElement | null>;
+  viewportRangeNorm: { startNorm: number; endNorm: number };
 };
 
 export function mapTimeSecToViewportX(
@@ -77,17 +78,21 @@ function curvePath(
   width: number,
   height: number,
   minV: number,
-  maxV: number
+  maxV: number,
+  viewportRangeNorm: { startNorm: number; endNorm: number }
 ) {
   const sampleCount = samples.length ?? 0;
   if (!sampleCount || durationSec <= 0) return "";
   const span = Math.max(1e-6, maxV - minV);
-  const indices = buildDisplaySampleIndices(sampleCount);
+  const startSampleIndex = Math.max(0, Math.min(sampleCount - 1, Math.floor(viewportRangeNorm.startNorm * (sampleCount - 1))));
+  const endSampleIndex = Math.max(startSampleIndex, Math.min(sampleCount - 1, Math.ceil(viewportRangeNorm.endNorm * (sampleCount - 1))));
+  const visibleSampleCount = endSampleIndex - startSampleIndex + 1;
+  const indices = buildDisplaySampleIndices(visibleSampleCount).map((i) => startSampleIndex + i);
   let d = "";
-  const last = Math.max(1, sampleCount - 1);
+  const last = Math.max(1, endSampleIndex - startSampleIndex);
   for (let i = 0; i < indices.length; i += 1) {
     const sourceIndex = indices[i];
-    const x = (sourceIndex / last) * width;
+    const x = ((sourceIndex - startSampleIndex) / last) * width;
     const value = Number(samples[sourceIndex] ?? 0);
     const y = height - ((value - minV) / span) * height;
     d += `${i === 0 ? "M" : " L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
@@ -101,17 +106,21 @@ function areaPath(
   width: number,
   height: number,
   minV: number,
-  maxV: number
+  maxV: number,
+  viewportRangeNorm: { startNorm: number; endNorm: number }
 ) {
   const sampleCount = samples.length ?? 0;
   if (!sampleCount || durationSec <= 0) return "";
   const span = Math.max(1e-6, maxV - minV);
-  const indices = buildDisplaySampleIndices(sampleCount);
+  const startSampleIndex = Math.max(0, Math.min(sampleCount - 1, Math.floor(viewportRangeNorm.startNorm * (sampleCount - 1))));
+  const endSampleIndex = Math.max(startSampleIndex, Math.min(sampleCount - 1, Math.ceil(viewportRangeNorm.endNorm * (sampleCount - 1))));
+  const visibleSampleCount = endSampleIndex - startSampleIndex + 1;
+  const indices = buildDisplaySampleIndices(visibleSampleCount).map((i) => startSampleIndex + i);
   let d = "";
-  const last = Math.max(1, sampleCount - 1);
+  const last = Math.max(1, endSampleIndex - startSampleIndex);
   for (let i = 0; i < indices.length; i += 1) {
     const sourceIndex = indices[i];
-    const x = (sourceIndex / last) * width;
+    const x = ((sourceIndex - startSampleIndex) / last) * width;
     const value = Number(samples[sourceIndex] ?? 0);
     const y = height - ((value - minV) / span) * height;
     d += `${i === 0 ? "M" : " L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
@@ -177,6 +186,7 @@ const LaneRow = React.memo(function LaneRow({
   onBeginRangeOffset,
   onSmoothBrushPreviewChange,
   firstLaneSvgRef,
+  viewportRangeNorm,
 }: LaneRowProps) {
   const minV = range.min;
   const maxV = range.max;
@@ -187,12 +197,12 @@ const LaneRow = React.memo(function LaneRow({
   React.useEffect(() => setDraftMin(formatAxisValue(minV)), [minV]);
 
   const areaD = React.useMemo(
-    () => areaPath(samples, durationSec, 1000, 34, minV, maxV),
-    [samples, durationSec, minV, maxV]
+    () => areaPath(samples, durationSec, 1000, 34, minV, maxV, viewportRangeNorm),
+    [samples, durationSec, minV, maxV, viewportRangeNorm]
   );
   const curveD = React.useMemo(
-    () => curvePath(samples, durationSec, 1000, 34, minV, maxV),
-    [samples, durationSec, minV, maxV]
+    () => curvePath(samples, durationSec, 1000, 34, minV, maxV, viewportRangeNorm),
+    [samples, durationSec, minV, maxV, viewportRangeNorm]
   );
   const normalizedTimeRange = React.useMemo(
     () => normalizeTimeRange(durationSec, selectedTimeRange),
@@ -511,6 +521,8 @@ type AnimationTimelineViewportProps = {
   rulerMarks: { norm: number; label: string }[];
   playheadTimeSec: number;
   beginPlayheadDragFromClientX: (clientX: number) => void;
+  viewportRangeNorm: { startNorm: number; endNorm: number };
+  onViewportRangeNormChange: (next: { startNorm: number; endNorm: number }) => void;
 };
 
 export function AnimationTimelineViewport(props: AnimationTimelineViewportProps) {
@@ -552,15 +564,28 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     rulerMarks,
     playheadTimeSec,
     beginPlayheadDragFromClientX,
+    viewportRangeNorm,
+    onViewportRangeNormChange,
   } = props;
 
   const lineRef = React.useRef<SVGLineElement | null>(null);
   const topBlobRef = React.useRef<SVGRectElement | null>(null);
   const bottomBlobRef = React.useRef<SVGRectElement | null>(null);
   const grabRef = React.useRef<SVGRectElement | null>(null);
+  const scrollbarTrackRef = React.useRef<HTMLDivElement | null>(null);
+  const viewportWidthNorm = Math.max(1e-3, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
+  const toViewportNorm = React.useCallback(
+    (globalNorm: number) => Math.min(1, Math.max(0, (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm)),
+    [viewportRangeNorm.startNorm, viewportWidthNorm]
+  );
+  const toViewportNormUnclamped = React.useCallback(
+    (globalNorm: number) => (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm,
+    [viewportRangeNorm.startNorm, viewportWidthNorm]
+  );
 
   React.useLayoutEffect(() => {
-    const x = mapTimeSecToViewportX(playheadTimeSec, durationSec, overlayWidth);
+    const playheadNorm = durationSec > 0 ? Math.min(1, Math.max(0, playheadTimeSec / durationSec)) : 0;
+    const x = toViewportNormUnclamped(playheadNorm) * overlayWidth;
     if (lineRef.current) {
       lineRef.current.setAttribute("x1", x.toFixed(2));
       lineRef.current.setAttribute("x2", x.toFixed(2));
@@ -574,7 +599,51 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     if (grabRef.current) {
       grabRef.current.setAttribute("x", (x - 9).toFixed(2));
     }
-  }, [durationSec, overlayWidth, playheadTimeSec]);
+  }, [durationSec, overlayWidth, playheadTimeSec, toViewportNormUnclamped]);
+
+  const beginScrollbarDrag = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const track = scrollbarTrackRef.current;
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const pointerNorm = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      const startLeft = viewportRangeNorm.startNorm;
+      const startRight = viewportRangeNorm.endNorm;
+      const widthNorm = Math.max(0.02, startRight - startLeft);
+      const edgeThreshold = Math.min(0.03, widthNorm * 0.35);
+      const mode: "pan" | "left" | "right" =
+        Math.abs(pointerNorm - startLeft) <= edgeThreshold
+          ? "left"
+          : Math.abs(pointerNorm - startRight) <= edgeThreshold
+            ? "right"
+            : "pan";
+      const startPointer = pointerNorm;
+      const onMove = (moveEvent: PointerEvent) => {
+        const moveNorm = Math.min(1, Math.max(0, (moveEvent.clientX - rect.left) / rect.width));
+        const delta = moveNorm - startPointer;
+        if (mode === "pan") {
+          const nextLeft = Math.min(1 - widthNorm, Math.max(0, startLeft + delta));
+          onViewportRangeNormChange({ startNorm: nextLeft, endNorm: nextLeft + widthNorm });
+          return;
+        }
+        if (mode === "left") {
+          const nextLeft = Math.min(startRight - 0.02, Math.max(0, startLeft + delta));
+          onViewportRangeNormChange({ startNorm: nextLeft, endNorm: startRight });
+          return;
+        }
+        const nextRight = Math.max(startLeft + 0.02, Math.min(1, startRight + delta));
+        onViewportRangeNormChange({ startNorm: startLeft, endNorm: nextRight });
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [onViewportRangeNormChange, viewportRangeNorm.endNorm, viewportRangeNorm.startNorm]
+  );
 
   return (
     <main className={styles.timelineArea}>
@@ -614,11 +683,29 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
                 onBeginRangeOffset={beginRangeOffset}
                 onSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
                 firstLaneSvgRef={firstLaneSvgRef}
+                viewportRangeNorm={viewportRangeNorm}
               />
             );
           })}
         </div>
         <div ref={bottomRulerRef} className={styles.timeRulerBottom} />
+        <div
+          ref={scrollbarTrackRef}
+          className={styles.timelineWindowScrollbar}
+          onPointerDown={beginScrollbarDrag}
+          title="Drag center to pan; drag left/right edges to zoom visible range."
+        >
+          <div
+            className={styles.timelineWindowThumb}
+            style={{
+              left: `${viewportRangeNorm.startNorm * 100}%`,
+              width: `${Math.max(2, (viewportRangeNorm.endNorm - viewportRangeNorm.startNorm) * 100)}%`,
+            }}
+          >
+            <span className={styles.timelineWindowHandle} />
+            <span className={styles.timelineWindowHandle} />
+          </div>
+        </div>
         <div
           ref={playheadViewportRef}
           className={styles.playheadViewport}
@@ -689,7 +776,7 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
                 className={styles.rulerMarkSvg}
                 textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}
               >
-                {mark.label}
+                {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
               </text>
             ))}
             {rulerMarks.map((mark, index) => (
@@ -700,7 +787,7 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
                 className={styles.rulerMarkSvg}
                 textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}
               >
-                {mark.label}
+                {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
               </text>
             ))}
             <line

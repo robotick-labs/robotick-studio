@@ -120,6 +120,7 @@ type PersistedAnimEditorState = {
   channelColor?: Record<string, string>;
   selectedChannel?: string | null;
   laneRange?: Record<string, LaneRange>;
+  timelineViewportRangeNorm?: { startNorm: number; endNorm: number } | null;
 };
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
 const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
@@ -158,6 +159,32 @@ function sanitizePersistedTimeRange(range: TimeSelectionRange | null | undefined
   const startSec = Math.max(0, Math.min(range.startSec, range.endSec));
   const endSec = Math.max(startSec, Math.max(range.startSec, range.endSec));
   return { startSec, endSec };
+}
+
+function sanitizePersistedViewportRangeNorm(
+  value: { startNorm: number; endNorm: number } | null | undefined
+): { startNorm: number; endNorm: number } {
+  const fallback = { startNorm: 0, endNorm: 1 };
+  if (!value) return fallback;
+  if (
+    typeof value.startNorm !== "number" ||
+    typeof value.endNorm !== "number" ||
+    !Number.isFinite(value.startNorm) ||
+    !Number.isFinite(value.endNorm)
+  ) {
+    return fallback;
+  }
+  const startNorm = Math.min(1, Math.max(0, value.startNorm));
+  const endNorm = Math.min(1, Math.max(0, value.endNorm));
+  const left = Math.min(startNorm, endNorm);
+  const right = Math.max(startNorm, endNorm);
+  if (right - left < 0.02) {
+    return {
+      startNorm: Math.max(0, right - 0.02),
+      endNorm: Math.min(1, left + 0.02),
+    };
+  }
+  return { startNorm: left, endNorm: right };
 }
 
 function clipRefsFromAnimsetResponse(response: AnimTelemetryAnimsetResponse): ClipRef[] {
@@ -456,6 +483,9 @@ export default function AnimationEditorPage() {
     topBlobCenterY: 18,
     bottomBlobCenterY: 82,
   });
+  const [timelineViewportRangeNorm, setTimelineViewportRangeNorm] = React.useState(() =>
+    sanitizePersistedViewportRangeNorm(initialPersistedState?.timelineViewportRangeNorm)
+  );
   const [localScrubTimeSec, setLocalScrubTimeSec] = React.useState<number | null>(null);
   const [pendingScrubAdoptSec, setPendingScrubAdoptSec] = React.useState<number | null>(null);
   const [pendingActiveClipIndex, setPendingActiveClipIndex] = React.useState<number | null>(null);
@@ -1129,6 +1159,7 @@ export default function AnimationEditorPage() {
       channelColor,
       selectedChannel,
       laneRange,
+      timelineViewportRangeNorm,
     };
     if (persistStateTimeoutRef.current !== null) {
       clearTimeout(persistStateTimeoutRef.current);
@@ -1155,6 +1186,7 @@ export default function AnimationEditorPage() {
     smoothFalloffSec,
     smoothRangeSec,
     smoothStrength,
+    timelineViewportRangeNorm,
   ]);
 
 
@@ -1751,6 +1783,8 @@ export default function AnimationEditorPage() {
           rulerMarks={rulerMarks}
           playheadTimeSec={playheadSec}
           beginPlayheadDragFromClientX={beginPlayheadDragFromClientX}
+          viewportRangeNorm={timelineViewportRangeNorm}
+          onViewportRangeNormChange={setTimelineViewportRangeNorm}
         />
 
         <AnimationToolBar

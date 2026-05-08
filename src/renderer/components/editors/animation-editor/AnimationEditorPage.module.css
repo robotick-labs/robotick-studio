@@ -502,6 +502,55 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+.timelineWindowScrollbar {
+  position: relative;
+  height: 12px;
+  margin: 6px 12px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-background-base);
+  cursor: ew-resize;
+  overflow: hidden;
+}
+
+.timelineWindowThumb {
+  --timeline-window-end-length: 12px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px;
+  border: 1px solid #1a1a1a;
+  background: var(--app-surface-base);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.timelineWindowThumb:hover {
+  background: var(--app-surface-highlight);
+}
+
+.timelineWindowHandle {
+  width: var(--timeline-window-end-length);
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+}
+
+.timelineWindowHandle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.4);
+}
+
 .rulerBottomPip {
   position: absolute;
   bottom: -6px;
