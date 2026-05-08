@@ -19,6 +19,13 @@ const PLACEHOLDER_TOOLS: AnimationToolDefinition[] = [
     enabled: false,
     description: "Nudge values up or down without changing timing.",
   },
+  {
+    id: "Clone",
+    label: "Clone",
+    section: "Sculpting",
+    enabled: false,
+    description: "Clone sample regions from a source and paint onto a target with falloff.",
+  },
 ];
 
 export function listAnimationTools(): AnimationToolDefinition[] {

@@ -957,9 +957,7 @@ export default function AnimationEditorPage() {
     () => Object.values(clipData.channels).some((samples) => (samples?.length ?? 0) > 0),
     [clipData.channels]
   );
-  const durationSec = hasClipSamples
-    ? Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec)
-    : DEFAULT_EMPTY_CLIP_DURATION_SEC;
+  const durationSec = Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec);
   const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
   const playheadSec = localScrubTimeSec ?? runtimePlayheadSec ?? 0;
   const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
@@ -1536,6 +1534,20 @@ export default function AnimationEditorPage() {
                 </option>
               ))}
             </select>
+            <div className={styles.toolButtons}>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                New AnimSet
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Clone AnimSet
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Rename AnimSet
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Create First Clip
+              </button>
+            </div>
             <h3>Active Clip</h3>
             <select
               value={selectedClipPath}
@@ -1564,6 +1576,61 @@ export default function AnimationEditorPage() {
                 </option>
               ))}
             </select>
+            <div className={styles.toolButtons}>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                New Clip
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Clone Clip
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Rename Clip
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Delete Clip
+              </button>
+            </div>
+          </section>
+          <section className={styles.panelCard}>
+            <h3>Recording (Stub)</h3>
+            <div className={styles.toolButtons}>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Record to New
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Record to Active
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Commit Take
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Discard Take
+              </button>
+            </div>
+            <label className={styles.field} title="Read-only stub for future take/punch policy controls.">
+              Take / Punch Policy
+              <select className={styles.selectControl} value="basic" disabled>
+                <option value="basic">Basic (planned)</option>
+              </select>
+            </label>
+          </section>
+          <section className={styles.panelCard}>
+            <h3>Edit History (Stub)</h3>
+            <div className={styles.toolButtons}>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Undo
+              </button>
+              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
+                Redo
+              </button>
+            </div>
+            <label className={styles.field}>
+              History Scope
+              <select className={styles.selectControl} value="clip-local" disabled>
+                <option value="clip-local">Active Clip</option>
+                <option value="animset-global">AnimSet</option>
+              </select>
+            </label>
           </section>
           <section className={styles.panelCard}>
             <div className={styles.channelsHeader}>

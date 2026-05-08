@@ -224,6 +224,10 @@
   min-height: 0;
 }
 
+.animationInspector {
+  overflow: auto;
+}
+
 .panelCard {
   border: 1px solid var(--app-panel-border);
   border-radius: 10px;
@@ -233,6 +237,10 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+}
+
+.animationInspector .panelCard {
+  flex-shrink: 0;
 }
 
 .panelCard h3 {
