@@ -31,6 +31,8 @@ import {
 import { AnimationTimelineViewport } from "./AnimationTimelineViewport";
 import { AnimationToolBar } from "./AnimationToolBar";
 import { TransportBar } from "./TransportBar";
+import { ActiveClipFieldMenu } from "./ActiveClipFieldMenu";
+import { AnimSetFieldMenu } from "./AnimSetFieldMenu";
 import { listAnimationTools } from "./tools/registry";
 import type { AnimationToolId, AnimationToolSettingsContext } from "./tools/types";
 import { beginRangeSelectionBehavior } from "./tools/range/range-behavior";
@@ -1137,6 +1139,24 @@ export default function AnimationEditorPage() {
     setSmoothBrushPreview(null);
   }, [activeTool]);
 
+  const applyActiveClipPath = React.useCallback(
+    (nextPath: string) => {
+      setSelectedClipPath(nextPath);
+      const selectedIndex = clipRefs.findIndex((clip) => clip.animclipPath === nextPath);
+      if (selectedIndex >= 0) {
+        setPendingActiveClipIndex(selectedIndex);
+        setTimeout(() => {
+          setPendingActiveClipIndex((current) => (current === selectedIndex ? null : current));
+        }, 1200);
+        void (async () => {
+          await ensureAnimControlSuppressed("active_clip_index");
+          await writeAnimControlFieldRaw("active_clip_index", selectedIndex);
+        })();
+      }
+    },
+    [clipRefs, ensureAnimControlSuppressed, writeAnimControlFieldRaw]
+  );
+
   const persistStateTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
     () => () => {
@@ -1561,75 +1581,18 @@ export default function AnimationEditorPage() {
               ))}
             </select>
             <h3>AnimSet</h3>
-            <select
-              value={animsetPath}
-              className={styles.selectControl}
-              title="AnimSet is currently runtime-owned and read-only."
-              disabled
-              aria-readonly="true"
-            >
-              {animsetOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <div className={styles.toolButtons}>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                New AnimSet
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Clone AnimSet
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Rename AnimSet
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Create First Clip
-              </button>
-            </div>
+            <AnimSetFieldMenu
+              animsetOptions={animsetOptions}
+              animsetPath={animsetPath}
+              onSelectAnimsetPath={setAnimsetPath}
+            />
             <h3>Active Clip</h3>
-            <select
-              value={selectedClipPath}
-              onFocus={() => void reloadAnimsetClipRefs()}
-              onMouseDown={() => void reloadAnimsetClipRefs()}
-              onChange={(e) => {
-                const nextPath = e.target.value;
-                setSelectedClipPath(nextPath);
-                const selectedIndex = clipRefs.findIndex((clip) => clip.animclipPath === nextPath);
-                if (selectedIndex >= 0) {
-                  setPendingActiveClipIndex(selectedIndex);
-                  setTimeout(() => {
-                    setPendingActiveClipIndex((current) => (current === selectedIndex ? null : current));
-                  }, 1200);
-                  void (async () => {
-                    await ensureAnimControlSuppressed("active_clip_index");
-                    await writeAnimControlFieldRaw("active_clip_index", selectedIndex);
-                  })();
-                }
-              }}
-              className={styles.selectControl}
-            >
-              {clipRefs.map((c) => (
-                <option key={c.animclipPath} value={c.animclipPath}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <div className={styles.toolButtons}>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                New Clip
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Clone Clip
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Rename Clip
-              </button>
-              <button className={styles.toolButton} type="button" title="Stub for mock-up review." disabled>
-                Delete Clip
-              </button>
-            </div>
+            <ActiveClipFieldMenu
+              clipRefs={clipRefs.map((clip) => ({ name: clip.name, animclipPath: clip.animclipPath }))}
+              selectedClipPath={selectedClipPath}
+              onReload={() => void reloadAnimsetClipRefs()}
+              onSelectClipPath={applyActiveClipPath}
+            />
           </section>
           <section className={styles.panelCard}>
             <div className={styles.channelsHeader}>
