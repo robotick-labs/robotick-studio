@@ -316,6 +316,12 @@
   text-overflow: ellipsis;
 }
 
+.assetNameFieldReadOnly {
+  opacity: 0.58;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
 .assetMenuButton {
   width: 28px;
   height: 28px;

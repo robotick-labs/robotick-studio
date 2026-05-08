@@ -1580,7 +1580,15 @@ export default function AnimationEditorPage() {
                 </option>
               ))}
             </select>
-            <h3>AnimSet</h3>
+            <h3>Channel Set</h3>
+            <div
+              className={`${styles.assetNameField} ${styles.assetNameFieldReadOnly}`}
+              title="Read-only: channel set is engine-defined in this phase"
+              aria-readonly="true"
+            >
+              barr_e_expression_mvp.channelset.yaml (read-only)
+            </div>
+            <h3>Anim Set</h3>
             <AnimSetFieldMenu
               animsetOptions={animsetOptions}
               animsetPath={animsetPath}
