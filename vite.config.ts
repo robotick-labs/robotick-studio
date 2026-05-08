@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import cesium from "vite-plugin-cesium";
 import path, { resolve, relative } from "node:path";
 import { readdirSync, statSync, existsSync } from "node:fs";
@@ -37,7 +38,7 @@ export default defineConfig({
   envPrefix: ["VITE_", "CESIUM_"],
 
   publicDir: "../../public/renderer",
-  plugins: [cesium()],
+  plugins: [react(), cesium()],
 
   build: {
     outDir: "../../dist/renderer",

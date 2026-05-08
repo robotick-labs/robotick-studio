@@ -83,6 +83,8 @@ type AnimTelemetryClipResponse = {
   channels?: string[];
 };
 const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
+const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
+const MAX_REASONABLE_AXIS_ABS = 1000;
 const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
@@ -125,8 +127,8 @@ function clipRefsFromAnimsetResponse(response: AnimTelemetryAnimsetResponse): Cl
 function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse | undefined): ClipData {
   const durationSec =
     typeof payload?.duration_sec === "number" && Number.isFinite(payload.duration_sec)
-      ? Math.max(0.01, payload.duration_sec)
-      : 0.01;
+      ? Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, payload.duration_sec)
+      : DEFAULT_EMPTY_CLIP_DURATION_SEC;
   const sampleCount =
     typeof payload?.sample_count === "number" && Number.isFinite(payload.sample_count)
       ? Math.max(0, Math.floor(payload.sample_count))
@@ -202,13 +204,17 @@ function areaPath(
 function fitRangeWithPadding(samples: ArrayLike<number>): LaneRange {
   const sampleCount = samples.length ?? 0;
   if (!sampleCount) return { min: -1, max: 1 };
-  let min = Number(samples[0] ?? 0);
-  let max = min;
-  for (let i = 1; i < sampleCount; i += 1) {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let finiteCount = 0;
+  for (let i = 0; i < sampleCount; i += 1) {
     const value = Number(samples[i] ?? 0);
+    if (!Number.isFinite(value)) continue;
+    finiteCount += 1;
     if (value < min) min = value;
     if (value > max) max = value;
   }
+  if (finiteCount === 0) return { min: -1, max: 1 };
   const span = Math.max(1e-6, max - min);
   const pad = span * 0.12;
   const rawMin = min - pad;
@@ -228,9 +234,15 @@ function fitRangeWithPadding(samples: ArrayLike<number>): LaneRange {
   const quantMin = Math.floor(rawMin / step) * step;
   const quantMax = Math.ceil(rawMax / step) * step;
   if (quantMax - quantMin < 1e-6) {
-    return { min: quantMin - step, max: quantMax + step };
+    const boundedMin = Math.max(-MAX_REASONABLE_AXIS_ABS, quantMin - step);
+    const boundedMax = Math.min(MAX_REASONABLE_AXIS_ABS, quantMax + step);
+    if (boundedMax - boundedMin < 1e-6) return { min: -1, max: 1 };
+    return { min: boundedMin, max: boundedMax };
   }
-  return { min: quantMin, max: quantMax };
+  const boundedMin = Math.max(-MAX_REASONABLE_AXIS_ABS, quantMin);
+  const boundedMax = Math.min(MAX_REASONABLE_AXIS_ABS, quantMax);
+  if (boundedMax - boundedMin < 1e-6) return { min: -1, max: 1 };
+  return { min: boundedMin, max: boundedMax };
 }
 
 function defaultLaneRangeForChannel(channel: string, samples: ArrayLike<number>): LaneRange {
@@ -395,7 +407,7 @@ function ToolSettingNumberControl({
   );
 
   return (
-    <div className={styles.toolSettingRow}>
+    <div className={styles.toolSettingRow} title={title}>
       <span>{label}</span>
       <div className={styles.toolSettingControl}>
         <button
@@ -833,7 +845,7 @@ export default function AnimationEditorPage() {
   const [clipData, setClipData] = React.useState<ClipData>({
     name: "clip",
     channels: {},
-    durationSec: 10,
+    durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
     sampleCount: 0,
     liveSampleRateHz: 0,
     clipRevision: "0",
@@ -1204,7 +1216,7 @@ export default function AnimationEditorPage() {
         setClipData({
           name: "clip",
           channels: {},
-          durationSec: 10,
+          durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
           sampleCount: 0,
           liveSampleRateHz: 0,
           clipRevision: "0",
@@ -1505,7 +1517,13 @@ export default function AnimationEditorPage() {
   const channelNames = Object.keys(clipData.channels);
   const visibleChannels = channelNames.filter((n) => channelVisible[n] !== false);
   const allChannelsVisible = channelNames.length > 0 && visibleChannels.length === channelNames.length;
-  const durationSec = Math.max(0.01, clipData.durationSec);
+  const hasClipSamples = React.useMemo(
+    () => Object.values(clipData.channels).some((samples) => (samples?.length ?? 0) > 0),
+    [clipData.channels]
+  );
+  const durationSec = hasClipSamples
+    ? Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec)
+    : DEFAULT_EMPTY_CLIP_DURATION_SEC;
   const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
   const playheadSec = localScrubTimeSec ?? runtimePlayheadSec ?? (playhead / 1000) * durationSec;
   const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
@@ -1767,27 +1785,38 @@ export default function AnimationEditorPage() {
 
   React.useLayoutEffect(() => {
     const timeline = timelineRef.current;
-    const laneSvg = firstLaneSvgRef.current;
+    const viewport = playheadViewportRef.current;
     const topRuler = topRulerRef.current;
     const bottomRuler = bottomRulerRef.current;
-    if (!timeline || !laneSvg) return;
+    if (!timeline || !viewport) return;
 
     const measure = () => {
       const timelineRect = timeline.getBoundingClientRect();
-      const laneRect = laneSvg.getBoundingClientRect();
-      const left = Math.max(0, laneRect.left - timelineRect.left);
-      const right = Math.max(0, timelineRect.right - laneRect.right);
-      setPlayheadViewportInsetsPx({ left, right });
-      const overlayWidth = Math.max(1, laneRect.width);
-      const overlayHeight = Math.max(1, timelineRect.height);
+      const viewportRect = viewport.getBoundingClientRect();
+      // During layout transitions/HMR, transient tiny measurements can occur and
+      // cause the SVG viewBox to collapse, which blows up ruler text rendering.
+      if (timelineRect.height < 80 || viewportRect.width < 80 || viewportRect.height < 80) {
+        return;
+      }
+      const laneSvg = firstLaneSvgRef.current;
+      if (laneSvg) {
+        const laneRect = laneSvg.getBoundingClientRect();
+        if (laneRect.width >= 40) {
+          const left = Math.max(0, laneRect.left - timelineRect.left);
+          const right = Math.max(0, timelineRect.right - laneRect.right);
+          setPlayheadViewportInsetsPx({ left, right });
+        }
+      }
+      const overlayWidth = Math.max(1, viewportRect.width);
+      const overlayHeight = Math.max(1, viewportRect.height);
       const topRulerRect = topRuler?.getBoundingClientRect();
       const bottomRulerRect = bottomRuler?.getBoundingClientRect();
       const topRulerHeight = Math.max(1, topRulerRect?.height ?? 24);
-      const bottomRulerTop = Math.max(0, bottomRulerRect ? bottomRulerRect.top - timelineRect.top : overlayHeight - 24);
+      const bottomRulerTop = Math.max(0, bottomRulerRect ? bottomRulerRect.top - viewportRect.top : overlayHeight - 24);
       const bottomRulerHeight = Math.max(1, bottomRulerRect?.height ?? 24);
       const topBlobCenterY = topRulerRect ? Math.max(6, topRulerRect.height - 8) : 18;
       const bottomBlobCenterY = bottomRulerRect
-        ? Math.max(6, bottomRulerRect.top - timelineRect.top + 8)
+        ? Math.max(6, bottomRulerRect.top - viewportRect.top + 8)
         : Math.max(12, overlayHeight - 18);
       setPlayheadOverlayMetrics({
         width: overlayWidth,
@@ -1803,7 +1832,7 @@ export default function AnimationEditorPage() {
     measure();
     const observer = new ResizeObserver(() => measure());
     observer.observe(timeline);
-    observer.observe(laneSvg);
+    observer.observe(viewport);
     if (topRuler) observer.observe(topRuler);
     if (bottomRuler) observer.observe(bottomRuler);
     window.addEventListener("resize", measure);
@@ -2886,7 +2915,7 @@ export default function AnimationEditorPage() {
                   type="button"
                   className={`${styles.toolButton} ${lineSnapStart ? styles.toolButtonActive : ""}`}
                   onClick={() => setLineSnapStart((current) => !current)}
-                  title="Anchor the line start to the current curve value at its time."
+                  title="Anchor the line start to the current curve value at its time. Shortcut: [ (BracketLeft)."
                 >
                   Snap Start
                 </button>
@@ -2894,7 +2923,7 @@ export default function AnimationEditorPage() {
                   type="button"
                   className={`${styles.toolButton} ${lineSnapEnd ? styles.toolButtonActive : ""}`}
                   onClick={() => setLineSnapEnd((current) => !current)}
-                  title="Anchor the line end to the current curve value at its time."
+                  title="Anchor the line end to the current curve value at its time. Shortcut: ] (BracketRight)."
                 >
                   Snap End
                 </button>
@@ -3069,7 +3098,7 @@ export default function AnimationEditorPage() {
           <button
             className={styles.loopLauncherButton}
             type="button"
-            title="Toggle loop playback."
+            title="Toggle loop playback. Shortcut: Numpad /."
             onClick={toggleLoopEnabled}
           >
             {loopEnabled ? "Loop" : "Once"}
@@ -3079,6 +3108,7 @@ export default function AnimationEditorPage() {
                 className={`${styles.transportIconButton} ${styles.iconStop}`}
                 type="button"
                 aria-label="Stop"
+                title="Stop playback."
                 onClick={() => void writeAnimControlField("playback_state", 0)}
               >
                 <span className={styles.iconStopGlyph}>⏹</span>
@@ -3087,6 +3117,7 @@ export default function AnimationEditorPage() {
                 className={`${styles.transportIconButton} ${styles.iconPlayPause}`}
                 type="button"
                 aria-label={isPlaying ? "Pause" : "Play"}
+                title={isPlaying ? "Pause playback. Shortcut: Space." : "Play playback. Shortcut: Space."}
                 onClick={() => {
                   const nextPlaying = !isPlaying;
                   if (nextPlaying) {
@@ -3104,6 +3135,7 @@ export default function AnimationEditorPage() {
                 className={`${styles.transportIconButton} ${styles.iconRecord}`}
                 type="button"
                 aria-label="Record"
+                title="Record playback."
                 onClick={() => void writeAnimControlField("playback_state", 3)}
               >
                 <span className={styles.iconRecordGlyph}>●</span>
