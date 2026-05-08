@@ -23,7 +23,7 @@ export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: T
   const activeDefinition = tools.find((tool) => tool.id === activeTool) ?? null;
 
   return (
-    <aside className={styles.tools}>
+    <aside className={styles.animationToolBar}>
       {sections.map((section) => (
         <section key={section.title} className={styles.panelCard}>
           <h3>{section.title}</h3>

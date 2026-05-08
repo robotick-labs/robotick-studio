@@ -216,8 +216,8 @@
   gap: 10px;
 }
 
-.sidebar,
-.tools {
+.animationInspector,
+.animationToolBar {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -296,10 +296,17 @@
   color: var(--app-text-primary);
   background: rgba(255, 255, 255, 0.02);
   display: grid;
-  grid-template-columns: 24px 1fr 28px;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
   gap: 8px;
   align-items: center;
   transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.channelLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .channelKeyRow input[type="color"] {

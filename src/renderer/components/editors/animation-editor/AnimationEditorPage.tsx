@@ -1500,8 +1500,16 @@ export default function AnimationEditorPage() {
   return (
     <div className={styles.root} data-testid="animation-editor-panel">
       <div className={styles.mainGrid}>
-        <aside className={styles.sidebar}>
+        <aside className={styles.animationInspector}>
           <section className={styles.panelCard}>
+            <div className={styles.toolButtons}>
+              <button className={styles.toolButton} type="button" title="Auto-save is not implemented yet." disabled>
+                Auto-save
+              </button>
+              <button className={styles.toolButton} type="button" title="Save is not implemented yet." disabled>
+                Save
+              </button>
+            </div>
             <h3>Target</h3>
             <select
               value={selectedSourceId}
@@ -1599,7 +1607,7 @@ export default function AnimationEditorPage() {
                     onChange={(e) => setChannelColor((p) => ({ ...p, [channel]: e.target.value }))}
                     title="Set channel color"
                   />
-                  <span>{channel}</span>
+                  <span className={styles.channelLabel} title={channel}>{channel}</span>
                   <button
                     className={styles.eyeToggle}
                     type="button"

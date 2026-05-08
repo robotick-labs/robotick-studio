@@ -73,14 +73,7 @@ export function TransportBar({
 
   return (
     <footer className={styles.transportBar}>
-      <div className={styles.transportLeft}>
-        <button className={styles.transportChipButton} type="button" title="Auto-save is not implemented yet." disabled>
-          Auto-save
-        </button>
-        <button className={styles.transportChipButton} type="button" title="Save is not implemented yet." disabled>
-          Save
-        </button>
-      </div>
+      <div className={styles.transportLeft} />
       <div className={styles.transportCenter}>
         <div className={styles.transportLauncherStrip}>
           <button className={styles.loopLauncherButton} type="button" title="Toggle loop playback. Shortcut: Numpad /." onClick={toggleLoopEnabled}>
