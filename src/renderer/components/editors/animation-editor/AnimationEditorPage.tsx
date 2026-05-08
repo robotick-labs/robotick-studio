@@ -507,7 +507,6 @@ export default function AnimationEditorPage() {
   const telemetryService = useTelemetryService();
   const { projectPath } = useProjectContext();
   const { projectModels } = ProjectData.use();
-  const [playhead, setPlayhead] = React.useState(280);
   const [isPlaying, setIsPlaying] = React.useState(true);
   const [loopEnabled, setLoopEnabled] = React.useState(true);
   const [animCompatibleWorkloadTypes, setAnimCompatibleWorkloadTypes] = React.useState<Set<string>>(new Set());
@@ -846,7 +845,6 @@ export default function AnimationEditorPage() {
     pendingClipDataRenderRef.current = null;
     clipDataRef.current = nextClipData;
     setClipData(nextClipData);
-    setPlayhead((p) => Math.min(p, 1000));
     const names = Object.keys(nextClipData.channels);
     setChannelVisible((prev) => {
       const next: Record<string, boolean> = {};
@@ -1228,7 +1226,7 @@ export default function AnimationEditorPage() {
     ? Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec)
     : DEFAULT_EMPTY_CLIP_DURATION_SEC;
   const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
-  const playheadSec = localScrubTimeSec ?? runtimePlayheadSec ?? (playhead / 1000) * durationSec;
+  const playheadSec = localScrubTimeSec ?? runtimePlayheadSec ?? 0;
   const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
   const isLoopResetActive = Boolean(isLoopResetActiveRaw);
   const loopResetProgressNorm =
@@ -1259,7 +1257,6 @@ export default function AnimationEditorPage() {
   );
   const animsetOptions = React.useMemo(() => Array.from(new Set([animsetPath, DEFAULT_ANIMSET].filter(Boolean))), [animsetPath]);
   const overlayWidth = playheadOverlayMetrics.width;
-  const playheadX = (playhead / LANE_VIEWBOX_WIDTH) * overlayWidth;
   const rangeFalloffStepSec = React.useMemo(
     () => Math.min(0.1, Math.max(0.005, durationSec * 0.005)),
     [durationSec]
@@ -1309,21 +1306,12 @@ export default function AnimationEditorPage() {
   const seekPlayheadToTimeSec = React.useCallback(
     (nextTimeSec: number) => {
       const clamped = Math.min(durationSec, Math.max(0, nextTimeSec));
-      const ratio = durationSec > 0 ? Math.min(1, Math.max(0, clamped / durationSec)) : 0;
-      setPlayhead(Math.round(ratio * 1000));
       setLocalScrubTimeSec(clamped);
       setPendingScrubAdoptSec(clamped);
       void writeAnimControlField("time_override_sec", clamped);
     },
     [durationSec, writeAnimControlField]
   );
-
-
-  React.useEffect(() => {
-    if (localScrubTimeSec !== null || playheadSec === null || durationSec <= 0) return;
-    const ratio = Math.min(1, Math.max(0, playheadSec / durationSec));
-    setPlayhead(Math.round(ratio * 1000));
-  }, [durationSec, localScrubTimeSec, playheadSec]);
 
   React.useEffect(() => {
     if (pendingScrubAdoptSec === null || runtimePlayheadSec === null) return;
@@ -1606,7 +1594,6 @@ export default function AnimationEditorPage() {
     if (!element) return undefined;
     const rect = element.getBoundingClientRect();
     const ratio = normalizedFromClientX(clientX, rect.left, rect.width);
-    setPlayhead(Math.round(ratio * 1000));
     setLocalScrubTimeSec(ratio * durationSec);
     return ratio;
   }
@@ -1615,7 +1602,11 @@ export default function AnimationEditorPage() {
     (clientX: number) => {
       const startRatio = seekFromClientX(clientX);
       void beginScrubSession();
-      const startTimeSec = (startRatio ?? Math.min(1, Math.max(0, playhead / 1000))) * durationSec;
+      const startTimeSec =
+        (startRatio ??
+          (durationSec > 0
+            ? Math.min(1, Math.max(0, playheadSec / durationSec))
+            : 0)) * durationSec;
       queueScrubTimeOverride(startTimeSec);
       const onMove = (moveEvent: PointerEvent) => {
         const ratio = seekFromClientX(moveEvent.clientX);
@@ -1630,7 +1621,7 @@ export default function AnimationEditorPage() {
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [beginScrubSession, durationSec, endScrubSession, playhead, queueScrubTimeOverride]
+    [beginScrubSession, durationSec, endScrubSession, playheadSec, queueScrubTimeOverride]
   );
 
   function beginPlayheadDrag(event: React.PointerEvent<HTMLElement>) {
@@ -2479,7 +2470,7 @@ export default function AnimationEditorPage() {
           isLoopResetActive={isLoopResetActive}
           loopResetSlugRangeNorm={loopResetSlugRangeNorm}
           rulerMarks={rulerMarks}
-          playheadX={playheadX}
+          playheadTimeSec={playheadSec}
           beginPlayheadDragFromClientX={beginPlayheadDragFromClientX}
         />
 
@@ -2758,7 +2749,7 @@ export default function AnimationEditorPage() {
                     const value = Number(event.target.value);
                     if (!Number.isFinite(value)) return;
                     const clamped = Math.min(durationSec, Math.max(0, value));
-                    setPlayhead(Math.round((clamped / durationSec) * 1000));
+                    setLocalScrubTimeSec(clamped);
                     void writeAnimControlField("time_override_sec", clamped);
                   }}
                 />
