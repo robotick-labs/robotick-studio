@@ -23,6 +23,10 @@ export function SmoothSettingsPanel(context: AnimationToolSettingsContext) {
     smoothStrength,
     setSmoothStrengthDraft,
     setSmoothStrength,
+    smoothApplyRateDraft,
+    smoothApplyRateHz,
+    setSmoothApplyRateDraft,
+    setSmoothApplyRateHz,
   } = context;
 
   return (
@@ -118,6 +122,27 @@ export function SmoothSettingsPanel(context: AnimationToolSettingsContext) {
         }
         onScrubValue={(next) => setSmoothStrength(Math.min(1, Math.max(0, next)))}
         stepSize={0.02}
+      />
+      <ToolSettingNumberControl
+        label="Apply Rate (Hz)"
+        value={smoothApplyRateDraft}
+        numericValue={smoothApplyRateHz}
+        title="How often smooth brush applies while pointer is down"
+        onChange={setSmoothApplyRateDraft}
+        onCommit={() => {
+          const parsed = Number(smoothApplyRateDraft);
+          if (!Number.isFinite(parsed)) {
+            setSmoothApplyRateDraft(smoothApplyRateHz.toFixed(0));
+            return;
+          }
+          setSmoothApplyRateHz(Math.min(240, Math.max(5, parsed)));
+        }}
+        onReset={() => setSmoothApplyRateDraft(smoothApplyRateHz.toFixed(0))}
+        onDelta={(delta) =>
+          setSmoothApplyRateHz((current) => Math.min(240, Math.max(5, current + delta)))
+        }
+        onScrubValue={(next) => setSmoothApplyRateHz(Math.min(240, Math.max(5, next)))}
+        stepSize={1}
       />
     </>
   );

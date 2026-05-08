@@ -36,6 +36,10 @@ export type AnimationToolSettingsContext = {
   smoothStrengthDraft: string;
   setSmoothStrengthDraft: React.Dispatch<React.SetStateAction<string>>;
   setSmoothStrength: React.Dispatch<React.SetStateAction<number>>;
+  smoothApplyRateHz: number;
+  smoothApplyRateDraft: string;
+  setSmoothApplyRateDraft: React.Dispatch<React.SetStateAction<string>>;
+  setSmoothApplyRateHz: React.Dispatch<React.SetStateAction<number>>;
   smoothRangeStepSec: number;
   rangeFalloffStepSec: number;
 };

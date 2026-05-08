@@ -52,7 +52,9 @@ type DrawWriteState = {
   timerId: ReturnType<typeof setTimeout> | null;
 };
 
-export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args: {
+export function runBeginRangeOffsetBehavior<
+  TClipData extends ClipDataLike,
+>(args: {
   event: React.PointerEvent<SVGCircleElement>;
   activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
   channel: string;
@@ -75,7 +77,7 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
     clipIndex: number,
     channel: string,
     startSampleIndex: number,
-    endSampleIndex: number
+    endSampleIndex: number,
   ) => void;
   clearDrawFlushTimer: () => void;
   flushPendingClipDataRender: () => void;
@@ -112,14 +114,16 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
   const selectedClip =
     clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
   const clipIndex = selectedClip
-    ? clipRefs.findIndex((clip) => clip.animclipPath === selectedClip.animclipPath)
+    ? clipRefs.findIndex(
+        (clip) => clip.animclipPath === selectedClip.animclipPath,
+      )
     : -1;
   if (clipIndex < 0) return;
   const sampleRange = sampleIndexRangeFromTimes(
     channelSamples.length,
     durationSec,
     selectedTimeRange.startSec,
-    selectedTimeRange.endSec
+    selectedTimeRange.endSec,
   );
   if (!sampleRange) return;
   const falloffSec = rangeFalloffSec;
@@ -127,12 +131,14 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
     channelSamples.length > 1 && durationSec > 0
       ? Math.max(
           0,
-          Math.round((falloffSec / durationSec) * (channelSamples.length - 1))
+          Math.round((falloffSec / durationSec) * (channelSamples.length - 1)),
         )
       : 0;
 
   const laneTrack =
-    (event.currentTarget.closest("[data-lane-track='true']") as HTMLElement | null) ??
+    (event.currentTarget.closest(
+      "[data-lane-track='true']",
+    ) as HTMLElement | null) ??
     event.currentTarget.ownerSVGElement?.parentElement;
   const laneRect = laneTrack?.getBoundingClientRect();
   const laneHeightPx = Math.max(1, laneRect?.height ?? 1);
@@ -146,7 +152,9 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
     mode: "Range",
     coreRange: sampleRange,
     writeRange: sampleRange,
-    baseSamples: (clipDataRef.current.channels[channel] ?? channelSamples).slice(),
+    baseSamples: (
+      clipDataRef.current.channels[channel] ?? channelSamples
+    ).slice(),
     baseDirty: clipDataRef.current.dirty,
     startClientY: event.clientY,
     laneHeightPx,
@@ -160,9 +168,10 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
     const result = applyOffsetToSampleRangeWithFalloff(
       state.baseSamples,
       state.coreRange,
-      -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan,
+      -((clientY - state.startClientY) / state.laneHeightPx) *
+        state.laneValueSpan,
       falloffSampleCount,
-      rangeFalloffCurve
+      rangeFalloffCurve,
     );
     state.writeRange = result.writeRange;
     scheduleClipDataRender({
@@ -177,7 +186,7 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
       clipIndex,
       channel,
       result.writeRange.startSampleIndex,
-      result.writeRange.endSampleIndex
+      result.writeRange.endSampleIndex,
     );
   };
 
@@ -219,7 +228,7 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
         clipIndex,
         channel,
         state.writeRange.startSampleIndex,
-        state.writeRange.endSampleIndex
+        state.writeRange.endSampleIndex,
       );
       void flushDrawStroke(true);
       return;
@@ -244,7 +253,9 @@ export function runBeginRangeOffsetBehavior<TClipData extends ClipDataLike>(args
   window.addEventListener("keydown", onKeyDown);
 }
 
-export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args: {
+export function runBeginDrawStrokeBehavior<
+  TClipData extends ClipDataLike,
+>(args: {
   event: React.PointerEvent<SVGSVGElement>;
   activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
   channel: string;
@@ -258,6 +269,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
   lineSnapEnd: boolean;
   smoothRangeSec: number;
   smoothStrength: number;
+  smoothApplyRateHz: number;
   smoothFalloffSec: number;
   smoothFalloffCurve: number;
   defaultSmoothStrength: number;
@@ -270,19 +282,21 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     clipIndex: number,
     channel: string,
     startSampleIndex: number,
-    endSampleIndex: number
+    endSampleIndex: number,
   ) => void;
   clearDrawFlushTimer: () => void;
   flushPendingClipDataRender: () => void;
   flushDrawStroke: (force: boolean) => Promise<void>;
   setSelectedChannel: (channel: string) => void;
-  setSmoothBrushPreview: (next: { channel: string; centerSec: number } | null) => void;
+  setSmoothBrushPreview: (
+    next: { channel: string; centerSec: number } | null,
+  ) => void;
   pointerToDrawPoint: (
     svg: SVGSVGElement,
     clientX: number,
     clientY: number,
     minV: number,
-    maxV: number
+    maxV: number,
   ) => Point | null;
   closestSamplePointToClientPoint: (
     samples: ArrayLike<number>,
@@ -291,7 +305,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     maxV: number,
     clientX: number,
     clientY: number,
-    svg: SVGSVGElement
+    svg: SVGSVGElement,
   ) => Point;
 }) {
   const {
@@ -308,6 +322,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     lineSnapEnd,
     smoothRangeSec,
     smoothStrength,
+    smoothApplyRateHz,
     smoothFalloffSec,
     smoothFalloffCurve,
     defaultSmoothStrength,
@@ -326,7 +341,11 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     closestSamplePointToClientPoint,
   } = args;
 
-  if (activeTool !== "Pencil" && activeTool !== "Line" && activeTool !== "Smooth") {
+  if (
+    activeTool !== "Pencil" &&
+    activeTool !== "Line" &&
+    activeTool !== "Smooth"
+  ) {
     return;
   }
   event.preventDefault();
@@ -334,44 +353,62 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
   const selectedClip =
     clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
   const clipIndex = selectedClip
-    ? clipRefs.findIndex((clip) => clip.animclipPath === selectedClip.animclipPath)
+    ? clipRefs.findIndex(
+        (clip) => clip.animclipPath === selectedClip.animclipPath,
+      )
     : -1;
   const svg = event.currentTarget;
   setSelectedChannel(channel);
   beginDrawStrokeSession(clipIndex, channel);
 
-  const startPoint = pointerToDrawPoint(svg, event.clientX, event.clientY, minV, maxV);
+  const startPoint = pointerToDrawPoint(
+    svg,
+    event.clientX,
+    event.clientY,
+    minV,
+    maxV,
+  );
   if (!startPoint) return;
 
   if (activeTool === "Smooth") {
-    const baseSamples = (clipDataRef.current.channels[channel] ?? channelSamples).slice();
+    const baseSamples = (
+      clipDataRef.current.channels[channel] ?? channelSamples
+    ).slice();
     const baseDirty = clipDataRef.current.dirty;
-    let touchedRange: { startSampleIndex: number; endSampleIndex: number } | null = null;
+    let touchedRange: {
+      startSampleIndex: number;
+      endSampleIndex: number;
+    } | null = null;
     setSmoothBrushPreview({ channel, centerSec: startPoint.t });
     const commitBrushPoint = (point: Point) => {
       const currentClip = clipDataRef.current;
       const current = currentClip.channels[channel] ?? channelSamples;
-      const brushRangeSec = Math.min(durationSec, Math.max(0.01, smoothRangeSec));
+      const brushRangeSec = Math.min(
+        durationSec,
+        Math.max(0.01, smoothRangeSec),
+      );
+      const effectiveSmoothStrength = smoothStrength * 0.1;
       setSmoothBrushPreview({ channel, centerSec: point.t });
       const result = applySmoothBrushToSamples(
         current,
         durationSec,
         point.t,
         brushRangeSec,
-        smoothStrength,
+        effectiveSmoothStrength,
         smoothFalloffSec,
-        smoothFalloffCurve
+        smoothFalloffCurve,
       );
-      if (result.writeRange.endSampleIndex < result.writeRange.startSampleIndex) return;
+      if (result.writeRange.endSampleIndex < result.writeRange.startSampleIndex)
+        return;
       touchedRange = touchedRange
         ? {
             startSampleIndex: Math.min(
               touchedRange.startSampleIndex,
-              result.writeRange.startSampleIndex
+              result.writeRange.startSampleIndex,
             ),
             endSampleIndex: Math.max(
               touchedRange.endSampleIndex,
-              result.writeRange.endSampleIndex
+              result.writeRange.endSampleIndex,
             ),
           }
         : result.writeRange;
@@ -387,18 +424,33 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
         clipIndex,
         channel,
         result.writeRange.startSampleIndex,
-        result.writeRange.endSampleIndex
+        result.writeRange.endSampleIndex,
       );
     };
-
+    let latestPoint: Point = startPoint;
+    const intervalMs = Math.max(
+      4,
+      Math.round(1000 / Math.max(5, smoothApplyRateHz)),
+    );
+    const timerId = window.setInterval(() => {
+      commitBrushPoint(latestPoint);
+    }, intervalMs);
     commitBrushPoint(startPoint);
 
     const onMove = (moveEvent: PointerEvent) => {
-      const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+      const point = pointerToDrawPoint(
+        svg,
+        moveEvent.clientX,
+        moveEvent.clientY,
+        minV,
+        maxV,
+      );
       if (!point) return;
-      commitBrushPoint(point);
+      latestPoint = point;
+      setSmoothBrushPreview({ channel, centerSec: point.t });
     };
     const onUp = () => {
+      clearInterval(timerId);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("keydown", onKeyDown);
@@ -410,6 +462,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     const onKeyDown = (keyEvent: KeyboardEvent) => {
       if (keyEvent.key !== "Escape") return;
       keyEvent.preventDefault();
+      clearInterval(timerId);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("keydown", onKeyDown);
@@ -430,7 +483,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
           clipIndex,
           channel,
           touchedRange.startSampleIndex,
-          touchedRange.endSampleIndex
+          touchedRange.endSampleIndex,
         );
       }
       flushPendingClipDataRender();
@@ -443,7 +496,9 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
   }
 
   if (activeTool === "Line") {
-    const baseSamples = (clipDataRef.current.channels[channel] ?? channelSamples).slice();
+    const baseSamples = (
+      clipDataRef.current.channels[channel] ?? channelSamples
+    ).slice();
     const anchoredStartPoint = lineSnapStart
       ? closestSamplePointToClientPoint(
           baseSamples,
@@ -452,7 +507,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
           maxV,
           event.clientX,
           event.clientY,
-          svg
+          svg,
         )
       : startPoint;
     linePreviewStateRef.current = {
@@ -465,7 +520,11 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
       touchedRange: null,
     };
 
-    const applyLinePreview = (point: Point, clientX: number, clientY: number) => {
+    const applyLinePreview = (
+      point: Point,
+      clientX: number,
+      clientY: number,
+    ) => {
       const lineState = linePreviewStateRef.current;
       const currentBase = lineState.baseSamples ?? baseSamples;
       const nextPoint = lineSnapEnd
@@ -476,14 +535,14 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
             maxV,
             clientX,
             clientY,
-            svg
+            svg,
           )
         : point;
       const delta = buildInterpolatedDrawDelta(
         currentBase.length,
         durationSec,
         anchoredStartPoint,
-        nextPoint
+        nextPoint,
       );
       if (!delta) return;
       const nextChannel = applySampleDeltaToBuffer(currentBase, delta);
@@ -491,8 +550,14 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
       const rangeEnd = delta.startSampleIndex + delta.values.length - 1;
       lineState.touchedRange = lineState.touchedRange
         ? {
-            startSampleIndex: Math.min(lineState.touchedRange.startSampleIndex, rangeStart),
-            endSampleIndex: Math.max(lineState.touchedRange.endSampleIndex, rangeEnd),
+            startSampleIndex: Math.min(
+              lineState.touchedRange.startSampleIndex,
+              rangeStart,
+            ),
+            endSampleIndex: Math.max(
+              lineState.touchedRange.endSampleIndex,
+              rangeEnd,
+            ),
           }
         : {
             startSampleIndex: rangeStart,
@@ -550,7 +615,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
               clipIndex,
               channel,
               touchedRange.startSampleIndex,
-              touchedRange.endSampleIndex
+              touchedRange.endSampleIndex,
             );
             flushPendingClipDataRender();
             void flushDrawStroke(true);
@@ -565,7 +630,13 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
     };
 
     const onMove = (moveEvent: PointerEvent) => {
-      const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+      const point = pointerToDrawPoint(
+        svg,
+        moveEvent.clientX,
+        moveEvent.clientY,
+        minV,
+        maxV,
+      );
       if (!point) return;
       applyLinePreview(point, moveEvent.clientX, moveEvent.clientY);
     };
@@ -590,7 +661,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
       current.length,
       durationSec,
       previousPoint ?? point,
-      point
+      point,
     );
     if (!delta) return;
     const nextChannel = applySampleDeltaToBuffer(current, delta);
@@ -607,7 +678,7 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
       clipIndex,
       channel,
       delta.startSampleIndex,
-      delta.startSampleIndex + delta.values.length - 1
+      delta.startSampleIndex + delta.values.length - 1,
     );
     previousPoint = point;
   };
@@ -615,7 +686,13 @@ export function runBeginDrawStrokeBehavior<TClipData extends ClipDataLike>(args:
   previewPoint(startPoint);
 
   const onMove = (moveEvent: PointerEvent) => {
-    const point = pointerToDrawPoint(svg, moveEvent.clientX, moveEvent.clientY, minV, maxV);
+    const point = pointerToDrawPoint(
+      svg,
+      moveEvent.clientX,
+      moveEvent.clientY,
+      minV,
+      maxV,
+    );
     if (!point) return;
     previewPoint(point);
   };

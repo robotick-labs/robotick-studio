@@ -81,12 +81,16 @@ type AnimTelemetryAnimsetClip = {
   clip_index: number;
   clip_name: string;
   animclip_path: string;
+  channelset_id?: string;
   duration_sec?: number;
   channels?: string[];
 };
 type AnimTelemetryAnimsetResponse = {
   service_id: string;
   animset_path: string;
+  animset_options?: string[];
+  channelset_path?: string;
+  channelset_id?: string;
   animset_name?: string;
   animset_revision?: number;
   clips?: AnimTelemetryAnimsetClip[];
@@ -117,6 +121,7 @@ type PersistedAnimEditorState = {
   smoothFalloffSec?: number;
   smoothFalloffCurve?: number;
   smoothStrength?: number;
+  smoothApplyRateHz?: number;
   smoothRangeSec?: number;
   channelVisible?: Record<string, boolean>;
   channelRecordArm?: Record<string, boolean>;
@@ -125,7 +130,9 @@ type PersistedAnimEditorState = {
   laneRange?: Record<string, LaneRange>;
   timelineViewportRangeNorm?: { startNorm: number; endNorm: number } | null;
 };
-const DEFAULT_ANIMSET = "content/animsets/barr_e_expression_mvp.animset.yaml";
+type AnimLoadStatusLevel = "ok" | "warning" | "error";
+const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
+const DEFAULT_CHANNELSET = "content/anim/channelsets/barr_e_expression_mvp.channelset.yaml";
 const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
 const MAX_REASONABLE_AXIS_ABS = 1000;
 const ANIM_EDITOR_STORAGE_BASE_KEY = "robotick-studio.anim-editor.state.v1";
@@ -137,6 +144,7 @@ const DEFAULT_RANGE_FALLOFF_SEC = 0.12;
 const DEFAULT_FALLOFF_CURVE = 1;
 const DEFAULT_SMOOTH_FALLOFF_SEC = 0.18;
 const DEFAULT_SMOOTH_STRENGTH = 0.65;
+const DEFAULT_SMOOTH_APPLY_RATE_HZ = 60;
 const DEFAULT_SMOOTH_RANGE_SEC = 0.45;
 function parsePersistedAnimEditorState(rawValue: string | null): PersistedAnimEditorState | null {
   if (!rawValue) return null;
@@ -404,6 +412,13 @@ export default function AnimationEditorPage() {
   const [animCompatibleWorkloadTypes, setAnimCompatibleWorkloadTypes] = React.useState<Set<string>>(new Set());
   const [selectedSourceId, setSelectedSourceId] = React.useState(() => initialPersistedState?.selectedSourceId ?? "");
   const [animsetPath, setAnimsetPath] = React.useState(DEFAULT_ANIMSET);
+  const [animsetOptionsFromEngine, setAnimsetOptionsFromEngine] = React.useState<string[]>([]);
+  const [channelsetPath, setChannelsetPath] = React.useState(DEFAULT_CHANNELSET);
+  const [channelsetId, setChannelsetId] = React.useState("barr_e_expression_mvp");
+  const [animLoadStatus, setAnimLoadStatus] = React.useState<{ level: AnimLoadStatusLevel; message: string }>({
+    level: "ok",
+    message: "OK",
+  });
   const [clipRefs, setClipRefs] = React.useState<ClipRef[]>([]);
   const [selectedClipPath, setSelectedClipPath] = React.useState(
     () => initialPersistedState?.selectedClipPath ?? ""
@@ -452,6 +467,10 @@ export default function AnimationEditorPage() {
     () => initialPersistedState?.smoothStrength ?? DEFAULT_SMOOTH_STRENGTH
   );
   const [smoothStrengthDraft, setSmoothStrengthDraft] = React.useState(() => DEFAULT_SMOOTH_STRENGTH.toFixed(2));
+  const [smoothApplyRateHz, setSmoothApplyRateHz] = React.useState(
+    () => initialPersistedState?.smoothApplyRateHz ?? DEFAULT_SMOOTH_APPLY_RATE_HZ
+  );
+  const [smoothApplyRateDraft, setSmoothApplyRateDraft] = React.useState(() => DEFAULT_SMOOTH_APPLY_RATE_HZ.toFixed(0));
   const [smoothRangeSec, setSmoothRangeSec] = React.useState(
     () => initialPersistedState?.smoothRangeSec ?? DEFAULT_SMOOTH_RANGE_SEC
   );
@@ -545,6 +564,11 @@ export default function AnimationEditorPage() {
   React.useEffect(() => {
     clipDataRef.current = clipData;
   }, [clipData]);
+
+  const reportAnimLoadStatus = React.useCallback((level: AnimLoadStatusLevel, message: string) => {
+    const rank: Record<AnimLoadStatusLevel, number> = { ok: 0, warning: 1, error: 2 };
+    setAnimLoadStatus((prev) => (rank[level] >= rank[prev.level] ? { level, message } : prev));
+  }, []);
 
   const flushPendingClipDataRender = React.useCallback(() => {
     if (pendingClipDataRafRef.current !== null) {
@@ -701,8 +725,17 @@ export default function AnimationEditorPage() {
     const payload = (await response.json()) as AnimTelemetryAnimsetResponse;
     const parsed = clipRefsFromAnimsetResponse(payload);
     setClipRefs(parsed);
+    if (Array.isArray(payload.animset_options)) {
+      setAnimsetOptionsFromEngine(payload.animset_options.filter((v) => typeof v === "string" && v.length > 0));
+    }
     if (payload.animset_path) {
       setAnimsetPath(payload.animset_path);
+    }
+    if (payload.channelset_path) {
+      setChannelsetPath(payload.channelset_path);
+    }
+    if (payload.channelset_id) {
+      setChannelsetId(payload.channelset_id);
     }
     setSelectedClipPath((prev) => {
       if (prev && parsed.some((clip) => clip.animclipPath === prev)) {
@@ -803,6 +836,10 @@ export default function AnimationEditorPage() {
   });
 
   React.useEffect(() => {
+    setAnimLoadStatus({ level: "ok", message: "OK" });
+  }, [selectedSourceId, selectedWorkloadName, animTelemetryServiceId]);
+
+  React.useEffect(() => {
     let cancelled = false;
     async function discoverAnimService() {
       if (!telemetryBaseUrl) {
@@ -833,21 +870,38 @@ export default function AnimationEditorPage() {
         const exactServiceId = services.find((service) => service.service_id === `anim:${selectedWorkloadName}`);
         const fallback = services[0];
         setAnimTelemetryServiceId(exactDisplay?.service_id ?? exactServiceId?.service_id ?? fallback?.service_id ?? "");
+        if ((exactDisplay?.service_id ?? exactServiceId?.service_id ?? fallback?.service_id ?? "").length === 0) {
+          reportAnimLoadStatus("warning", "No anim telemetry service found. Check Terminal logs.");
+        }
       } catch {
         if (cancelled) return;
         setAnimTelemetryServiceId("");
+        reportAnimLoadStatus("error", "Failed to discover anim telemetry services. Check Terminal logs.");
       }
     }
     void discoverAnimService();
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkloadName, telemetryBaseUrl]);
+  }, [reportAnimLoadStatus, selectedWorkloadName, telemetryBaseUrl]);
 
   React.useEffect(() => {
     if (!animTelemetryServiceId) return;
-    void reloadAnimsetClipRefs();
-  }, [animTelemetryServiceId, reloadAnimsetClipRefs]);
+    void reloadAnimsetClipRefs().catch(() => {
+      reportAnimLoadStatus("error", "Failed to load Anim Set metadata. Check Terminal logs.");
+    });
+  }, [animTelemetryServiceId, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  React.useEffect(() => {
+    if (!animTelemetryServiceId) return;
+    if (clipRefs.length > 0 && selectedClipPath) return;
+    const timer = setTimeout(() => {
+      void reloadAnimsetClipRefs().catch(() => {
+        reportAnimLoadStatus("warning", "Anim Set data not ready yet. Check Terminal logs if this persists.");
+      });
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [animTelemetryServiceId, clipRefs.length, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipPath]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -860,11 +914,14 @@ export default function AnimationEditorPage() {
       if (cancelled) return;
       if (!parsed) return;
     }
-    void loadSelectedClip();
+    void loadSelectedClip().catch(() => {
+      if (cancelled) return;
+      reportAnimLoadStatus("error", "Failed to load clip samples. Check Terminal logs.");
+    });
     return () => {
       cancelled = true;
     };
-  }, [animTelemetryServiceId, clipRefs, loadLiveClipData, selectedClipPath]);
+  }, [animTelemetryServiceId, clipRefs, loadLiveClipData, reportAnimLoadStatus, selectedClipPath]);
 
   const setAnimControlConnectionState = React.useCallback(
     async (fieldName: string, enabled: boolean) => {
@@ -980,9 +1037,13 @@ export default function AnimationEditorPage() {
 
   React.useEffect(() => {
     if (!selectedWorkloadName) return;
-    const runtimeAnimsetPath = readFieldValue(`${selectedWorkloadName}.config.animset_path`);
+    const runtimeAnimsetPath = readFieldValue(`${selectedWorkloadName}.inputs.animset_path`);
     if (typeof runtimeAnimsetPath === "string" && runtimeAnimsetPath.length > 0) {
       setAnimsetPath(runtimeAnimsetPath);
+    }
+    const runtimeChannelsetPath = readFieldValue(`${selectedWorkloadName}.config.channelset_path`);
+    if (typeof runtimeChannelsetPath === "string" && runtimeChannelsetPath.length > 0) {
+      setChannelsetPath(runtimeChannelsetPath);
     }
   }, [readFieldValue, selectedWorkloadName]);
 
@@ -1026,7 +1087,19 @@ export default function AnimationEditorPage() {
     () => [0, 0.2, 0.4, 0.6, 0.8, 1].map((norm) => ({ norm, label: `${(durationSec * norm).toFixed(1)}s` })),
     [durationSec]
   );
-  const animsetOptions = React.useMemo(() => Array.from(new Set([animsetPath, DEFAULT_ANIMSET].filter(Boolean))), [animsetPath]);
+  const animsetOptions = React.useMemo(
+    () => {
+      const ordered = [...animsetOptionsFromEngine];
+      if (animsetPath && !ordered.includes(animsetPath)) {
+        ordered.push(animsetPath);
+      }
+      if (DEFAULT_ANIMSET && !ordered.includes(DEFAULT_ANIMSET)) {
+        ordered.push(DEFAULT_ANIMSET);
+      }
+      return ordered;
+    },
+    [animsetOptionsFromEngine, animsetPath]
+  );
   const overlayWidth = playheadOverlayMetrics.width;
   const rangeFalloffStepSec = React.useMemo(
     () => Math.min(0.1, Math.max(0.005, durationSec * 0.005)),
@@ -1123,6 +1196,10 @@ export default function AnimationEditorPage() {
   }, [smoothStrength]);
 
   React.useEffect(() => {
+    setSmoothApplyRateDraft(smoothApplyRateHz.toFixed(0));
+  }, [smoothApplyRateHz]);
+
+  React.useEffect(() => {
     setSmoothRangeDraft(smoothRangeSec.toFixed(3));
   }, [smoothRangeSec]);
 
@@ -1157,6 +1234,22 @@ export default function AnimationEditorPage() {
     [clipRefs, ensureAnimControlSuppressed, writeAnimControlFieldRaw]
   );
 
+  const applyAnimsetPath = React.useCallback(
+    (nextPath: string) => {
+      if (!nextPath) return;
+      setAnimsetPath(nextPath);
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return;
+      const fieldPath = `${selectedWorkloadName}.inputs.animset_path`;
+      const field = resolveWritableField(fieldPath);
+      if (!field || typeof field.writable_input_handle !== "number") return;
+      void telemetryService.setWorkloadInputFieldsData(telemetryBaseUrl, {
+        engine_session_id: telemetryModel.schemaSessionId,
+        writes: [{ field_handle: field.writable_input_handle, field_path: fieldPath, value: nextPath }],
+      });
+    },
+    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+  );
+
   const persistStateTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
     () => () => {
@@ -1180,6 +1273,7 @@ export default function AnimationEditorPage() {
       smoothFalloffSec,
       smoothFalloffCurve,
       smoothStrength,
+      smoothApplyRateHz,
       smoothRangeSec,
       channelVisible,
       channelRecordArm: recordArmByChannel,
@@ -1212,6 +1306,7 @@ export default function AnimationEditorPage() {
     selectedTimeRange,
     smoothFalloffCurve,
     smoothFalloffSec,
+    smoothApplyRateHz,
     smoothRangeSec,
     smoothStrength,
     timelineViewportRangeNorm,
@@ -1440,6 +1535,7 @@ export default function AnimationEditorPage() {
         lineSnapEnd,
         smoothRangeSec,
         smoothStrength,
+        smoothApplyRateHz,
         smoothFalloffSec,
         smoothFalloffCurve,
         defaultSmoothStrength: DEFAULT_SMOOTH_STRENGTH,
@@ -1476,6 +1572,7 @@ export default function AnimationEditorPage() {
       smoothFalloffCurve,
       smoothRangeSec,
       smoothStrength,
+      smoothApplyRateHz,
     ]
   );
 
@@ -1551,6 +1648,10 @@ export default function AnimationEditorPage() {
     smoothStrengthDraft,
     setSmoothStrengthDraft,
     setSmoothStrength,
+    smoothApplyRateHz,
+    smoothApplyRateDraft,
+    setSmoothApplyRateDraft,
+    setSmoothApplyRateHz,
     smoothRangeStepSec,
     rangeFalloffStepSec,
   };
@@ -1568,7 +1669,21 @@ export default function AnimationEditorPage() {
                 Save
               </button>
             </div>
-            <h3>Target</h3>
+            <div className={styles.sectionHeaderRow}>
+              <h3>Target</h3>
+              <span
+                className={[
+                  styles.animStatusLed,
+                  animLoadStatus.level === "ok"
+                    ? styles.animStatusLedOk
+                    : animLoadStatus.level === "warning"
+                      ? styles.animStatusLedWarning
+                      : styles.animStatusLedError,
+                ].join(" ")}
+                title={`Anim Status: ${animLoadStatus.message}`}
+                aria-label={`Anim status ${animLoadStatus.level}`}
+              />
+            </div>
             <select
               value={selectedSourceId}
               onChange={(e) => setSelectedSourceId(e.target.value)}
@@ -1583,16 +1698,16 @@ export default function AnimationEditorPage() {
             <h3>Channel Set</h3>
             <div
               className={`${styles.assetNameField} ${styles.assetNameFieldReadOnly}`}
-              title="Read-only: channel set is engine-defined in this phase"
+              title={`Read-only: channel set is workload config-defined (${channelsetId || "unknown"})`}
               aria-readonly="true"
             >
-              barr_e_expression_mvp.channelset.yaml (read-only)
+              {`${channelsetPath.split("/").pop() || channelsetPath} (read-only)`}
             </div>
             <h3>Anim Set</h3>
             <AnimSetFieldMenu
               animsetOptions={animsetOptions}
               animsetPath={animsetPath}
-              onSelectAnimsetPath={setAnimsetPath}
+              onSelectAnimsetPath={applyAnimsetPath}
             />
             <h3>Active Clip</h3>
             <ActiveClipFieldMenu
