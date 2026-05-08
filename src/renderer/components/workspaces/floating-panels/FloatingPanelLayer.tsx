@@ -45,6 +45,9 @@ export function FloatingPanelLayer({
   const [contextMenu, setContextMenu] = useState<PanelContextMenuState | null>(
     null
   );
+  const [refreshByPanelId, setRefreshByPanelId] = useState<
+    Record<string, number>
+  >({});
 
   useEffect(() => {
     return subscribeFloatingPanels(scope, (next) => setPanels(next));
@@ -118,6 +121,7 @@ export function FloatingPanelLayer({
           key={panel.id}
           scope={scope}
           panel={panel}
+          refreshVersion={refreshByPanelId[panel.id] ?? 0}
           editorEntries={editorEntries}
           editorOptions={editorOptions}
           onContextMenu={handleContextMenuOpen}
@@ -131,6 +135,12 @@ export function FloatingPanelLayer({
           isMaximized={false}
           onSplit={(panelId) => duplicatePanel(panelId)}
           onAssign={(editorId) => handleAssign(contextMenu.panelId, editorId)}
+          onRefreshPanel={() =>
+            setRefreshByPanelId((prev) => ({
+              ...prev,
+              [contextMenu.panelId]: (prev[contextMenu.panelId] ?? 0) + 1,
+            }))
+          }
           onToggleMaximize={() => {}}
           onClosePanel={() => handleClose(contextMenu.panelId)}
           onResetLayout={handleReset}
@@ -157,6 +167,7 @@ type ContextMenuTriggerEvent = {
 type FloatingPanelWindowProps = {
   scope: string;
   panel: FloatingPanelRecord;
+  refreshVersion: number;
   editorEntries: EditorEntry[];
   editorOptions: { id: string; label: string }[];
   onContextMenu: (
@@ -182,6 +193,7 @@ type FloatingPanelWindowProps = {
 function FloatingPanelWindow({
   scope,
   panel,
+  refreshVersion,
   editorEntries,
   editorOptions,
   onContextMenu,
@@ -270,7 +282,9 @@ function FloatingPanelWindow({
                       <div className={styles.panelLoading}>Loading…</div>
                     }
                   >
-                    <Component />
+                    <React.Fragment key={`${panel.id}:${refreshVersion}`}>
+                      <Component />
+                    </React.Fragment>
                   </React.Suspense>
                 </div>
                 {editorOptions.length > 1 && (

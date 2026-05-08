@@ -895,6 +895,7 @@ export function PanelLayout({
   );
 
   const { showPanelMenu } = useContextMenu();
+  const [refreshByPanelId, setRefreshByPanelId] = React.useState<Record<string, number>>({});
   const leafTotal = React.useMemo(() => countLeaves(layout), [layout]);
   const handleContextMenu = React.useCallback(
     (
@@ -928,6 +929,11 @@ export function PanelLayout({
         isMaximized: maximizedPanelId === panelId,
         onSplit,
         onAssign: (targetEditorId: string) => onAssign(panelId, targetEditorId),
+        onRefreshPanel: () =>
+          setRefreshByPanelId((prev) => ({
+            ...prev,
+            [panelId]: (prev[panelId] ?? 0) + 1,
+          })),
         onToggleMaximize: () => onToggleMaximize(panelId),
         onResetLayout: resetLayout,
         onClosePanel: () => onClosePanel(panelId),
@@ -943,6 +949,7 @@ export function PanelLayout({
       onClosePanel,
       onSplit,
       onToggleMaximize,
+      setRefreshByPanelId,
       resetLayout,
       showPanelMenu,
     ]
@@ -1075,6 +1082,7 @@ export function PanelLayout({
           <PanelNodeView
             node={layout}
             maximizedPanelId={maximizedPanelId}
+            refreshByPanelId={refreshByPanelId}
             editorOptions={editorOptions}
             onContextMenu={handleContextMenu}
             onAssign={onAssign}
@@ -1120,6 +1128,7 @@ export function PanelLayout({
 type PanelNodeViewProps = {
   node: PanelNode;
   maximizedPanelId: string | null;
+  refreshByPanelId: Record<string, number>;
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
@@ -1157,6 +1166,7 @@ type PanelNodeViewProps = {
 function PanelNodeView({
   node,
   maximizedPanelId,
+  refreshByPanelId,
   editorOptions,
   onContextMenu,
   onAssign,
@@ -1191,6 +1201,7 @@ function PanelNodeView({
             <PanelNodeView
               node={node.children[0]}
               maximizedPanelId={maximizedPanelId}
+              refreshByPanelId={refreshByPanelId}
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
@@ -1224,6 +1235,7 @@ function PanelNodeView({
             <PanelNodeView
               node={node.children[1]}
               maximizedPanelId={maximizedPanelId}
+              refreshByPanelId={refreshByPanelId}
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
@@ -1242,6 +1254,7 @@ function PanelNodeView({
     <PanelLeaf
       key={node.id}
       node={node}
+      refreshVersion={refreshByPanelId[node.id] ?? 0}
       editorOptions={editorOptions}
       onContextMenu={onContextMenu}
       onAssign={onAssign}
@@ -1320,6 +1333,7 @@ function SplitResizer({
 
 type PanelLeafProps = {
   node: PanelLeafNode;
+  refreshVersion: number;
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
@@ -1353,6 +1367,7 @@ type PanelLeafProps = {
  */
 function PanelLeaf({
   node,
+  refreshVersion,
   editorOptions,
   onContextMenu,
   onAssign,
@@ -1588,7 +1603,9 @@ function PanelLeaf({
             <React.Suspense
               fallback={<div className={styles.panelLoading}>Loading…</div>}
             >
-              <Component />
+              <React.Fragment key={`${node.id}:${refreshVersion}`}>
+                <Component />
+              </React.Fragment>
             </React.Suspense>
           </PanelErrorBoundary>
         </div>
