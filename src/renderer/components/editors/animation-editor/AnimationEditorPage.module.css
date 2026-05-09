@@ -74,6 +74,10 @@
   text-align: center !important;
 }
 
+.transportLoopDurationField input {
+  width: 66px;
+}
+
 .transportCluster {
   display: inline-flex;
   align-items: center;

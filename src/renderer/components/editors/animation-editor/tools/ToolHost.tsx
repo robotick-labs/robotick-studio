@@ -41,7 +41,11 @@ export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: T
           <div className={styles.toolButtons}>
             {section.items.map((tool) => {
               const isActive = tool.id === activeTool;
-              const isAnimTool = tool.id === "Pencil" || tool.id === "Line" || tool.id === "Range" || tool.id === "Smooth";
+              const isAnimTool =
+                tool.id === "Pencil" ||
+                tool.id === "Line" ||
+                tool.id === "Range" ||
+                tool.id === "Smooth";
               return (
                 <button
                   key={tool.id}

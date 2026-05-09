@@ -23,7 +23,7 @@ type RangeOffsetState = {
   active: boolean;
   clipIndex: number;
   channel: string;
-  mode: "Range" | "Smooth" | null;
+  mode: "Range" | "Smooth"  | null;
   coreRange: { startSampleIndex: number; endSampleIndex: number } | null;
   writeRange: { startSampleIndex: number; endSampleIndex: number } | null;
   baseSamples: Float32Array | null;
@@ -58,7 +58,7 @@ export function runBeginRangeOffsetBehavior<
   TClipData extends ClipDataLike,
 >(args: {
   event: React.PointerEvent<SVGCircleElement>;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Smooth"  | null;
   channel: string;
   channelSamples: Float32Array;
   minV: number;
@@ -259,7 +259,7 @@ export function runBeginDrawStrokeBehavior<
   TClipData extends ClipDataLike,
 >(args: {
   event: React.PointerEvent<SVGSVGElement>;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Smooth"  | null;
   channel: string;
   channelSamples: Float32Array;
   minV: number;
@@ -393,14 +393,14 @@ export function runBeginDrawStrokeBehavior<
         smoothStrength * SMOOTH_STRENGTH_APPLY_SCALE;
       setSmoothBrushPreview({ channel, centerSec: point.t });
       const result = applySmoothBrushToSamples(
-        current,
-        durationSec,
-        point.t,
-        brushRangeSec,
-        effectiveSmoothStrength,
-        smoothFalloffSec,
-        smoothFalloffCurve,
-      );
+              current,
+              durationSec,
+              point.t,
+              brushRangeSec,
+              effectiveSmoothStrength,
+              smoothFalloffSec,
+              smoothFalloffCurve,
+            );
       if (result.writeRange.endSampleIndex < result.writeRange.startSampleIndex)
         return;
       touchedRange = touchedRange

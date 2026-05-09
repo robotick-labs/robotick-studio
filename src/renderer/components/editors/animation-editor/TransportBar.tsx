@@ -1,5 +1,6 @@
 import React from "react";
 import styles from "./AnimationEditorPage.module.css";
+import { ANIM_PLAYBACK_STATE_PAUSED, ANIM_PLAYBACK_STATE_PLAYING, ANIM_PLAYBACK_STATE_RECORDING } from "./playback-state";
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -30,6 +31,13 @@ export function TransportBar({
   setLoopEnabled,
   seekPlayheadToTimeSec,
 }: Props) {
+  const loopDurationSecMock = 1.0;
+  const stopPlayback = React.useCallback(() => {
+    setLocalScrubTimeSec(null);
+    void writeAnimControlField("time_override_sec", 0);
+    void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
+  }, [setLocalScrubTimeSec, writeAnimControlField]);
+
   const toggleLoopEnabled = React.useCallback(() => {
     const nextLoopEnabled = !loopEnabled;
     setLoopEnabled(nextLoopEnabled);
@@ -42,10 +50,10 @@ export function TransportBar({
       if (event.code === "Space") {
         event.preventDefault();
         if (isPlaying) {
-          void writeAnimControlField("playback_state", 1);
+          void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
           return;
         }
-        void writeAnimControlField("playback_state", 2);
+        void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
         return;
       }
       if (event.code === "NumpadDivide" || (event.key === "/" && event.location === 3)) {
@@ -76,11 +84,15 @@ export function TransportBar({
       <div className={styles.transportLeft} />
       <div className={styles.transportCenter}>
         <div className={styles.transportLauncherStrip}>
+          <label className={`${styles.transportNumericField} ${styles.transportLoopDurationField}`}>
+            <span className={styles.transportNumericLabel}>Reset Duration</span>
+            <input type="number" min={0.01} step={0.01} value={loopDurationSecMock.toFixed(2)} readOnly title="Time to blend from clip end back to clip start when looping (planned)." />
+          </label>
           <button className={styles.loopLauncherButton} type="button" title="Toggle loop playback. Shortcut: Numpad /." onClick={toggleLoopEnabled}>
             {loopEnabled ? "Loop" : "Once"}
           </button>
           <div className={styles.transportCluster} role="group" aria-label="Playback controls">
-            <button className={`${styles.transportIconButton} ${styles.iconStop}`} type="button" aria-label="Stop" title="Stop playback." onClick={() => void writeAnimControlField("playback_state", 0)}>
+            <button className={`${styles.transportIconButton} ${styles.iconStop}`} type="button" aria-label="Stop" title="Stop playback and reset playhead to start." onClick={stopPlayback}>
               <span className={styles.iconStopGlyph}>⏹</span>
             </button>
             <button
@@ -91,15 +103,21 @@ export function TransportBar({
               onClick={() => {
                 const nextPlaying = !isPlaying;
                 if (nextPlaying) {
-                  void writeAnimControlField("playback_state", 2);
+                  void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
                   return;
                 }
-                void writeAnimControlField("playback_state", 1);
+                void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
               }}
             >
               <span className={isPlaying ? styles.iconPauseGlyph : styles.iconPlayGlyph}>{isPlaying ? "⏸" : "▶"}</span>
             </button>
-            <button className={`${styles.transportIconButton} ${styles.iconRecord}`} type="button" aria-label="Record" title="Record playback." onClick={() => void writeAnimControlField("playback_state", 3)}>
+            <button
+              className={`${styles.transportIconButton} ${styles.iconRecord}`}
+              type="button"
+              aria-label="Record"
+              title="Record playback."
+              onClick={() => void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_RECORDING)}
+            >
               <span className={styles.iconRecordGlyph}>●</span>
             </button>
           </div>

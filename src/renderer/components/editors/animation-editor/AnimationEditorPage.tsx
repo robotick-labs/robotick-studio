@@ -44,6 +44,7 @@ import {
 } from "./tools/pointer-edit-behaviors";
 import { useClipWriteQueue } from "./hooks/useClipWriteQueue";
 import { usePlayheadScrubSession } from "./hooks/usePlayheadScrubSession";
+import { isAnimPlaybackActive } from "./playback-state";
 import styles from "./AnimationEditorPage.module.css";
 
 type ClipRef = { name: string; animclipPath: string; durationSec?: number; channels?: string[] };
@@ -108,6 +109,7 @@ type AnimTelemetryClipResponse = {
   live_sample_rate_hz?: number;
   sample_count?: number;
   channels?: string[];
+  channel_names?: string[];
 };
 type PersistedAnimEditorState = {
   selectedSourceId?: string;
@@ -207,7 +209,7 @@ function clipRefsFromAnimsetResponse(response: AnimTelemetryAnimsetResponse): Cl
   }));
 }
 
-function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse | undefined): ClipData {
+export function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse | undefined): ClipData {
   const durationSec =
     typeof payload?.duration_sec === "number" && Number.isFinite(payload.duration_sec)
       ? Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, payload.duration_sec)
@@ -218,7 +220,8 @@ function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse | unde
       : 0;
   const name = String(payload?.clip_identity?.clip_name ?? "clip").trim() || "clip";
   const channels: Record<string, Float32Array> = {};
-  for (const channelName of payload?.channels ?? []) {
+  const channelNames = Array.isArray(payload?.channels) && payload.channels.length > 0 ? payload.channels : payload?.channel_names ?? [];
+  for (const channelName of channelNames) {
     const parsed = String(channelName ?? "").trim();
     if (!parsed) continue;
     channels[parsed] = new Float32Array(0);
@@ -676,17 +679,59 @@ export default function AnimationEditorPage() {
     [animTelemetryServiceId, telemetryBaseUrl]
   );
   const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, 20);
+  const fallbackWorkloadNameFromServiceId = React.useMemo(() => {
+    if (!animTelemetryServiceId) return "";
+    if (animTelemetryServiceId.startsWith("anim:")) {
+      return animTelemetryServiceId.slice("anim:".length);
+    }
+    return "";
+  }, [animTelemetryServiceId]);
   const selectedTelemetryWorkload = React.useMemo(() => {
-    if (!telemetryModel || !selectedSource?.workloadName) return null;
-    return (
-      telemetryModel.workloads.find((workload) => workload.name === selectedSource.workloadName) ?? null
-    );
-  }, [selectedSource?.workloadName, telemetryModel]);
-  const selectedWorkloadName = selectedTelemetryWorkload?.name ?? "";
+    if (!telemetryModel) return null;
+    const preferredNames = [selectedSource?.workloadName ?? "", fallbackWorkloadNameFromServiceId].filter((name) => name.length > 0);
+    for (const preferredName of preferredNames) {
+      const match = telemetryModel.workloads.find((workload) => workload.name === preferredName);
+      if (match) return match;
+    }
+    return telemetryModel.workloads[0] ?? null;
+  }, [fallbackWorkloadNameFromServiceId, selectedSource?.workloadName, telemetryModel]);
+  const selectedWorkloadName =
+    selectedTelemetryWorkload?.name ??
+    selectedSource?.workloadName ??
+    fallbackWorkloadNameFromServiceId;
 
   const readFieldValue = React.useCallback(
     (fieldPath: string) => telemetryModel?.getField?.(fieldPath)?.getValue?.(),
     [telemetryModel]
+  );
+
+  const resolveAnimWritableField = React.useCallback(
+    (suffix: string): { fieldPath: string; field: ITelemetryField } | null => {
+      if (!telemetryModel) return null;
+      const candidateWorkloadNames = [
+        selectedWorkloadName,
+        selectedSource?.workloadName ?? "",
+        fallbackWorkloadNameFromServiceId,
+      ].filter((name, idx, arr) => name.length > 0 && arr.indexOf(name) === idx);
+
+      for (const workloadName of candidateWorkloadNames) {
+        const fieldPath = `${workloadName}.${suffix}`;
+        const field = telemetryModel.getField?.(fieldPath);
+        if (field && typeof field.writable_input_handle === "number") {
+          return { fieldPath, field };
+        }
+      }
+
+      for (const workload of telemetryModel.workloads) {
+        const fieldPath = `${workload.name}.${suffix}`;
+        const field = telemetryModel.getField?.(fieldPath);
+        if (field && typeof field.writable_input_handle === "number") {
+          return { fieldPath, field };
+        }
+      }
+      return null;
+    },
+    [fallbackWorkloadNameFromServiceId, selectedSource?.workloadName, selectedWorkloadName, telemetryModel]
   );
 
   const resolveWritableField = React.useCallback(
@@ -925,15 +970,16 @@ export default function AnimationEditorPage() {
 
   const setAnimControlConnectionState = React.useCallback(
     async (fieldName: string, enabled: boolean) => {
-      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
-      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId) return false;
+      const resolved = resolveAnimWritableField(`inputs.anim_controls.${fieldName}`);
+      if (!resolved) return false;
       const result = await telemetryService.setWorkloadInputConnectionState(telemetryBaseUrl, {
         engine_session_id: telemetryModel.schemaSessionId,
-        updates: [{ field_path: fieldPath, enabled }],
+        updates: [{ field_handle: resolved.field.writable_input_handle, field_path: resolved.fieldPath, enabled }],
       });
       if (!result.ok) {
         console.warn("Anim control connection state update rejected", {
-          fieldPath,
+          fieldPath: resolved.fieldPath,
           enabled,
           status: result.status,
           body: result.body,
@@ -941,20 +987,21 @@ export default function AnimationEditorPage() {
       }
       return result.ok;
     },
-    [selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+    [resolveAnimWritableField, telemetryBaseUrl, telemetryModel, telemetryService]
   );
 
   const writeAnimControlFieldRaw = React.useCallback(
     async (fieldName: string, value: unknown) => {
-      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
-      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId) return false;
+      const resolved = resolveAnimWritableField(`inputs.anim_controls.${fieldName}`);
+      if (!resolved) return false;
       const result = await telemetryService.setWorkloadInputFieldsData(telemetryBaseUrl, {
         engine_session_id: telemetryModel.schemaSessionId,
-        writes: [{ field_path: fieldPath, value }],
+        writes: [{ field_handle: resolved.field.writable_input_handle, field_path: resolved.fieldPath, value }],
       });
       if (!result.ok) {
         console.warn("Anim control write rejected", {
-          fieldPath,
+          fieldPath: resolved.fieldPath,
           value,
           status: result.status,
           body: result.body,
@@ -962,7 +1009,7 @@ export default function AnimationEditorPage() {
       }
       return result.ok;
     },
-    [selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+    [resolveAnimWritableField, telemetryBaseUrl, telemetryModel, telemetryService]
   );
 
   const writeAnimControlField = React.useCallback(
@@ -998,21 +1045,20 @@ export default function AnimationEditorPage() {
 
   const ensureAnimControlSuppressed = React.useCallback(
     async (fieldName: string): Promise<boolean> => {
-      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return false;
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId) return false;
       if (heldSuppressedAnimControlFieldsRef.current.has(fieldName)) return true;
-      const fieldPath = `${selectedWorkloadName}.inputs.anim_controls.${fieldName}`;
-      const field = resolveWritableField(fieldPath);
-      if (!field || typeof field.writable_input_handle !== "number") return false;
-      if (typeof field.incoming_connection_handle !== "number") return false;
+      const resolved = resolveAnimWritableField(`inputs.anim_controls.${fieldName}`);
+      if (!resolved) return false;
+      if (typeof resolved.field.incoming_connection_handle !== "number") return false;
       const result = await telemetryService.setWorkloadInputConnectionState(telemetryBaseUrl, {
         engine_session_id: telemetryModel.schemaSessionId,
-        updates: [{ field_handle: field.writable_input_handle, field_path: fieldPath, enabled: false }],
+        updates: [{ field_handle: resolved.field.writable_input_handle, field_path: resolved.fieldPath, enabled: false }],
       });
       if (!result.ok) return false;
       heldSuppressedAnimControlFieldsRef.current.add(fieldName);
       return true;
     },
-    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+    [resolveAnimWritableField, telemetryBaseUrl, telemetryModel, telemetryService]
   );
 
   const { beginScrubSession, queueScrubTimeOverride, endScrubSession } = usePlayheadScrubSession({
@@ -1168,7 +1214,7 @@ export default function AnimationEditorPage() {
 
   React.useEffect(() => {
     if (playbackState === null) return;
-    setIsPlaying(playbackState === 2 || playbackState === 3);
+    setIsPlaying(isAnimPlaybackActive(playbackState));
   }, [playbackState]);
 
   React.useEffect(() => {
@@ -1238,16 +1284,15 @@ export default function AnimationEditorPage() {
     (nextPath: string) => {
       if (!nextPath) return;
       setAnimsetPath(nextPath);
-      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId || !selectedWorkloadName) return;
-      const fieldPath = `${selectedWorkloadName}.inputs.animset_path`;
-      const field = resolveWritableField(fieldPath);
-      if (!field || typeof field.writable_input_handle !== "number") return;
+      if (!telemetryBaseUrl || !telemetryModel?.schemaSessionId) return;
+      const resolved = resolveAnimWritableField("inputs.animset_path");
+      if (!resolved) return;
       void telemetryService.setWorkloadInputFieldsData(telemetryBaseUrl, {
         engine_session_id: telemetryModel.schemaSessionId,
-        writes: [{ field_handle: field.writable_input_handle, field_path: fieldPath, value: nextPath }],
+        writes: [{ field_handle: resolved.field.writable_input_handle, field_path: resolved.fieldPath, value: nextPath }],
       });
     },
-    [resolveWritableField, selectedWorkloadName, telemetryBaseUrl, telemetryModel, telemetryService]
+    [resolveAnimWritableField, telemetryBaseUrl, telemetryModel, telemetryService]
   );
 
   const persistStateTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);

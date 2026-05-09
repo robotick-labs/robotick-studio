@@ -177,7 +177,7 @@ export function applySmoothToSampleRangeWithFalloff(
     sampleCount === 0 ||
     clampedCoreEnd < clampedCoreStart ||
     writeRange.endSampleIndex < writeRange.startSampleIndex ||
-    clampedStrength <= 0
+    clampedStrength <= 1e-6
   ) {
     return { samples: next, writeRange };
   }
