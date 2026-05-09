@@ -2,33 +2,47 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TransportBar } from "../../../../../renderer/components/editors/animation-editor/TransportBar";
-import { ANIM_PLAYBACK_STATE_PAUSED } from "../../../../../renderer/components/editors/animation-editor/playback-state";
+import {
+  ANIM_PLAYBACK_STATE_PAUSED,
+  ANIM_PLAYBACK_STATE_PLAYING,
+} from "../../../../../renderer/components/editors/animation-editor/playback-state";
 
 describe("TransportBar", () => {
-  it("stop is one-shot: seeks to zero via scrub flow and pauses playback", () => {
+  it("play/pause button toggles playback state writes", () => {
     const writeAnimControlField = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue();
-    const seekPlayheadToTimeSec = vi.fn();
-    const setLocalScrubTimeSec = vi.fn();
 
-    render(
+    const { rerender } = render(
+      <TransportBar
+        isPlaying={false}
+        loopEnabled
+        durationSec={1}
+        playheadSec={0.5}
+        playheadSampleStepSec={1 / 30}
+        setLocalScrubTimeSec={vi.fn()}
+        writeAnimControlField={writeAnimControlField}
+        setLoopEnabled={vi.fn()}
+        seekPlayheadToTimeSec={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    expect(writeAnimControlField).toHaveBeenCalledWith("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
+
+    rerender(
       <TransportBar
         isPlaying
         loopEnabled
         durationSec={1}
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
-        setLocalScrubTimeSec={setLocalScrubTimeSec}
+        setLocalScrubTimeSec={vi.fn()}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
-        seekPlayheadToTimeSec={seekPlayheadToTimeSec}
+        seekPlayheadToTimeSec={vi.fn()}
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-
-    expect(setLocalScrubTimeSec).toHaveBeenCalledWith(null);
-    expect(writeAnimControlField).toHaveBeenCalledWith("time_override_sec", 0);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(writeAnimControlField).toHaveBeenCalledWith("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
-    expect(seekPlayheadToTimeSec).not.toHaveBeenCalled();
   });
 });

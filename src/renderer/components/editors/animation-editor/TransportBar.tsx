@@ -32,11 +32,6 @@ export function TransportBar({
   seekPlayheadToTimeSec,
 }: Props) {
   const loopDurationSecMock = 1.0;
-  const stopPlayback = React.useCallback(() => {
-    setLocalScrubTimeSec(null);
-    void writeAnimControlField("time_override_sec", 0);
-    void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
-  }, [setLocalScrubTimeSec, writeAnimControlField]);
 
   const toggleLoopEnabled = React.useCallback(() => {
     const nextLoopEnabled = !loopEnabled;
@@ -92,9 +87,6 @@ export function TransportBar({
             {loopEnabled ? "Loop" : "Once"}
           </button>
           <div className={styles.transportCluster} role="group" aria-label="Playback controls">
-            <button className={`${styles.transportIconButton} ${styles.iconStop}`} type="button" aria-label="Stop" title="Stop playback and reset playhead to start." onClick={stopPlayback}>
-              <span className={styles.iconStopGlyph}>⏹</span>
-            </button>
             <button
               className={`${styles.transportIconButton} ${styles.iconPlayPause}`}
               type="button"

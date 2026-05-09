@@ -1198,7 +1198,10 @@ export default function AnimationEditorPage() {
       const clamped = Math.min(durationSec, Math.max(0, nextTimeSec));
       setLocalScrubTimeSec(clamped);
       setPendingScrubAdoptSec(clamped);
-      void writeAnimControlField("time_override_sec", clamped);
+      void (async () => {
+        await writeAnimControlField("time_override_sec", -1);
+        await writeAnimControlField("time_override_sec", clamped);
+      })();
     },
     [durationSec, writeAnimControlField]
   );
