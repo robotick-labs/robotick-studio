@@ -1481,9 +1481,13 @@ export default function AnimationEditorPage() {
 
   const beginRangeSelection = React.useCallback(
     (event: React.PointerEvent<Element>) => {
+      if (event.button !== 0) {
+        return;
+      }
       beginRangeSelectionBehavior({
         activeTool,
         durationSec,
+        viewportRangeNorm: timelineViewportRangeNorm,
         viewportElement: playheadViewportRef.current,
         event,
         mutations: {
@@ -1491,7 +1495,7 @@ export default function AnimationEditorPage() {
         },
       });
     },
-    [activeTool, durationSec]
+    [activeTool, durationSec, timelineViewportRangeNorm]
   );
 
   const pointerToDrawPoint = React.useCallback(
@@ -1513,12 +1517,15 @@ export default function AnimationEditorPage() {
 
   const beginRangeOffset = React.useCallback(
     (
-      event: React.PointerEvent<SVGCircleElement>,
+      event: React.PointerEvent<SVGElement>,
       channel: string,
       channelSamples: Float32Array,
       minV: number,
       maxV: number
     ) => {
+      if (event.button !== 0) {
+        return;
+      }
       runBeginRangeOffsetBehavior({
         event,
         activeTool,
@@ -1569,6 +1576,9 @@ export default function AnimationEditorPage() {
       minV: number,
       maxV: number
     ) => {
+      if (event.button !== 0) {
+        return;
+      }
       runBeginDrawStrokeBehavior({
         event,
         activeTool,

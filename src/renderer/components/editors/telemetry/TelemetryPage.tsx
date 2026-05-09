@@ -13,9 +13,16 @@ const MODEL_SORT_OPTIONS: ReadonlyArray<{
   { value: "memory_process", label: "Memory - Process" },
   { value: "memory_workloads", label: "Memory - Workloads" },
 ];
+const RMB_PAN_DRAG_THRESHOLD_PX = 4;
 
 export default function TelemetryPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const panListenersRef = useRef<{
+    mousemove: (event: MouseEvent) => void;
+    mouseup: (event: MouseEvent) => void;
+    blur: () => void;
+    contextmenu: (event: MouseEvent) => void;
+  } | null>(null);
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() => {
     try {
       const saved = localStorage.getItem("telemetry-model-sort");
@@ -35,11 +42,14 @@ export default function TelemetryPage() {
   });
   const [isPanning, setIsPanning] = useState(false);
   const panStateRef = useRef<{
-    pointerId: number;
+    scrollElement: HTMLElement;
     startX: number;
     startY: number;
     scrollLeft: number;
     scrollTop: number;
+    isActive: boolean;
+    previousBodyUserSelect: string;
+    previousBodyCursor: string;
   } | null>(null);
 
   useEffect(() => {
@@ -50,74 +60,135 @@ export default function TelemetryPage() {
     }
   }, [modelSortKey]);
 
-  const finishPan = () => {
-    panStateRef.current = null;
-    setIsPanning(false);
+  const findScrollElement = (start: EventTarget | null): HTMLElement | null => {
+    let node = start instanceof HTMLElement ? start : containerRef.current;
+    while (node) {
+      const style = window.getComputedStyle(node);
+      const overflowX = style.overflowX;
+      const overflowY = style.overflowY;
+      const canScrollX =
+        (overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay") &&
+        node.scrollWidth > node.clientWidth;
+      const canScrollY =
+        (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+        node.scrollHeight > node.clientHeight;
+      if (canScrollX || canScrollY) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
   };
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const detachPanListeners = () => {
+    const listeners = panListenersRef.current;
+    if (!listeners) {
+      return;
+    }
+    window.removeEventListener("mousemove", listeners.mousemove);
+    window.removeEventListener("mouseup", listeners.mouseup);
+    window.removeEventListener("blur", listeners.blur);
+    window.removeEventListener("contextmenu", listeners.contextmenu);
+    panListenersRef.current = null;
+  };
+
+  const finishPan = (updateState = true) => {
+    detachPanListeners();
+    const panState = panStateRef.current;
+    if (panState?.isActive) {
+      containerRef.current?.removeAttribute("data-suppress-panel-rmb-menu");
+      document.body.style.userSelect = panState.previousBodyUserSelect;
+      document.body.style.cursor = panState.previousBodyCursor;
+    }
+    panStateRef.current = null;
+    if (updateState) {
+      setIsPanning(false);
+    }
+  };
+
+  useEffect(() => () => finishPan(false), []);
+
+  const handleMouseDownCapture = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 2) {
       return;
     }
-    const container = containerRef.current;
-    if (!container) {
+    const scrollElement = findScrollElement(event.target);
+    if (!scrollElement) {
       return;
     }
     event.preventDefault();
     panStateRef.current = {
-      pointerId: event.pointerId,
+      scrollElement,
       startX: event.clientX,
       startY: event.clientY,
-      scrollLeft: container.scrollLeft,
-      scrollTop: container.scrollTop,
+      scrollLeft: scrollElement.scrollLeft,
+      scrollTop: scrollElement.scrollTop,
+      isActive: false,
+      previousBodyUserSelect: document.body.style.userSelect,
+      previousBodyCursor: document.body.style.cursor,
     };
-    setIsPanning(true);
-    container.setPointerCapture(event.pointerId);
-  };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const panState = panStateRef.current;
-    const container = containerRef.current;
-    if (!panState || !container || panState.pointerId !== event.pointerId) {
-      return;
-    }
-    event.preventDefault();
-    container.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
-    container.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
-  };
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const panState = panStateRef.current;
+      if (!panState) {
+        return;
+      }
+      const dx = moveEvent.clientX - panState.startX;
+      const dy = moveEvent.clientY - panState.startY;
+      if (!panState.isActive) {
+        if (Math.abs(dx) < RMB_PAN_DRAG_THRESHOLD_PX && Math.abs(dy) < RMB_PAN_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        panState.isActive = true;
+        containerRef.current?.setAttribute("data-suppress-panel-rmb-menu", "active");
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "grabbing";
+        setIsPanning(true);
+      }
+      moveEvent.preventDefault();
+      panState.scrollElement.scrollLeft =
+        panState.scrollLeft - dx;
+      panState.scrollElement.scrollTop =
+        panState.scrollTop - dy;
+    };
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      if (panStateRef.current?.isActive) {
+        upEvent.preventDefault();
+      }
+      finishPan();
+    };
+    const handleWindowBlur = () => {
+      finishPan();
+    };
+    const handleWindowContextMenu = (contextMenuEvent: MouseEvent) => {
+      if (panStateRef.current?.isActive) {
+        contextMenuEvent.preventDefault();
+      }
+    };
 
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const panState = panStateRef.current;
-    const container = containerRef.current;
-    if (!panState || panState.pointerId !== event.pointerId) {
-      return;
-    }
-    if (container?.hasPointerCapture(event.pointerId)) {
-      container.releasePointerCapture(event.pointerId);
-    }
-    finishPan();
-  };
-
-  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (container?.hasPointerCapture(event.pointerId)) {
-      container.releasePointerCapture(event.pointerId);
-    }
-    finishPan();
+    panListenersRef.current = {
+      mousemove: handleMouseMove,
+      mouseup: handleMouseUp,
+      blur: handleWindowBlur,
+      contextmenu: handleWindowContextMenu,
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("contextmenu", handleWindowContextMenu);
   };
 
   const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
+    if (isPanning) {
+      event.preventDefault();
+    }
   };
 
   return (
     <div
       ref={containerRef}
       className={isPanning ? `${styles.container} ${styles.containerPanning}` : styles.container}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      onMouseDownCapture={handleMouseDownCapture}
       onContextMenu={handleContextMenu}
     >
       <div className={styles.panelHeaderRow}>

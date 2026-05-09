@@ -46,6 +46,7 @@ const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.05;
 const MAX_RATIO = 0.85;
 const PANEL_CONTEXT_MENU_TAP_MAX_MS = 100;
+const PANEL_RMB_GESTURE_SUPPRESS_SELECTOR = "[data-suppress-panel-rmb-menu='active']";
 
 type PanelLayoutProps = {
   workspaceId: string;
@@ -1413,6 +1414,11 @@ function PanelLeaf({
   );
   const handlePanelContextMenu = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if ((event.target as Element | null)?.closest?.(PANEL_RMB_GESTURE_SUPPRESS_SELECTOR)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       // Chromium can dispatch `contextmenu` immediately on RMB down.
       // Always intercept native contextmenu here and decide tap-vs-hold on mouseup.
       if (rightMouseDownAtMsRef.current == null) {
@@ -1511,6 +1517,11 @@ function PanelLeaf({
         }}
         onMouseUpCapture={(event) => {
           if (event.button !== 2) {
+            return;
+          }
+          if ((event.target as Element | null)?.closest?.(PANEL_RMB_GESTURE_SUPPRESS_SELECTOR)) {
+            rightMouseDownAtMsRef.current = null;
+            rightMouseDownPosRef.current = null;
             return;
           }
           const downAt = rightMouseDownAtMsRef.current;

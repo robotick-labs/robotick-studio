@@ -57,7 +57,7 @@ type DrawWriteState = {
 export function runBeginRangeOffsetBehavior<
   TClipData extends ClipDataLike,
 >(args: {
-  event: React.PointerEvent<SVGCircleElement>;
+  event: React.PointerEvent<SVGElement>;
   activeTool: "Pencil" | "Line" | "Range" | "Smooth"  | null;
   channel: string;
   channelSamples: Float32Array;

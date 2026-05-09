@@ -5,6 +5,7 @@ import styles from "./AnimationEditorPage.module.css";
 const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_CURVE_DRAW_HEIGHT = 34;
 const MAX_DISPLAY_POINTS = 1200;
+const RMB_TIMELINE_PAN_DRAG_THRESHOLD_PX = 4;
 
 type LaneRange = { min: number; max: number };
 type TimeSelectionRange = { startSec: number; endSec: number };
@@ -34,7 +35,7 @@ type LaneRowProps = {
     maxV: number
   ) => void;
   onBeginRangeOffset: (
-    event: React.PointerEvent<SVGCircleElement>,
+    event: React.PointerEvent<SVGElement>,
     channel: string,
     channelSamples: Float32Array,
     minV: number,
@@ -147,6 +148,34 @@ function normalizeTimeRange(durationSec: number, range: TimeSelectionRange | nul
   };
 }
 
+export function mapGlobalNormToViewportNorm(
+  globalNorm: number,
+  viewportRangeNorm: { startNorm: number; endNorm: number }
+): number {
+  const viewportWidthNorm = Math.max(
+    1e-6,
+    viewportRangeNorm.endNorm - viewportRangeNorm.startNorm
+  );
+  return (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm;
+}
+
+export function normalizeTimeRangeToViewport(
+  range: { startNorm: number; endNorm: number } | null,
+  viewportRangeNorm: { startNorm: number; endNorm: number }
+) {
+  if (!range) return null;
+  const startNorm = mapGlobalNormToViewportNorm(range.startNorm, viewportRangeNorm);
+  const endNorm = mapGlobalNormToViewportNorm(range.endNorm, viewportRangeNorm);
+  return {
+    startNorm: Math.min(1, Math.max(0, Math.min(startNorm, endNorm))),
+    endNorm: Math.min(1, Math.max(0, Math.max(startNorm, endNorm))),
+  };
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
 function computeSampleRangeMean(
   samples: ArrayLike<number>,
   startSampleIndex: number,
@@ -192,9 +221,30 @@ const LaneRow = React.memo(function LaneRow({
   const maxV = range.max;
   const [draftMax, setDraftMax] = React.useState(() => formatAxisValue(maxV));
   const [draftMin, setDraftMin] = React.useState(() => formatAxisValue(minV));
+  const handleOverlayRef = React.useRef<SVGSVGElement | null>(null);
+  const [handleOverlaySize, setHandleOverlaySize] = React.useState({
+    width: 1,
+    height: 1,
+  });
 
   React.useEffect(() => setDraftMax(formatAxisValue(maxV)), [maxV]);
   React.useEffect(() => setDraftMin(formatAxisValue(minV)), [minV]);
+  React.useLayoutEffect(() => {
+    const overlay = handleOverlayRef.current;
+    if (!overlay) return;
+    const measure = () => {
+      const rect = overlay.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setHandleOverlaySize({
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(overlay);
+    return () => observer.disconnect();
+  }, []);
 
   const areaD = React.useMemo(
     () => areaPath(samples, durationSec, 1000, 34, minV, maxV, viewportRangeNorm),
@@ -207,6 +257,10 @@ const LaneRow = React.memo(function LaneRow({
   const normalizedTimeRange = React.useMemo(
     () => normalizeTimeRange(durationSec, selectedTimeRange),
     [durationSec, selectedTimeRange]
+  );
+  const viewportNormalizedTimeRange = React.useMemo(
+    () => normalizeTimeRangeToViewport(normalizedTimeRange, viewportRangeNorm),
+    [normalizedTimeRange, viewportRangeNorm]
   );
   const selectedSampleRange = React.useMemo(
     () =>
@@ -222,7 +276,7 @@ const LaneRow = React.memo(function LaneRow({
   );
 
   const rangeOverlay = React.useMemo(() => {
-    if (!selectedSampleRange || !normalizedTimeRange) return null;
+    if (!selectedSampleRange || !normalizedTimeRange || !viewportNormalizedTimeRange) return null;
     const meanValue = computeSampleRangeMean(
       samples,
       selectedSampleRange.startSampleIndex,
@@ -231,32 +285,41 @@ const LaneRow = React.memo(function LaneRow({
     const span = Math.max(1e-6, maxV - minV);
     const yNorm = (maxV - meanValue) / span;
     const centerNorm =
-      (normalizedTimeRange.startNorm + normalizedTimeRange.endNorm) * 0.5;
+      (viewportNormalizedTimeRange.startNorm + viewportNormalizedTimeRange.endNorm) * 0.5;
     const falloffNorm =
       durationSec > 0
         ? Math.min(1, Math.max(0, rangeFalloffSec / durationSec))
         : 0;
+    const viewportFalloffNorm =
+      falloffNorm /
+      Math.max(1e-6, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
     const falloffStartNorm = Math.max(
       0,
-      normalizedTimeRange.startNorm - falloffNorm
+      viewportNormalizedTimeRange.startNorm - viewportFalloffNorm
     );
-    const falloffEndNorm = Math.min(1, normalizedTimeRange.endNorm + falloffNorm);
+    const falloffEndNorm = Math.min(
+      1,
+      viewportNormalizedTimeRange.endNorm + viewportFalloffNorm
+    );
     return {
       falloffLeftX: falloffStartNorm * LANE_VIEWBOX_WIDTH,
       falloffLeftWidth: Math.max(
         0,
-        (normalizedTimeRange.startNorm - falloffStartNorm) * LANE_VIEWBOX_WIDTH
-      ),
-      bandX: normalizedTimeRange.startNorm * LANE_VIEWBOX_WIDTH,
-      bandWidth: Math.max(
-        3,
-        (normalizedTimeRange.endNorm - normalizedTimeRange.startNorm) *
+        (viewportNormalizedTimeRange.startNorm - falloffStartNorm) *
           LANE_VIEWBOX_WIDTH
       ),
-      falloffRightX: normalizedTimeRange.endNorm * LANE_VIEWBOX_WIDTH,
+      bandX: viewportNormalizedTimeRange.startNorm * LANE_VIEWBOX_WIDTH,
+      bandWidth: Math.max(
+        3,
+        (viewportNormalizedTimeRange.endNorm -
+          viewportNormalizedTimeRange.startNorm) *
+          LANE_VIEWBOX_WIDTH
+      ),
+      falloffRightX: viewportNormalizedTimeRange.endNorm * LANE_VIEWBOX_WIDTH,
       falloffRightWidth: Math.max(
         0,
-        (falloffEndNorm - normalizedTimeRange.endNorm) * LANE_VIEWBOX_WIDTH
+        (falloffEndNorm - viewportNormalizedTimeRange.endNorm) *
+          LANE_VIEWBOX_WIDTH
       ),
       handleCx: centerNorm * LANE_VIEWBOX_WIDTH,
       handleCy: Math.min(
@@ -264,7 +327,24 @@ const LaneRow = React.memo(function LaneRow({
         Math.max(0, yNorm * LANE_CURVE_DRAW_HEIGHT)
       ),
     };
-  }, [durationSec, maxV, minV, normalizedTimeRange, rangeFalloffSec, samples, selectedSampleRange]);
+  }, [
+    durationSec,
+    maxV,
+    minV,
+    normalizedTimeRange,
+    rangeFalloffSec,
+    samples,
+    selectedSampleRange,
+    viewportNormalizedTimeRange,
+    viewportRangeNorm,
+  ]);
+  const rangeHandleOverlay = React.useMemo(() => {
+    if (!rangeOverlay) return null;
+    return {
+      cx: clamp01(rangeOverlay.handleCx / LANE_VIEWBOX_WIDTH) * handleOverlaySize.width,
+      cy: clamp01(rangeOverlay.handleCy / LANE_CURVE_DRAW_HEIGHT) * handleOverlaySize.height,
+    };
+  }, [handleOverlaySize.height, handleOverlaySize.width, rangeOverlay]);
 
   const smoothOverlay = React.useMemo(() => {
     if (!smoothBrushPreview || durationSec <= 0) return null;
@@ -374,6 +454,7 @@ const LaneRow = React.memo(function LaneRow({
           aria-hidden="true"
           onPointerDown={(event) => onBeginDraw(event, channel, samples, minV, maxV)}
           onPointerMove={(event) => {
+            if ((event.buttons & 2) !== 0) return;
             const rect = event.currentTarget.getBoundingClientRect();
             if (rect.width <= 0) return;
             const timeSec =
@@ -448,14 +529,34 @@ const LaneRow = React.memo(function LaneRow({
           ) : null}
           <path d={areaD} className={styles.laneArea} style={{ fill: color }} />
           <path d={curveD} className={styles.laneCurve} style={{ stroke: color }} />
-          {rangeOverlay ? (
-            <circle
-              cx={rangeOverlay.handleCx}
-              cy={rangeOverlay.handleCy}
-              r={4.25}
+        </svg>
+        <svg
+          ref={handleOverlayRef}
+          className={styles.laneHandleOverlaySvg}
+          viewBox={`0 0 ${Math.max(1, handleOverlaySize.width)} ${Math.max(1, handleOverlaySize.height)}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          {rangeHandleOverlay ? (
+            <g
               className={styles.rangeOffsetHandle}
+              transform={`translate(${rangeHandleOverlay.cx.toFixed(2)} ${rangeHandleOverlay.cy.toFixed(2)})`}
               onPointerDown={(event) => onBeginRangeOffset(event, channel, samples, minV, maxV)}
-            />
+            >
+              <rect
+                x={-7}
+                y={-15}
+                width={14}
+                height={30}
+                rx={7}
+                ry={7}
+                className={styles.rangeOffsetHandleBody}
+              />
+              <path
+                d="M 0 -10.5 L 3.5 -7 M 0 -10.5 L -3.5 -7 M 0 -10.5 L 0 10.5 M 0 10.5 L 3.5 7 M 0 10.5 L -3.5 7"
+                className={styles.rangeOffsetHandleGlyph}
+              />
+            </g>
           ) : null}
         </svg>
       </div>
@@ -495,7 +596,7 @@ type AnimationTimelineViewportProps = {
     maxV: number
   ) => void;
   beginRangeOffset: (
-    event: React.PointerEvent<SVGCircleElement>,
+    event: React.PointerEvent<SVGElement>,
     channel: string,
     channelSamples: Float32Array,
     minV: number,
@@ -553,7 +654,7 @@ type LaneListProps = {
     maxV: number
   ) => void;
   beginRangeOffset: (
-    event: React.PointerEvent<SVGCircleElement>,
+    event: React.PointerEvent<SVGElement>,
     channel: string,
     channelSamples: Float32Array,
     minV: number,
@@ -680,8 +781,17 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
   const grabRef = React.useRef<SVGRectElement | null>(null);
   const viewportWidthNorm = Math.max(1e-3, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
   const toViewportNormUnclamped = React.useCallback(
-    (globalNorm: number) => (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm,
-    [viewportRangeNorm.startNorm, viewportWidthNorm]
+    (globalNorm: number) =>
+      mapGlobalNormToViewportNorm(globalNorm, viewportRangeNorm),
+    [viewportRangeNorm]
+  );
+  const viewportSelectedTimeRange = React.useMemo(
+    () =>
+      normalizeTimeRangeToViewport(
+        normalizedSelectedTimeRange,
+        viewportRangeNorm
+      ),
+    [normalizedSelectedTimeRange, viewportRangeNorm]
   );
   React.useLayoutEffect(() => {
     const playheadNorm = durationSec > 0 ? Math.min(1, Math.max(0, playheadTimeSec / durationSec)) : 0;
@@ -711,18 +821,18 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
     >
       <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
         <rect x={0} y={0} width={overlayWidth} height={playheadOverlayMetrics.topRulerHeight} className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect} onPointerDown={beginRangeSelection} />
-        {normalizedSelectedTimeRange && normalizedSelectionFalloff > 0 ? (
+        {viewportSelectedTimeRange && normalizedSelectionFalloff > 0 ? (
           <>
-            {normalizedSelectedTimeRange.startNorm > 0 ? (
-              <rect x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedSelectionFalloff) * overlayWidth)} y={2} width={Math.max(0, Math.min(normalizedSelectedTimeRange.startNorm, normalizedSelectionFalloff) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
+            {viewportSelectedTimeRange.startNorm > 0 ? (
+              <rect x={Math.max(0, (viewportSelectedTimeRange.startNorm - normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} y={2} width={Math.max(0, Math.min(viewportSelectedTimeRange.startNorm, normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
             ) : null}
-            {normalizedSelectedTimeRange.endNorm < 1 ? (
-              <rect x={normalizedSelectedTimeRange.endNorm * overlayWidth} y={2} width={Math.max(0, Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedSelectionFalloff) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
+            {viewportSelectedTimeRange.endNorm < 1 ? (
+              <rect x={viewportSelectedTimeRange.endNorm * overlayWidth} y={2} width={Math.max(0, Math.min(1 - viewportSelectedTimeRange.endNorm, normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
             ) : null}
           </>
         ) : null}
-        {normalizedSelectedTimeRange ? (
-          <rect x={normalizedSelectedTimeRange.startNorm * overlayWidth} y={2} width={Math.max(3, (normalizedSelectedTimeRange.endNorm - normalizedSelectedTimeRange.startNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeSelectionBandRuler} />
+        {viewportSelectedTimeRange ? (
+          <rect x={viewportSelectedTimeRange.startNorm * overlayWidth} y={2} width={Math.max(3, (viewportSelectedTimeRange.endNorm - viewportSelectedTimeRange.startNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeSelectionBandRuler} />
         ) : null}
         {isLoopResetActive ? (
           <rect x={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth))} y={2} width={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.right * overlayWidth) - Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth)))} height={5} className={styles.loopResetSlugSvg} />
@@ -738,10 +848,10 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
           </text>
         ))}
         <line ref={lineRef} data-testid="timeline-playhead-line" x1={0} x2={0} y1={playheadOverlayMetrics.topBlobCenterY} y2={playheadOverlayMetrics.bottomBlobCenterY} className={`${styles.playheadLineSvg} ${activeTool !== null ? styles.playheadLineMutedSvg : ""}`} />
-        <rect ref={topBlobRef} x={-5} y={playheadOverlayMetrics.topBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
-        <rect ref={bottomBlobRef} x={-5} y={playheadOverlayMetrics.bottomBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        <rect ref={topBlobRef} x={-5} y={playheadOverlayMetrics.topBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        <rect ref={bottomBlobRef} x={-5} y={playheadOverlayMetrics.bottomBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
         {activeTool === null ? (
-          <rect ref={grabRef} x={-9} y={playheadOverlayMetrics.topBlobCenterY} width={18} height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)} className={styles.playheadGrabSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+          <rect ref={grabRef} x={-9} y={playheadOverlayMetrics.topBlobCenterY} width={18} height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)} className={styles.playheadGrabSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
         ) : null}
       </svg>
     </div>
@@ -792,9 +902,146 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
   } = props;
 
   const scrollbarTrackRef = React.useRef<HTMLDivElement | null>(null);
+  const [isTimelinePanActive, setIsTimelinePanActive] = React.useState(false);
+  const timelinePanListenersRef = React.useRef<{
+    mousemove: (event: MouseEvent) => void;
+    mouseup: (event: MouseEvent) => void;
+    blur: () => void;
+    contextmenu: (event: MouseEvent) => void;
+  } | null>(null);
+  const timelinePanStateRef = React.useRef<{
+    startX: number;
+    startStartNorm: number;
+    startEndNorm: number;
+    widthPx: number;
+    isActive: boolean;
+    previousBodyUserSelect: string;
+    previousBodyCursor: string;
+  } | null>(null);
+
+  const detachTimelinePanListeners = React.useCallback(() => {
+    const listeners = timelinePanListenersRef.current;
+    if (!listeners) {
+      return;
+    }
+    window.removeEventListener("mousemove", listeners.mousemove);
+    window.removeEventListener("mouseup", listeners.mouseup);
+    window.removeEventListener("blur", listeners.blur);
+    window.removeEventListener("contextmenu", listeners.contextmenu);
+    timelinePanListenersRef.current = null;
+  }, []);
+
+  const finishTimelinePan = React.useCallback(
+    (updateState = true) => {
+      detachTimelinePanListeners();
+      const panState = timelinePanStateRef.current;
+      if (panState?.isActive) {
+        timelineRef.current?.removeAttribute("data-suppress-panel-rmb-menu");
+        document.body.style.userSelect = panState.previousBodyUserSelect;
+        document.body.style.cursor = panState.previousBodyCursor;
+      }
+      timelinePanStateRef.current = null;
+      if (updateState) {
+        setIsTimelinePanActive(false);
+      }
+    },
+    [detachTimelinePanListeners]
+  );
+
+  React.useEffect(() => () => finishTimelinePan(false), [finishTimelinePan]);
+
+  const beginTimelinePan = React.useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (event.button !== 2) {
+        return;
+      }
+      const timelineElement = timelineRef.current;
+      if (!timelineElement) {
+        return;
+      }
+      const rect = timelineElement.getBoundingClientRect();
+      if (rect.width <= 0) {
+        return;
+      }
+      timelinePanStateRef.current = {
+        startX: event.clientX,
+        startStartNorm: viewportRangeNorm.startNorm,
+        startEndNorm: viewportRangeNorm.endNorm,
+        widthPx: rect.width,
+        isActive: false,
+        previousBodyUserSelect: document.body.style.userSelect,
+        previousBodyCursor: document.body.style.cursor,
+      };
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const panState = timelinePanStateRef.current;
+        if (!panState) {
+          return;
+        }
+        const dx = moveEvent.clientX - panState.startX;
+        if (!panState.isActive) {
+          if (Math.abs(dx) < RMB_TIMELINE_PAN_DRAG_THRESHOLD_PX) {
+            return;
+          }
+          panState.isActive = true;
+          timelineRef.current?.setAttribute("data-suppress-panel-rmb-menu", "active");
+          document.body.style.userSelect = "none";
+          document.body.style.cursor = "grabbing";
+          setIsTimelinePanActive(true);
+        }
+        moveEvent.preventDefault();
+        const widthNorm = Math.max(0.02, panState.startEndNorm - panState.startStartNorm);
+        const deltaNorm = (dx / Math.max(1, panState.widthPx)) * widthNorm;
+        const nextStartNorm = Math.min(
+          1 - widthNorm,
+          Math.max(0, panState.startStartNorm - deltaNorm)
+        );
+        onViewportRangeNormChange({
+          startNorm: nextStartNorm,
+          endNorm: nextStartNorm + widthNorm,
+        });
+      };
+
+      const handleMouseUp = (upEvent: MouseEvent) => {
+        if (timelinePanStateRef.current?.isActive) {
+          upEvent.preventDefault();
+        }
+        finishTimelinePan();
+      };
+
+      const handleWindowBlur = () => {
+        finishTimelinePan();
+      };
+
+      const handleWindowContextMenu = (contextMenuEvent: MouseEvent) => {
+        if (timelinePanStateRef.current?.isActive) {
+          contextMenuEvent.preventDefault();
+        }
+      };
+
+      timelinePanListenersRef.current = {
+        mousemove: handleMouseMove,
+        mouseup: handleMouseUp,
+        blur: handleWindowBlur,
+        contextmenu: handleWindowContextMenu,
+      };
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("blur", handleWindowBlur);
+      window.addEventListener("contextmenu", handleWindowContextMenu);
+    },
+    [
+      finishTimelinePan,
+      onViewportRangeNormChange,
+      timelineRef,
+      viewportRangeNorm.endNorm,
+      viewportRangeNorm.startNorm,
+    ]
+  );
 
   const beginScrollbarDrag = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
       const track = scrollbarTrackRef.current;
       if (!track) return;
       const rect = track.getBoundingClientRect();
@@ -839,7 +1086,17 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
 
   return (
     <main className={styles.timelineArea}>
-      <section ref={timelineRef} className={styles.timelineCanvas} aria-label="Animation timeline">
+      <section
+        ref={timelineRef}
+        className={styles.timelineCanvas}
+        aria-label="Animation timeline"
+        onMouseDownCapture={beginTimelinePan}
+        onContextMenu={(event) => {
+          if (isTimelinePanActive) {
+            event.preventDefault();
+          }
+        }}
+      >
         <div ref={topRulerRef} className={styles.timeRuler} />
         <LaneList
           firstLaneSvgRef={firstLaneSvgRef}

@@ -975,12 +975,34 @@
   pointer-events: none;
 }
 
+.laneHandleOverlaySvg {
+  position: absolute;
+  inset: 3px 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 6px);
+  pointer-events: none;
+  overflow: visible;
+}
+
 .rangeOffsetHandle {
-  fill: rgba(255, 206, 84, 0.92);
-  stroke: rgba(255, 240, 182, 0.9);
-  stroke-width: 0.85;
   cursor: ns-resize;
   pointer-events: auto;
+}
+
+.rangeOffsetHandleBody {
+  fill: rgba(255, 255, 255, 0.02);
+  stroke: rgba(255, 230, 160, 0.78);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.rangeOffsetHandleGlyph {
+  fill: none;
+  stroke: rgba(255, 232, 176, 0.92);
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .smoothBrushCoreBandLane {

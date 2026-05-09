@@ -194,6 +194,26 @@
   --telemetry-field-tree-font-size: 0.8rem;
   --telemetry-field-tree-white-space: nowrap;
   --telemetry-field-tree-node-gap: 2px;
+  --telemetry-field-tree-width: max-content;
+  --telemetry-field-tree-entry-flex: 0 0 auto;
+  --telemetry-field-tree-text-max-width: none;
+  --telemetry-field-tree-value-overflow: visible;
+  --telemetry-field-tree-value-text-overflow: clip;
+  --telemetry-field-tree-value-white-space: nowrap;
+}
+
+.telemetryStructTreeCompact .inputWriteRow,
+.telemetryStructTreeCompact .inputWriteLabel,
+.telemetryStructTreeCompact .inputWriteLabelText {
+  width: max-content;
+  min-width: max-content;
+}
+
+.telemetryStructTreeCompact .inputWriteLabel,
+.telemetryStructTreeCompact .inputWriteLabelText {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .multiline {
