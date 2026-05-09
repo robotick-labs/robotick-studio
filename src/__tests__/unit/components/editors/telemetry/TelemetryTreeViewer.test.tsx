@@ -8,6 +8,7 @@ import type {
   ITelemetryStruct,
   ITelemetryWorkload,
 } from "../../../../../renderer/data-sources/telemetry";
+import { FloatingPanelsScopeProvider } from "../../../../../renderer/components/workspaces/floating-panels";
 
 const telemetryModel = vi.hoisted(() => ({
   current: null as ITelemetryModel | null,
@@ -107,6 +108,14 @@ async function settle() {
   });
 }
 
+function renderViewer(root: ReturnType<typeof createRoot>) {
+  root.render(
+    <FloatingPanelsScopeProvider scope="test-floating-panels">
+      <TelemetryTreeViewer />
+    </FloatingPanelsScopeProvider>
+  );
+}
+
 describe("TelemetryTreeViewer workload filtering", () => {
   beforeEach(() => {
     telemetryModel.current = createModel();
@@ -126,7 +135,7 @@ describe("TelemetryTreeViewer workload filtering", () => {
 
     try {
       await act(async () => {
-        root.render(<TelemetryTreeViewer />);
+        renderViewer(root);
       });
       await settle();
 
@@ -163,7 +172,7 @@ describe("TelemetryTreeViewer workload filtering", () => {
 
     try {
       await act(async () => {
-        root.render(<TelemetryTreeViewer />);
+        renderViewer(root);
       });
       await settle();
 
@@ -183,7 +192,33 @@ describe("TelemetryTreeViewer workload filtering", () => {
       expect(workloadSelect!.value).toBe("beta");
       expect(container.textContent).not.toContain("alpha:");
       expect(container.textContent).toContain("beta:");
+
+      const betaToggle = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.parentElement?.textContent?.includes("beta:")
+      );
+      expect(betaToggle).toBeDefined();
+
+      await act(async () => {
+        betaToggle?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+      });
+      await settle();
+
       expect(container.textContent).toContain("Outputs:");
+
+      const outputsToggle = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.parentElement?.textContent?.includes("Outputs:")
+      );
+      expect(outputsToggle).toBeDefined();
+
+      await act(async () => {
+        outputsToggle?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+      });
+      await settle();
+
       expect(container.textContent).toContain("beta_output:");
     } finally {
       act(() => {
@@ -200,7 +235,7 @@ describe("TelemetryTreeViewer workload filtering", () => {
 
     try {
       await act(async () => {
-        root.render(<TelemetryTreeViewer />);
+        renderViewer(root);
       });
       await settle();
 
@@ -219,6 +254,30 @@ describe("TelemetryTreeViewer workload filtering", () => {
         workloadSelect!.value = "beta";
         workloadSelect!.dispatchEvent(
           new Event("change", { bubbles: true, cancelable: true })
+        );
+      });
+      await settle();
+
+      const betaToggle = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.parentElement?.textContent?.includes("beta:")
+      );
+      expect(betaToggle).toBeDefined();
+
+      await act(async () => {
+        betaToggle?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+      });
+      await settle();
+
+      const outputsToggle = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.parentElement?.textContent?.includes("Outputs:")
+      );
+      expect(outputsToggle).toBeDefined();
+
+      await act(async () => {
+        outputsToggle?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
         );
       });
       await settle();

@@ -308,35 +308,48 @@ export function TelemetryModel({
               likely bound to the same telemetry port.
             </div>
           ) : (
-            <table
-              id={`table-${urlToId(model.instanceURL)}`}
-              className={styles.table}
-            >
-              <thead>
-                <tr>
-                  <th>Unique Name</th>
-                  <th>Workload Type</th>
-                  <th>Config</th>
-                  <th>Inputs</th>
-                  <th>Outputs</th>
-                  <th>Workload Duration (ms)</th>
-                  <th>Actual Period (ms)</th>
-                  <th>Goal Period (ms)</th>
-                  <th>Budget Usage %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workloads.map((w) => (
-                  <TelemetryWorkload
-                    key={w.name}
-                    w={w}
-                    telemetryBaseUrl={model.instanceURL}
-                    modelName={model.modelName}
-                    fieldConnectionHints={fieldConnectionHints}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <div className={styles.tableViewport}>
+              <table
+                id={`table-${urlToId(model.instanceURL)}`}
+                className={styles.table}
+              >
+                <colgroup>
+                  <col className={styles.colUniqueName} />
+                  <col className={styles.colWorkloadType} />
+                  <col className={styles.colStruct} />
+                  <col className={styles.colStruct} />
+                  <col className={styles.colStruct} />
+                  <col className={styles.colMetric} />
+                  <col className={styles.colMetric} />
+                  <col className={styles.colGoal} />
+                  <col className={styles.colBudget} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Unique Name</th>
+                    <th>Workload Type</th>
+                    <th>Config</th>
+                    <th>Inputs</th>
+                    <th>Outputs</th>
+                    <th>Workload Duration (ms)</th>
+                    <th>Actual Period (ms)</th>
+                    <th>Goal Period (ms)</th>
+                    <th>Budget Usage %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workloads.map((w) => (
+                    <TelemetryWorkload
+                      key={w.name}
+                      w={w}
+                      telemetryBaseUrl={model.instanceURL}
+                      modelName={model.modelName}
+                      fieldConnectionHints={fieldConnectionHints}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

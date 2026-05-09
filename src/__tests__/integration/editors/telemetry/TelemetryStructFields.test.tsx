@@ -46,32 +46,7 @@ function render(node: React.ReactElement) {
 }
 
 describe("TelemetryStructFields", () => {
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
-
-  beforeEach(() => {
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn(() => "blob:test-image"),
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: vi.fn(),
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: originalCreateObjectURL,
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: originalRevokeObjectURL,
-    });
-  });
-
-  it("keeps image-field hook ordering stable when bytes become valid after expansion", async () => {
+  it("keeps image-like leaf rendering stable when the backing value changes", async () => {
     let currentValue: unknown = "not-image-bytes";
 
     const model: ITelemetryModel = {
@@ -83,7 +58,7 @@ describe("TelemetryStructFields", () => {
     };
 
     const field: ITelemetryField = {
-      name: "image",
+      name: "data_buffer",
       type: "DynamicStructStorageVector<uint8_t>",
       path: "outputs.image.data_buffer",
       offset: 0,
@@ -104,14 +79,14 @@ describe("TelemetryStructFields", () => {
     expect(() =>
       tree.render(<TelemetryStructFields struct={struct} />)
     ).not.toThrow();
-    expect(tree.container.textContent).toContain("invalid image data");
+    expect(tree.container.textContent).toContain("Open image panel");
 
     currentValue = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 
     await expect(
       tree.renderAsync(<TelemetryStructFields struct={struct} />)
     ).resolves.not.toThrow();
-    expect(tree.container.querySelector("img")).not.toBeNull();
+    expect(tree.container.textContent).toContain("Open image panel");
 
     tree.unmount();
   });
@@ -180,7 +155,7 @@ describe("TelemetryStructFields", () => {
     tree.unmount();
   });
 
-  it("renders encoded Image structs as image thumbnails", async () => {
+  it("shows top-level image structs collapsed by default and expands into the shared tree view", async () => {
     const model: ITelemetryModel = {
       workloads: [],
       raw: null,
@@ -242,8 +217,23 @@ describe("TelemetryStructFields", () => {
     await expect(
       tree.renderAsync(<TelemetryStructFields struct={struct} />)
     ).resolves.not.toThrow();
-    expect(tree.container.querySelector("img")).not.toBeNull();
-    expect(URL.createObjectURL).toHaveBeenCalled();
+
+    expect(tree.container.textContent).toContain("image: <image 4 bytes>");
+    expect(tree.container.textContent).not.toContain("metadata:");
+    expect(tree.container.textContent).not.toContain("Open image panel");
+
+    const imageToggle = tree.container.querySelector<HTMLButtonElement>("button");
+    expect(imageToggle).not.toBeNull();
+
+    await act(async () => {
+      imageToggle!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+    });
+
+    expect(tree.container.textContent).toContain("metadata:");
+    expect(tree.container.textContent).toContain("count:");
+    expect(tree.container.textContent).toContain("Open image panel");
 
     tree.unmount();
   });

@@ -18,7 +18,6 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
-import sharedStyles from "../Telemetry.module.css";
 import panelMenuStyles from "../../../workspaces/PanelLayout.module.css";
 import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
 import {
@@ -28,12 +27,6 @@ import {
   removeStorageValue,
   setStorageValue,
 } from "../../../../services/storage";
-import {
-  formatEnumArrayPreview,
-  formatEnumNumber,
-} from "../utils/telemetry-formatters";
-import { extractTelemetryImagePayload } from "../utils/telemetry-image";
-import { spawnTelemetryImagePanel } from "../panels";
 import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import {
   deriveWorkloadStats,
@@ -42,14 +35,14 @@ import {
   TICK_DURATION_WINDOW_SIZE,
 } from "../utils/workload-stats";
 import type { FieldConnectionHint } from "../view/types";
-import { WritableTelemetryInputField } from "../view/WritableTelemetryInputField";
 import {
   buildFieldConnectionHintsByModelPath,
-  type ConnectionKind,
-  getConnectionHint,
-  getConnectionKindFromHint,
-  getConnectionTooltip,
 } from "../view/field-connections";
+import {
+  TelemetryFieldTree,
+  TelemetryFieldTreeRuntimeProvider,
+  type TelemetryFieldTreeContext,
+} from "../view/TelemetryFieldTree";
 
 type SectionKind = "inputs" | "outputs" | "config" | "stats";
 type DataKindSelection = SectionKind | "all";
@@ -82,23 +75,6 @@ const FILTER_DEBOUNCE_MS = 160;
 const TREE_REFRESH_INTERVAL_MS = 200;
 const TREE_VIEWER_MAX_SAMPLE_RATE_HZ = 5;
 const TREE_ARRAY_PAGE_SIZE = 64;
-const TelemetrySampleRevisionContext = React.createContext(0);
-const TelemetryValueReaderContext = React.createContext<
-  ((field: ITelemetryField) => unknown) | null
->(null);
-
-type FlatTreeRow = {
-  kind: "field" | "array_pager";
-  field: ITelemetryField;
-  depth: number;
-  expanded: boolean;
-  hasChildren: boolean;
-  isArrayField: boolean;
-  filterTarget?: TelemetryTreeFilterTarget;
-  arrayVisibleCount?: number;
-  arrayTotalCount?: number;
-};
-
 type TelemetryTreeFilterTarget = {
   workloadName: string;
   sectionKind?: SectionKind;
@@ -156,13 +132,6 @@ function serializeExpandedPathsPreference(
   preference: ExpandedPathsPreference
 ): string {
   return JSON.stringify(preference);
-}
-
-function getConnectionCapsuleClass(kind: ConnectionKind | null): string {
-  if (kind === "local") return sharedStyles.localConnectedCapsule;
-  if (kind === "remote") return sharedStyles.remoteConnectedCapsule;
-  if (kind === "both") return sharedStyles.bothConnectedCapsule;
-  return "";
 }
 
 /**
@@ -472,10 +441,6 @@ export default function TelemetryTreeViewer() {
     fieldFilter,
     sectionSelection,
   ]);
-  const flatRows = useMemo(
-    () => flattenTreeRows(rootNodes, expandedNodes, getVisibleCountForPath),
-    [expandedNodes, getVisibleCountForPath, rootNodes]
-  );
   const valueReader = useMemo(() => {
     const cache = new WeakMap<ITelemetryField, unknown>();
     return (field: ITelemetryField) => {
@@ -497,6 +462,27 @@ export default function TelemetryTreeViewer() {
       return next;
     });
   }, []);
+
+  const handleFieldTextContextMenu = useCallback(
+    (
+      field: ITelemetryField,
+      context: TelemetryFieldTreeContext,
+      event: React.MouseEvent<HTMLElement>
+    ) => {
+      const target = getTelemetryTreeRowFilterTarget(field, context);
+      if (!target) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setTreeContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        target,
+      });
+    },
+    []
+  );
 
   const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const modelPath = event.target.value;
@@ -659,76 +645,27 @@ export default function TelemetryTreeViewer() {
           />
         </div>
       </div>
-      <TelemetrySampleRevisionContext.Provider value={displayRevision}>
-        <TelemetryValueReaderContext.Provider value={valueReader}>
+      <TelemetryFieldTreeRuntimeProvider
+        sampleRevision={displayRevision}
+        readValue={valueReader}
+      >
           <div className={styles.tree} ref={treeViewportRef}>
             {rootNodes.length === 0 ? (
               <div className={styles.message}>No telemetry fields available.</div>
             ) : (
-              <div className={styles.treeRows}>
-                {flatRows.map((row) => (
-                  <div
-                    key={
-                      row.kind === "array_pager"
-                        ? `${row.field.path}::pager`
-                        : row.field.path
-                    }
-                    className={styles.treeRow}
-                    data-testid="telemetry-tree-row"
-                  >
-                    {row.kind === "array_pager" ? (
-                      <div
-                        className={styles.node}
-                        style={{
-                          paddingLeft: `${row.depth * 16}px`,
-                          display: "flex",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          className={sharedStyles.telemetryInlineButton}
-                          onClick={() =>
-                            showNextArrayPage(
-                              row.field.path,
-                              row.arrayTotalCount ?? row.field.elementCount
-                            )
-                          }
-                        >
-                          Show next {TREE_ARRAY_PAGE_SIZE} (
-                          {row.arrayVisibleCount ?? 0}/
-                          {row.arrayTotalCount ?? row.field.elementCount})
-                        </button>
-                      </div>
-                    ) : (
-                      <TreeRow
-                        field={row.field}
-                        depth={row.depth}
-                        expanded={row.expanded}
-                        hasChildren={row.hasChildren}
-                        isArrayField={row.isArrayField}
-                        toggle={toggleNode}
-                        telemetryBaseUrl={telemetryBaseUrl}
-                        panelScope={panel?.scope ?? floatingPanelScope}
-                        modelName={selectedModel?.modelName}
-                        fieldConnectionHints={fieldConnectionHints}
-                        onTextContextMenu={(event) => {
-                          if (!row.filterTarget) {
-                            return;
-                          }
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setTreeContextMenu({
-                            x: event.clientX,
-                            y: event.clientY,
-                            target: row.filterTarget,
-                          });
-                        }}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
+              <TelemetryFieldTree
+                fields={rootNodes}
+                telemetryBaseUrl={telemetryBaseUrl}
+                panelScope={panel?.scope ?? floatingPanelScope}
+                modelName={selectedModel?.modelName}
+                fieldConnectionHints={fieldConnectionHints}
+                expandedPaths={expandedNodes}
+                onTogglePath={toggleNode}
+                getArrayVisibleCount={getVisibleCountForPath}
+                onShowNextArrayPage={showNextArrayPage}
+                arrayPageSize={TREE_ARRAY_PAGE_SIZE}
+                onFieldTextContextMenu={handleFieldTextContextMenu}
+              />
             )}
           </div>
           {treeContextMenu ? (
@@ -747,8 +684,7 @@ export default function TelemetryTreeViewer() {
               </button>
             </div>
           ) : null}
-        </TelemetryValueReaderContext.Provider>
-      </TelemetrySampleRevisionContext.Provider>
+      </TelemetryFieldTreeRuntimeProvider>
     </div>
   );
 }
@@ -822,84 +758,9 @@ function useElementActive(ref: React.RefObject<HTMLElement | null>): boolean {
   return isDocumentVisible && isElementVisible;
 }
 
-function flattenTreeRows(
-  fields: ITelemetryField[],
-  expandedPaths: Set<string>,
-  getArrayVisibleCount: (path: string, total: number) => number,
-  options: {
-    depth?: number;
-    context?: Partial<TelemetryTreeFilterTarget>;
-  } = {}
-): FlatTreeRow[] {
-  const rows: FlatTreeRow[] = [];
-  const autoExpandOnlyChild = fields.length === 1;
-  const depth = options.depth ?? 0;
-  const context = options.context ?? {};
-
-  for (const field of fields) {
-    const isArrayField = field.elementCount > 1;
-    const hasChildren = isArrayField || Boolean(field.fields?.length);
-    const expanded = expandedPaths.has(field.path) || autoExpandOnlyChild;
-    const rowContext = getTelemetryTreeRowFilterTarget(field, context);
-    rows.push({
-      kind: "field",
-      field,
-      depth,
-      expanded,
-      hasChildren,
-      isArrayField,
-      filterTarget: rowContext,
-    });
-
-    if (!expanded || !hasChildren) {
-      continue;
-    }
-
-    if (isArrayField) {
-      const visibleCount = getArrayVisibleCount(field.path, field.elementCount);
-      for (let index = 0; index < visibleCount; index += 1) {
-        const child = field.getArrayElement?.(index);
-        if (!child) {
-          continue;
-        }
-        rows.push(
-          ...flattenTreeRows([child], expandedPaths, getArrayVisibleCount, {
-            depth: depth + 1,
-            context: rowContext ?? context,
-          })
-        );
-      }
-      if (visibleCount < field.elementCount) {
-        rows.push({
-          kind: "array_pager",
-          field,
-          depth: depth + 1,
-          expanded: false,
-          hasChildren: false,
-          isArrayField: false,
-          arrayVisibleCount: visibleCount,
-          arrayTotalCount: field.elementCount,
-        });
-      }
-      continue;
-    }
-
-    if (field.fields?.length) {
-      rows.push(
-        ...flattenTreeRows(field.fields, expandedPaths, getArrayVisibleCount, {
-          depth: depth + 1,
-          context: rowContext ?? context,
-        })
-      );
-    }
-  }
-
-  return rows;
-}
-
 function getTelemetryTreeRowFilterTarget(
   field: ITelemetryField,
-  inherited: Partial<TelemetryTreeFilterTarget>
+  inherited: TelemetryFieldTreeContext
 ): TelemetryTreeFilterTarget | undefined {
   if (field.type === "workload") {
     return {
@@ -908,10 +769,10 @@ function getTelemetryTreeRowFilterTarget(
     };
   }
 
-  const sectionKind = isSectionKind(field.type) ? field.type : inherited.sectionKind;
-  const workloadName =
-    inherited.workloadName ??
-    (field.path.includes(".") ? field.path.split(".")[0] : "");
+  const sectionKind = isSectionKind(field.type)
+    ? (field.type as SectionKind)
+    : (inherited.sectionKind as SectionKind | undefined);
+  const workloadName = inherited.workloadName ?? "";
   if (!workloadName) {
     return undefined;
   }
@@ -926,562 +787,6 @@ function getTelemetryTreeRowFilterTarget(
 
 function isSectionKind(value: string): value is SectionKind {
   return SECTION_KINDS.includes(value as SectionKind);
-}
-
-function useTelemetryValueReader() {
-  const reader = React.useContext(TelemetryValueReaderContext);
-  return reader ?? ((field: ITelemetryField) => field.getValue?.());
-}
-
-function formatNodeSummary(field: ITelemetryField, hasChildren: boolean): string {
-  const imagePayload = extractTelemetryImagePayload(field);
-  if (imagePayload) {
-    return `<image ${imagePayload.bytes.byteLength} bytes>`;
-  }
-  if (field.elementCount > 1) {
-    return `[${field.elementCount} items]`;
-  }
-  if (!hasChildren) {
-    return "";
-  }
-  const fieldCount = field.fields?.length ?? 0;
-  return fieldCount > 0 ? `{${fieldCount} fields}` : "{…}";
-}
-
-function TreeNodeValue({
-  field,
-  isArrayField,
-  hasChildren,
-}: {
-  field: ITelemetryField;
-  isArrayField: boolean;
-  hasChildren: boolean;
-}) {
-  React.useContext(TelemetrySampleRevisionContext);
-  const readValue = useTelemetryValueReader();
-  const value = hasChildren
-    ? formatNodeSummary(field, hasChildren)
-    : formatFieldValue(field, readValue(field));
-  return (
-    <span className={styles.nodeValue}>
-      {hasChildren
-        ? value
-        : isArrayField
-          ? formatArraySummary(value)
-          : value}
-    </span>
-  );
-}
-
-function WritableTreeNodeField({
-  field,
-  telemetryBaseUrl,
-  capsuleClassName,
-  tooltipText,
-  onTextContextMenu,
-}: {
-  field: ITelemetryField;
-  telemetryBaseUrl?: string;
-  capsuleClassName?: string;
-  tooltipText?: string | null;
-  onTextContextMenu?: React.MouseEventHandler<HTMLElement>;
-}) {
-  React.useContext(TelemetrySampleRevisionContext);
-  const readValue = useTelemetryValueReader();
-  return (
-    <WritableTelemetryInputField
-      field={field}
-      telemetryBaseUrl={telemetryBaseUrl}
-      className={styles.writableNodeEntry}
-      capsuleClassName={capsuleClassName}
-      tooltipText={tooltipText}
-      labelContextMenu={onTextContextMenu}
-      readCurrentValue={readValue}
-      formatCurrentValue={(targetField) =>
-        formatFieldValue(targetField, readValue(targetField))
-      }
-    />
-  );
-}
-
-const TreeRow = React.memo(function TreeRow({
-  field,
-  depth,
-  expanded,
-  hasChildren,
-  isArrayField,
-  toggle,
-  telemetryBaseUrl,
-  panelScope,
-  modelName,
-  fieldConnectionHints,
-  onTextContextMenu,
-}: {
-  field: ITelemetryField;
-  depth: number;
-  expanded: boolean;
-  hasChildren: boolean;
-  isArrayField: boolean;
-  toggle: (path: string) => void;
-  telemetryBaseUrl?: string;
-  panelScope: string;
-  modelName?: string;
-  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
-  onTextContextMenu?: React.MouseEventHandler<HTMLElement>;
-}) {
-  const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
-  const connectionKind = getConnectionKindFromHint(connectionHint);
-  const capsuleClass = getConnectionCapsuleClass(connectionKind);
-  const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const imagePayload = extractTelemetryImagePayload(field);
-  const fieldValue = field.getValue?.();
-  const isImageBufferField =
-    field.name === "data_buffer" &&
-    (
-      Boolean(imagePayload) ||
-      fieldValue instanceof Uint8Array ||
-      field.path.toLowerCase().includes(".image.data_buffer")
-    );
-  const showChildren = hasChildren && !isImageBufferField;
-  const workloadName = field.path.includes(".")
-    ? field.path.split(".")[0]
-    : undefined;
-  const handleOpenImagePanel = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    spawnTelemetryImagePanel({
-      scope: panelScope,
-      settings: {
-        panelTitle: field.path,
-        telemetryBaseUrl,
-        workloadName,
-        modelName,
-        fieldPath: field.path,
-      },
-    });
-  };
-  const isWritableInput =
-    typeof field.writable_input_handle === "number" &&
-    field.path.includes(".inputs.") &&
-    !hasChildren;
-
-  return (
-    <div className={styles.node} style={{ paddingLeft: `${depth * 16}px` }}>
-      <div className={styles.nodeRow}>
-        {showChildren ? (
-          <button
-            type="button"
-            className={styles.nodeToggle}
-            onClick={() => toggle(field.path)}
-          >
-            {expanded ? "▼" : "▶"}
-          </button>
-        ) : (
-          <span className={styles.nodeToggleSpacer} aria-hidden="true" />
-        )}
-        {isWritableInput ? (
-          <WritableTreeNodeField
-            field={field}
-            telemetryBaseUrl={telemetryBaseUrl}
-            capsuleClassName={capsuleClass}
-            tooltipText={tooltipText}
-            onTextContextMenu={onTextContextMenu}
-          />
-        ) : (
-          <span
-            className={`${styles.nodeEntry} ${capsuleClass}`.trim()}
-            title={tooltipText ?? undefined}
-          >
-            <span
-              className={styles.nodeText}
-              data-testid="telemetry-tree-node-text"
-              onContextMenu={onTextContextMenu}
-            >
-              <span>{field.name}:</span>{" "}
-              {isImageBufferField ? (
-                <button
-                  type="button"
-                  className={sharedStyles.telemetryInlineButton}
-                  onClick={handleOpenImagePanel}
-                  onMouseDown={(event) => event.stopPropagation()}
-                >
-                  Open image panel
-                </button>
-              ) : (
-                <TreeNodeValue
-                  field={field}
-                  isArrayField={isArrayField}
-                  hasChildren={hasChildren}
-                />
-              )}
-            </span>
-          </span>
-        )}
-      </div>
-    </div>
-  );
-});
-
-function TreeArrayChildren({
-  field,
-  expandedPaths,
-  toggle,
-  telemetryBaseUrl,
-  panelScope,
-  modelName,
-  fieldConnectionHints,
-}: {
-  field: ITelemetryField;
-  expandedPaths: Set<string>;
-  toggle: (path: string) => void;
-  telemetryBaseUrl?: string;
-  panelScope: string;
-  modelName?: string;
-  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
-}) {
-  React.useContext(TelemetrySampleRevisionContext);
-  const arrayChildren = Array.from({ length: field.elementCount }, (_, index) =>
-    field.getArrayElement?.(index)
-  ).filter((entry): entry is ITelemetryField => Boolean(entry));
-  if (arrayChildren.length === 0) {
-    return null;
-  }
-  return arrayChildren.map((entry) => (
-      <TreeNode
-        key={entry.path}
-        field={entry}
-        expanded={expandedPaths.has(entry.path)}
-        expandedPaths={expandedPaths}
-        toggle={toggle}
-        telemetryBaseUrl={telemetryBaseUrl}
-        panelScope={panelScope}
-        modelName={modelName}
-        fieldConnectionHints={fieldConnectionHints}
-      />
-  ));
-}
-
-const TreeNodeChildren = React.memo(function TreeNodeChildren({
-  field,
-  expanded,
-  isArrayField,
-  expandedPaths,
-  toggle,
-  telemetryBaseUrl,
-  panelScope,
-  modelName,
-  fieldConnectionHints,
-}: {
-  field: ITelemetryField;
-  expanded: boolean;
-  isArrayField: boolean;
-  expandedPaths: Set<string>;
-  toggle: (path: string) => void;
-  telemetryBaseUrl?: string;
-  panelScope: string;
-  modelName?: string;
-  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
-}) {
-  if (!expanded) {
-    return null;
-  }
-  if (isArrayField) {
-    return (
-    <TreeArrayChildren
-      field={field}
-      expandedPaths={expandedPaths}
-      toggle={toggle}
-      telemetryBaseUrl={telemetryBaseUrl}
-      panelScope={panelScope}
-      modelName={modelName}
-      fieldConnectionHints={fieldConnectionHints}
-    />
-    );
-  }
-  return field.fields?.map((child) => (
-    <TreeNode
-      key={child.path}
-      field={child}
-      expanded={expandedPaths.has(child.path)}
-      expandedPaths={expandedPaths}
-      toggle={toggle}
-      telemetryBaseUrl={telemetryBaseUrl}
-      panelScope={panelScope}
-      modelName={modelName}
-      fieldConnectionHints={fieldConnectionHints}
-    />
-  ));
-});
-
-const TreeNode = React.memo(function TreeNode({
-  field,
-  expanded,
-  expandedPaths,
-  toggle,
-  telemetryBaseUrl,
-  panelScope,
-  modelName,
-  fieldConnectionHints,
-}: {
-  field: ITelemetryField;
-  expanded: boolean;
-  expandedPaths: Set<string>;
-  toggle: (path: string) => void;
-  telemetryBaseUrl?: string;
-  panelScope: string;
-  modelName?: string;
-  fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
-}) {
-  const isArrayField = field.elementCount > 1;
-  const hasChildren = isArrayField || Boolean(field.fields?.length);
-  const imagePayload = extractTelemetryImagePayload(field);
-  const fieldValue = field.getValue?.();
-  const isImageBufferField =
-    field.name === "data_buffer" &&
-    (
-      Boolean(imagePayload) ||
-      fieldValue instanceof Uint8Array ||
-      field.path.toLowerCase().includes(".image.data_buffer")
-    );
-  const showChildren = hasChildren && !isImageBufferField;
-  const connectionHint = getConnectionHint(field.path, fieldConnectionHints);
-  const connectionKind = getConnectionKindFromHint(connectionHint);
-  const capsuleClass = getConnectionCapsuleClass(connectionKind);
-  const tooltipText = getConnectionTooltip(field.path, connectionHint);
-  const workloadName = field.path.includes(".")
-    ? field.path.split(".")[0]
-    : undefined;
-  const handleOpenImagePanel = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    spawnTelemetryImagePanel({
-      scope: panelScope,
-      settings: {
-        panelTitle: field.path,
-        telemetryBaseUrl,
-        workloadName,
-        modelName,
-        fieldPath: field.path,
-      },
-    });
-  };
-  const isWritableInput =
-    typeof field.writable_input_handle === "number" &&
-    field.path.includes(".inputs.") &&
-    !hasChildren;
-
-  return (
-    <div className={styles.node}>
-      <div className={styles.nodeRow}>
-        {showChildren ? (
-          <button
-            type="button"
-            className={styles.nodeToggle}
-            onClick={() => toggle(field.path)}
-          >
-            {expanded ? "▼" : "▶"}
-          </button>
-        ) : (
-          <span className={styles.nodeToggleSpacer} aria-hidden="true" />
-        )}
-        {isWritableInput ? (
-          <WritableTreeNodeField
-            field={field}
-            telemetryBaseUrl={telemetryBaseUrl}
-            capsuleClassName={capsuleClass}
-            tooltipText={tooltipText}
-          />
-        ) : (
-          <span
-            className={`${styles.nodeEntry} ${capsuleClass}`.trim()}
-            title={tooltipText ?? undefined}
-          >
-            <span>{field.name}:</span>{" "}
-            {isImageBufferField ? (
-              <button
-                type="button"
-                className={sharedStyles.telemetryInlineButton}
-                onClick={handleOpenImagePanel}
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                Open image panel
-              </button>
-            ) : (
-              <TreeNodeValue
-                field={field}
-                isArrayField={isArrayField}
-                hasChildren={hasChildren}
-              />
-            )}
-          </span>
-        )}
-      </div>
-      {showChildren && (
-        <TreeNodeChildren
-          field={field}
-          expanded={expanded}
-          isArrayField={isArrayField}
-          expandedPaths={expandedPaths}
-          toggle={toggle}
-          telemetryBaseUrl={telemetryBaseUrl}
-          panelScope={panelScope}
-          modelName={modelName}
-          fieldConnectionHints={fieldConnectionHints}
-        />
-      )}
-    </div>
-  );
-});
-
-const JsonNode = React.memo(function JsonNode({
-  label,
-  path,
-  value,
-  expandedPaths,
-  toggle,
-}: {
-  label: string;
-  path: string;
-  value: unknown;
-  expandedPaths: Set<string>;
-  toggle: (path: string) => void;
-}) {
-  const [visibleCount, setVisibleCount] = useState(() =>
-    Array.isArray(value) ? Math.min(TREE_ARRAY_PAGE_SIZE, value.length) : 0
-  );
-  useEffect(() => {
-    if (!Array.isArray(value)) {
-      setVisibleCount(0);
-      return;
-    }
-    setVisibleCount(Math.min(TREE_ARRAY_PAGE_SIZE, value.length));
-  }, [path, value]);
-  const isArray = Array.isArray(value);
-  const isObject =
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    !(value instanceof Uint8Array);
-  const hasChildren = isArray
-    ? value.length > 0
-    : isObject && Object.keys(value as Record<string, unknown>).length > 0;
-  const expanded = expandedPaths.has(path);
-  return (
-    <div className={styles.node}>
-      {hasChildren ? (
-        <button
-          type="button"
-          className={styles.nodeToggle}
-          onClick={() => toggle(path)}
-        >
-          {expanded ? "▼" : "▶"}
-        </button>
-      ) : (
-        <span style={{ marginRight: 8 }} />
-      )}
-      <span>{label}: </span>
-      <span className={styles.nodeValue}>{formatJsonValue(value)}</span>
-      {expanded && hasChildren
-        ? isArray && Array.isArray(value)
-          ? value
-              .slice(0, Math.max(0, Math.min(value.length, visibleCount)))
-              .map((entry, index) => (
-              <JsonNode
-                key={`${path}[${index}]`}
-                label={`[${index}]`}
-                path={`${path}[${index}]`}
-                value={entry}
-                expandedPaths={expandedPaths}
-                toggle={toggle}
-              />
-            ))
-          : Object.entries(value as Record<string, unknown>).map(
-              ([key, child]) => (
-                <JsonNode
-                  key={`${path}.${key}`}
-                  label={key}
-                  path={`${path}.${key}`}
-                  value={child}
-                  expandedPaths={expandedPaths}
-                  toggle={toggle}
-                />
-              )
-            )
-        : null}
-      {expanded && isArray && Array.isArray(value) && visibleCount < value.length ? (
-        <div className={styles.node}>
-          <button
-            type="button"
-            className={sharedStyles.telemetryInlineButton}
-            onClick={() =>
-              setVisibleCount((prev) =>
-                Math.min(value.length, prev + TREE_ARRAY_PAGE_SIZE)
-              )
-            }
-          >
-            Show next {TREE_ARRAY_PAGE_SIZE} ({visibleCount}/{value.length})
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-});
-
-/**
- * Formats a telemetry field's value for display in the UI.
- *
- * @param field - The telemetry field whose value will be formatted.
- * @returns A string representation suitable for display: `""` for null/undefined, quoted strings for string values, formatted numeric values for numbers/bigints, array previews or `"[N items]"`, `"<bytes N>"` for byte arrays, `"{…}"` for objects, or `String(value)` as a fallback.
- */
-function formatFieldValue(field: ITelemetryField, value: unknown) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number" || typeof value === "bigint") {
-    return formatEnumNumber(field, value);
-  }
-  if (Array.isArray(value)) {
-    if (field.enum_values && field.enum_values.length > 0) {
-      return formatEnumArrayPreview(field, value);
-    }
-    return `[${value.length} items]`;
-  }
-  if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;
-  if (typeof value === "object") return "{…}";
-  return String(value);
-}
-
-function formatCurrentFieldValue(field: ITelemetryField) {
-  return formatFieldValue(field, field.getValue?.());
-}
-
-function formatArraySummary(value: unknown): string {
-  if (!Array.isArray(value)) return "[]";
-  return `[${value.length} items]`;
-}
-
-/**
- * Produce a concise, human-readable string summary for a JSON-like value.
- *
- * @param value - Any JSON-like value (primitive, array, object, or Uint8Array)
- * @returns A compact representation:
- *  - `""` for `null` or `undefined`
- *  - quoted string for string values
- *  - numeric string for numbers and bigints
- *  - `"true"` or `"false"` for booleans
- *  - `"[N items]"` for arrays
- *  - `"<bytes N>"` for `Uint8Array`
- *  - `"{…}"` for objects
- *  - otherwise `String(value)`
- */
-function formatJsonValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "number" || typeof value === "bigint") {
-    return value.toString();
-  }
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (Array.isArray(value)) return `[${value.length} items]`;
-  if (value instanceof Uint8Array) return `<bytes ${value.byteLength}>`;
-  if (typeof value === "object") return "{…}";
-  return String(value);
 }
 
 function getStruct(

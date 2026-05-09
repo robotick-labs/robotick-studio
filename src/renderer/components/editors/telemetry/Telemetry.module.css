@@ -1,10 +1,18 @@
 .container {
-  margin: 2rem auto;
+  margin: 0;
   padding: 1rem 2rem;
   border-radius: 12px;
   color: var(--app-text-primary);
-  max-width: 90%;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   overflow: auto;
+}
+
+.containerPanning {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .container::-webkit-scrollbar {
@@ -71,6 +79,12 @@
 .tableContainer {
   background: var(--app-panel-backdrop);
   border-radius: 10px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.tableViewport {
+  overflow: visible;
 }
 
 .model {
@@ -81,6 +95,9 @@
   cursor: pointer;
   margin-bottom: 10px;
   transition: border-color 0.2s ease;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
 }
 
 .model:hover {
@@ -102,10 +119,11 @@
 }
 
 .table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
-  margin: 20px;
+  margin: 20px 0 0;
 }
 
 .telemetryTableControlLabel {
@@ -132,6 +150,7 @@
 .table td {
   padding: 0.6rem 0.8rem;
   text-align: left;
+  vertical-align: top;
   border-bottom: 1px solid var(--app-panel-border);
 }
 
@@ -145,6 +164,36 @@
 
 .table tbody tr:hover {
   background: var(--app-surface-highlight);
+}
+
+.colUniqueName {
+  width: 13%;
+}
+
+.colWorkloadType {
+  width: 16%;
+}
+
+.colStruct {
+  width: 18rem;
+}
+
+.colMetric {
+  width: 9rem;
+}
+
+.colGoal {
+  width: 6rem;
+}
+
+.colBudget {
+  width: 4rem;
+}
+
+.telemetryStructTreeCompact {
+  --telemetry-field-tree-font-size: 0.8rem;
+  --telemetry-field-tree-white-space: nowrap;
+  --telemetry-field-tree-node-gap: 2px;
 }
 
 .multiline {
