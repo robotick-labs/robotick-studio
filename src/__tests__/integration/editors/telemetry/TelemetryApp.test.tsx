@@ -100,7 +100,7 @@ describe("TelemetryApp", () => {
             modelPath: "robots/zulu.model.yaml",
             modelShortName: "zulu",
             telemetryBaseUrl: "http://example.test:7102",
-            preferredTelemetrySampleRateHz: 20,
+            telemetryPushRateHz: 20,
             data: {},
           },
           {
@@ -108,7 +108,7 @@ describe("TelemetryApp", () => {
             modelPath: "robots/alpha.model.yaml",
             modelShortName: "alpha",
             telemetryBaseUrl: "http://example.test:7101",
-            preferredTelemetrySampleRateHz: 20,
+            telemetryPushRateHz: 20,
             data: {},
           },
           {
@@ -116,7 +116,7 @@ describe("TelemetryApp", () => {
             modelPath: "robots/mike.model.yaml",
             modelShortName: "mike",
             telemetryBaseUrl: "http://example.test:7103",
-            preferredTelemetrySampleRateHz: 20,
+            telemetryPushRateHz: 20,
             data: {},
           },
         ],

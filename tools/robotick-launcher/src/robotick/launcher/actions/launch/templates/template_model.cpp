@@ -184,6 +184,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     {% if telemetry and telemetry.port %}
     model.set_telemetry_port({{telemetry.port}});
     {% endif %}
+    model.set_telemetry_push_rate_hz({% if telemetry and telemetry.telemetry_push_rate_hz %}{{telemetry.telemetry_push_rate_hz}}{% else %}20.0f{% endif %});
     {% if telemetry and telemetry.is_gateway %}
     model.set_telemetry_is_gateway(true);
     {% endif %}

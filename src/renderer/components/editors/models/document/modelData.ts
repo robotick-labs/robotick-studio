@@ -36,7 +36,7 @@ export interface ModelData {
   comment?: string;
   telemetry?: {
     port?: number;
-    preferred_sample_rate_hz?: number;
+    telemetry_push_rate_hz?: number;
     [key: string]: unknown;
   };
   root: { workload_id: string };

@@ -619,6 +619,8 @@ type AnimationTimelineViewportProps = {
   beginPlayheadDragFromClientX: (clientX: number) => void;
   viewportRangeNorm: { startNorm: number; endNorm: number };
   onViewportRangeNormChange: (next: { startNorm: number; endNorm: number }) => void;
+  cadenceHudText: string;
+  onPlayheadRendered: () => void;
 };
 
 type LaneListProps = {
@@ -751,6 +753,8 @@ type PlayheadOverlayProps = {
   playheadTimeSec: number;
   beginPlayheadDragFromClientX: (clientX: number) => void;
   viewportRangeNorm: { startNorm: number; endNorm: number };
+  cadenceHudText: string;
+  onPlayheadRendered: () => void;
 };
 
 const PlayheadOverlay = React.memo(function PlayheadOverlay({
@@ -769,11 +773,14 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
   playheadTimeSec,
   beginPlayheadDragFromClientX,
   viewportRangeNorm,
+  cadenceHudText,
+  onPlayheadRendered,
 }: PlayheadOverlayProps) {
   const lineRef = React.useRef<SVGLineElement | null>(null);
   const topBlobRef = React.useRef<SVGRectElement | null>(null);
   const bottomBlobRef = React.useRef<SVGRectElement | null>(null);
   const grabRef = React.useRef<SVGRectElement | null>(null);
+  const previousRenderedXRef = React.useRef<number | null>(null);
   const viewportWidthNorm = Math.max(1e-3, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
   const toViewportNormUnclamped = React.useCallback(
     (globalNorm: number) =>
@@ -804,7 +811,11 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
     if (grabRef.current) {
       grabRef.current.setAttribute("x", (x - 9).toFixed(2));
     }
-  }, [durationSec, overlayWidth, playheadTimeSec, toViewportNormUnclamped]);
+    if (previousRenderedXRef.current === null || Math.abs(previousRenderedXRef.current - x) >= 0.01) {
+      previousRenderedXRef.current = x;
+      onPlayheadRendered();
+    }
+  }, [durationSec, onPlayheadRendered, overlayWidth, playheadTimeSec, toViewportNormUnclamped]);
   return (
     <div
       ref={playheadViewportRef}
@@ -814,6 +825,7 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
         right: `${playheadViewportInsetsPx.right}px`,
       }}
     >
+      <div className={styles.timelineCadenceHud}>{cadenceHudText}</div>
       <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
         <rect x={0} y={0} width={overlayWidth} height={playheadOverlayMetrics.topRulerHeight} className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect} onPointerDown={beginRangeSelection} />
         {viewportSelectedTimeRange ? (() => {
@@ -917,6 +929,8 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     beginPlayheadDragFromClientX,
     viewportRangeNorm,
     onViewportRangeNormChange,
+    cadenceHudText,
+    onPlayheadRendered,
   } = props;
 
   const scrollbarTrackRef = React.useRef<HTMLDivElement | null>(null);
@@ -1175,6 +1189,8 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
           playheadTimeSec={playheadTimeSec}
           beginPlayheadDragFromClientX={beginPlayheadDragFromClientX}
           viewportRangeNorm={viewportRangeNorm}
+          cadenceHudText={cadenceHudText}
+          onPlayheadRendered={onPlayheadRendered}
         />
       </section>
     </main>

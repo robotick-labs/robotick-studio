@@ -20,7 +20,7 @@ type ModelOption = {
   modelPath: string;
   modelName: string;
   telemetryBaseUrl: string;
-  preferredTelemetrySampleRateHz?: number;
+  telemetryPushRateHz?: number;
 };
 
 type SectionKind = "config" | "inputs" | "outputs" | "stats";
@@ -713,7 +713,7 @@ export default function TelemetryScopePage() {
         modelPath: model.modelPath,
         modelName: model.modelName,
         telemetryBaseUrl: model.telemetryBaseUrl,
-        preferredTelemetrySampleRateHz: model.preferredTelemetrySampleRateHz,
+        telemetryPushRateHz: model.telemetryPushRateHz,
       })),
     [projectModels.data]
   );
@@ -823,7 +823,7 @@ export default function TelemetryScopePage() {
     for (const descriptor of selectedModelOptions) {
       if (!descriptor.telemetryBaseUrl) continue;
       const sampleRateHz =
-        descriptor.preferredTelemetrySampleRateHz ?? DEFAULT_SAMPLE_RATE_HZ;
+        descriptor.telemetryPushRateHz ?? DEFAULT_SAMPLE_RATE_HZ;
       void telemetryService
         .ensureLayout(descriptor.telemetryBaseUrl)
         .then((model) => {
@@ -962,7 +962,7 @@ export default function TelemetryScopePage() {
   }, [modelOptions, modelsByPath]);
 
   const selectedRates = selectedModelOptions.map(
-    (model) => model.preferredTelemetrySampleRateHz ?? DEFAULT_SAMPLE_RATE_HZ
+    (model) => model.telemetryPushRateHz ?? DEFAULT_SAMPLE_RATE_HZ
   );
   const sampleRateLabel = formatRateLabel(selectedRates);
 

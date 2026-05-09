@@ -131,7 +131,7 @@ export function TelemetryApp({
         modelName: model.modelName,
         modelPath: model.modelPath,
         instanceURL: model.telemetryBaseUrl,
-        preferredSampleRateHz: model.preferredTelemetrySampleRateHz,
+        telemetryPushRateHz: model.telemetryPushRateHz,
         fieldConnectionHints: hintsByModelPath.get(model.modelPath) ?? {},
         expectedWorkloads: Array.isArray(
           (model.data as { workloads?: Array<Record<string, unknown>> } | null)

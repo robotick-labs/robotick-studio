@@ -284,7 +284,7 @@ export default function TelemetryImageViewer() {
 
   const telemetryBaseUrl =
     migratedSettings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
-  const samplingRateHz = selectedModel?.preferredTelemetrySampleRateHz ?? 20;
+  const samplingRateHz = selectedModel?.telemetryPushRateHz ?? 20;
 
   const { model } = useTelemetryStream(telemetryBaseUrl, samplingRateHz);
 

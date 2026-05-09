@@ -3,6 +3,7 @@ import {
   ensureTelemetryLayout,
   refreshTelemetryLayout,
   getLatestTelemetryModel,
+  getTelemetryIngressRateHz,
   subscribeTelemetry,
 } from "./telemetry-store";
 import {
@@ -18,6 +19,7 @@ export interface TelemetryService {
   setWorkloadInputFieldsData: typeof setWorkloadInputFieldsData;
   setWorkloadInputConnectionState: typeof setWorkloadInputConnectionState;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
+  getIngressRateHz: (baseUrl: string, windowMs?: number) => number;
 }
 
 export type TelemetryServiceOverrides = Partial<TelemetryService>;
@@ -33,6 +35,7 @@ export function createTelemetryService(
       setWorkloadInputFieldsData,
       setWorkloadInputConnectionState,
       getLatestModel: getLatestTelemetryModel,
+      getIngressRateHz: getTelemetryIngressRateHz,
     };
   }
   return {
@@ -42,6 +45,7 @@ export function createTelemetryService(
     setWorkloadInputFieldsData,
     setWorkloadInputConnectionState,
     getLatestModel: getLatestTelemetryModel,
+    getIngressRateHz: getTelemetryIngressRateHz,
     ...overrides,
   };
 }

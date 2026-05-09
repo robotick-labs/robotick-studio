@@ -40,6 +40,7 @@ type StoreEntry = {
   lastRaw: { buffer: ArrayBuffer; timestamp: number; sid: string } | null;
   wsUnsubscribe: (() => void) | null;
   layoutWaiters: Set<LayoutWaiter>;
+  ingressTimestampsMs: number[];
 };
 
 type TelemetryStoreDeps = {
@@ -58,6 +59,7 @@ export type TelemetryStore = {
   ensureLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   refreshLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
+  getIngressRateHz: (baseUrl: string, windowMs?: number) => number;
   reset: () => void;
 };
 
@@ -102,6 +104,7 @@ export function createTelemetryStore(
         lastRaw: null,
         wsUnsubscribe: null,
         layoutWaiters: new Set(),
+        ingressTimestampsMs: [],
       };
       stores.set(baseUrl, entry);
     }
@@ -164,6 +167,14 @@ export function createTelemetryStore(
 
   function updateModelFromFrame(entry: StoreEntry, frame: TelemetryWsFrame) {
     const hasSid = frame.sid.length > 0;
+    const nowMs = Date.now();
+    // Track raw websocket ingress cadence before any frame-seq filtering so
+    // receive-rate metrics reflect everything the engine pushed to Studio.
+    entry.ingressTimestampsMs.push(nowMs);
+    const keepAfterMs = nowMs - 30_000;
+    entry.ingressTimestampsMs = entry.ingressTimestampsMs.filter(
+      (ts) => ts >= keepAfterMs
+    );
 
     if (typeof frame.frameSeq === "number" && (frame.frameSeq & 1) === 1) {
       return;
@@ -450,6 +461,21 @@ export function createTelemetryStore(
     return model;
   }
 
+  function getIngressRateHz(baseUrl: string, windowMs = 4000): number {
+    const entry = stores.get(baseUrl);
+    if (!entry || entry.ingressTimestampsMs.length < 2) {
+      return 0;
+    }
+    const nowMs = Date.now();
+    const minMs = nowMs - Math.max(250, windowMs);
+    const active = entry.ingressTimestampsMs.filter((ts) => ts >= minMs);
+    if (active.length < 2) {
+      return 0;
+    }
+    const spanMs = Math.max(1, active[active.length - 1] - active[0]);
+    return ((active.length - 1) * 1000) / spanMs;
+  }
+
   function reset() {
     for (const entry of stores.values()) {
       teardownWsSubscription(entry);
@@ -471,6 +497,7 @@ export function createTelemetryStore(
     ensureLayout,
     refreshLayout,
     getLatestModel,
+    getIngressRateHz,
     reset,
   };
 }
@@ -481,4 +508,5 @@ export const subscribeTelemetry = defaultTelemetryStore.subscribeTelemetry;
 export const ensureTelemetryLayout = defaultTelemetryStore.ensureLayout;
 export const refreshTelemetryLayout = defaultTelemetryStore.refreshLayout;
 export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
+export const getTelemetryIngressRateHz = defaultTelemetryStore.getIngressRateHz;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

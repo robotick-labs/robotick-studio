@@ -76,6 +76,58 @@
   margin: 0 0 8px 20px;
 }
 
+.telemetryStatsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px 20px;
+}
+
+.telemetryStatsFlowRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.telemetryStatsCapsule {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--app-panel-border) 80%, transparent);
+  background: color-mix(in srgb, var(--app-surface-base) 72%, transparent);
+  white-space: nowrap;
+}
+
+.telemetryStatsArrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 10px;
+  opacity: 0.9;
+}
+
+.telemetryStatsArrowShaft {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-text-muted) 85%, transparent);
+}
+
+.telemetryStatsArrowHead {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid color-mix(in srgb, var(--app-text-muted) 90%, transparent);
+}
+
 .tableContainer {
   background: var(--app-panel-backdrop);
   border-radius: 10px;

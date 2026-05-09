@@ -4,12 +4,28 @@ import { TelemetryWorkload } from "./TelemetryWorkload";
 import {
   useTelemetryStream,
   ITelemetryModel,
+  useTelemetryService,
 } from "../../../../data-sources/telemetry";
 import styles from "../Telemetry.module.css";
 import { formatBytesWithCommas } from "../utils/format-bytes";
 
 export function urlToId(url: string) {
   return url.replace(/[:/.]/g, "_");
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "bigint") {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 type WorkloadSortKey =
@@ -113,8 +129,8 @@ export function TelemetryModel({
     }
     return "none";
   });
-  const preferredSampleRateHz = model.preferredSampleRateHz;
-  const effectiveSampleRateHz = preferredSampleRateHz ?? 20;
+  const telemetryPushRateHz = model.telemetryPushRateHz;
+  const effectiveSampleRateHz = telemetryPushRateHz ?? 20;
   const uiSampleRateHz = Math.max(
     1,
     Math.min(effectiveSampleRateHz, MAX_UI_SAMPLE_RATE_HZ)
@@ -141,7 +157,74 @@ export function TelemetryModel({
     uiSampleRateHz,
     { active: isExpanded, ensureLayout: true }
   );
+  const telemetryService = useTelemetryService();
   const latestModel: ITelemetryModel | null = telemetryModel;
+  const [studioIngressRateHz, setStudioIngressRateHz] = useState(0);
+  const [pushStats, setPushStats] = useState<{
+    configuredPushRateHz: number;
+    goalPushRateHz: number;
+    sourceTickRateHz: number;
+    pushEveryNTicks: number;
+    actualPushRateHz: number;
+    lastPushDurationMs: number;
+    lastPushPeriodMs: number;
+    lastPushCostPctOfPeriod: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!isExpanded) {
+      setPushStats(null);
+      setStudioIngressRateHz(0);
+      return;
+    }
+    let cancelled = false;
+    const update = async () => {
+      setStudioIngressRateHz(
+        telemetryService.getIngressRateHz(model.instanceURL, 4000)
+      );
+      try {
+        const response = await fetch(`${model.instanceURL}/api/telemetry/push_stats`, {
+          cache: "no-store",
+        });
+        if (!response.ok || cancelled) {
+          return;
+        }
+        const payload = (await response.json()) as {
+          configured_push_rate_hz?: number;
+          goal_push_rate_hz?: number;
+          source_tick_rate_hz?: number;
+          push_every_n_ticks?: number;
+          actual_push_rate_hz?: number;
+          last_push_duration_ms?: number;
+          last_push_period_ms?: number;
+          last_push_cost_pct_of_period?: number;
+        };
+        if (cancelled) {
+          return;
+        }
+        setPushStats({
+          configuredPushRateHz: Number(payload.configured_push_rate_hz ?? telemetryPushRateHz ?? 20),
+          goalPushRateHz: Number(payload.goal_push_rate_hz ?? 0),
+          sourceTickRateHz: Number(payload.source_tick_rate_hz ?? 0),
+          pushEveryNTicks: Number(payload.push_every_n_ticks ?? 1),
+          actualPushRateHz: Number(payload.actual_push_rate_hz ?? 0),
+          lastPushDurationMs: Number(payload.last_push_duration_ms ?? 0),
+          lastPushPeriodMs: Number(payload.last_push_period_ms ?? 0),
+          lastPushCostPctOfPeriod: Number(payload.last_push_cost_pct_of_period ?? 0),
+        });
+      } catch {
+        // Keep telemetry UI resilient if push stats endpoint is unavailable.
+      }
+    };
+    void update();
+    const timerId = window.setInterval(() => {
+      void update();
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [isExpanded, model.instanceURL, telemetryService]);
 
   const workloads = useMemo(() => {
     const unsorted = latestModel?.workloads ?? [];
@@ -178,26 +261,22 @@ export function TelemetryModel({
   }, [latestModel?.workloads, model.expectedWorkloads]);
   const engineClock = (() => {
     if (!latestModel?.getField) return null;
-    const timeNow = Number(latestModel.getField("engine.clock.time_now")?.getValue());
-    const timeNowNs = Number(
+    const timeNow = toFiniteNumber(
+      latestModel.getField("engine.clock.time_now")?.getValue()
+    );
+    const timeNowNs = toFiniteNumber(
       latestModel.getField("engine.clock.time_now_ns")?.getValue()
     );
-    const tickCount = Number(
+    const tickCount = toFiniteNumber(
       latestModel.getField("engine.clock.tick_count")?.getValue()
     );
-    const tickRateHz = Number(
+    const tickRateHz = toFiniteNumber(
       latestModel.getField("engine.clock.tick_rate_hz")?.getValue()
     );
-    const dtSecondsLast = Number(
+    const dtSecondsLast = toFiniteNumber(
       latestModel.getField("engine.clock.dt_seconds_last")?.getValue()
     );
-    if (
-      !Number.isFinite(timeNow) &&
-      !Number.isFinite(timeNowNs) &&
-      !Number.isFinite(tickCount) &&
-      !Number.isFinite(tickRateHz) &&
-      !Number.isFinite(dtSecondsLast)
-    ) {
+    if (timeNow === null && timeNowNs === null && tickCount === null && tickRateHz === null && dtSecondsLast === null) {
       return null;
     }
     return { timeNow, timeNowNs, tickCount, tickRateHz, dtSecondsLast };
@@ -213,6 +292,27 @@ export function TelemetryModel({
   const handleToggle = () => setIsExpanded((prev) => !prev);
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
   const stopInputPropagation = (e: React.SyntheticEvent) => e.stopPropagation();
+  const engineClockText = engineClock
+    ? `Engine Clock: time_now=${engineClock.timeNow !== null ? engineClock.timeNow.toFixed(3) : "0.000"}s | tick_rate_hz=${engineClock.tickRateHz !== null ? engineClock.tickRateHz.toFixed(2) : "0.00"} | dt_seconds_last=${engineClock.dtSecondsLast !== null ? engineClock.dtSecondsLast.toFixed(6) : "0.000000"}`
+    : null;
+  const enginePushText = `Engine Telemetry: configured ${
+    pushStats ? pushStats.configuredPushRateHz.toFixed(1) : (telemetryPushRateHz || 20).toFixed(1)
+  } Hz | quantized ${
+    pushStats ? pushStats.goalPushRateHz.toFixed(1) : (telemetryPushRateHz || 20).toFixed(1)
+  } Hz${
+    pushStats && pushStats.sourceTickRateHz > 0
+      ? ` (${pushStats.pushEveryNTicks.toFixed(0)} ticks @ ${pushStats.sourceTickRateHz.toFixed(1)}Hz)`
+      : ""
+  } | actual ${
+    pushStats ? pushStats.actualPushRateHz.toFixed(1) : "0.0"
+  } Hz | tx duty ${
+    pushStats ? `${pushStats.lastPushCostPctOfPeriod.toFixed(1)}%` : "0.0%"
+  }${
+    pushStats
+      ? ` (send ${pushStats.lastPushDurationMs.toFixed(1)}ms / period ${pushStats.lastPushPeriodMs.toFixed(1)}ms)`
+      : ""
+  }`;
+  const studioPushText = `Studio Telemetry: ingress ${studioIngressRateHz.toFixed(1)} Hz | requested (this panel) ${uiSampleRateHz.toFixed(1)} Hz`;
 
   return (
     <div className={styles.model}>
@@ -259,12 +359,7 @@ export function TelemetryModel({
           )}
           {isExpanded && (
             <>
-              {" | telemetry sample rate: "}
-              <span className={styles.sampleRateInfo}>
-                {preferredSampleRateHz
-                  ? `model ${preferredSampleRateHz} Hz, UI ${uiSampleRateHz} Hz`
-                  : `model 20 Hz, UI ${uiSampleRateHz} Hz`}
-              </span>
+              {" | telemetry push stats below"}
             </>
           )}
         </div>
@@ -272,30 +367,25 @@ export function TelemetryModel({
 
       {isExpanded && (
         <div onClick={stopPropagation}>
-          {engineClock && (
-            <div className={styles.engineStats}>
-              engine clock: time_now=
-              {Number.isFinite(engineClock.timeNow)
-                ? engineClock.timeNow.toFixed(3)
-                : "-"}
-              s | time_now_ns=
-              {Number.isFinite(engineClock.timeNowNs)
-                ? Math.trunc(engineClock.timeNowNs).toLocaleString()
-                : "-"}
-              {" | "}tick_count=
-              {Number.isFinite(engineClock.tickCount)
-                ? Math.trunc(engineClock.tickCount).toLocaleString()
-                : "-"}
-              {" | "}tick_rate_hz=
-              {Number.isFinite(engineClock.tickRateHz)
-                ? engineClock.tickRateHz.toFixed(2)
-                : "-"}
-              {" | "}dt_seconds_last=
-              {Number.isFinite(engineClock.dtSecondsLast)
-                ? engineClock.dtSecondsLast.toFixed(6)
-                : "-"}
+          <div className={styles.telemetryStatsStack}>
+            {engineClockText && (
+              <div className={`${styles.engineStats} ${styles.telemetryStatsCapsule}`}>
+                {engineClockText}
+              </div>
+            )}
+            <div className={styles.telemetryStatsFlowRow}>
+              <div className={`${styles.engineStats} ${styles.telemetryStatsCapsule}`}>
+                {enginePushText}
+              </div>
+              <span className={styles.telemetryStatsArrow} aria-hidden="true">
+                <span className={styles.telemetryStatsArrowShaft} />
+                <span className={styles.telemetryStatsArrowHead} />
+              </span>
+              <div className={`${styles.engineStats} ${styles.telemetryStatsCapsule}`}>
+                {studioPushText}
+              </div>
             </div>
-          )}
+          </div>
           {error ? (
             <div style={{ color: "#ff6b6b", marginBottom: "0.5rem" }}>
               Failed to load telemetry: {String(error)}

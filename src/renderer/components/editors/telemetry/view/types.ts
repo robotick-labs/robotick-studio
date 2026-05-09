@@ -10,7 +10,7 @@ export interface EngineModel {
   modelName: string;
   modelPath: string;
   instanceURL: string;
-  preferredSampleRateHz?: number;
+  telemetryPushRateHz?: number;
   fieldConnectionHints: Record<string, FieldConnectionHint>;
   expectedWorkloads?: Array<{ name: string; type: string }>;
 }

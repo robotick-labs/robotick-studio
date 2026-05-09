@@ -26,7 +26,7 @@ function createModel(
   options: {
     modelId?: string;
     isGateway?: boolean;
-    preferredSampleRateHz?: number;
+    telemetryPushRateHz?: number;
   } = {},
 ) {
   return {
@@ -34,8 +34,8 @@ function createModel(
     id: options.modelId ?? "",
     telemetry: {
       port,
-      ...(options.preferredSampleRateHz
-        ? { preferred_sample_rate_hz: options.preferredSampleRateHz }
+      ...(options.telemetryPushRateHz
+        ? { telemetry_push_rate_hz: options.telemetryPushRateHz }
         : {}),
       ...(options.isGateway ? { is_gateway: true } : {}),
     },
@@ -495,7 +495,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("surfaces advisory telemetry sample rates from model yaml", async () => {
+  it("surfaces telemetry push rate from model yaml", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       const path = url.pathname;
@@ -511,7 +511,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
       ) {
         return createJsonResponse(
           createModel("SampleBot Spine", 7104, "10.42.0.2", {
-            preferredSampleRateHz: 7.5,
+            telemetryPushRateHz: 7.5,
           }),
         );
       }
@@ -527,7 +527,58 @@ describe("launcher-interface gateway telemetry resolution", () => {
     const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
 
     expect(models).toHaveLength(1);
-    expect(models[0]?.preferredTelemetrySampleRateHz).toBe(7.5);
+    expect(models[0]?.telemetryPushRateHz).toBe(7.5);
+  });
+
+  it("defaults telemetry push rate to 20Hz and ignores legacy preferred_sample_rate_hz", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      const modelPath = url.searchParams.get("model_path");
+
+      if (path === "/query/list-project-models") {
+        return createJsonResponse([
+          "models/sample-robot-spine.model.yaml",
+          "models/sample-robot-face.model.yaml",
+        ]);
+      }
+
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
+        return createJsonResponse(
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+        );
+      }
+
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
+        return createJsonResponse({
+          ...createModel("SampleBot Face", 7103, "10.42.0.3"),
+          telemetry: {
+            port: 7103,
+            preferred_sample_rate_hz: 3.5,
+          },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    const models = await launcherInterface.refreshProjectModels("/tmp/sample-robot");
+    expect(models).toHaveLength(2);
+
+    const byPath = new Map(models.map((model) => [model.modelPath, model]));
+    expect(byPath.get("models/sample-robot-spine.model.yaml")?.telemetryPushRateHz).toBe(20);
+    expect(byPath.get("models/sample-robot-face.model.yaml")?.telemetryPushRateHz).toBe(20);
   });
 
   it("loads workloads registry metadata for a project/target", async () => {

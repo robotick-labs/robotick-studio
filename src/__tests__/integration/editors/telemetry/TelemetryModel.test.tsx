@@ -73,7 +73,7 @@ describe("TelemetryModel", () => {
           modelName: "Face",
           modelPath: "robots/example/face.model.yaml",
           instanceURL: "http://example.test:7100",
-          preferredSampleRateHz: 10,
+          telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
         index={10}
@@ -137,7 +137,7 @@ describe("TelemetryModel", () => {
           modelName: "Face",
           modelPath: "robots/example/face.model.yaml",
           instanceURL: "http://example.test:7100",
-          preferredSampleRateHz: 10,
+          telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
         index={10}

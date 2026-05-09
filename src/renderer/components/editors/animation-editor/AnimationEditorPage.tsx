@@ -149,6 +149,8 @@ const DEFAULT_SMOOTH_FALLOFF_SEC = 0.18;
 const DEFAULT_SMOOTH_STRENGTH = 0.65;
 const DEFAULT_SMOOTH_APPLY_RATE_HZ = 60;
 const DEFAULT_SMOOTH_RANGE_SEC = 0.45;
+const ANIM_TELEMETRY_SAMPLE_RATE_HZ = 20;
+const CADENCE_WINDOW_MS = 4000;
 function parsePersistedAnimEditorState(rawValue: string | null): PersistedAnimEditorState | null {
   if (!rawValue) return null;
   try {
@@ -680,7 +682,7 @@ export default function AnimationEditorPage() {
     },
     [animTelemetryServiceId, telemetryBaseUrl]
   );
-  const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, 20);
+  const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, ANIM_TELEMETRY_SAMPLE_RATE_HZ);
   const fallbackWorkloadNameFromServiceId = React.useMemo(() => {
     if (!animTelemetryServiceId) return "";
     if (animTelemetryServiceId.startsWith("anim:")) {
@@ -1107,6 +1109,9 @@ export default function AnimationEditorPage() {
   const durationSec = Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec);
   const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
   const playheadSec = localScrubTimeSec ?? runtimePlayheadSec ?? 0;
+  const playheadRenderCadenceSamplesRef = React.useRef<number[]>([]);
+  const [telemetryReceiveHz, setTelemetryReceiveHz] = React.useState(0);
+  const [playheadRenderHz, setPlayheadRenderHz] = React.useState(0);
   const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
   const isLoopResetActive = Boolean(isLoopResetActiveRaw);
   const loopResetProgressNorm =
@@ -1248,6 +1253,46 @@ export default function AnimationEditorPage() {
     if (playbackState === null) return;
     setIsPlaying(isAnimPlaybackActive(playbackState));
   }, [playbackState]);
+
+  React.useEffect(() => {
+    if (!telemetryBaseUrl) {
+      setTelemetryReceiveHz(0);
+      return;
+    }
+    const update = () => {
+      setTelemetryReceiveHz(
+        telemetryService.getIngressRateHz(telemetryBaseUrl, CADENCE_WINDOW_MS)
+      );
+    };
+    update();
+    const intervalId = window.setInterval(update, 250);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [telemetryBaseUrl, telemetryService]);
+
+  const notePlayheadRendered = React.useCallback(() => {
+    const nowMs = performance.now();
+    const next = [...playheadRenderCadenceSamplesRef.current, nowMs].filter(
+      (tsMs) => nowMs - tsMs <= CADENCE_WINDOW_MS
+    );
+    playheadRenderCadenceSamplesRef.current = next;
+    if (next.length < 2) {
+      setPlayheadRenderHz(0);
+      return;
+    }
+    const spanMs = Math.max(1, next[next.length - 1] - next[0]);
+    setPlayheadRenderHz(((next.length - 1) * 1000) / spanMs);
+  }, []);
+
+  const cadenceHudText = React.useMemo(
+    () => [
+      `anim telemetry recv: ${telemetryReceiveHz.toFixed(1)} Hz`,
+      `studio requested: ${ANIM_TELEMETRY_SAMPLE_RATE_HZ.toFixed(1)} Hz`,
+      `playhead rendered: ${playheadRenderHz.toFixed(1)} Hz`,
+    ].join("\n"),
+    [playheadRenderHz, telemetryReceiveHz]
+  );
 
   React.useEffect(() => {
     setRangeSizeDraft(rangeSizeSec.toFixed(3));
@@ -1962,6 +2007,8 @@ export default function AnimationEditorPage() {
           beginPlayheadDragFromClientX={beginPlayheadDragFromClientX}
           viewportRangeNorm={timelineViewportRangeNorm}
           onViewportRangeNormChange={setTimelineViewportRangeNorm}
+          cadenceHudText={cadenceHudText}
+          onPlayheadRendered={notePlayheadRendered}
         />
 
         <AnimationToolBar

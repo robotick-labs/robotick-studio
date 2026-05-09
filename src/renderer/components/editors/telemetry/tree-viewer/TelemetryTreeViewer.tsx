@@ -321,7 +321,7 @@ export default function TelemetryTreeViewer() {
   const telemetryBaseUrl =
     migratedSettings.telemetryBaseUrl ?? selectedModel?.telemetryBaseUrl ?? "";
   const requestedSamplingRateHz =
-    selectedModel?.preferredTelemetrySampleRateHz ?? 10;
+    selectedModel?.telemetryPushRateHz ?? 10;
   const samplingRateHz = Math.min(
     requestedSamplingRateHz,
     TREE_VIEWER_MAX_SAMPLE_RATE_HZ
