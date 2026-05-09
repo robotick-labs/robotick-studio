@@ -1017,7 +1017,6 @@
   stroke: #77ceff;
   stroke-width: 2.2;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 3px rgba(89, 173, 255, 0.45));
 }
 
 .laneArea {
