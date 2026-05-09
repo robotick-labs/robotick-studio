@@ -82,10 +82,9 @@ export function TelemetryModel({
   model: EngineModel;
   index: number;
 }) {
-  const MAX_UI_SAMPLE_RATE_HZ = 8;
+  const MAX_UI_SAMPLE_RATE_HZ = 10;
   const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
   const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
-  const sampleRateOverrideKey = `telemetry-sample-rate-${urlToId(model.instanceURL)}`;
   const workloadSortKeyStorageKey = `telemetry-workload-sort-${modelStorageId}`;
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     try {
@@ -95,13 +94,6 @@ export function TelemetryModel({
       // Storage may be unavailable (e.g., hardened Electron contexts)
     }
     return index < 4; // default-open first 4 models
-  });
-  const [sampleRateOverrideText, setPollRateOverrideText] = useState<string>(() => {
-    try {
-      return localStorage.getItem(sampleRateOverrideKey) ?? "";
-    } catch {
-      return "";
-    }
   });
   const [workloadSortKey, setWorkloadSortKey] = useState<WorkloadSortKey>(() => {
     try {
@@ -122,11 +114,7 @@ export function TelemetryModel({
     return "none";
   });
   const preferredSampleRateHz = model.preferredSampleRateHz;
-  const parsedOverrideSampleRateHz = Number(sampleRateOverrideText.trim());
-  const effectiveSampleRateHz =
-    Number.isFinite(parsedOverrideSampleRateHz) && parsedOverrideSampleRateHz > 0
-      ? parsedOverrideSampleRateHz
-      : preferredSampleRateHz ?? 20;
+  const effectiveSampleRateHz = preferredSampleRateHz ?? 20;
   const uiSampleRateHz = Math.max(
     1,
     Math.min(effectiveSampleRateHz, MAX_UI_SAMPLE_RATE_HZ)
@@ -139,19 +127,6 @@ export function TelemetryModel({
       // ignore storage failures so UI keeps working
     }
   }, [isExpanded, storageKey]);
-
-  useEffect(() => {
-    try {
-      const trimmed = sampleRateOverrideText.trim();
-      if (trimmed.length === 0) {
-        localStorage.removeItem(sampleRateOverrideKey);
-      } else {
-        localStorage.setItem(sampleRateOverrideKey, trimmed);
-      }
-    } catch {
-      // ignore storage failures so UI keeps working
-    }
-  }, [sampleRateOverrideKey, sampleRateOverrideText]);
 
   useEffect(() => {
     try {
@@ -284,29 +259,11 @@ export function TelemetryModel({
           )}
           {isExpanded && (
             <>
-              {" | sample rate (Hz): "}
-              <input
-                id={`sample-rate-${urlToId(model.instanceURL)}`}
-                type="text"
-                inputMode="decimal"
-                className={styles.sampleRateInput}
-                value={sampleRateOverrideText}
-                placeholder={
-                  preferredSampleRateHz ? String(preferredSampleRateHz) : String(20)
-                }
-                onChange={(e) => setPollRateOverrideText(e.target.value)}
-                onClick={stopInputPropagation}
-                onFocus={stopInputPropagation}
-              />
-              {" "}
+              {" | telemetry sample rate: "}
               <span className={styles.sampleRateInfo}>
-                using {uiSampleRateHz} Hz in UI
-                {effectiveSampleRateHz !== uiSampleRateHz
-                  ? ` (capped from ${effectiveSampleRateHz} Hz)`
-                  : ""}
                 {preferredSampleRateHz
-                  ? ` (model hint ${preferredSampleRateHz} Hz)`
-                  : " (default 20 Hz)"}
+                  ? `model ${preferredSampleRateHz} Hz, UI ${uiSampleRateHz} Hz`
+                  : `model 20 Hz, UI ${uiSampleRateHz} Hz`}
               </span>
             </>
           )}

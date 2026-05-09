@@ -525,6 +525,229 @@ type AnimationTimelineViewportProps = {
   onViewportRangeNormChange: (next: { startNorm: number; endNorm: number }) => void;
 };
 
+type LaneListProps = {
+  firstLaneSvgRef: React.RefObject<SVGSVGElement | null>;
+  visibleChannels: string[];
+  clipDataChannels: Record<string, Float32Array>;
+  durationSec: number;
+  laneRange: Record<string, LaneRange>;
+  defaultLaneRangeForChannel: (channel: string, samples: ArrayLike<number>) => LaneRange;
+  channelColor: Record<string, string>;
+  hoveredChannel: string | null;
+  selectedChannel: string | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  selectedTimeRange: TimeSelectionRange | null;
+  rangeFalloffSec: number;
+  smoothBrushPreview: { channel: string; centerSec: number } | null;
+  smoothRangeSec: number;
+  smoothFalloffSec: number;
+  handleLaneHoverChange: (channel: string, hovered: boolean) => void;
+  handleLaneSelect: (channel: string) => void;
+  setLaneRangeForChannel: (channel: string, nextRange: LaneRange) => void;
+  fitLaneRangeForChannel: (channel: string) => void;
+  beginDrawStroke: (
+    event: React.PointerEvent<SVGSVGElement>,
+    channel: string,
+    channelSamples: Float32Array,
+    minV: number,
+    maxV: number
+  ) => void;
+  beginRangeOffset: (
+    event: React.PointerEvent<SVGCircleElement>,
+    channel: string,
+    channelSamples: Float32Array,
+    minV: number,
+    maxV: number
+  ) => void;
+  handleSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
+  viewportRangeNorm: { startNorm: number; endNorm: number };
+};
+
+const LaneList = React.memo(function LaneList({
+  firstLaneSvgRef,
+  visibleChannels,
+  clipDataChannels,
+  durationSec,
+  laneRange,
+  defaultLaneRangeForChannel,
+  channelColor,
+  hoveredChannel,
+  selectedChannel,
+  activeTool,
+  selectedTimeRange,
+  rangeFalloffSec,
+  smoothBrushPreview,
+  smoothRangeSec,
+  smoothFalloffSec,
+  handleLaneHoverChange,
+  handleLaneSelect,
+  setLaneRangeForChannel,
+  fitLaneRangeForChannel,
+  beginDrawStroke,
+  beginRangeOffset,
+  handleSmoothBrushPreviewChange,
+  viewportRangeNorm,
+}: LaneListProps) {
+  return (
+    <div className={styles.lanes}>
+      {visibleChannels.map((channel) => {
+        const samples = clipDataChannels[channel] ?? new Float32Array(0);
+        return (
+          <LaneRow
+            key={channel}
+            channel={channel}
+            samples={samples}
+            durationSec={durationSec}
+            range={laneRange[channel] ?? defaultLaneRangeForChannel(channel, samples)}
+            color={channelColor[channel] ?? "#77ceff"}
+            isHovered={hoveredChannel === channel}
+            isSelected={selectedChannel === channel}
+            drawActive={activeTool !== null}
+            selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
+            rangeFalloffSec={activeTool === "Range" ? rangeFalloffSec : 0}
+            smoothBrushPreview={
+              activeTool === "Smooth" && smoothBrushPreview?.channel === channel
+                ? {
+                    centerSec: smoothBrushPreview.centerSec,
+                    coreRangeSec: smoothRangeSec,
+                    falloffSec: smoothFalloffSec,
+                  }
+                : null
+            }
+            isFirstVisible={visibleChannels[0] === channel}
+            onHoverChange={handleLaneHoverChange}
+            onSelect={handleLaneSelect}
+            onRangeChange={setLaneRangeForChannel}
+            onFitRange={fitLaneRangeForChannel}
+            onBeginDraw={beginDrawStroke}
+            onBeginRangeOffset={beginRangeOffset}
+            onSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
+            firstLaneSvgRef={firstLaneSvgRef}
+            viewportRangeNorm={viewportRangeNorm}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
+type PlayheadOverlayProps = {
+  playheadViewportRef: React.RefObject<HTMLDivElement | null>;
+  playheadViewportInsetsPx: { left: number; right: number };
+  overlayWidth: number;
+  playheadOverlayMetrics: {
+    width: number;
+    height: number;
+    topRulerHeight: number;
+    bottomRulerTop: number;
+    bottomRulerHeight: number;
+    topBlobCenterY: number;
+    bottomBlobCenterY: number;
+  };
+  beginRangeSelection: (event: React.PointerEvent<Element>) => void;
+  normalizedSelectedTimeRange: { startNorm: number; endNorm: number } | null;
+  normalizedSelectionFalloff: number;
+  isLoopResetActive: boolean;
+  loopResetSlugRangeNorm: { left: number; right: number };
+  rulerMarks: { norm: number; label: string }[];
+  durationSec: number;
+  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  playheadTimeSec: number;
+  beginPlayheadDragFromClientX: (clientX: number) => void;
+  viewportRangeNorm: { startNorm: number; endNorm: number };
+};
+
+const PlayheadOverlay = React.memo(function PlayheadOverlay({
+  playheadViewportRef,
+  playheadViewportInsetsPx,
+  overlayWidth,
+  playheadOverlayMetrics,
+  beginRangeSelection,
+  normalizedSelectedTimeRange,
+  normalizedSelectionFalloff,
+  isLoopResetActive,
+  loopResetSlugRangeNorm,
+  rulerMarks,
+  durationSec,
+  activeTool,
+  playheadTimeSec,
+  beginPlayheadDragFromClientX,
+  viewportRangeNorm,
+}: PlayheadOverlayProps) {
+  const lineRef = React.useRef<SVGLineElement | null>(null);
+  const topBlobRef = React.useRef<SVGRectElement | null>(null);
+  const bottomBlobRef = React.useRef<SVGRectElement | null>(null);
+  const grabRef = React.useRef<SVGRectElement | null>(null);
+  const viewportWidthNorm = Math.max(1e-3, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
+  const toViewportNormUnclamped = React.useCallback(
+    (globalNorm: number) => (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm,
+    [viewportRangeNorm.startNorm, viewportWidthNorm]
+  );
+  React.useLayoutEffect(() => {
+    const playheadNorm = durationSec > 0 ? Math.min(1, Math.max(0, playheadTimeSec / durationSec)) : 0;
+    const x = toViewportNormUnclamped(playheadNorm) * overlayWidth;
+    if (lineRef.current) {
+      lineRef.current.setAttribute("x1", x.toFixed(2));
+      lineRef.current.setAttribute("x2", x.toFixed(2));
+    }
+    if (topBlobRef.current) {
+      topBlobRef.current.setAttribute("x", (x - 5).toFixed(2));
+    }
+    if (bottomBlobRef.current) {
+      bottomBlobRef.current.setAttribute("x", (x - 5).toFixed(2));
+    }
+    if (grabRef.current) {
+      grabRef.current.setAttribute("x", (x - 9).toFixed(2));
+    }
+  }, [durationSec, overlayWidth, playheadTimeSec, toViewportNormUnclamped]);
+  return (
+    <div
+      ref={playheadViewportRef}
+      className={styles.playheadViewport}
+      style={{
+        left: `${playheadViewportInsetsPx.left}px`,
+        right: `${playheadViewportInsetsPx.right}px`,
+      }}
+    >
+      <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
+        <rect x={0} y={0} width={overlayWidth} height={playheadOverlayMetrics.topRulerHeight} className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect} onPointerDown={beginRangeSelection} />
+        {normalizedSelectedTimeRange && normalizedSelectionFalloff > 0 ? (
+          <>
+            {normalizedSelectedTimeRange.startNorm > 0 ? (
+              <rect x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedSelectionFalloff) * overlayWidth)} y={2} width={Math.max(0, Math.min(normalizedSelectedTimeRange.startNorm, normalizedSelectionFalloff) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
+            ) : null}
+            {normalizedSelectedTimeRange.endNorm < 1 ? (
+              <rect x={normalizedSelectedTimeRange.endNorm * overlayWidth} y={2} width={Math.max(0, Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedSelectionFalloff) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
+            ) : null}
+          </>
+        ) : null}
+        {normalizedSelectedTimeRange ? (
+          <rect x={normalizedSelectedTimeRange.startNorm * overlayWidth} y={2} width={Math.max(3, (normalizedSelectedTimeRange.endNorm - normalizedSelectedTimeRange.startNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeSelectionBandRuler} />
+        ) : null}
+        {isLoopResetActive ? (
+          <rect x={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth))} y={2} width={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.right * overlayWidth) - Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth)))} height={5} className={styles.loopResetSlugSvg} />
+        ) : null}
+        {rulerMarks.map((mark, index) => (
+          <text key={`top-${index}`} x={mark.norm * overlayWidth} y={Math.max(12, playheadOverlayMetrics.topRulerHeight - 9)} className={styles.rulerMarkSvg} textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}>
+            {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
+          </text>
+        ))}
+        {rulerMarks.map((mark, index) => (
+          <text key={`bottom-${index}`} x={mark.norm * overlayWidth} y={Math.max(playheadOverlayMetrics.bottomRulerTop + 12, playheadOverlayMetrics.bottomRulerTop + playheadOverlayMetrics.bottomRulerHeight - 9)} className={styles.rulerMarkSvg} textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}>
+            {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
+          </text>
+        ))}
+        <line ref={lineRef} data-testid="timeline-playhead-line" x1={0} x2={0} y1={playheadOverlayMetrics.topBlobCenterY} y2={playheadOverlayMetrics.bottomBlobCenterY} className={`${styles.playheadLineSvg} ${activeTool !== null ? styles.playheadLineMutedSvg : ""}`} />
+        <rect ref={topBlobRef} x={-5} y={playheadOverlayMetrics.topBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        <rect ref={bottomBlobRef} x={-5} y={playheadOverlayMetrics.bottomBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        {activeTool === null ? (
+          <rect ref={grabRef} x={-9} y={playheadOverlayMetrics.topBlobCenterY} width={18} height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)} className={styles.playheadGrabSvg} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        ) : null}
+      </svg>
+    </div>
+  );
+});
+
 export function AnimationTimelineViewport(props: AnimationTimelineViewportProps) {
   const {
     timelineRef,
@@ -568,38 +791,7 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     onViewportRangeNormChange,
   } = props;
 
-  const lineRef = React.useRef<SVGLineElement | null>(null);
-  const topBlobRef = React.useRef<SVGRectElement | null>(null);
-  const bottomBlobRef = React.useRef<SVGRectElement | null>(null);
-  const grabRef = React.useRef<SVGRectElement | null>(null);
   const scrollbarTrackRef = React.useRef<HTMLDivElement | null>(null);
-  const viewportWidthNorm = Math.max(1e-3, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
-  const toViewportNorm = React.useCallback(
-    (globalNorm: number) => Math.min(1, Math.max(0, (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm)),
-    [viewportRangeNorm.startNorm, viewportWidthNorm]
-  );
-  const toViewportNormUnclamped = React.useCallback(
-    (globalNorm: number) => (globalNorm - viewportRangeNorm.startNorm) / viewportWidthNorm,
-    [viewportRangeNorm.startNorm, viewportWidthNorm]
-  );
-
-  React.useLayoutEffect(() => {
-    const playheadNorm = durationSec > 0 ? Math.min(1, Math.max(0, playheadTimeSec / durationSec)) : 0;
-    const x = toViewportNormUnclamped(playheadNorm) * overlayWidth;
-    if (lineRef.current) {
-      lineRef.current.setAttribute("x1", x.toFixed(2));
-      lineRef.current.setAttribute("x2", x.toFixed(2));
-    }
-    if (topBlobRef.current) {
-      topBlobRef.current.setAttribute("x", (x - 5).toFixed(2));
-    }
-    if (bottomBlobRef.current) {
-      bottomBlobRef.current.setAttribute("x", (x - 5).toFixed(2));
-    }
-    if (grabRef.current) {
-      grabRef.current.setAttribute("x", (x - 9).toFixed(2));
-    }
-  }, [durationSec, overlayWidth, playheadTimeSec, toViewportNormUnclamped]);
 
   const beginScrollbarDrag = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -649,45 +841,31 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     <main className={styles.timelineArea}>
       <section ref={timelineRef} className={styles.timelineCanvas} aria-label="Animation timeline">
         <div ref={topRulerRef} className={styles.timeRuler} />
-        <div className={styles.lanes}>
-          {visibleChannels.map((channel) => {
-            const samples = clipDataChannels[channel] ?? new Float32Array(0);
-            return (
-              <LaneRow
-                key={channel}
-                channel={channel}
-                samples={samples}
-                durationSec={durationSec}
-                range={laneRange[channel] ?? defaultLaneRangeForChannel(channel, samples)}
-                color={channelColor[channel] ?? "#77ceff"}
-                isHovered={hoveredChannel === channel}
-                isSelected={selectedChannel === channel}
-                drawActive={activeTool !== null}
-                selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
-                rangeFalloffSec={activeTool === "Range" ? rangeFalloffSec : 0}
-                smoothBrushPreview={
-                  activeTool === "Smooth" && smoothBrushPreview?.channel === channel
-                    ? {
-                        centerSec: smoothBrushPreview.centerSec,
-                        coreRangeSec: smoothRangeSec,
-                        falloffSec: smoothFalloffSec,
-                      }
-                    : null
-                }
-                isFirstVisible={visibleChannels[0] === channel}
-                onHoverChange={handleLaneHoverChange}
-                onSelect={handleLaneSelect}
-                onRangeChange={setLaneRangeForChannel}
-                onFitRange={fitLaneRangeForChannel}
-                onBeginDraw={beginDrawStroke}
-                onBeginRangeOffset={beginRangeOffset}
-                onSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
-                firstLaneSvgRef={firstLaneSvgRef}
-                viewportRangeNorm={viewportRangeNorm}
-              />
-            );
-          })}
-        </div>
+        <LaneList
+          firstLaneSvgRef={firstLaneSvgRef}
+          visibleChannels={visibleChannels}
+          clipDataChannels={clipDataChannels}
+          durationSec={durationSec}
+          laneRange={laneRange}
+          defaultLaneRangeForChannel={defaultLaneRangeForChannel}
+          channelColor={channelColor}
+          hoveredChannel={hoveredChannel}
+          selectedChannel={selectedChannel}
+          activeTool={activeTool}
+          selectedTimeRange={selectedTimeRange}
+          rangeFalloffSec={rangeFalloffSec}
+          smoothBrushPreview={smoothBrushPreview}
+          smoothRangeSec={smoothRangeSec}
+          smoothFalloffSec={smoothFalloffSec}
+          handleLaneHoverChange={handleLaneHoverChange}
+          handleLaneSelect={handleLaneSelect}
+          setLaneRangeForChannel={setLaneRangeForChannel}
+          fitLaneRangeForChannel={fitLaneRangeForChannel}
+          beginDrawStroke={beginDrawStroke}
+          beginRangeOffset={beginRangeOffset}
+          handleSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
+          viewportRangeNorm={viewportRangeNorm}
+        />
         <div ref={bottomRulerRef} className={styles.timeRulerBottom} />
         <div
           ref={scrollbarTrackRef}
@@ -706,146 +884,23 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
             <span className={styles.timelineWindowHandle} />
           </div>
         </div>
-        <div
-          ref={playheadViewportRef}
-          className={styles.playheadViewport}
-          style={{
-            left: `${playheadViewportInsetsPx.left}px`,
-            right: `${playheadViewportInsetsPx.right}px`,
-          }}
-        >
-          <svg
-            className={styles.playheadOverlaySvg}
-            viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`}
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <rect
-              x={0}
-              y={0}
-              width={overlayWidth}
-              height={playheadOverlayMetrics.topRulerHeight}
-              className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect}
-              onPointerDown={beginRangeSelection}
-            />
-            {normalizedSelectedTimeRange && normalizedSelectionFalloff > 0 ? (
-              <>
-                {normalizedSelectedTimeRange.startNorm > 0 ? (
-                  <rect
-                    x={Math.max(0, (normalizedSelectedTimeRange.startNorm - normalizedSelectionFalloff) * overlayWidth)}
-                    y={2}
-                    width={Math.max(0, Math.min(normalizedSelectedTimeRange.startNorm, normalizedSelectionFalloff) * overlayWidth)}
-                    height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
-                    className={styles.rangeFalloffBandRuler}
-                  />
-                ) : null}
-                {normalizedSelectedTimeRange.endNorm < 1 ? (
-                  <rect
-                    x={normalizedSelectedTimeRange.endNorm * overlayWidth}
-                    y={2}
-                    width={Math.max(0, Math.min(1 - normalizedSelectedTimeRange.endNorm, normalizedSelectionFalloff) * overlayWidth)}
-                    height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
-                    className={styles.rangeFalloffBandRuler}
-                  />
-                ) : null}
-              </>
-            ) : null}
-            {normalizedSelectedTimeRange ? (
-              <rect
-                x={normalizedSelectedTimeRange.startNorm * overlayWidth}
-                y={2}
-                width={Math.max(3, (normalizedSelectedTimeRange.endNorm - normalizedSelectedTimeRange.startNorm) * overlayWidth)}
-                height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
-                className={styles.rangeSelectionBandRuler}
-              />
-            ) : null}
-            {isLoopResetActive ? (
-              <rect
-                x={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth))}
-                y={2}
-                width={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.right * overlayWidth) - Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth)))}
-                height={5}
-                className={styles.loopResetSlugSvg}
-              />
-            ) : null}
-            {rulerMarks.map((mark, index) => (
-              <text
-                key={`top-${index}`}
-                x={mark.norm * overlayWidth}
-                y={Math.max(12, playheadOverlayMetrics.topRulerHeight - 9)}
-                className={styles.rulerMarkSvg}
-                textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}
-              >
-                {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
-              </text>
-            ))}
-            {rulerMarks.map((mark, index) => (
-              <text
-                key={`bottom-${index}`}
-                x={mark.norm * overlayWidth}
-                y={Math.max(playheadOverlayMetrics.bottomRulerTop + 12, playheadOverlayMetrics.bottomRulerTop + playheadOverlayMetrics.bottomRulerHeight - 9)}
-                className={styles.rulerMarkSvg}
-                textAnchor={index === 0 ? "start" : index === rulerMarks.length - 1 ? "end" : "middle"}
-              >
-                {`${(durationSec * (viewportRangeNorm.startNorm + mark.norm * viewportWidthNorm)).toFixed(1)}s`}
-              </text>
-            ))}
-            <line
-              ref={lineRef}
-              data-testid="timeline-playhead-line"
-              x1={0}
-              x2={0}
-              y1={playheadOverlayMetrics.topBlobCenterY}
-              y2={playheadOverlayMetrics.bottomBlobCenterY}
-              className={`${styles.playheadLineSvg} ${activeTool !== null ? styles.playheadLineMutedSvg : ""}`}
-            />
-            <rect
-              ref={topBlobRef}
-              x={-5}
-              y={playheadOverlayMetrics.topBlobCenterY - 6}
-              width={10}
-              height={12}
-              rx={4}
-              ry={4}
-              className={styles.rulerEndBlobSvg}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                beginPlayheadDragFromClientX(event.clientX);
-              }}
-            />
-            <rect
-              ref={bottomBlobRef}
-              x={-5}
-              y={playheadOverlayMetrics.bottomBlobCenterY - 6}
-              width={10}
-              height={12}
-              rx={4}
-              ry={4}
-              className={styles.rulerEndBlobSvg}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                beginPlayheadDragFromClientX(event.clientX);
-              }}
-            />
-            {activeTool === null ? (
-              <rect
-                ref={grabRef}
-                x={-9}
-                y={playheadOverlayMetrics.topBlobCenterY}
-                width={18}
-                height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)}
-                className={styles.playheadGrabSvg}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  beginPlayheadDragFromClientX(event.clientX);
-                }}
-              />
-            ) : null}
-          </svg>
-        </div>
+        <PlayheadOverlay
+          playheadViewportRef={playheadViewportRef}
+          playheadViewportInsetsPx={playheadViewportInsetsPx}
+          overlayWidth={overlayWidth}
+          playheadOverlayMetrics={playheadOverlayMetrics}
+          beginRangeSelection={beginRangeSelection}
+          normalizedSelectedTimeRange={normalizedSelectedTimeRange}
+          normalizedSelectionFalloff={normalizedSelectionFalloff}
+          isLoopResetActive={isLoopResetActive}
+          loopResetSlugRangeNorm={loopResetSlugRangeNorm}
+          rulerMarks={rulerMarks}
+          durationSec={durationSec}
+          activeTool={activeTool}
+          playheadTimeSec={playheadTimeSec}
+          beginPlayheadDragFromClientX={beginPlayheadDragFromClientX}
+          viewportRangeNorm={viewportRangeNorm}
+        />
       </section>
     </main>
   );

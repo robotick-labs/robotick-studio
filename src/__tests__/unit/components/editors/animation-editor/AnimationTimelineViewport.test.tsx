@@ -77,6 +77,8 @@ describe("AnimationTimelineViewport imperative playhead", () => {
       ],
       playheadTimeSec,
       beginPlayheadDragFromClientX: vi.fn(),
+      viewportRangeNorm: { startNorm: 0, endNorm: 1 },
+      onViewportRangeNormChange: vi.fn(),
     };
   }
 
