@@ -143,6 +143,7 @@ const LANE_VIEWBOX_HEIGHT = 40;
 const LANE_CURVE_DRAW_HEIGHT = 34;
 const DEFAULT_RANGE_SIZE_SEC = 0.45;
 const DEFAULT_RANGE_FALLOFF_SEC = 0.12;
+const RANGE_FALLOFF_FRACTION_STEP = 0.05;
 const DEFAULT_FALLOFF_CURVE = 1;
 const DEFAULT_SMOOTH_FALLOFF_SEC = 0.18;
 const DEFAULT_SMOOTH_STRENGTH = 0.65;
@@ -452,6 +453,7 @@ export default function AnimationEditorPage() {
   const [rangeFalloffSec, setRangeFalloffSec] = React.useState(
     () => initialPersistedState?.rangeFalloffSec ?? DEFAULT_RANGE_FALLOFF_SEC
   );
+  const [rangeMidpointDraft, setRangeMidpointDraft] = React.useState("0.000");
   const [rangeSizeDraft, setRangeSizeDraft] = React.useState(() => DEFAULT_RANGE_SIZE_SEC.toFixed(3));
   const [rangeFalloffDraft, setRangeFalloffDraft] = React.useState(() => DEFAULT_RANGE_FALLOFF_SEC.toFixed(3));
   const [rangeFalloffCurve, setRangeFalloffCurve] = React.useState(
@@ -1124,10 +1126,9 @@ export default function AnimationEditorPage() {
     () => normalizeTimeRange(durationSec, selectedTimeRange),
     [durationSec, selectedTimeRange]
   );
-  const activeSelectionFalloffSec = rangeFalloffSec;
   const normalizedSelectionFalloff = React.useMemo(
-    () => (durationSec > 0 ? Math.min(1, Math.max(0, activeSelectionFalloffSec / durationSec)) : 0),
-    [activeSelectionFalloffSec, durationSec]
+    () => Math.min(1, Math.max(0, rangeFalloffSec)),
+    [rangeFalloffSec]
   );
   const rulerMarks = React.useMemo(
     () => [0, 0.2, 0.4, 0.6, 0.8, 1].map((norm) => ({ norm, label: `${(durationSec * norm).toFixed(1)}s` })),
@@ -1169,6 +1170,13 @@ export default function AnimationEditorPage() {
         : DEFAULT_RANGE_SIZE_SEC,
     [selectedTimeRange]
   );
+  const rangeMidpointSec = React.useMemo(
+    () =>
+      selectedTimeRange
+        ? (selectedTimeRange.startSec + selectedTimeRange.endSec) * 0.5
+        : Math.min(durationSec, Math.max(0, playheadSec)),
+    [durationSec, playheadSec, selectedTimeRange]
+  );
 
   const setSelectedTimeRangeDurationSec = React.useCallback(
     (nextDurationSec: number) => {
@@ -1191,6 +1199,27 @@ export default function AnimationEditorPage() {
       });
     },
     [durationSec, playheadSec]
+  );
+
+  const setSelectedTimeRangeMidpointSec = React.useCallback(
+    (nextMidpointSec: number) => {
+      if (!(durationSec > 0)) return;
+      const clampedMidpointSec = Math.min(durationSec, Math.max(0, nextMidpointSec));
+      const clampedDuration = Math.min(durationSec, Math.max(0.01, rangeSizeSec));
+      let startSec = clampedMidpointSec - clampedDuration * 0.5;
+      let endSec = clampedMidpointSec + clampedDuration * 0.5;
+      if (startSec < 0) {
+        endSec = Math.min(durationSec, endSec - startSec);
+        startSec = 0;
+      }
+      if (endSec > durationSec) {
+        const overshoot = endSec - durationSec;
+        startSec = Math.max(0, startSec - overshoot);
+        endSec = durationSec;
+      }
+      setSelectedTimeRange({ startSec, endSec });
+    },
+    [durationSec, rangeSizeSec]
   );
 
   const seekPlayheadToTimeSec = React.useCallback(
@@ -1225,7 +1254,11 @@ export default function AnimationEditorPage() {
   }, [rangeSizeSec]);
 
   React.useEffect(() => {
-    setRangeFalloffDraft(rangeFalloffSec.toFixed(3));
+    setRangeMidpointDraft(rangeMidpointSec.toFixed(3));
+  }, [rangeMidpointSec]);
+
+  React.useEffect(() => {
+    setRangeFalloffDraft(rangeFalloffSec.toFixed(2));
   }, [rangeFalloffSec]);
 
   React.useEffect(() => {
@@ -1678,6 +1711,10 @@ export default function AnimationEditorPage() {
     lineSnapEnd,
     setLineSnapStart,
     setLineSnapEnd,
+    rangeMidpointSec,
+    rangeMidpointDraft,
+    setRangeMidpointDraft,
+    setSelectedTimeRangeMidpointSec,
     rangeSizeSec,
     rangeSizeDraft,
     setRangeSizeDraft,
@@ -1929,12 +1966,13 @@ export default function AnimationEditorPage() {
 
         <AnimationToolBar
           tools={animationTools}
-          activeTool={activeTool}
-          setActiveTool={setActiveTool}
-          settingsContext={toolSettingsContext}
-          durationSec={durationSec}
-          rangeFalloffStepSec={rangeFalloffStepSec}
-          smoothRangeStepSec={smoothRangeStepSec}
+        activeTool={activeTool}
+        setActiveTool={setActiveTool}
+        settingsContext={toolSettingsContext}
+        durationSec={durationSec}
+        rangeFalloffFractionStep={RANGE_FALLOFF_FRACTION_STEP}
+        rangeFalloffStepSec={rangeFalloffStepSec}
+        smoothRangeStepSec={smoothRangeStepSec}
           rangeSizeSec={rangeSizeSec}
           setSelectedTimeRangeDurationSec={setSelectedTimeRangeDurationSec}
           setRangeFalloffSec={setRangeFalloffSec}

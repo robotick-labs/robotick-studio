@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { beginRangeSelectionBehavior } from "../../../../../renderer/components/editors/animation-editor/tools/range/range-behavior";
 import { normalizeTimeRangeToViewport } from "../../../../../renderer/components/editors/animation-editor/AnimationTimelineViewport";
+import { computeCenteredRangeShape } from "../../../../../renderer/components/editors/animation-editor/tools/range/range-shape";
 
 describe("range-behavior", () => {
   it("maps viewport-space pointer positions into absolute clip time", () => {
@@ -77,5 +78,14 @@ describe("range-behavior", () => {
     );
     expect(normalized?.startNorm).toBeCloseTo(0.3, 6);
     expect(normalized?.endNorm).toBeCloseTo(0.7, 6);
+  });
+
+  it("treats selection size as total width and falloff as a half-range fraction", () => {
+    const shape = computeCenteredRangeShape(2, 6, 0.25);
+    expect(shape.midpoint).toBe(4);
+    expect(shape.halfSpan).toBe(2);
+    expect(shape.coreStart).toBe(2.5);
+    expect(shape.coreEnd).toBe(5.5);
+    expect(shape.falloffPerSide).toBe(0.5);
   });
 });

@@ -7,6 +7,7 @@ import {
   sampleIndexRangeFromTimes,
   type Point,
 } from "../anim-sample-editing";
+import { computeCenteredRangeShape } from "./range/range-shape";
 
 const SMOOTH_STRENGTH_APPLY_SCALE = 0.08;
 
@@ -121,14 +122,19 @@ export function runBeginRangeOffsetBehavior<
       )
     : -1;
   if (clipIndex < 0) return;
-  const sampleRange = sampleIndexRangeFromTimes(
-    channelSamples.length,
-    durationSec,
+  const totalRangeShape = computeCenteredRangeShape(
     selectedTimeRange.startSec,
     selectedTimeRange.endSec,
+    rangeFalloffSec
   );
-  if (!sampleRange) return;
-  const falloffSec = rangeFalloffSec;
+  const coreSampleRange = sampleIndexRangeFromTimes(
+    channelSamples.length,
+    durationSec,
+    totalRangeShape.coreStart,
+    totalRangeShape.coreEnd,
+  );
+  if (!coreSampleRange) return;
+  const falloffSec = totalRangeShape.falloffPerSide;
   const falloffSampleCount =
     channelSamples.length > 1 && durationSec > 0
       ? Math.max(
@@ -152,8 +158,8 @@ export function runBeginRangeOffsetBehavior<
     clipIndex,
     channel,
     mode: "Range",
-    coreRange: sampleRange,
-    writeRange: sampleRange,
+    coreRange: coreSampleRange,
+    writeRange: coreSampleRange,
     baseSamples: (
       clipDataRef.current.channels[channel] ?? channelSamples
     ).slice(),

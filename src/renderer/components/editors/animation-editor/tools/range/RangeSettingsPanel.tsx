@@ -4,11 +4,15 @@ import { ToolSettingNumberControl } from "../ToolSettingNumberControl";
 
 export function RangeSettingsPanel(context: AnimationToolSettingsContext) {
   const {
+    rangeMidpointDraft,
+    rangeMidpointSec,
+    setRangeMidpointDraft,
+    setSelectedTimeRangeMidpointSec,
+    smoothRangeStepSec,
     rangeSizeDraft,
     rangeSizeSec,
     setRangeSizeDraft,
     setSelectedTimeRangeDurationSec,
-    smoothRangeStepSec,
     rangeFalloffDraft,
     rangeFalloffSec,
     setRangeFalloffDraft,
@@ -24,10 +28,29 @@ export function RangeSettingsPanel(context: AnimationToolSettingsContext) {
   return (
     <>
       <ToolSettingNumberControl
+        label="Time"
+        value={rangeMidpointDraft}
+        numericValue={rangeMidpointSec}
+        title="Selected range midpoint in seconds"
+        onChange={setRangeMidpointDraft}
+        onCommit={() => {
+          const parsed = Number(rangeMidpointDraft);
+          if (!Number.isFinite(parsed)) {
+            setRangeMidpointDraft(rangeMidpointSec.toFixed(3));
+            return;
+          }
+          setSelectedTimeRangeMidpointSec(parsed);
+        }}
+        onReset={() => setRangeMidpointDraft(rangeMidpointSec.toFixed(3))}
+        onDelta={(delta) => setSelectedTimeRangeMidpointSec(rangeMidpointSec + delta)}
+        onScrubValue={(next) => setSelectedTimeRangeMidpointSec(next)}
+        stepSize={smoothRangeStepSec}
+      />
+      <ToolSettingNumberControl
         label="Size"
         value={rangeSizeDraft}
         numericValue={rangeSizeSec}
-        title="Selected range width in seconds ([ / ])"
+        title="Selected total range width in seconds ([ / ])"
         onChange={setRangeSizeDraft}
         onCommit={() => {
           const parsed = Number(rangeSizeDraft);
@@ -43,29 +66,29 @@ export function RangeSettingsPanel(context: AnimationToolSettingsContext) {
         stepSize={smoothRangeStepSec}
       />
       <ToolSettingNumberControl
-        label="Falloff Range"
+        label="Falloff"
         value={rangeFalloffDraft}
         numericValue={rangeFalloffSec}
-        title="Falloff range in seconds (Shift + [ / ])"
+        title="Fraction of each half-range used for falloff, from 0.0 core-only to 1.0 nearly all falloff (Shift + [ / ])"
         onChange={setRangeFalloffDraft}
         onCommit={() => {
           const parsed = Number(rangeFalloffDraft);
           if (!Number.isFinite(parsed)) {
-            setRangeFalloffDraft(rangeFalloffSec.toFixed(3));
+            setRangeFalloffDraft(rangeFalloffSec.toFixed(2));
             return;
           }
-          setRangeFalloffSec(Math.min(durationSec, Math.max(0, parsed)));
+          setRangeFalloffSec(Math.min(1, Math.max(0, parsed)));
         }}
-        onReset={() => setRangeFalloffDraft(rangeFalloffSec.toFixed(3))}
+        onReset={() => setRangeFalloffDraft(rangeFalloffSec.toFixed(2))}
         onDelta={(delta) =>
           setRangeFalloffSec((current) =>
-            Math.min(durationSec, Math.max(0, current + delta))
+            Math.min(1, Math.max(0, current + delta))
           )
         }
         onScrubValue={(next) =>
-          setRangeFalloffSec(Math.min(durationSec, Math.max(0, next)))
+          setRangeFalloffSec(Math.min(1, Math.max(0, next)))
         }
-        stepSize={rangeFalloffStepSec}
+        stepSize={0.05}
       />
       <ToolSettingNumberControl
         label="Falloff Curve"

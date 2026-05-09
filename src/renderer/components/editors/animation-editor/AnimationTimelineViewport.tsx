@@ -1,6 +1,7 @@
 import React from "react";
 import { sampleIndexRangeFromTimes } from "./anim-sample-editing";
 import styles from "./AnimationEditorPage.module.css";
+import { computeCenteredRangeShape } from "./tools/range/range-shape";
 
 const LANE_VIEWBOX_WIDTH = 1000;
 const LANE_CURVE_DRAW_HEIGHT = 34;
@@ -262,21 +263,37 @@ const LaneRow = React.memo(function LaneRow({
     () => normalizeTimeRangeToViewport(normalizedTimeRange, viewportRangeNorm),
     [normalizedTimeRange, viewportRangeNorm]
   );
-  const selectedSampleRange = React.useMemo(
+  const totalTimeRangeShape = React.useMemo(
     () =>
       normalizedTimeRange
+        ? computeCenteredRangeShape(
+            normalizedTimeRange.startNorm * durationSec,
+            normalizedTimeRange.endNorm * durationSec,
+            rangeFalloffSec
+          )
+        : null,
+    [durationSec, normalizedTimeRange, rangeFalloffSec]
+  );
+  const selectedSampleRange = React.useMemo(
+    () =>
+      totalTimeRangeShape
         ? sampleIndexRangeFromTimes(
             samples.length,
             durationSec,
-            normalizedTimeRange.startNorm * durationSec,
-            normalizedTimeRange.endNorm * durationSec
+            totalTimeRangeShape.coreStart,
+            totalTimeRangeShape.coreEnd
           )
         : null,
-    [durationSec, normalizedTimeRange, samples.length]
+    [durationSec, samples.length, totalTimeRangeShape]
   );
 
   const rangeOverlay = React.useMemo(() => {
     if (!selectedSampleRange || !normalizedTimeRange || !viewportNormalizedTimeRange) return null;
+    const totalShape = computeCenteredRangeShape(
+      viewportNormalizedTimeRange.startNorm,
+      viewportNormalizedTimeRange.endNorm,
+      rangeFalloffSec
+    );
     const meanValue = computeSampleRangeMean(
       samples,
       selectedSampleRange.startSampleIndex,
@@ -284,44 +301,23 @@ const LaneRow = React.memo(function LaneRow({
     );
     const span = Math.max(1e-6, maxV - minV);
     const yNorm = (maxV - meanValue) / span;
-    const centerNorm =
-      (viewportNormalizedTimeRange.startNorm + viewportNormalizedTimeRange.endNorm) * 0.5;
-    const falloffNorm =
-      durationSec > 0
-        ? Math.min(1, Math.max(0, rangeFalloffSec / durationSec))
-        : 0;
-    const viewportFalloffNorm =
-      falloffNorm /
-      Math.max(1e-6, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
-    const falloffStartNorm = Math.max(
-      0,
-      viewportNormalizedTimeRange.startNorm - viewportFalloffNorm
-    );
-    const falloffEndNorm = Math.min(
-      1,
-      viewportNormalizedTimeRange.endNorm + viewportFalloffNorm
-    );
     return {
-      falloffLeftX: falloffStartNorm * LANE_VIEWBOX_WIDTH,
+      falloffLeftX: totalShape.start * LANE_VIEWBOX_WIDTH,
       falloffLeftWidth: Math.max(
         0,
-        (viewportNormalizedTimeRange.startNorm - falloffStartNorm) *
-          LANE_VIEWBOX_WIDTH
+        (totalShape.coreStart - totalShape.start) * LANE_VIEWBOX_WIDTH
       ),
-      bandX: viewportNormalizedTimeRange.startNorm * LANE_VIEWBOX_WIDTH,
+      bandX: totalShape.coreStart * LANE_VIEWBOX_WIDTH,
       bandWidth: Math.max(
         3,
-        (viewportNormalizedTimeRange.endNorm -
-          viewportNormalizedTimeRange.startNorm) *
-          LANE_VIEWBOX_WIDTH
+        (totalShape.coreEnd - totalShape.coreStart) * LANE_VIEWBOX_WIDTH
       ),
-      falloffRightX: viewportNormalizedTimeRange.endNorm * LANE_VIEWBOX_WIDTH,
+      falloffRightX: totalShape.coreEnd * LANE_VIEWBOX_WIDTH,
       falloffRightWidth: Math.max(
         0,
-        (falloffEndNorm - viewportNormalizedTimeRange.endNorm) *
-          LANE_VIEWBOX_WIDTH
+        (totalShape.end - totalShape.coreEnd) * LANE_VIEWBOX_WIDTH
       ),
-      handleCx: centerNorm * LANE_VIEWBOX_WIDTH,
+      handleCx: totalShape.midpoint * LANE_VIEWBOX_WIDTH,
       handleCy: Math.min(
         LANE_CURVE_DRAW_HEIGHT,
         Math.max(0, yNorm * LANE_CURVE_DRAW_HEIGHT)
@@ -336,7 +332,6 @@ const LaneRow = React.memo(function LaneRow({
     samples,
     selectedSampleRange,
     viewportNormalizedTimeRange,
-    viewportRangeNorm,
   ]);
   const rangeHandleOverlay = React.useMemo(() => {
     if (!rangeOverlay) return null;
@@ -821,19 +816,42 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
     >
       <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
         <rect x={0} y={0} width={overlayWidth} height={playheadOverlayMetrics.topRulerHeight} className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect} onPointerDown={beginRangeSelection} />
-        {viewportSelectedTimeRange && normalizedSelectionFalloff > 0 ? (
-          <>
-            {viewportSelectedTimeRange.startNorm > 0 ? (
-              <rect x={Math.max(0, (viewportSelectedTimeRange.startNorm - normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} y={2} width={Math.max(0, Math.min(viewportSelectedTimeRange.startNorm, normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
-            ) : null}
-            {viewportSelectedTimeRange.endNorm < 1 ? (
-              <rect x={viewportSelectedTimeRange.endNorm * overlayWidth} y={2} width={Math.max(0, Math.min(1 - viewportSelectedTimeRange.endNorm, normalizedSelectionFalloff / viewportWidthNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeFalloffBandRuler} />
-            ) : null}
-          </>
-        ) : null}
-        {viewportSelectedTimeRange ? (
-          <rect x={viewportSelectedTimeRange.startNorm * overlayWidth} y={2} width={Math.max(3, (viewportSelectedTimeRange.endNorm - viewportSelectedTimeRange.startNorm) * overlayWidth)} height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)} className={styles.rangeSelectionBandRuler} />
-        ) : null}
+        {viewportSelectedTimeRange ? (() => {
+          const totalShape = computeCenteredRangeShape(
+            viewportSelectedTimeRange.startNorm,
+            viewportSelectedTimeRange.endNorm,
+            normalizedSelectionFalloff
+          );
+          return (
+            <>
+              {totalShape.coreStart > totalShape.start ? (
+                <rect
+                  x={totalShape.start * overlayWidth}
+                  y={2}
+                  width={Math.max(0, (totalShape.coreStart - totalShape.start) * overlayWidth)}
+                  height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
+                  className={styles.rangeFalloffBandRuler}
+                />
+              ) : null}
+              <rect
+                x={totalShape.coreStart * overlayWidth}
+                y={2}
+                width={Math.max(3, (totalShape.coreEnd - totalShape.coreStart) * overlayWidth)}
+                height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
+                className={styles.rangeSelectionBandRuler}
+              />
+              {totalShape.end > totalShape.coreEnd ? (
+                <rect
+                  x={totalShape.coreEnd * overlayWidth}
+                  y={2}
+                  width={Math.max(0, (totalShape.end - totalShape.coreEnd) * overlayWidth)}
+                  height={Math.max(8, playheadOverlayMetrics.topRulerHeight - 4)}
+                  className={styles.rangeFalloffBandRuler}
+                />
+              ) : null}
+            </>
+          );
+        })() : null}
         {isLoopResetActive ? (
           <rect x={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth))} y={2} width={Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.right * overlayWidth) - Math.max(0, Math.min(overlayWidth, loopResetSlugRangeNorm.left * overlayWidth)))} height={5} className={styles.loopResetSlugSvg} />
         ) : null}

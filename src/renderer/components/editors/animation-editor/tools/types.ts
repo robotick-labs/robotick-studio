@@ -8,6 +8,10 @@ export type AnimationToolSettingsContext = {
   lineSnapEnd: boolean;
   setLineSnapStart: React.Dispatch<React.SetStateAction<boolean>>;
   setLineSnapEnd: React.Dispatch<React.SetStateAction<boolean>>;
+  rangeMidpointSec: number;
+  rangeMidpointDraft: string;
+  setRangeMidpointDraft: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedTimeRangeMidpointSec: (nextMidpointSec: number) => void;
   rangeSizeSec: number;
   rangeSizeDraft: string;
   setRangeSizeDraft: React.Dispatch<React.SetStateAction<string>>;

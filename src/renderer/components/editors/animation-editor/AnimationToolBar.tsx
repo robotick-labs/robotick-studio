@@ -14,6 +14,7 @@ type Props = {
   setActiveTool: React.Dispatch<React.SetStateAction<AnimationToolId | null>>;
   settingsContext: AnimationToolSettingsContext;
   durationSec: number;
+  rangeFalloffFractionStep: number;
   rangeFalloffStepSec: number;
   smoothRangeStepSec: number;
   rangeSizeSec: number;
@@ -32,6 +33,7 @@ export function AnimationToolBar({
   setActiveTool,
   settingsContext,
   durationSec,
+  rangeFalloffFractionStep,
   rangeFalloffStepSec,
   smoothRangeStepSec,
   rangeSizeSec,
@@ -52,7 +54,9 @@ export function AnimationToolBar({
         const direction = event.code === "BracketRight" ? 1 : -1;
         if (event.shiftKey) {
           if (activeTool === "Range") {
-            setRangeFalloffSec((current) => Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec)));
+            setRangeFalloffSec((current) =>
+              Math.min(1, Math.max(0, current + direction * rangeFalloffFractionStep))
+            );
           } else {
             setSmoothFalloffSec((current) => Math.min(durationSec, Math.max(0, current + direction * rangeFalloffStepSec)));
           }
@@ -76,6 +80,7 @@ export function AnimationToolBar({
   }, [
     activeTool,
     durationSec,
+    rangeFalloffFractionStep,
     rangeFalloffStepSec,
     rangeSizeSec,
     setRangeFalloffSec,
