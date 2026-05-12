@@ -105,6 +105,7 @@ export default function ModelsPage() {
       []
   );
   const [collapseStateInitialized, setCollapseStateInitialized] = useState(false);
+  const [showPropertyPanel, setShowPropertyPanel] = useState(true);
   const graphApiRef = useRef<NodeGraphAPI | null>(null);
 
   useEffect(() => {
@@ -343,6 +344,16 @@ export default function ModelsPage() {
   return (
     <div className={styles.layout}>
       <div className={styles.mainPanel}>
+        <button
+          className={styles.propertyPanelToggle}
+          type="button"
+          aria-label={showPropertyPanel ? "Hide properties panel" : "Show properties panel"}
+          title={showPropertyPanel ? "Hide properties panel" : "Show properties panel"}
+          onClick={() => setShowPropertyPanel((value) => !value)}
+        >
+          {showPropertyPanel ? "›" : "‹"}
+        </button>
+
         <div className={styles.graphPanel}>
           <div className={styles.viewportControls}>
             <label htmlFor="models-edge-visibility">Connections</label>
@@ -381,7 +392,12 @@ export default function ModelsPage() {
           </svg>
         </div>
       </div>
-      <div className={styles.propertyPanel} ref={panelRef} />
+      <div
+        className={`${styles.propertyPanel} ${
+          showPropertyPanel ? "" : styles.propertyPanelCollapsed
+        }`}
+        ref={panelRef}
+      />
     </div>
   );
 }
