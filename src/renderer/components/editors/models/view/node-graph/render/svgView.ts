@@ -109,6 +109,47 @@ export class SvgView {
     this.renderSwimlanes(doc.sections);
   }
 
+  updateSelectionState(
+    doc: GraphDoc,
+    displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
+  ): void {
+    const resolvedOptions = {
+      ...DEFAULT_RENDER_DISPLAY_OPTIONS,
+      ...displayOptions,
+    };
+    const selectedNodeId = resolvedOptions.selectedNodeId;
+    const selectedModelId =
+      selectedNodeId != null
+        ? (doc.getNode(selectedNodeId)?.meta?.modelId ?? null)
+        : null;
+    const visibleEdges = this.computeVisibleEdges(
+      doc,
+      resolvedOptions,
+      selectedModelId,
+    );
+    const relatedNodeIds = this.computeRelatedNodeIds(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions.edgeVisibilityMode,
+    );
+
+    this.updateNodeSelectionClasses(
+      doc,
+      selectedNodeId,
+      relatedNodeIds,
+      resolvedOptions.focusDimming,
+    );
+    this.updateEdgeSelectionClasses(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions,
+    );
+  }
+
   private renderSwimlanes(sections: Section[]): void {
     this.layers.swim.replaceChildren();
     for (const section of sections) {
@@ -415,9 +456,78 @@ export class SvgView {
         g.classList.add("is-dimmed");
       }
 
+      g.setAttribute("data-edge-from", from);
+      g.setAttribute("data-edge-to", to);
       g.appendChild(hoverPath);
       g.appendChild(visiblePath);
       this.layers.edges.appendChild(g);
+    }
+  }
+
+  private updateNodeSelectionClasses(
+    doc: GraphDoc,
+    selectedNodeId: string | null,
+    relatedNodeIds: Set<string>,
+    focusDimming: boolean,
+  ): void {
+    for (const g of Array.from(
+      this.layers.nodes.querySelectorAll("g.workload-node"),
+    )) {
+      const node = doc.getNode((g as SVGGElement).id);
+      g.classList.remove("is-selected", "is-dimmed");
+      if (!node) {
+        continue;
+      }
+      if (selectedNodeId && node.id === selectedNodeId) {
+        g.classList.add("is-selected");
+      }
+      if (focusDimming && selectedNodeId && !relatedNodeIds.has(node.id)) {
+        g.classList.add("is-dimmed");
+      }
+    }
+  }
+
+  private updateEdgeSelectionClasses(
+    doc: GraphDoc,
+    visibleEdgeKeys: Set<string>,
+    selectedNodeId: string | null,
+    selectedModelId: string | null,
+    displayOptions: RenderDisplayOptions,
+  ): void {
+    for (const g of Array.from(
+      this.layers.edges.querySelectorAll("g.connection-group"),
+    )) {
+      const from = g.getAttribute("data-edge-from");
+      const to = g.getAttribute("data-edge-to");
+      if (!from || !to) {
+        continue;
+      }
+      const edgeKey = this.edgeKey(from, to);
+      const isVisible = visibleEdgeKeys.has(edgeKey);
+      const fromNode = doc.getNode(from);
+      const toNode = doc.getNode(to);
+      const touchesSelectedNode =
+        selectedNodeId != null &&
+        (from === selectedNodeId || to === selectedNodeId);
+      const touchesSelectedModel =
+        selectedModelId != null &&
+        (fromNode?.meta?.modelId === selectedModelId ||
+          toNode?.meta?.modelId === selectedModelId);
+      const shouldDim =
+        displayOptions.focusDimming &&
+        selectedNodeId != null &&
+        !touchesSelectedNode &&
+        !(
+          displayOptions.edgeVisibilityMode === "selected-model" &&
+          touchesSelectedModel
+        );
+
+      g.classList.remove("is-hidden", "is-dimmed");
+      if (!isVisible) {
+        g.classList.add("is-hidden");
+      } else if (shouldDim) {
+        g.classList.add("is-dimmed");
+      }
     }
   }
 

@@ -340,8 +340,7 @@ export default function ModelsPage() {
       focusDimming: true,
       expandedModelIds,
     });
-    graphApiRef.current?.setSelectedNodeId(selectedNodeId);
-  }, [collapsedModelIds, edgeVisibilityMode, selectedNodeId]);
+  }, [collapsedModelIds, edgeVisibilityMode]);
 
   useEffect(() => {
     setStorageValue(modelSortStorageKey, modelSortKey);

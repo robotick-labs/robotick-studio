@@ -116,6 +116,15 @@ export function initNodeGraph(
     });
   };
 
+  const renderSelectionState = () => {
+    view.updateSelectionState(doc, {
+      selectedNodeId,
+      edgeVisibilityMode: displayOptions.edgeVisibilityMode,
+      focusDimming: displayOptions.focusDimming,
+      expandedModelIds: displayOptions.expandedModelIds,
+    });
+  };
+
   const attachControllers = () => {
     selectionController.attach();
     slotDragController.attachAll();
@@ -124,7 +133,8 @@ export function initNodeGraph(
   let refreshCounter = 0;
   const refreshLayout = async (): Promise<void> => {
     const refreshId = ++refreshCounter;
-    await buildGraphDocFromModel(store, doc, {
+    const nextDoc = new GraphDoc();
+    await buildGraphDocFromModel(store, nextDoc, {
       collapsedModelIds: layoutOptions.collapsedModelIds,
       modelSortKey: layoutOptions.modelSortKey,
       layoutDirection: layoutOptions.layoutDirection,
@@ -132,6 +142,7 @@ export function initNodeGraph(
     if (refreshId !== refreshCounter) {
       return;
     }
+    replaceGraphDoc(doc, nextDoc);
     render();
   };
 
@@ -192,7 +203,7 @@ export function initNodeGraph(
       return;
     }
     selectedNodeId = ce.detail?.nodeId ?? null;
-    render();
+    renderSelectionState();
   };
   window.addEventListener(
     "models-graph:selection-changed",
@@ -234,7 +245,7 @@ export function initNodeGraph(
   const getSelectedNodeId = () => selectedNodeId;
   const setSelectedNodeId = (nodeId: string | null) => {
     selectedNodeId = nodeId;
-    render();
+    renderSelectionState();
   };
   const setModelSortKey = (sortKey: ModelSortKey) => {
     layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
@@ -263,6 +274,36 @@ export function initNodeGraph(
     setModelSortKey,
     setLayoutDirection,
   };
+}
+
+function replaceGraphDoc(target: GraphDoc, source: GraphDoc): void {
+  target.nodes.clear();
+  for (const [id, node] of source.nodes) {
+    target.nodes.set(id, {
+      ...node,
+      meta: node.meta ? { ...node.meta } : undefined,
+    });
+  }
+  target.setSections(
+    source.sections.map((section) => ({
+      ...section,
+      frame: section.frame ? { ...section.frame } : undefined,
+      lanes: section.lanes?.map((lane) => ({
+        ...lane,
+        frame: { ...lane.frame },
+      })),
+      addSlots: section.addSlots?.map((slot) => ({
+        ...slot,
+        frame: { ...slot.frame },
+      })),
+    })),
+  );
+  target.setEdges(
+    source.edges.map((edge) => ({
+      ...edge,
+      routePoints: edge.routePoints?.map((point) => ({ ...point })),
+    })),
+  );
 }
 
 function suggestName(

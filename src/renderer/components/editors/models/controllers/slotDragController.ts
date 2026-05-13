@@ -4,6 +4,7 @@ import { DocumentStore } from "../document/documentStore";
 const verticalLaneHeaderHeight = 42,
   verticalNodeSpacing = 58,
   nodeH = 40;
+const DRAG_THRESHOLD_PX = 4;
 
 function slotFromY(y: number, sectionYStart: number): number {
   const raw =
@@ -18,6 +19,9 @@ export class SlotDragController {
   private modelId = "";
   private layoutDirection: "vertical-offset" = "vertical-offset";
   private sectionYStart = 0;
+  private startClientX = 0;
+  private startClientY = 0;
+  private didDrag = false;
 
   constructor(
     private svg: SVGSVGElement,
@@ -59,14 +63,20 @@ export class SlotDragController {
     this.startSlot =
       n.meta?.slot ??
       slotFromY(n.y, this.sectionYStart);
+    this.startClientX = e.clientX;
+    this.startClientY = e.clientY;
+    this.didDrag = false;
     this.dragging = true;
     e.preventDefault();
     window.addEventListener("mousemove", this.onMouseMove);
     window.addEventListener("mouseup", this.onMouseUp, { once: true });
   };
 
-  private onMouseMove = (_ev: MouseEvent) => {
+  private onMouseMove = (ev: MouseEvent) => {
     if (!this.dragging) return;
+    if (this.hasMovedPastDragThreshold(ev)) {
+      this.didDrag = true;
+    }
     // preview could be added here
   };
 
@@ -78,6 +88,10 @@ export class SlotDragController {
     this.dragging = false;
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mouseup", this.onMouseUp);
+
+    if (!this.didDrag && !this.hasMovedPastDragThreshold(ev)) {
+      return;
+    }
 
     const p = this.toSvg(ev);
     const targetSlot = slotFromY(p.y - nodeH / 2, this.sectionYStart);
@@ -91,6 +105,13 @@ export class SlotDragController {
       window.dispatchEvent(new CustomEvent("models-graph:store-updated"));
     }
   };
+
+  private hasMovedPastDragThreshold(e: MouseEvent): boolean {
+    return (
+      Math.hypot(e.clientX - this.startClientX, e.clientY - this.startClientY) >=
+      DRAG_THRESHOLD_PX
+    );
+  }
 
   private toSvg(e: MouseEvent) {
     const pt = this.svg.createSVGPoint();

@@ -170,4 +170,94 @@ describe("SvgView vertical model rendering", () => {
     expect(animatorX).toBeGreaterThan(24 + 280);
     expect(faceX).toBeGreaterThan(animatorX + 320);
   });
+
+  it("updates workload selection without rebuilding edge DOM or changing the viewport", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const layers = createSvgLayers(svg);
+    const view = new SvgView(
+      svg,
+      layers,
+      {
+        routeAll: (edges) =>
+          edges.map((edge) => ({
+            from: edge.from,
+            to: edge.to,
+            path: "M0,0 L10,10",
+            classList: ["connection", "local-connection"],
+          })),
+      },
+      "test",
+    );
+    const doc = new GraphDoc();
+    doc.upsertNode({
+      id: "animator:w1",
+      kind: "workload",
+      label: "One",
+      x: 100,
+      y: 120,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: {
+        modelId: "animator",
+        section: 0,
+        slot: 0,
+        layoutDirection: "vertical-offset",
+      },
+    });
+    doc.upsertNode({
+      id: "animator:w2",
+      kind: "workload",
+      label: "Two",
+      x: 100,
+      y: 220,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: {
+        modelId: "animator",
+        section: 0,
+        slot: 1,
+        layoutDirection: "vertical-offset",
+      },
+    });
+    doc.setEdges([
+      {
+        from: "animator:w1",
+        to: "animator:w2",
+        routePoints: [
+          { x: 184, y: 160 },
+          { x: 184, y: 220 },
+        ],
+      },
+    ]);
+
+    view.render(doc, {
+      selectedNodeId: null,
+      edgeVisibilityMode: "all",
+      focusDimming: true,
+      expandedModelIds: [],
+    });
+    const viewBox = svg.getAttribute("viewBox");
+    const firstEdgeGroup = svg.querySelector("g.connection-group");
+    const firstTransform = svg
+      .querySelector("#animator\\:w1")
+      ?.getAttribute("transform");
+
+    view.updateSelectionState(doc, {
+      selectedNodeId: "animator:w2",
+      edgeVisibilityMode: "all",
+      focusDimming: true,
+      expandedModelIds: [],
+    });
+
+    expect(svg.getAttribute("viewBox")).toBe(viewBox);
+    expect(svg.querySelector("g.connection-group")).toBe(firstEdgeGroup);
+    expect(svg.querySelector("#animator\\:w1")?.getAttribute("transform")).toBe(
+      firstTransform,
+    );
+    expect(svg.querySelector("#animator\\:w2")?.classList.contains("is-selected")).toBe(
+      true,
+    );
+  });
 });

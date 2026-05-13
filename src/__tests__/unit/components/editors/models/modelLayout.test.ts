@@ -206,6 +206,18 @@ describe("buildGraphDocFromModel", () => {
     for (let i = 1; i < modelNodes.length; i++) {
       expect(modelNodes[i].x).toBeGreaterThan(modelNodes[i - 1].x + modelNodes[i - 1].w);
     }
+
+    for (const node of doc.nodes.values()) {
+      if (node.kind !== "workload") {
+        continue;
+      }
+      const section = doc.sections[node.meta?.section ?? -1];
+      expect(section?.frame).toBeDefined();
+      expect(node.x).toBeGreaterThanOrEqual(section.frame!.x);
+      expect(node.x + node.w).toBeLessThanOrEqual(section.frame!.x + section.frame!.width);
+      expect(node.y).toBeGreaterThanOrEqual(section.frame!.y);
+      expect(node.y + node.h).toBeLessThanOrEqual(section.frame!.y + section.frame!.height);
+    }
   });
 
   it("does not pass remote edges with missing rendered endpoints to ELK", async () => {
@@ -275,4 +287,122 @@ describe("buildGraphDocFromModel", () => {
       true,
     );
   });
+
+  it("keeps every expanded model workload inside its own rendered section", async () => {
+    type FakeWorkload = {
+      id: string;
+      name: string;
+      type: string;
+      children?: Array<{ workload_id: string }>;
+    };
+    type FakeModel = {
+      name: string;
+      root: { workload_id: string };
+      workloads: FakeWorkload[];
+      connections?: Array<{ from: string; to: string }>;
+      remote_models?: Array<{
+        model_id: string;
+        connections?: Array<{
+          from_local?: string;
+          to_remote?: string;
+          from_remote?: string;
+          to_local?: string;
+        }>;
+      }>;
+      telemetry?: { port?: number };
+    };
+    const makeModel = (id: string, names: string[]): FakeModel => ({
+      name: id,
+      root: { workload_id: "root" },
+      workloads: [
+        {
+          id: "root",
+          name: "root",
+          type: "SequencedGroupWorkload",
+          children: names.map((name) => ({ workload_id: name })),
+        },
+        ...names.map((name) => ({
+          id: name,
+          name,
+          type: "Workload",
+        })),
+      ],
+      connections: names.slice(0, -1).map((name, index) => ({
+        from: `${name}.out`,
+        to: `${names[index + 1]}.in`,
+      })),
+    });
+    const models = new Map<string, FakeModel>([
+      ["mind", makeModel("mind", ["mind_a", "mind_b", "mind_c"])],
+      ["animator", makeModel("animator", ["anim_a", "anim_b", "anim_c", "anim_d"])],
+      ["mapping", makeModel("mapping", ["mapping_a"])],
+      ["spine", makeModel("spine", ["spine_a", "spine_b", "spine_c"])],
+      ["simulator", makeModel("simulator", ["sim_a", "sim_b", "sim_c"])],
+    ]);
+    models.get("mind")!.remote_models = [
+      {
+        model_id: "animator",
+        connections: [{ from_local: "mind_c.out", to_remote: "anim_a.in" }],
+      },
+    ];
+    models.get("animator")!.remote_models = [
+      {
+        model_id: "spine",
+        connections: [{ from_local: "anim_d.out", to_remote: "spine_a.in" }],
+      },
+    ];
+    models.get("spine")!.remote_models = [
+      {
+        model_id: "simulator",
+        connections: [{ from_local: "spine_c.out", to_remote: "sim_a.in" }],
+      },
+    ];
+
+    const store = {
+      getModelIds: () => Array.from(models.keys()),
+      get: (modelId: string) => models.get(modelId),
+      getModelSourcePath: (modelId: string) => `${modelId}.model.yaml`,
+      laneChildren: (modelId: string) => {
+        const model = models.get(modelId)!;
+        const root = model.workloads.find((workload) => workload.id === "root")!;
+        return root.children?.map((child) => child.workload_id) ?? [];
+      },
+    } as unknown as Parameters<typeof buildGraphDocFromModel>[0];
+
+    const doc = new GraphDoc();
+    await buildGraphDocFromModel(store, doc, {
+      layoutDirection: "vertical-offset",
+    });
+
+    for (const node of doc.nodes.values()) {
+      if (node.kind !== "workload") {
+        continue;
+      }
+      const section = doc.sections[node.meta?.section ?? -1];
+      expect(section?.frame).toBeDefined();
+      expect(node.x).toBeGreaterThanOrEqual(section.frame!.x);
+      expect(node.x + node.w).toBeLessThanOrEqual(section.frame!.x + section.frame!.width);
+      expect(node.y).toBeGreaterThanOrEqual(section.frame!.y);
+      expect(node.y + node.h).toBeLessThanOrEqual(section.frame!.y + section.frame!.height);
+    }
+
+    for (const edge of doc.edges) {
+      const source = doc.getNode(edge.from);
+      const target = doc.getNode(edge.to);
+      expect(source).toBeDefined();
+      expect(target).toBeDefined();
+      expect(edge.routePoints?.length).toBeGreaterThanOrEqual(2);
+      expect(distanceToRect(edge.routePoints![0], source!)).toBe(0);
+      expect(distanceToRect(edge.routePoints![edge.routePoints!.length - 1], target!)).toBe(0);
+    }
+  });
 });
+
+function distanceToRect(
+  point: { x: number; y: number },
+  node: Node,
+): number {
+  const closestX = Math.max(node.x, Math.min(point.x, node.x + node.w));
+  const closestY = Math.max(node.y, Math.min(point.y, node.y + node.h));
+  return Math.hypot(point.x - closestX, point.y - closestY);
+}

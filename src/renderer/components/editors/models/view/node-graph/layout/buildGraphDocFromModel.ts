@@ -183,7 +183,7 @@ export async function buildGraphDocFromModel(
         internalEdges,
         layoutMode,
       );
-      normalizeNodePositions(workloadNodes);
+      normalizeSectionGeometry(workloadNodes, internalEdges);
       const laneLayouts = buildLaneLayouts(
         workloadNodes,
         laneWorkloadIds,
@@ -492,7 +492,7 @@ function addExternalEdge(
   edges.push({ from, to, isRemote: true });
 }
 
-function normalizeNodePositions(nodes: Node[]): void {
+function normalizeSectionGeometry(nodes: Node[], edges: Edge[]): void {
   if (nodes.length === 0) {
     return;
   }
@@ -501,6 +501,15 @@ function normalizeNodePositions(nodes: Node[]): void {
   nodes.forEach((node) => {
     node.x -= minX;
     node.y -= minY;
+  });
+  edges.forEach((edge) => {
+    if (!edge.routePoints) {
+      return;
+    }
+    edge.routePoints = edge.routePoints.map((point) => ({
+      x: point.x - minX,
+      y: point.y - minY,
+    }));
   });
 }
 
@@ -691,9 +700,8 @@ function unionFrames(frames: RectFrame[]): RectFrame {
 async function routeGlobalEdges(
   doc: GraphDoc,
   edges: Edge[],
-  layoutMode: GraphLayoutDirection,
+  _layoutMode: GraphLayoutDirection,
 ): Promise<void> {
-  const strategy = getLayoutStrategy(layoutMode);
   const routeTargets = edges.filter(
     (edge) =>
       (!edge.routePoints || edge.routePoints.length < 2) &&
@@ -716,16 +724,31 @@ async function routeGlobalEdges(
     return;
   }
 
-  const portsByNode = new Map<string, Map<string, string>>();
+  const duplicateCounts = new Map<string, number>();
+  const duplicateIndexes = new Map<string, number>();
+  routeTargets.forEach((edge) => {
+    const key = `${edge.from}->${edge.to}`;
+    duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+  });
+
   const elkEdges = routeTargets.map((edge, index) => {
-    const sourcePort = `${edge.from}:global-out:${index}`;
-    const targetPort = `${edge.to}:global-in:${index}`;
-    addPort(portsByNode, edge.from, sourcePort, strategy.sourcePortSide);
-    addPort(portsByNode, edge.to, targetPort, strategy.targetPortSide);
+    const from = doc.getNode(edge.from)!;
+    const to = doc.getNode(edge.to)!;
+    const key = `${edge.from}->${edge.to}`;
+    const duplicateIndex = duplicateIndexes.get(key) ?? 0;
+    duplicateIndexes.set(key, duplicateIndex + 1);
+    const section = buildFixedGlobalSection(
+      `global-edge:${index}:section`,
+      from,
+      to,
+      duplicateIndex,
+      duplicateCounts.get(key) ?? 1,
+    );
     return {
       id: `global-edge:${index}`,
-      sources: [sourcePort],
-      targets: [targetPort],
+      sources: [edge.from],
+      targets: [edge.to],
+      sections: [section],
     };
   });
 
@@ -737,28 +760,11 @@ async function routeGlobalEdges(
       height: node.h,
       x: node.x,
       y: node.y,
-      layoutOptions: {
-        "org.eclipse.elk.portConstraints": "FIXED_SIDE",
-      },
-      ports: Array.from(portsByNode.get(node.id)?.entries() ?? []).map(
-        ([id, side]) => ({
-          id,
-          layoutOptions: {
-            "org.eclipse.elk.port.side": side,
-          },
-        }),
-      ),
     })),
     edges: elkEdges,
     layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": "DOWN",
-      "elk.edgeRouting": "SPLINES",
-      "elk.layered.mergeEdges": "false",
-      "elk.layered.mergeHierarchyEdges": "false",
-      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-      "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
-      "elk.layered.nodePlacement.favorStraightEdges": "true",
+      "elk.algorithm": "fixed",
+      "elk.edgeRouting": "ORTHOGONAL",
     },
   };
 
@@ -779,6 +785,51 @@ async function routeGlobalEdges(
   routeTargets.forEach((edge, index) => {
     edge.routePoints = routesById.get(`global-edge:${index}`);
   });
+}
+
+function buildFixedGlobalSection(
+  id: string,
+  from: Node,
+  to: Node,
+  duplicateIndex: number,
+  duplicateCount: number,
+): {
+  id: string;
+  startPoint: { x: number; y: number };
+  endPoint: { x: number; y: number };
+  bendPoints: Array<{ x: number; y: number }>;
+} {
+  const sourceX = distributedPortX(from, duplicateIndex, duplicateCount);
+  const targetX = distributedPortX(to, duplicateIndex, duplicateCount);
+  const startPoint = { x: sourceX, y: from.y + from.h };
+  const endPoint = { x: targetX, y: to.y };
+  const verticalGap = Math.abs(endPoint.y - startPoint.y);
+  const laneOffset = 48 + duplicateIndex * 14;
+  const midY =
+    endPoint.y > startPoint.y
+      ? startPoint.y + verticalGap / 2
+      : Math.max(startPoint.y, endPoint.y) + laneOffset;
+
+  return {
+    id,
+    startPoint,
+    endPoint,
+    bendPoints: [
+      { x: startPoint.x, y: midY },
+      { x: endPoint.x, y: midY },
+    ],
+  };
+}
+
+function distributedPortX(
+  node: Node,
+  duplicateIndex: number,
+  duplicateCount: number,
+): number {
+  if (duplicateCount <= 1) {
+    return node.x + node.w / 2;
+  }
+  return node.x + (node.w * (duplicateIndex + 1)) / (duplicateCount + 1);
 }
 
 function compareModelIds(
