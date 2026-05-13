@@ -14,19 +14,17 @@ export interface LayoutStrategy {
   sourcePortSide: "SOUTH";
   targetPortSide: "NORTH";
   configureRoot(node: ElkNode, ctx: LayoutModeContext): void;
-  seedNodePosition(
-    params: {
-      slot: number;
-      lane: number;
-      sectionIndex: number;
-      laneCount: number;
-      indexInSection: number;
-    },
-  ): { x: number; y: number };
+  seedNodePosition(params: {
+    slot: number;
+    lane: number;
+    sectionIndex: number;
+    laneCount: number;
+    indexInSection: number;
+  }): { x: number; y: number };
 }
 
 const BASE_NODE_SPACING = 56;
-const BASE_LAYER_SPACING = 128;
+const BASE_LAYER_SPACING = 64;
 
 const verticalOffset: LayoutStrategy = {
   id: "vertical-offset",
