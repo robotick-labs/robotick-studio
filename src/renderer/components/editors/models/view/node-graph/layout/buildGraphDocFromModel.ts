@@ -8,10 +8,15 @@ import type { DocumentStore } from "../../../document/documentStore";
 import type { Workload } from "../../../document/modelData";
 
 const nodeSize = { width: 140, height: 40 } as const;
+const verticalNodeSize = { width: 220, height: 40 } as const;
 const startX = 120,
   spacing = 180,
-  laneHeight = 200;
-const lanePadY = (laneHeight - nodeSize.height) / 2;
+  horizontalLaneHeight = 200,
+  verticalLaneWidth = 260,
+  verticalNodeSpacing = 58,
+  verticalLaneHeaderHeight = 42,
+  verticalLaneBottomPad = 24;
+const horizontalLanePadY = (horizontalLaneHeight - nodeSize.height) / 2;
 const sectionHeaderX = 24;
 const modelHeaderYFromSectionStart = -52;
 const modelHeaderHeight = 52;
@@ -26,9 +31,11 @@ export interface LayoutSummary {
 export type BuildGraphOptions = {
   collapsedModelIds?: Iterable<string>;
   modelSortKey?: ModelSortKey;
+  layoutDirection?: GraphLayoutDirection;
 };
 
 export type ModelSortKey = "telemetry_port" | "model_name" | "model_path";
+export type GraphLayoutDirection = "horizontal" | "vertical";
 
 /**
  * Create a namespaced node identifier for an item defined in a model file.
@@ -60,6 +67,7 @@ export function buildGraphDocFromModel(
   const edges: Edge[] = [];
   const collapsedNodeIds = new Map<string, string>();
   const modelSortKey = options.modelSortKey ?? "model_path";
+  const layoutDirection = options.layoutDirection ?? "horizontal";
   const modelIds = store
     .getModelIds()
     .sort((left, right) => compareModelIds(store, left, right, modelSortKey));
@@ -81,9 +89,7 @@ export function buildGraphDocFromModel(
     );
     const isCollapsed = collapsedModelIds.has(modelId);
     const modelName =
-      typeof m.name === "string" && m.name.trim()
-        ? m.name
-        : modelId;
+      typeof m.name === "string" && m.name.trim() ? m.name : modelId;
     const modelNodeId = nodeIdFor(modelId, "__model__");
     const modelNode: Node = {
       id: modelNodeId,
@@ -118,6 +124,7 @@ export function buildGraphDocFromModel(
         laneHeight: 0,
         maxNodes: 0,
         labelY,
+        layoutDirection,
         rootType: root.type ?? "Workload",
         hasSequencedGroup,
         collapsed: true,
@@ -130,7 +137,14 @@ export function buildGraphDocFromModel(
 
     let maxSlots = 0;
     for (let lane = 0; lane < lanes.length; lane++) {
-      const laneY = yOffset + lane * laneHeight;
+      const laneY =
+        layoutDirection === "horizontal"
+          ? yOffset + lane * horizontalLaneHeight
+          : yOffset;
+      const laneX =
+        layoutDirection === "horizontal"
+          ? startX
+          : startX + lane * verticalLaneWidth;
       const workloadIds = store.laneChildren(modelId, lane);
       maxSlots = Math.max(maxSlots, workloadIds.length);
 
@@ -142,13 +156,24 @@ export function buildGraphDocFromModel(
           id,
           kind: "workload",
           label: workload.name,
-          x: startX + slot * spacing,
-          y: laneY + lanePadY,
-          w: nodeSize.width,
+          x: layoutDirection === "horizontal" ? startX + slot * spacing : laneX,
+          y:
+            layoutDirection === "horizontal"
+              ? laneY + horizontalLanePadY
+              : yOffset + verticalLaneHeaderHeight + slot * verticalNodeSpacing,
+          w:
+            layoutDirection === "vertical"
+              ? verticalNodeSize.width
+              : nodeSize.width,
           h: nodeSize.height,
           lane,
           workload,
-          meta: { modelId, section: sectionIndex },
+          meta: {
+            modelId,
+            section: sectionIndex,
+            slot,
+            layoutDirection,
+          },
         };
         node.meta = {
           ...node.meta,
@@ -166,14 +191,22 @@ export function buildGraphDocFromModel(
           id: nodeIdFor(modelId, parentId),
           kind: "workload",
           label: groupWorkload.name,
-          x: startX,
-          y: laneY + lanePadY,
-          w: nodeSize.width,
+          x: laneX,
+          y:
+            layoutDirection === "horizontal"
+              ? laneY + horizontalLanePadY
+              : yOffset + verticalLaneHeaderHeight,
+          w:
+            layoutDirection === "vertical"
+              ? verticalNodeSize.width
+              : nodeSize.width,
           h: nodeSize.height,
           lane,
           meta: {
             modelId,
             section: sectionIndex,
+            slot: 0,
+            layoutDirection,
             type: groupWorkload.type,
             children: workloadIds.map((id: string) => nodeIdFor(modelId, id)),
           },
@@ -182,22 +215,35 @@ export function buildGraphDocFromModel(
       }
     }
 
+    const sectionLaneHeight =
+      layoutDirection === "horizontal"
+        ? horizontalLaneHeight
+        : Math.max(
+            110,
+            verticalLaneHeaderHeight +
+              Math.max(1, maxSlots) * verticalNodeSpacing +
+              verticalLaneBottomPad,
+          );
+
     doc.sections.push({
       index: sectionIndex,
       modelId,
       yStart: yOffset,
       laneCount: lanes.length,
-      laneHeight,
+      laneHeight: sectionLaneHeight,
       maxNodes: maxSlots,
       labelY: yOffset - 10,
       rootType: root.type ?? "Workload",
       hasSequencedGroup,
       collapsed: false,
+      layoutDirection,
     });
 
     globalMaxNodes = Math.max(globalMaxNodes, maxSlots);
     yOffset +=
-      lanes.length * laneHeight -
+      (layoutDirection === "horizontal"
+        ? lanes.length * sectionLaneHeight
+        : sectionLaneHeight) -
       modelHeaderYFromSectionStart +
       modelToNextHeaderGap;
     sectionIndex++;
@@ -281,7 +327,7 @@ function compareModelIds(
   store: DocumentStore,
   leftModelId: string,
   rightModelId: string,
-  sortKey: ModelSortKey
+  sortKey: ModelSortKey,
 ): number {
   const left = store.get(leftModelId);
   const right = store.get(rightModelId);

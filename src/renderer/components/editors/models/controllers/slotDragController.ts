@@ -3,10 +3,19 @@ import { DocumentStore } from "../document/documentStore";
 
 const startX = 120,
   spacing = 180,
-  nodeW = 140;
+  nodeW = 140,
+  verticalLaneHeaderHeight = 42,
+  verticalNodeSpacing = 58,
+  nodeH = 40;
 
 function slotFromX(x: number): number {
   const raw = (x - startX) / spacing;
+  return Math.max(0, Math.round(raw));
+}
+
+function slotFromY(y: number, sectionYStart: number): number {
+  const raw =
+    (y - sectionYStart - verticalLaneHeaderHeight) / verticalNodeSpacing;
   return Math.max(0, Math.round(raw));
 }
 
@@ -15,11 +24,13 @@ export class SlotDragController {
   private startLane = 0;
   private startSlot = 0;
   private modelId = "";
+  private layoutDirection: "horizontal" | "vertical" = "horizontal";
+  private sectionYStart = 0;
 
   constructor(
     private svg: SVGSVGElement,
     private doc: GraphDoc,
-    private store: DocumentStore
+    private store: DocumentStore,
   ) {}
 
   attachAll(): void {
@@ -51,7 +62,13 @@ export class SlotDragController {
 
     this.modelId = n.meta?.modelId ?? "";
     this.startLane = n.lane;
-    this.startSlot = slotFromX(n.x);
+    this.layoutDirection = n.meta?.layoutDirection ?? "horizontal";
+    this.sectionYStart = this.doc.sections[n.meta?.section ?? -1]?.yStart ?? 0;
+    this.startSlot =
+      n.meta?.slot ??
+      (this.layoutDirection === "vertical"
+        ? slotFromY(n.y, this.sectionYStart)
+        : slotFromX(n.x));
     this.dragging = true;
     e.preventDefault();
     window.addEventListener("mousemove", this.onMouseMove);
@@ -73,13 +90,16 @@ export class SlotDragController {
     window.removeEventListener("mouseup", this.onMouseUp);
 
     const p = this.toSvg(ev);
-    const targetSlot = slotFromX(p.x - nodeW / 2);
+    const targetSlot =
+      this.layoutDirection === "vertical"
+        ? slotFromY(p.y - nodeH / 2, this.sectionYStart)
+        : slotFromX(p.x - nodeW / 2);
     if (targetSlot !== this.startSlot) {
       this.store.moveWithinLane(
         this.modelId,
         this.startLane,
         this.startSlot,
-        targetSlot
+        targetSlot,
       );
       window.dispatchEvent(new CustomEvent("models-graph:store-updated"));
     }

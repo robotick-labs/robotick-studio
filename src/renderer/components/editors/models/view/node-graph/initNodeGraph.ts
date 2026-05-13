@@ -4,9 +4,13 @@ import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
 import {
   buildGraphDocFromModel,
+  type GraphLayoutDirection,
   type ModelSortKey,
 } from "./layout/buildGraphDocFromModel";
-export type { ModelSortKey } from "./layout/buildGraphDocFromModel";
+export type {
+  GraphLayoutDirection,
+  ModelSortKey,
+} from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
 
@@ -37,6 +41,8 @@ export type NodeGraphAPI = {
   setSelectedNodeId: (nodeId: string | null) => void;
   /** Replace model ordering and refresh layout */
   setModelSortKey: (sortKey: ModelSortKey) => void;
+  /** Replace graph layout direction and refresh layout */
+  setLayoutDirection: (direction: GraphLayoutDirection) => void;
 };
 
 export type EdgeVisibilityMode =
@@ -55,6 +61,7 @@ export type GraphDisplayOptions = {
 export type GraphLayoutOptions = {
   collapsedModelIds: string[];
   modelSortKey: ModelSortKey;
+  layoutDirection: GraphLayoutDirection;
 };
 
 const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
@@ -68,7 +75,7 @@ export function initNodeGraph(
   store: DocumentStore,
   initialDisplayOptions?: Partial<GraphDisplayOptions>,
   initialLayoutOptions?: Partial<GraphLayoutOptions>,
-  options?: { selectionScope?: string; initialSelectedNodeId?: string | null }
+  options?: { selectionScope?: string; initialSelectedNodeId?: string | null },
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -81,10 +88,12 @@ export function initNodeGraph(
   let layoutOptions: GraphLayoutOptions = {
     collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
     modelSortKey: initialLayoutOptions?.modelSortKey ?? "model_path",
+    layoutDirection: initialLayoutOptions?.layoutDirection ?? "horizontal",
   };
   buildGraphDocFromModel(store, doc, {
     collapsedModelIds: layoutOptions.collapsedModelIds,
     modelSortKey: layoutOptions.modelSortKey,
+    layoutDirection: layoutOptions.layoutDirection,
   });
 
   const layers = createSvgLayers(svgElement);
@@ -92,7 +101,10 @@ export function initNodeGraph(
   const router = new RectilinearRouter();
   const selectionScope = options?.selectionScope ?? "default";
   const view = new SvgView(svgElement, layers, router, selectionScope);
-  const selectionController = new SelectionController(svgElement, selectionScope);
+  const selectionController = new SelectionController(
+    svgElement,
+    selectionScope,
+  );
   const slotDragController = new SlotDragController(svgElement, doc, store);
   let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
   let displayOptions: GraphDisplayOptions = {
@@ -157,11 +169,11 @@ export function initNodeGraph(
 
   svgElement.addEventListener(
     "models-graph:plus-click",
-    plusClickHandler as EventListener
+    plusClickHandler as EventListener,
   );
   svgElement.addEventListener(
     "models-graph:rename-requested",
-    renameHandler as EventListener
+    renameHandler as EventListener,
   );
   const selectionChangedHandler = (e: Event) => {
     const ce = e as CustomEvent<{ nodeId?: string | null; scope?: string }>;
@@ -173,7 +185,7 @@ export function initNodeGraph(
   };
   window.addEventListener(
     "models-graph:selection-changed",
-    selectionChangedHandler as EventListener
+    selectionChangedHandler as EventListener,
   );
 
   // First paint + attach controllers (idempotent if caller repeats)
@@ -184,6 +196,7 @@ export function initNodeGraph(
     buildGraphDocFromModel(store, doc, {
       collapsedModelIds: layoutOptions.collapsedModelIds,
       modelSortKey: layoutOptions.modelSortKey,
+      layoutDirection: layoutOptions.layoutDirection,
     });
     render();
   };
@@ -193,15 +206,15 @@ export function initNodeGraph(
     unsubscribeStore?.();
     svgElement.removeEventListener(
       "models-graph:plus-click",
-      plusClickHandler as EventListener
+      plusClickHandler as EventListener,
     );
     svgElement.removeEventListener(
       "models-graph:rename-requested",
-      renameHandler as EventListener
+      renameHandler as EventListener,
     );
     window.removeEventListener(
       "models-graph:selection-changed",
-      selectionChangedHandler as EventListener
+      selectionChangedHandler as EventListener,
     );
     selectionController.detach();
     slotDragController.detach();
@@ -225,6 +238,10 @@ export function initNodeGraph(
     layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
     refreshLayout();
   };
+  const setLayoutDirection = (direction: GraphLayoutDirection) => {
+    layoutOptions = { ...layoutOptions, layoutDirection: direction };
+    refreshLayout();
+  };
 
   return {
     svg: svgElement,
@@ -239,13 +256,14 @@ export function initNodeGraph(
     getSelectedNodeId,
     setSelectedNodeId,
     setModelSortKey,
+    setLayoutDirection,
   };
 }
 
 function suggestName(
   store: DocumentStore,
   modelId: string,
-  base: string
+  base: string,
 ): string {
   let i = 1;
   const m = store.get(modelId)!;

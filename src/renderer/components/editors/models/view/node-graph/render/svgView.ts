@@ -7,6 +7,8 @@ export { createSvgLayers };
 const marginX = 20;
 const startX = 120;
 const spacing = 180;
+const verticalLaneWidth = 180;
+const verticalNodeSpacing = 58;
 
 export interface Layers {
   swim: SVGGElement;
@@ -116,19 +118,27 @@ export class SvgView {
   private renderSwimlanes(sections: Section[], canvasWidth: number): void {
     this.layers.swim.replaceChildren();
     for (const section of sections) {
+      const isVertical = section.layoutDirection === "vertical";
       for (let i = 0; i < section.laneCount; i++) {
-        const y = section.yStart + i * section.laneHeight;
+        const x = isVertical ? startX + i * verticalLaneWidth - 28 : marginX;
+        const y = isVertical
+          ? section.yStart
+          : section.yStart + i * section.laneHeight;
+        const width = isVertical
+          ? verticalLaneWidth - 20
+          : canvasWidth - marginX * 2;
+        const height = section.laneHeight + 1;
         const rect = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "rect",
         );
         rect.classList.add("swimlane");
-        rect.setAttribute("x", String(marginX));
+        rect.setAttribute("x", String(x));
         rect.setAttribute("y", String(y));
         rect.setAttribute("rx", "6");
         rect.setAttribute("ry", "6");
-        rect.setAttribute("width", String(canvasWidth - marginX * 2));
-        rect.setAttribute("height", String(section.laneHeight + 1));
+        rect.setAttribute("width", String(width));
+        rect.setAttribute("height", String(height));
         if (section.collapsed) {
           rect.classList.add("collapsed-swimlane");
         }
@@ -139,7 +149,7 @@ export class SvgView {
           "text",
         );
         label.classList.add("label");
-        label.setAttribute("x", String(marginX + 10));
+        label.setAttribute("x", String(x + 10));
         label.setAttribute("y", String(y + 20));
         if (!section.collapsed) {
           label.textContent = section.hasSequencedGroup
@@ -251,8 +261,8 @@ export class SvgView {
         toggleInset,
         toggleWidth - toggleInset,
         n.h - toggleInset * 2,
-        4
-      )
+        4,
+      ),
     );
     toggleRect.setAttribute(
       "aria-label",
@@ -546,9 +556,9 @@ export class SvgView {
         continue;
       }
       for (let lane = 0; lane < s.laneCount; lane++) {
-        const laneY = s.yStart + lane * s.laneHeight;
+        const isVertical = s.layoutDirection === "vertical";
+        const laneY = isVertical ? s.yStart : s.yStart + lane * s.laneHeight;
 
-        // ⬇️ Find the rightmost node *in this lane*
         const nodesInLane = Array.from(doc.nodes.values()).filter(
           (n) => n.meta?.section === s.index && n.lane === lane,
         );
@@ -557,10 +567,18 @@ export class SvgView {
           nodesInLane.length > 0
             ? Math.max(...nodesInLane.map((n) => n.x))
             : startX - spacing;
+        const maxY =
+          nodesInLane.length > 0
+            ? Math.max(...nodesInLane.map((n) => n.y))
+            : laneY + 42 - verticalNodeSpacing;
 
-        const x = maxX + spacing;
+        const x = isVertical
+          ? startX + lane * verticalLaneWidth
+          : maxX + spacing;
 
-        const y = laneY + (s.laneHeight - H) / 2;
+        const y = isVertical
+          ? maxY + verticalNodeSpacing
+          : laneY + (s.laneHeight - H) / 2;
 
         const g = document.createElementNS(ns, "g");
         g.classList.add("plus-slot");
@@ -624,7 +642,7 @@ function roundedLeftRectPath(
   y: number,
   width: number,
   height: number,
-  radius: number
+  radius: number,
 ): string {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   const right = x + width;

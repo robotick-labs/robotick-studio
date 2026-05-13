@@ -28,6 +28,8 @@ export interface Node {
     collapsed?: boolean;
     subtitle?: string;
     stubDirection?: "incoming" | "outgoing";
+    slot?: number;
+    layoutDirection?: "horizontal" | "vertical";
   };
 }
 
@@ -48,6 +50,7 @@ export interface Section {
   rootType?: string;
   hasSequencedGroup?: boolean;
   collapsed?: boolean;
+  layoutDirection?: "horizontal" | "vertical";
 }
 
 export class GraphDoc {
