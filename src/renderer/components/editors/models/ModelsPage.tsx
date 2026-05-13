@@ -127,13 +127,16 @@ export default function ModelsPage() {
       []
   );
   const [collapseStateInitialized, setCollapseStateInitialized] = useState(false);
-  const [showPropertyPanel, setShowPropertyPanel] = useState(true);
+  const [showPropertyPanel, setShowPropertyPanel] = useState(
+    initialViewState?.showPropertyPanel ?? true
+  );
   const graphApiRef = useRef<NodeGraphAPI | null>(null);
 
   useEffect(() => {
     const stored = readModelsViewState(panelViewStateStorageKey);
     setEdgeVisibilityMode(stored?.edgeVisibilityMode ?? "selected-model");
     setSelectedNodeId(stored?.selectedNodeId ?? null);
+    setShowPropertyPanel(stored?.showPropertyPanel ?? true);
   }, [panelViewStateStorageKey]);
 
   useEffect(() => {
@@ -324,6 +327,7 @@ export default function ModelsPage() {
     writeModelsViewState(panelViewStateStorageKey, {
       edgeVisibilityMode,
       selectedNodeId,
+      showPropertyPanel,
       ...(collapseStateInitialized ? { collapsedModelIds } : {}),
     });
   }, [
@@ -331,6 +335,7 @@ export default function ModelsPage() {
     collapsedModelIds,
     edgeVisibilityMode,
     panelViewStateStorageKey,
+    showPropertyPanel,
     selectedNodeId,
   ]);
 
@@ -479,6 +484,7 @@ type GraphViewport = {
 type ModelsViewState = {
   edgeVisibilityMode: EdgeVisibilityMode;
   selectedNodeId: string | null;
+  showPropertyPanel?: boolean;
   collapsedModelIds?: string[];
 };
 
@@ -808,6 +814,10 @@ function readModelsViewState(storageKey: string): ModelsViewState | null {
           (id): id is string => typeof id === "string"
         )
       : undefined;
+    const showPropertyPanel =
+      typeof parsed.showPropertyPanel === "boolean"
+        ? parsed.showPropertyPanel
+        : undefined;
     if (
       edgeVisibilityMode !== "none" &&
       edgeVisibilityMode !== "selected-node" &&
@@ -820,6 +830,7 @@ function readModelsViewState(storageKey: string): ModelsViewState | null {
     return {
       edgeVisibilityMode,
       selectedNodeId,
+      showPropertyPanel,
       collapsedModelIds,
     };
   } catch {
@@ -833,6 +844,11 @@ function writeModelsViewState(storageKey: string, state: ModelsViewState): void 
     edgeVisibilityMode: state.edgeVisibilityMode,
     selectedNodeId: state.selectedNodeId,
   };
+  if (state.showPropertyPanel !== undefined) {
+    payload.showPropertyPanel = state.showPropertyPanel;
+  } else if (existing?.showPropertyPanel !== undefined) {
+    payload.showPropertyPanel = existing.showPropertyPanel;
+  }
   if (state.collapsedModelIds !== undefined) {
     payload.collapsedModelIds = state.collapsedModelIds;
   } else if (existing?.collapsedModelIds !== undefined) {
