@@ -20,6 +20,8 @@ export class RectilinearRouter implements ConnectionRouter {
         from: edge.from,
         to: edge.to,
         path,
+        fromPath: edge.fromPath,
+        toPath: edge.toPath,
         classList: [
           "connection",
           edge.isRemote ? "remote-connection" : "local-connection",

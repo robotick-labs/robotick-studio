@@ -5,6 +5,8 @@ export interface RoutedEdge {
   to: string;
   path: string;
   classList: string[];
+  fromPath?: string;
+  toPath?: string;
 }
 
 export interface ConnectionRouter {

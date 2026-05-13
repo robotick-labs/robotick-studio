@@ -410,7 +410,12 @@ function buildInternalEdges(
     const from = nodeIdFor(modelId, connection.from.split(".")[0]);
     const to = nodeIdFor(modelId, connection.to.split(".")[0]);
     if (nodeIds.has(from) && nodeIds.has(to)) {
-      edges.push({ from, to });
+      edges.push({
+        from,
+        to,
+        fromPath: connection.from,
+        toPath: connection.to,
+      });
     }
   });
   return edges;
@@ -451,6 +456,8 @@ function buildExternalEdges(
               connection.to_remote.split(".")[0],
               true,
             ),
+            connection.from_local,
+            connection.to_remote,
           );
         } else if (
           typeof connection.from_remote === "string" &&
@@ -471,6 +478,8 @@ function buildExternalEdges(
               connection.to_local.split(".")[0],
               true,
             ),
+            connection.from_remote,
+            connection.to_local,
           );
         }
       }
@@ -485,11 +494,13 @@ function addExternalEdge(
   doc: GraphDoc,
   from: string | null,
   to: string | null,
+  fromPath?: string,
+  toPath?: string,
 ): void {
   if (!from || !to || !doc.getNode(from) || !doc.getNode(to)) {
     return;
   }
-  edges.push({ from, to, isRemote: true });
+  edges.push({ from, to, fromPath, toPath, isRemote: true });
 }
 
 function normalizeSectionGeometry(nodes: Node[], edges: Edge[]): void {

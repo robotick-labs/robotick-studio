@@ -507,6 +507,22 @@
   stroke: rgba(128, 128, 255, 0.35);
 }
 
+:global(.connection-tooltip-layer.is-hidden) {
+  display: none;
+}
+
+:global(.connection-tooltip-bg) {
+  fill: rgba(7, 12, 20, 0.94);
+  stroke: rgba(138, 182, 224, 0.7);
+  stroke-width: 1;
+}
+
+:global(.connection-tooltip-text) {
+  fill: #d8f0ff;
+  font-size: 11px;
+  pointer-events: none;
+}
+
 @keyframes dash-shift {
   to {
     stroke-dashoffset: -13;

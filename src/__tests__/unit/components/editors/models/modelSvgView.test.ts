@@ -183,6 +183,8 @@ describe("SvgView vertical model rendering", () => {
             from: edge.from,
             to: edge.to,
             path: "M0,0 L10,10",
+            fromPath: edge.fromPath,
+            toPath: edge.toPath,
             classList: ["connection", "local-connection"],
           })),
       },
@@ -259,5 +261,102 @@ describe("SvgView vertical model rendering", () => {
     expect(svg.querySelector("#animator\\:w2")?.classList.contains("is-selected")).toBe(
       true,
     );
+  });
+
+  it("shows connection source and destination labels on edge hover", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    Object.defineProperty(svg, "getScreenCTM", {
+      configurable: true,
+      value: () => ({
+        inverse: () => ({}),
+      }),
+    });
+    Object.defineProperty(svg, "createSVGPoint", {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        matrixTransform() {
+          return { x: this.x, y: this.y };
+        },
+      }),
+    });
+    const layers = createSvgLayers(svg);
+    const view = new SvgView(
+      svg,
+      layers,
+      {
+        routeAll: (edges) =>
+          edges.map((edge) => ({
+            from: edge.from,
+            to: edge.to,
+            path: "M0,0 L10,10",
+            fromPath: edge.fromPath,
+            toPath: edge.toPath,
+            classList: ["connection", "local-connection"],
+          })),
+      },
+      "test",
+    );
+    const doc = new GraphDoc();
+    doc.upsertNode({
+      id: "animator:w1",
+      kind: "workload",
+      label: "Source Node",
+      x: 100,
+      y: 120,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: { modelId: "animator", section: 0, slot: 0, layoutDirection: "vertical-offset" },
+    });
+    doc.upsertNode({
+      id: "animator:w2",
+      kind: "workload",
+      label: "Target Node",
+      x: 100,
+      y: 220,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: { modelId: "animator", section: 0, slot: 1, layoutDirection: "vertical-offset" },
+    });
+    doc.setEdges([
+      {
+        from: "animator:w1",
+        to: "animator:w2",
+        fromPath: "w1.outputs.pose",
+        toPath: "w2.inputs.pose",
+        routePoints: [{ x: 0, y: 0 }, { x: 10, y: 10 }],
+      },
+    ]);
+
+    view.render(doc, {
+      selectedNodeId: null,
+      edgeVisibilityMode: "all",
+      focusDimming: true,
+      expandedModelIds: [],
+    });
+
+    const hoverPath = svg.querySelector(
+      "path.connection-hover-area",
+    ) as SVGPathElement | null;
+    hoverPath?.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 140,
+      }),
+    );
+
+    const tooltip = svg.querySelector("g.connection-tooltip-layer");
+    const text = Array.from(
+      svg.querySelectorAll("text.connection-tooltip-text"),
+    ).map((node) => node.textContent);
+    expect(tooltip?.classList.contains("is-hidden")).toBe(false);
+    expect(text).toEqual([
+      "From: Source Node.outputs.pose",
+      "To: Target Node.inputs.pose",
+    ]);
   });
 });
