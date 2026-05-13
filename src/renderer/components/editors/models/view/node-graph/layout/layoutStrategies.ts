@@ -24,6 +24,7 @@ export interface LayoutStrategy {
 }
 
 const BASE_NODE_SPACING = 56;
+// Give ELK enough vertical room to keep parallel downward runs visually separated.
 const BASE_LAYER_SPACING = 42;
 
 const verticalOffset: LayoutStrategy = {
