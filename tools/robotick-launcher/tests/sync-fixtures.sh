@@ -18,6 +18,9 @@ sync_repo() {
   if git -C "$dest" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "[sync-fixtures] Updating $name at $dest ($ref)"
     git -C "$dest" fetch --all --tags --prune
+    echo "[sync-fixtures] Wiping local changes in fixture repo: $dest"
+    git -C "$dest" reset --hard HEAD
+    git -C "$dest" clean -ffdx
   elif [ -e "$dest" ]; then
     echo "[sync-fixtures] Refusing to overwrite non-git fixture path: $dest" >&2
     exit 1
@@ -31,6 +34,8 @@ sync_repo() {
   else
     git -C "$dest" checkout "$ref"
   fi
+  git -C "$dest" reset --hard HEAD
+  git -C "$dest" clean -ffdx
   git -C "$dest" submodule update --init --recursive
 }
 

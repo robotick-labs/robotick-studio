@@ -1,11 +1,22 @@
 import json
 from pathlib import Path
 import hashlib
+import re
 
 from robotick.launcher.utils import render_template, write_text_if_changed
 from robotick.launcher.actions.query.list import list_project_models
 from rich import print
 import yaml
+
+
+def _sanitize_cpp_identifier(value: str, *, fallback: str = "id") -> str:
+    sanitized = re.sub(r"[^0-9A-Za-z_]", "_", str(value or ""))
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    if not sanitized:
+        sanitized = fallback
+    if sanitized[0].isdigit():
+        sanitized = f"_{sanitized}"
+    return sanitized
 
 
 # allows both dot-notation and nested dicts for config entries, flattens to list of {"key": "a.b.c", "value": ...}
@@ -92,14 +103,10 @@ def generate_model_cpp(config):
 def prepare_codegen_model_data(config):
     """Prepares Jinja-safe lists for workloads, connections, and remote models."""
     workloads = []
-    workload_id_to_name = {}
     workload_id_to_var = {}
     for w in config.model.get("workloads", []):
         workload_id = str(w.get("id", "")).strip()
-        workload_name = str(w.get("name", workload_id)).strip()
-        if workload_id:
-            workload_id_to_name[workload_id] = workload_name
-        var_name = workload_name.replace("-", "_")
+        var_name = _sanitize_cpp_identifier(workload_id, fallback="workload")
         workload_id_to_var[workload_id] = var_name
         config_entries = _flatten_field_entries(w.get("config"))
         input_entries = _flatten_field_entries(w.get("inputs"))
@@ -111,8 +118,7 @@ def prepare_codegen_model_data(config):
             elif isinstance(child, str):
                 child_id = child
             if child_id:
-                child_name = workload_id_to_name.get(child_id, child_id)
-                children.append(child_name)
+                children.append(child_id)
         workloads.append(
             {
                 **w,
@@ -127,8 +133,8 @@ def prepare_codegen_model_data(config):
 
     connections = []
     for conn in config.model.get("connections", []):
-        from_path = _endpoint_id_to_name(conn.get("from", ""), workload_id_to_name)
-        to_path = _endpoint_id_to_name(conn.get("to", ""), workload_id_to_name)
+        from_path = _endpoint_id_to_name(conn.get("from", ""))
+        to_path = _endpoint_id_to_name(conn.get("to", ""))
         connections.append(
             {
                 **conn,
@@ -138,7 +144,7 @@ def prepare_codegen_model_data(config):
             }
         )
 
-    remote_models = _build_remote_models_codegen(config, workload_id_to_name)
+    remote_models = _build_remote_models_codegen(config)
 
     # --- Telemetry (single object) ---
     telemetry = dict(config.model.get("telemetry", {}) or {})
@@ -154,11 +160,11 @@ def _build_telemetry_peers_codegen(config, telemetry):
     if not bool((telemetry or {}).get("is_gateway")):
         return []
 
-    current_model_name = getattr(config, "model_name", "") or ""
+    current_model_id = str((config.model or {}).get("id", "")).strip()
     telemetry_peers = []
     for model in _collect_project_models(config):
-        model_name = str(model.get("name", "")).strip()
-        if not model_name or model_name == current_model_name:
+        model_id = str(model.get("id", "")).strip()
+        if not model_id or model_id == current_model_id:
             continue
         model_data = model.get("data", {}) or {}
         model_telemetry = dict(model_data.get("telemetry") or {})
@@ -171,8 +177,8 @@ def _build_telemetry_peers_codegen(config, telemetry):
             continue
         telemetry_peers.append(
             {
-                "name": model_name,
-                "name_safe": model_name.replace("-", "_"),
+                "name": model_id,
+                "name_safe": _sanitize_cpp_identifier(model_id, fallback="model"),
                 "host": host,
                 "telemetry_port": port,
                 "is_gateway": bool(model_telemetry.get("is_gateway")),
@@ -181,7 +187,7 @@ def _build_telemetry_peers_codegen(config, telemetry):
     return telemetry_peers
 
 
-def _build_remote_models_codegen(config, workload_id_to_name):
+def _build_remote_models_codegen(config):
     current_remote_models = config.model.get("remote_models", []) or []
     current_model_id = str(config.model.get("id", "")).strip()
     if not current_model_id:
@@ -200,11 +206,6 @@ def _build_remote_models_codegen(config, workload_id_to_name):
             )
 
     project_models = _collect_project_models(config)
-    model_id_to_name = {
-        str(model.get("id", "")).strip(): str(model.get("name", "")).strip()
-        for model in project_models
-        if str(model.get("id", "")).strip()
-    }
     current_remote_config = {}
     for remote in current_remote_models:
         if not isinstance(remote, dict):
@@ -240,10 +241,11 @@ def _build_remote_models_codegen(config, workload_id_to_name):
             group["channel"] = edge["channel"]
         group["connections"].append(
             {
-                "from": _endpoint_id_to_name(edge["source_field"], workload_id_to_name),
+                "from": _endpoint_id_to_name(
+                    edge["source_field"],
+                ),
                 "to_remote": _endpoint_id_to_name(
                     edge["target_field"],
-                    model_id_to_workload_names.get(target_model, {}),
                 ),
             }
         )
@@ -251,10 +253,8 @@ def _build_remote_models_codegen(config, workload_id_to_name):
     remote_models = []
     for target_model_id in sorted(remote_grouped.keys()):
         remote_decl = current_remote_config.get(target_model_id, {})
-        remote_name = str(remote_decl.get("name", "")).strip() or model_id_to_name.get(
-            target_model_id, target_model_id
-        )
-        name_safe = remote_name.replace("-", "_")
+        remote_name = target_model_id
+        name_safe = _sanitize_cpp_identifier(target_model_id, fallback="model")
         remote_conns = []
         for conn in sorted(
             remote_grouped[target_model_id]["connections"],
@@ -393,7 +393,7 @@ def _parse_canonical_remote_edge(
     if has_sender_form and has_receiver_form:
         raise ValueError(
             f"Invalid remote connection in '{owner_model_name}' for remote model "
-            f"'{remote_model_name}': cannot mix sender-form (from/to_remote) with "
+            f"'{remote_model_id}': cannot mix sender-form (from/to_remote) with "
             "receiver-form (from_remote/to)."
         )
 
@@ -441,13 +441,12 @@ def _parse_canonical_remote_edge(
     )
 
 
-def _endpoint_id_to_name(path, workload_id_to_name):
+def _endpoint_id_to_name(path):
     raw = str(path or "").strip()
     if not raw:
         return raw
     owner, dot, rest = raw.partition(".")
-    resolved_owner = workload_id_to_name.get(owner, owner)
-    return f"{resolved_owner}{dot}{rest}" if dot else resolved_owner
+    return f"{owner}{dot}{rest}" if dot else owner
 
 
 def _stable_suffix(value):
@@ -462,6 +461,5 @@ def _build_workload_id_to_name_map(model_data):
         workload_id = str(workload.get("id", "")).strip()
         if not workload_id:
             continue
-        workload_name = str(workload.get("name", workload_id)).strip()
-        mapping[workload_id] = workload_name
+        mapping[workload_id] = workload_id
     return mapping

@@ -22,40 +22,40 @@ void populate_model_test_project_brain(robotick::Model& model)
     ensure_workloads();
 
     // === Workloads ===
-    static const FieldConfigEntry remote_control_initial_inputs[] = {
+    static const FieldConfigEntry remote_control_workload_59511193_initial_inputs[] = {
         {"use_web_inputs", "true"},
         {"left.x", "0.0"},
         {"left.y", "0.0"}
     };
 
-    static const WorkloadSeed remote_control = {
+    static const WorkloadSeed remote_control_workload_59511193 = {
         TypeId("RemoteControlWorkload"),
-        StringView("remote_control"),
+        StringView("remote_control_workload_59511193"),
         30.0f,
         {},    // children
         {},    // config
-        remote_control_initial_inputs,
+        remote_control_workload_59511193_initial_inputs,
     };
 
-    static const FieldConfigEntry face_config[] = {
+    static const FieldConfigEntry face_display_workload_EE6DA533_config[] = {
         {"blink_min_interval_sec", "1.5"},
         {"blink_max_interval_sec", "4.0"},
         {"render_to_texture", "true"}
     };
 
-    static const WorkloadSeed face = {
+    static const WorkloadSeed face_display_workload_EE6DA533 = {
         TypeId("FaceDisplayWorkload"),
-        StringView("face"),
+        StringView("face_display_workload_EE6DA533"),
         30.0f,
         {},    // children
-        face_config,
+        face_display_workload_EE6DA533_config,
         {}    // inputs
     };
 
 
-    static const WorkloadSeed speech_to_text = {
+    static const WorkloadSeed speech_to_text_workload_8363FFF6 = {
         TypeId("SpeechToTextWorkload"),
-        StringView("speech_to_text"),
+        StringView("speech_to_text_workload_8363FFF6"),
         30.0f,
         {},    // children
         {},    // config
@@ -63,9 +63,9 @@ void populate_model_test_project_brain(robotick::Model& model)
     };
 
 
-    static const WorkloadSeed camera = {
+    static const WorkloadSeed monocular_camera_workload_09BDDA25 = {
         TypeId("MonocularCameraWorkload"),
-        StringView("camera"),
+        StringView("monocular_camera_workload_09BDDA25"),
         30.0f,
         {},    // children
         {},    // config
@@ -73,35 +73,35 @@ void populate_model_test_project_brain(robotick::Model& model)
     };
 
 
-    static const WorkloadSeed mic = {
+    static const WorkloadSeed mic_workload_87EF9860 = {
         TypeId("MicWorkload"),
-        StringView("mic"),
+        StringView("mic_workload_87EF9860"),
         30.0f,
         {},    // children
         {},    // config
         {}    // inputs
     };
 
-    static const WorkloadSeed* const root_group_children[] = {
-        &remote_control,        &face,        &camera,        &mic,        &speech_to_text    };
+    static const WorkloadSeed* const synced_group_workload_E6E41091_children[] = {
+        &remote_control_workload_59511193,        &face_display_workload_EE6DA533,        &monocular_camera_workload_09BDDA25,        &mic_workload_87EF9860,        &speech_to_text_workload_8363FFF6    };
 
 
-    static const WorkloadSeed root_group = {
+    static const WorkloadSeed synced_group_workload_E6E41091 = {
         TypeId("SyncedGroupWorkload"),
-        StringView("root_group"),
+        StringView("synced_group_workload_E6E41091"),
         30.0f,
-        root_group_children,
+        synced_group_workload_E6E41091_children,
         {},    // config
         {}    // inputs
     };
 
     static const WorkloadSeed* const all_workloads[] = {
-        &remote_control,
-        &face,
-        &speech_to_text,
-        &camera,
-        &mic,
-        &root_group
+        &remote_control_workload_59511193,
+        &face_display_workload_EE6DA533,
+        &speech_to_text_workload_8363FFF6,
+        &monocular_camera_workload_09BDDA25,
+        &mic_workload_87EF9860,
+        &synced_group_workload_E6E41091
     };
 
     // === Local data connections ===
@@ -110,39 +110,40 @@ void populate_model_test_project_brain(robotick::Model& model)
 
     // === Remote models ===
 
-    static const DataConnectionSeed test_project_spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed{
-        "remote_control.outputs.left.y",
-        "steering_mixer.inputs.speed"
+    static const DataConnectionSeed test_project_spine_model_90287511_conn_remote_control_workload_59511193_outputs_left_y__to__steering_mixer_workload_31EFA630_inputs_speed{
+        "remote_control_workload_59511193.outputs.left.y",
+        "steering_mixer_workload_31EFA630.inputs.speed"
     };
 
-    static const DataConnectionSeed test_project_spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate{
-        "remote_control.outputs.left.x",
-        "steering_mixer.inputs.turn_rate"
+    static const DataConnectionSeed test_project_spine_model_90287511_conn_remote_control_workload_59511193_outputs_left_x__to__steering_mixer_workload_31EFA630_inputs_turn_rate{
+        "remote_control_workload_59511193.outputs.left.x",
+        "steering_mixer_workload_31EFA630.inputs.turn_rate"
     };
 
-    static const DataConnectionSeed* const test_project_spine_connections[] = {
-        &test_project_spine_conn_remote_control_outputs_left_y__to__steering_mixer_inputs_speed,
-        &test_project_spine_conn_remote_control_outputs_left_x__to__steering_mixer_inputs_turn_rate
+    static const DataConnectionSeed* const test_project_spine_model_90287511_connections[] = {
+        &test_project_spine_model_90287511_conn_remote_control_workload_59511193_outputs_left_y__to__steering_mixer_workload_31EFA630_inputs_speed,
+        &test_project_spine_model_90287511_conn_remote_control_workload_59511193_outputs_left_x__to__steering_mixer_workload_31EFA630_inputs_turn_rate
     };
 
-    static const RemoteModelSeed remote_test_project_spine = []() {
+    static const RemoteModelSeed remote_test_project_spine_model_90287511 = []() {
         RemoteModelSeed seed{
-            "test-project-spine",
-            test_project_spine_connections
+            "test_project_spine_model_90287511",
+            test_project_spine_model_90287511_connections
         };
         seed.comms_mode = RemoteModelSeed::Mode::IP;
         return seed;
     }();
 
     static const RemoteModelSeed* const all_remote_models[] = {
-        &remote_test_project_spine        
+        &remote_test_project_spine_model_90287511        
     };
 
     // === Finalize model ===
 
-    model.set_model_name("test-project-brain");
+    model.set_model_name("test_project_brain_model_20D4813E");
     model.use_workload_seeds(all_workloads);
     model.use_remote_models(all_remote_models);
-    model.set_root_workload(root_group);
+    model.set_root_workload(synced_group_workload_E6E41091);
     model.set_telemetry_port(7090);
+    model.set_telemetry_push_rate_hz(20.0f);
 }
