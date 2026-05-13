@@ -54,6 +54,27 @@ describe("RectilinearRouter", () => {
     expect(edge.classList).toContain("local-connection");
   });
 
+  it("renders multi-point local connections as continuous cubic splines", () => {
+    const [edge] = new RectilinearRouter().routeAll(
+      [
+        {
+          from: "a",
+          to: "b",
+          routePoints: [
+            { x: 84, y: 40 },
+            { x: 84, y: 40 },
+            { x: 120, y: 80 },
+            { x: 84, y: 100 },
+          ],
+        },
+      ],
+      (id) => nodes.get(id),
+    );
+
+    expect(edge.path).toBe("M84,40 C84,40 120,80 84,100");
+    expect(edge.path).not.toContain(" L");
+  });
+
   it("keeps remote connections as straight segmented paths", () => {
     const [edge] = new RectilinearRouter().routeAll(
       [
