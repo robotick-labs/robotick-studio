@@ -1,17 +1,9 @@
 import type { GraphDoc } from "../view/node-graph/layout/editorNodeGraph";
 import { DocumentStore } from "../document/documentStore";
 
-const startX = 120,
-  spacing = 180,
-  nodeW = 140,
-  verticalLaneHeaderHeight = 42,
+const verticalLaneHeaderHeight = 42,
   verticalNodeSpacing = 58,
   nodeH = 40;
-
-function slotFromX(x: number): number {
-  const raw = (x - startX) / spacing;
-  return Math.max(0, Math.round(raw));
-}
 
 function slotFromY(y: number, sectionYStart: number): number {
   const raw =
@@ -24,7 +16,7 @@ export class SlotDragController {
   private startLane = 0;
   private startSlot = 0;
   private modelId = "";
-  private layoutDirection: "horizontal" | "vertical" = "horizontal";
+  private layoutDirection: "vertical-offset" = "vertical-offset";
   private sectionYStart = 0;
 
   constructor(
@@ -62,13 +54,11 @@ export class SlotDragController {
 
     this.modelId = n.meta?.modelId ?? "";
     this.startLane = n.lane;
-    this.layoutDirection = n.meta?.layoutDirection ?? "horizontal";
+    this.layoutDirection = n.meta?.layoutDirection ?? "vertical-offset";
     this.sectionYStart = this.doc.sections[n.meta?.section ?? -1]?.yStart ?? 0;
     this.startSlot =
       n.meta?.slot ??
-      (this.layoutDirection === "vertical"
-        ? slotFromY(n.y, this.sectionYStart)
-        : slotFromX(n.x));
+      slotFromY(n.y, this.sectionYStart);
     this.dragging = true;
     e.preventDefault();
     window.addEventListener("mousemove", this.onMouseMove);
@@ -90,10 +80,7 @@ export class SlotDragController {
     window.removeEventListener("mouseup", this.onMouseUp);
 
     const p = this.toSvg(ev);
-    const targetSlot =
-      this.layoutDirection === "vertical"
-        ? slotFromY(p.y - nodeH / 2, this.sectionYStart)
-        : slotFromX(p.x - nodeW / 2);
+    const targetSlot = slotFromY(p.y - nodeH / 2, this.sectionYStart);
     if (targetSlot !== this.startSlot) {
       this.store.moveWithinLane(
         this.modelId,

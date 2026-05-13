@@ -4,12 +4,6 @@ import { createSvgLayers } from "./svgLayers";
 
 export { createSvgLayers };
 
-const marginX = 20;
-const startX = 120;
-const spacing = 180;
-const verticalLaneWidth = 180;
-const verticalNodeSpacing = 58;
-
 export interface Layers {
   swim: SVGGElement;
   group: SVGGElement;
@@ -111,34 +105,25 @@ export class SvgView {
       );
     }
 
-    // Step 3: re-render swimlanes with final width
-    this.renderSwimlanes(doc.sections, viewWidth);
+    void viewWidth;
+    this.renderSwimlanes(doc.sections);
   }
 
-  private renderSwimlanes(sections: Section[], canvasWidth: number): void {
+  private renderSwimlanes(sections: Section[]): void {
     this.layers.swim.replaceChildren();
     for (const section of sections) {
-      const isVertical = section.layoutDirection === "vertical";
-      for (let i = 0; i < section.laneCount; i++) {
-        const x = isVertical ? startX + i * verticalLaneWidth - 28 : marginX;
-        const y = isVertical
-          ? section.yStart
-          : section.yStart + i * section.laneHeight;
-        const width = isVertical
-          ? verticalLaneWidth - 20
-          : canvasWidth - marginX * 2;
-        const height = section.laneHeight + 1;
+      for (const lane of section.lanes ?? []) {
         const rect = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "rect",
         );
         rect.classList.add("swimlane");
-        rect.setAttribute("x", String(x));
-        rect.setAttribute("y", String(y));
+        rect.setAttribute("x", String(lane.frame.x));
+        rect.setAttribute("y", String(lane.frame.y));
         rect.setAttribute("rx", "6");
         rect.setAttribute("ry", "6");
-        rect.setAttribute("width", String(width));
-        rect.setAttribute("height", String(height));
+        rect.setAttribute("width", String(lane.frame.width));
+        rect.setAttribute("height", String(lane.frame.height));
         if (section.collapsed) {
           rect.classList.add("collapsed-swimlane");
         }
@@ -149,12 +134,10 @@ export class SvgView {
           "text",
         );
         label.classList.add("label");
-        label.setAttribute("x", String(x + 10));
-        label.setAttribute("y", String(y + 20));
+        label.setAttribute("x", String(lane.frame.x + 10));
+        label.setAttribute("y", String(lane.frame.y + 20));
         if (!section.collapsed) {
-          label.textContent = section.hasSequencedGroup
-            ? `Thread ${i + 1} · Sequenced Group`
-            : `Thread ${i + 1}`;
+          label.textContent = lane.label;
           this.layers.swim.appendChild(label);
         }
       }
@@ -542,8 +525,6 @@ export class SvgView {
       n.remove(),
     );
 
-    const sections = doc.sections;
-
     const ns = "http://www.w3.org/2000/svg";
     const W = 140,
       H = 40;
@@ -551,40 +532,19 @@ export class SvgView {
     const cx = W / 2,
       cy = H / 2;
 
-    for (const s of sections) {
+    for (const s of doc.sections) {
       if (s.collapsed) {
         continue;
       }
-      for (let lane = 0; lane < s.laneCount; lane++) {
-        const isVertical = s.layoutDirection === "vertical";
-        const laneY = isVertical ? s.yStart : s.yStart + lane * s.laneHeight;
-
-        const nodesInLane = Array.from(doc.nodes.values()).filter(
-          (n) => n.meta?.section === s.index && n.lane === lane,
-        );
-
-        const maxX =
-          nodesInLane.length > 0
-            ? Math.max(...nodesInLane.map((n) => n.x))
-            : startX - spacing;
-        const maxY =
-          nodesInLane.length > 0
-            ? Math.max(...nodesInLane.map((n) => n.y))
-            : laneY + 42 - verticalNodeSpacing;
-
-        const x = isVertical
-          ? startX + lane * verticalLaneWidth
-          : maxX + spacing;
-
-        const y = isVertical
-          ? maxY + verticalNodeSpacing
-          : laneY + (s.laneHeight - H) / 2;
-
+      for (const slot of s.addSlots ?? []) {
         const g = document.createElementNS(ns, "g");
         g.classList.add("plus-slot");
-        g.setAttribute("transform", `translate(${x},${y})`);
+        g.setAttribute(
+          "transform",
+          `translate(${slot.frame.x},${slot.frame.y})`,
+        );
         g.setAttribute("data-section", String(s.index));
-        g.setAttribute("data-lane", String(lane));
+        g.setAttribute("data-lane", String(slot.laneIndex));
         g.setAttribute("tabindex", "0");
 
         const rect = document.createElementNS(ns, "rect");
@@ -615,7 +575,7 @@ export class SvgView {
             new CustomEvent("models-graph:plus-click", {
               detail: {
                 sectionIndex: s.index,
-                laneIndex: lane,
+                laneIndex: slot.laneIndex,
                 scope: this.eventScope,
               },
               bubbles: true,

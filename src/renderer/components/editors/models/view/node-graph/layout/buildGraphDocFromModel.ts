@@ -1,26 +1,38 @@
+import ELK from "elkjs/lib/elk.bundled.js";
+import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
 import {
   GraphDoc,
-  type Node,
+  type AddSlotLayout,
   type Edge,
+  type LaneLayout,
+  type Node,
+  type RectFrame,
   type Section,
 } from "./editorNodeGraph";
 import type { DocumentStore } from "../../../document/documentStore";
 import type { Workload } from "../../../document/modelData";
+import {
+  getLayoutStrategy,
+  resolveLayoutMode,
+  type GraphLayoutDirection,
+} from "./layoutStrategies";
 
-const nodeSize = { width: 140, height: 40 } as const;
-const verticalNodeSize = { width: 220, height: 40 } as const;
-const startX = 120,
-  spacing = 180,
-  horizontalLaneHeight = 200,
-  verticalLaneWidth = 260,
-  verticalNodeSpacing = 58,
-  verticalLaneHeaderHeight = 42,
-  verticalLaneBottomPad = 24;
-const horizontalLanePadY = (horizontalLaneHeight - nodeSize.height) / 2;
-const sectionHeaderX = 24;
-const modelHeaderYFromSectionStart = -52;
-const modelHeaderHeight = 52;
-const modelToNextHeaderGap = 40;
+const NODE_SIZE = { width: 168, height: 40 } as const;
+const MODEL_HEADER_HEIGHT = 52;
+const MODEL_HEADER_ROW_Y = 24;
+const CONTENT_GAP_Y = 20;
+const CONTENT_GAP_X = 24;
+const LANE_PADDING_X = 20;
+const LANE_PADDING_Y = 18;
+const LANE_LABEL_HEIGHT = 32;
+const HORIZONTAL_SECTION_GAP = 28;
+const VERTICAL_SECTION_GAP = 36;
+const PLUS_SLOT_SIZE = { width: 140, height: 40 } as const;
+const PLUS_SLOT_GAP = 24;
+const COLLAPSED_PLACEHOLDER_HEIGHT = 0;
+const MODEL_HEADER_MIN_WIDTH = 280;
+
+const elk = new ELK();
 
 export interface LayoutSummary {
   sections: Section[];
@@ -35,73 +47,68 @@ export type BuildGraphOptions = {
 };
 
 export type ModelSortKey = "telemetry_port" | "model_name" | "model_path";
-export type GraphLayoutDirection = "horizontal" | "vertical";
+export type { GraphLayoutDirection } from "./layoutStrategies";
 
-/**
- * Create a namespaced node identifier for an item defined in a model file.
- *
- * @param modelPath - Filesystem path or module path to the model file; the model's file name (without its directory) is used as the namespace
- * @param id - Local identifier of the item within the model
- * @returns A string in the form `basename:localId`, where `basename` is the model file name with the `.model.yaml` extension removed
- */
+type SectionDraft = {
+  section: Section;
+  modelNode: Node;
+  localFrame: RectFrame;
+  laneLayouts: LaneLayout[];
+  addSlots: AddSlotLayout[];
+  internalEdges: Edge[];
+};
+
 export function nodeIdFor(modelPath: string, id: string): string {
   return `${modelPath}:${id}`;
 }
 
-/**
- * Builds a graph document of workloads and their inter-model connections from a DocumentStore and returns layout metadata.
- *
- * @param store - The DocumentStore containing models, workloads, connections, and lane information to render.
- * @param doc - The GraphDoc to populate; existing sections are replaced and nodes/edges are upserted.
- * @returns A LayoutSummary containing the document's sections, the total vertical height of the layout in pixels, and the maximum number of nodes present in any section.
- */
-export function buildGraphDocFromModel(
+export async function buildGraphDocFromModel(
   store: DocumentStore,
   doc: GraphDoc,
   options: BuildGraphOptions = {},
-): LayoutSummary {
+): Promise<LayoutSummary> {
   const collapsedModelIds = new Set(options.collapsedModelIds ?? []);
-
-  doc.nodes.clear();
-  doc.sections = [];
-  const edges: Edge[] = [];
-  const collapsedNodeIds = new Map<string, string>();
   const modelSortKey = options.modelSortKey ?? "model_path";
-  const layoutDirection = options.layoutDirection ?? "horizontal";
+  const layoutMode = resolveLayoutMode(options.layoutDirection);
+  const layoutStrategy = getLayoutStrategy(layoutMode);
   const modelIds = store
     .getModelIds()
     .sort((left, right) => compareModelIds(store, left, right, modelSortKey));
-  let yOffset = 40,
-    globalMaxNodes = 0,
-    sectionIndex = 0;
 
-  for (const modelId of modelIds) {
-    const m = store.get(modelId)!;
-    const root = m.workloads.find(
-      (w: Workload) => w.id === m.root.workload_id,
+  doc.nodes.clear();
+  doc.sections = [];
+
+  const drafts: SectionDraft[] = [];
+  const collapsedNodeIds = new Map<string, string>();
+  let globalMaxNodes = 0;
+
+  for (let sectionIndex = 0; sectionIndex < modelIds.length; sectionIndex += 1) {
+    const modelId = modelIds[sectionIndex];
+    const model = store.get(modelId)!;
+    const root = model.workloads.find(
+      (workload: Workload) => workload.id === model.root.workload_id,
     )!;
-    const lanes =
+    const laneRoots =
       root.type === "SyncedGroupWorkload"
         ? (root.children ?? []).map((child) => child.workload_id)
         : [root.id];
-    const hasSequencedGroup = m.workloads.some(
-      (w: Workload) => w.type === "SequencedGroupWorkload",
+    const hasSequencedGroup = model.workloads.some(
+      (workload: Workload) => workload.type === "SequencedGroupWorkload",
     );
     const isCollapsed = collapsedModelIds.has(modelId);
     const modelName =
-      typeof m.name === "string" && m.name.trim() ? m.name : modelId;
-    const modelNodeId = nodeIdFor(modelId, "__model__");
+      typeof model.name === "string" && model.name.trim() ? model.name : modelId;
     const modelNode: Node = {
-      id: modelNodeId,
+      id: nodeIdFor(modelId, "__model__"),
       kind: isCollapsed ? "collapsed-model" : "model",
       label: modelName,
-      x: sectionHeaderX,
-      y: yOffset + modelHeaderYFromSectionStart,
+      x: 0,
+      y: 0,
       w: estimateModelHeaderWidth(
         modelName,
         modelFileName(store.getModelSourcePath(modelId) ?? modelId),
       ),
-      h: modelHeaderHeight,
+      h: MODEL_HEADER_HEIGHT,
       lane: 0,
       meta: {
         modelId,
@@ -112,215 +119,666 @@ export function buildGraphDocFromModel(
     };
     doc.upsertNode(modelNode);
 
+    const section: Section = {
+      index: sectionIndex,
+      modelId,
+      yStart: 0,
+      laneCount: laneRoots.length,
+      laneHeight: 0,
+      maxNodes: 0,
+      labelY: 0,
+      rootType: root.type ?? "Workload",
+      hasSequencedGroup,
+      collapsed: isCollapsed,
+      layoutDirection: layoutMode,
+      frame: {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: COLLAPSED_PLACEHOLDER_HEIGHT,
+      },
+      lanes: [],
+      addSlots: [],
+    };
+
+    const laneWorkloadIds = laneRoots.map((_, laneIndex) =>
+      store.laneChildren(modelId, laneIndex),
+    );
+    section.maxNodes = laneWorkloadIds.reduce(
+      (max, laneIds) => Math.max(max, laneIds.length),
+      0,
+    );
+    globalMaxNodes = Math.max(globalMaxNodes, section.maxNodes);
+
+    const internalEdges: Edge[] = [];
+
     if (isCollapsed) {
-      const labelY = yOffset + 8;
-      collapsedNodeIds.set(modelId, modelNodeId);
-
-      doc.sections.push({
-        index: sectionIndex,
-        modelId,
-        yStart: yOffset,
-        laneCount: 0,
-        laneHeight: 0,
-        maxNodes: 0,
-        labelY,
-        layoutDirection,
-        rootType: root.type ?? "Workload",
-        hasSequencedGroup,
-        collapsed: true,
+      collapsedNodeIds.set(modelId, modelNode.id);
+      drafts.push({
+        section,
+        modelNode,
+        localFrame: { x: 0, y: 0, width: 0, height: 0 },
+        laneLayouts: [],
+        addSlots: [],
+        internalEdges,
       });
+    } else {
+      const workloadNodes = buildSectionWorkloadNodes(
+        doc,
+        modelId,
+        model.workloads,
+        laneWorkloadIds,
+        sectionIndex,
+        layoutMode,
+      );
+      const localConnections = buildInternalEdges(
+        modelId,
+        model.connections ?? [],
+        workloadNodes,
+      );
+      internalEdges.push(...localConnections);
+      await layoutSectionWorkloads(
+        workloadNodes,
+        laneWorkloadIds,
+        internalEdges,
+        layoutMode,
+      );
+      normalizeNodePositions(workloadNodes);
+      const laneLayouts = buildLaneLayouts(
+        workloadNodes,
+        laneWorkloadIds,
+        root.type ?? "Workload",
+        hasSequencedGroup,
+        layoutMode,
+      );
+      const addSlots = buildAddSlotLayouts(
+        workloadNodes,
+        laneLayouts,
+        layoutMode,
+      );
+      const localFrame = unionFrames([
+        ...laneLayouts.map((lane) => lane.frame),
+        ...addSlots.map((slot) => slot.frame),
+      ]);
 
-      yOffset += modelHeaderHeight + modelToNextHeaderGap;
-      sectionIndex++;
+      drafts.push({
+        section,
+        modelNode,
+        localFrame,
+        laneLayouts,
+        addSlots,
+        internalEdges,
+      });
+    }
+  }
+
+  positionSectionsAndModelNodes(drafts, layoutMode);
+  commitSections(doc, drafts, layoutMode);
+
+  const externalEdges = buildExternalEdges(store, modelIds, collapsedNodeIds, doc);
+  const allEdges = [...drafts.flatMap((draft) => draft.internalEdges), ...externalEdges];
+  await routeGlobalEdges(doc, externalEdges, layoutMode);
+  doc.setEdges(allEdges);
+
+  const bounds = doc.bounds();
+  return {
+    sections: doc.sections,
+    totalHeight: bounds.h + MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y,
+    globalMaxNodes,
+  };
+}
+
+async function layoutSectionWorkloads(
+  workloadNodes: Node[],
+  laneWorkloadIds: string[][],
+  edges: Edge[],
+  layoutMode: GraphLayoutDirection,
+): Promise<void> {
+  const strategy = getLayoutStrategy(layoutMode);
+  const portsByNode = new Map<string, Map<string, string>>();
+  const elkEdges: ElkExtendedEdge[] = [];
+  let syntheticCount = 0;
+
+  edges.forEach((edge, index) => {
+    const sourcePort = `${edge.from}:out:${index}`;
+    const targetPort = `${edge.to}:in:${index}`;
+    addPort(portsByNode, edge.from, sourcePort, strategy.sourcePortSide);
+    addPort(portsByNode, edge.to, targetPort, strategy.targetPortSide);
+    elkEdges.push({
+      id: `edge:${index}`,
+      sources: [sourcePort],
+      targets: [targetPort],
+    });
+  });
+
+  const laneNodeIds = laneWorkloadIds.map((laneIds) =>
+    laneIds
+      .map((workloadId) => workloadNodes.find((node) => node.id.endsWith(`:${workloadId}`))?.id)
+      .filter((nodeId): nodeId is string => Boolean(nodeId)),
+  );
+  laneNodeIds.forEach((laneIds) => {
+    for (let i = 0; i < laneIds.length - 1; i += 1) {
+      const sourcePort = `${laneIds[i]}:synthetic-out:${syntheticCount}`;
+      const targetPort = `${laneIds[i + 1]}:synthetic-in:${syntheticCount}`;
+      addPort(portsByNode, laneIds[i], sourcePort, strategy.sourcePortSide);
+      addPort(portsByNode, laneIds[i + 1], targetPort, strategy.targetPortSide);
+      elkEdges.push({
+        id: `synthetic:${syntheticCount++}`,
+        sources: [sourcePort],
+        targets: [targetPort],
+      });
+    }
+  });
+
+  const root: ElkNode = {
+    id: "section-root",
+    children: workloadNodes.map((node) => ({
+      id: node.id,
+      width: node.w,
+      height: node.h,
+      x: node.x,
+      y: node.y,
+      layoutOptions: {
+        "org.eclipse.elk.portConstraints": "FIXED_SIDE",
+      },
+      ports: Array.from(portsByNode.get(node.id)?.entries() ?? []).map(
+        ([id, side]) => ({
+          id,
+          layoutOptions: {
+            "org.eclipse.elk.port.side": side,
+          },
+        }),
+      ),
+    })),
+    edges: elkEdges,
+  };
+  strategy.configureRoot(root, {
+    hasRemoteEdges: false,
+  });
+
+  const result = await elk.layout(root);
+  const laidOutNodes = new Map<string, { x: number; y: number }>();
+  for (const child of result.children ?? []) {
+    if (typeof child.id === "string") {
+      laidOutNodes.set(child.id, {
+        x: child.x ?? 0,
+        y: child.y ?? 0,
+      });
+    }
+  }
+  workloadNodes.forEach((node) => {
+    const laidOut = laidOutNodes.get(node.id);
+    if (laidOut) {
+      node.x = laidOut.x;
+      node.y = laidOut.y;
+    }
+  });
+
+  const routeByEdgeId = new Map<string, Array<{ x: number; y: number }>>();
+  for (const edge of result.edges ?? []) {
+    if (!edge.id?.startsWith("edge:")) {
+      continue;
+    }
+    const section = edge.sections?.[0];
+    if (!section?.startPoint || !section?.endPoint) {
+      continue;
+    }
+    routeByEdgeId.set(edge.id, [
+      { x: section.startPoint.x, y: section.startPoint.y },
+      ...((section.bendPoints ?? []).map((point) => ({ x: point.x, y: point.y }))),
+      { x: section.endPoint.x, y: section.endPoint.y },
+    ]);
+  }
+  edges.forEach((edge, index) => {
+    const routePoints = routeByEdgeId.get(`edge:${index}`);
+    if (routePoints) {
+      edge.routePoints = routePoints;
+    }
+  });
+}
+
+function buildSectionWorkloadNodes(
+  doc: GraphDoc,
+  modelId: string,
+  workloads: Workload[],
+  laneWorkloadIds: string[][],
+  sectionIndex: number,
+  layoutMode: GraphLayoutDirection,
+): Node[] {
+  const strategy = getLayoutStrategy(layoutMode);
+  const nodes: Node[] = [];
+  laneWorkloadIds.forEach((laneIds, laneIndex) => {
+    laneIds.forEach((workloadId, slotIndex) => {
+      const workload = workloads.find((candidate) => candidate.id === workloadId);
+      if (!workload) {
+        return;
+      }
+      const seeded = strategy.seedNodePosition({
+        slot: slotIndex,
+        lane: laneIndex,
+        sectionIndex,
+        laneCount: laneWorkloadIds.length,
+        indexInSection: slotIndex,
+      });
+      const node: Node = {
+        id: nodeIdFor(modelId, workload.id),
+        kind: "workload",
+        label: workload.name,
+        x: seeded.x,
+        y: seeded.y,
+        w: NODE_SIZE.width,
+        h: NODE_SIZE.height,
+        lane: laneIndex,
+        workload,
+        meta: {
+          modelId,
+          section: sectionIndex,
+          slot: slotIndex,
+          layoutDirection: layoutMode,
+          type: workload.type,
+        },
+      };
+      doc.upsertNode(node);
+      nodes.push(node);
+    });
+  });
+  return nodes;
+}
+
+function addPort(
+  portsByNode: Map<string, Map<string, string>>,
+  nodeId: string,
+  portId: string,
+  side: string,
+): void {
+  let ports = portsByNode.get(nodeId);
+  if (!ports) {
+    ports = new Map<string, string>();
+    portsByNode.set(nodeId, ports);
+  }
+  ports.set(portId, side);
+}
+
+function buildInternalEdges(
+  modelId: string,
+  connections: Array<{ from: string; to: string }>,
+  workloadNodes: Node[],
+): Edge[] {
+  const nodeIds = new Set(workloadNodes.map((node) => node.id));
+  const edges: Edge[] = [];
+  connections.forEach((connection) => {
+    const from = nodeIdFor(modelId, connection.from.split(".")[0]);
+    const to = nodeIdFor(modelId, connection.to.split(".")[0]);
+    if (nodeIds.has(from) && nodeIds.has(to)) {
+      edges.push({ from, to });
+    }
+  });
+  return edges;
+}
+
+function buildExternalEdges(
+  store: DocumentStore,
+  modelIds: string[],
+  collapsedNodeIds: Map<string, string>,
+  doc: GraphDoc,
+): Edge[] {
+  const edges: Edge[] = [];
+
+  for (const modelId of modelIds) {
+    const model = store.get(modelId);
+    if (!model) {
       continue;
     }
 
-    let maxSlots = 0;
-    for (let lane = 0; lane < lanes.length; lane++) {
-      const laneY =
-        layoutDirection === "horizontal"
-          ? yOffset + lane * horizontalLaneHeight
-          : yOffset;
-      const laneX =
-        layoutDirection === "horizontal"
-          ? startX
-          : startX + lane * verticalLaneWidth;
-      const workloadIds = store.laneChildren(modelId, lane);
-      maxSlots = Math.max(maxSlots, workloadIds.length);
-
-      workloadIds.forEach((workloadId: string, slot: number) => {
-        const workload = m.workloads.find((w: Workload) => w.id === workloadId);
-        if (!workload) return;
-        const id = nodeIdFor(modelId, workload.id);
-        const node: Node = {
-          id,
-          kind: "workload",
-          label: workload.name,
-          x: layoutDirection === "horizontal" ? startX + slot * spacing : laneX,
-          y:
-            layoutDirection === "horizontal"
-              ? laneY + horizontalLanePadY
-              : yOffset + verticalLaneHeaderHeight + slot * verticalNodeSpacing,
-          w:
-            layoutDirection === "vertical"
-              ? verticalNodeSize.width
-              : nodeSize.width,
-          h: nodeSize.height,
-          lane,
-          workload,
-          meta: {
-            modelId,
-            section: sectionIndex,
-            slot,
-            layoutDirection,
-          },
-        };
-        node.meta = {
-          ...node.meta,
-          type: workload.type,
-        };
-        doc.upsertNode(node);
-      });
-
-      const parentId = lanes[lane];
-      const groupWorkload = m.workloads.find(
-        (w: Workload) => w.id === parentId,
-      );
-      if (groupWorkload && groupWorkload.children == null) {
-        const group: Node = {
-          id: nodeIdFor(modelId, parentId),
-          kind: "workload",
-          label: groupWorkload.name,
-          x: laneX,
-          y:
-            layoutDirection === "horizontal"
-              ? laneY + horizontalLanePadY
-              : yOffset + verticalLaneHeaderHeight,
-          w:
-            layoutDirection === "vertical"
-              ? verticalNodeSize.width
-              : nodeSize.width,
-          h: nodeSize.height,
-          lane,
-          meta: {
-            modelId,
-            section: sectionIndex,
-            slot: 0,
-            layoutDirection,
-            type: groupWorkload.type,
-            children: workloadIds.map((id: string) => nodeIdFor(modelId, id)),
-          },
-        };
-        doc.upsertNode(group);
-      }
-    }
-
-    const sectionLaneHeight =
-      layoutDirection === "horizontal"
-        ? horizontalLaneHeight
-        : Math.max(
-            110,
-            verticalLaneHeaderHeight +
-              Math.max(1, maxSlots) * verticalNodeSpacing +
-              verticalLaneBottomPad,
-          );
-
-    doc.sections.push({
-      index: sectionIndex,
-      modelId,
-      yStart: yOffset,
-      laneCount: lanes.length,
-      laneHeight: sectionLaneHeight,
-      maxNodes: maxSlots,
-      labelY: yOffset - 10,
-      rootType: root.type ?? "Workload",
-      hasSequencedGroup,
-      collapsed: false,
-      layoutDirection,
-    });
-
-    globalMaxNodes = Math.max(globalMaxNodes, maxSlots);
-    yOffset +=
-      (layoutDirection === "horizontal"
-        ? lanes.length * sectionLaneHeight
-        : sectionLaneHeight) -
-      modelHeaderYFromSectionStart +
-      modelToNextHeaderGap;
-    sectionIndex++;
-  }
-
-  for (const modelId of modelIds) {
-    const m = store.get(modelId)!;
-    const modelIsCollapsed = collapsedModelIds.has(modelId);
-
-    if (!modelIsCollapsed) {
-      for (const c of m.connections ?? []) {
-        const from = resolveNodeId(
-          collapsedNodeIds,
-          modelId,
-          c.from.split(".")[0],
-          false,
-        );
-        const to = resolveNodeId(
-          collapsedNodeIds,
-          modelId,
-          c.to.split(".")[0],
-          false,
-        );
-        if (from && to) {
-          edges.push({ from, to });
-        }
-      }
-    }
-
-    for (const r of m.remote_models ?? []) {
-      const targetModelId = r.model_id;
-      for (const c of r.connections ?? []) {
+    for (const remoteModel of model.remote_models ?? []) {
+      for (const connection of remoteModel.connections ?? []) {
         if (
-          typeof c.from_local === "string" &&
-          typeof c.to_remote === "string"
+          typeof connection.from_local === "string" &&
+          typeof connection.to_remote === "string"
         ) {
-          const from = resolveNodeId(
-            collapsedNodeIds,
-            modelId,
-            c.from_local.split(".")[0],
-            true,
+          addExternalEdge(
+            edges,
+            doc,
+            resolveNodeId(
+              collapsedNodeIds,
+              modelId,
+              connection.from_local.split(".")[0],
+              true,
+            ),
+            resolveNodeId(
+              collapsedNodeIds,
+              remoteModel.model_id,
+              connection.to_remote.split(".")[0],
+              true,
+            ),
           );
-          const to = resolveNodeId(
-            collapsedNodeIds,
-            targetModelId,
-            c.to_remote.split(".")[0],
-            true,
-          );
-          if (from && to) {
-            edges.push({ from, to, isRemote: true });
-          }
         } else if (
-          typeof c.from_remote === "string" &&
-          typeof c.to_local === "string"
+          typeof connection.from_remote === "string" &&
+          typeof connection.to_local === "string"
         ) {
-          const from = resolveNodeId(
-            collapsedNodeIds,
-            targetModelId,
-            c.from_remote.split(".")[0],
-            true,
+          addExternalEdge(
+            edges,
+            doc,
+            resolveNodeId(
+              collapsedNodeIds,
+              remoteModel.model_id,
+              connection.from_remote.split(".")[0],
+              true,
+            ),
+            resolveNodeId(
+              collapsedNodeIds,
+              modelId,
+              connection.to_local.split(".")[0],
+              true,
+            ),
           );
-          const to = resolveNodeId(
-            collapsedNodeIds,
-            modelId,
-            c.to_local.split(".")[0],
-            true,
-          );
-          if (from && to) {
-            edges.push({ from, to, isRemote: true });
-          }
         }
       }
     }
   }
 
-  doc.setEdges(edges);
-  return { sections: doc.sections, totalHeight: yOffset, globalMaxNodes };
+  return edges;
+}
+
+function addExternalEdge(
+  edges: Edge[],
+  doc: GraphDoc,
+  from: string | null,
+  to: string | null,
+): void {
+  if (!from || !to || !doc.getNode(from) || !doc.getNode(to)) {
+    return;
+  }
+  edges.push({ from, to, isRemote: true });
+}
+
+function normalizeNodePositions(nodes: Node[]): void {
+  if (nodes.length === 0) {
+    return;
+  }
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const minY = Math.min(...nodes.map((node) => node.y));
+  nodes.forEach((node) => {
+    node.x -= minX;
+    node.y -= minY;
+  });
+}
+
+function buildLaneLayouts(
+  nodes: Node[],
+  laneWorkloadIds: string[][],
+  rootType: string,
+  hasSequencedGroup: boolean,
+  layoutMode: GraphLayoutDirection,
+): LaneLayout[] {
+  const layouts: LaneLayout[] = [];
+  laneWorkloadIds.forEach((laneIds, laneIndex) => {
+    const laneNodes = nodes.filter((node) => node.lane === laneIndex);
+    if (laneNodes.length === 0) {
+      layouts.push({
+        laneIndex,
+        label: hasSequencedGroup ? `Thread ${laneIndex + 1} · Sequenced Group` : `Thread ${laneIndex + 1}`,
+        frame: {
+          x: laneIndex * (NODE_SIZE.width + CONTENT_GAP_X),
+          y: 0,
+          width: NODE_SIZE.width + LANE_PADDING_X * 2,
+          height: NODE_SIZE.height + LANE_LABEL_HEIGHT + LANE_PADDING_Y * 2,
+        },
+      });
+      return;
+    }
+    const minX = Math.min(...laneNodes.map((node) => node.x));
+    const maxX = Math.max(...laneNodes.map((node) => node.x + node.w));
+    const minY = Math.min(...laneNodes.map((node) => node.y));
+    const maxY = Math.max(...laneNodes.map((node) => node.y + node.h));
+    const frame: RectFrame = {
+      x: minX - LANE_PADDING_X,
+      y: minY - LANE_LABEL_HEIGHT,
+      width: maxX - minX + LANE_PADDING_X * 2,
+      height: maxY - minY + LANE_LABEL_HEIGHT + LANE_PADDING_Y,
+    };
+    layouts.push({
+      laneIndex,
+      label:
+        hasSequencedGroup || rootType === "SequencedGroupWorkload"
+          ? `Thread ${laneIndex + 1} · Sequenced Group`
+          : `Thread ${laneIndex + 1}`,
+      frame,
+    });
+  });
+
+  return layouts.sort((left, right) => left.frame.x - right.frame.x);
+}
+
+function buildAddSlotLayouts(
+  nodes: Node[],
+  laneLayouts: LaneLayout[],
+  layoutMode: GraphLayoutDirection,
+): AddSlotLayout[] {
+  return laneLayouts.map((laneLayout) => {
+    const laneNodes = nodes.filter((node) => node.lane === laneLayout.laneIndex);
+    const maxY =
+      laneNodes.length > 0
+        ? Math.max(...laneNodes.map((node) => node.y + node.h))
+        : laneLayout.frame.y + laneLayout.frame.height - LANE_PADDING_Y;
+    return {
+      laneIndex: laneLayout.laneIndex,
+      frame: {
+        x: laneLayout.frame.x + laneLayout.frame.width / 2 - PLUS_SLOT_SIZE.width / 2,
+        y: maxY + PLUS_SLOT_GAP,
+        width: PLUS_SLOT_SIZE.width,
+        height: PLUS_SLOT_SIZE.height,
+      },
+    };
+  });
+}
+
+function positionSectionsAndModelNodes(
+  drafts: SectionDraft[],
+  layoutMode: GraphLayoutDirection,
+): void {
+  let cursorX = 24;
+  const contentY = MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y;
+  drafts.forEach((draft) => {
+    const columnWidth = Math.max(draft.modelNode.w, draft.localFrame.width);
+    draft.modelNode.x = cursorX + (columnWidth - draft.modelNode.w) / 2;
+    draft.modelNode.y = MODEL_HEADER_ROW_Y;
+    const contentX = cursorX + (columnWidth - draft.localFrame.width) / 2;
+    translateSectionDraft(draft, contentX, contentY);
+    cursorX += columnWidth + VERTICAL_SECTION_GAP;
+  });
+}
+
+function translateSectionDraft(
+  draft: SectionDraft,
+  offsetX: number,
+  offsetY: number,
+): void {
+  const localFrame = draft.localFrame;
+  const deltaX = offsetX - localFrame.x;
+  const deltaY = offsetY - localFrame.y;
+
+  draft.section.frame = translateFrame(localFrame, deltaX, deltaY);
+  draft.section.yStart = draft.section.frame.y;
+  draft.section.laneHeight = draft.section.frame.height;
+  draft.section.labelY = draft.section.frame.y + 20;
+  draft.section.lanes = draft.laneLayouts.map((lane) => ({
+    laneIndex: lane.laneIndex,
+    label: lane.label,
+    frame: translateFrame(lane.frame, deltaX, deltaY),
+  }));
+  draft.section.addSlots = draft.addSlots.map((slot) => ({
+    laneIndex: slot.laneIndex,
+    frame: translateFrame(slot.frame, deltaX, deltaY),
+  }));
+
+  for (const edge of draft.internalEdges) {
+    if (edge.routePoints) {
+      edge.routePoints = edge.routePoints.map((point) => ({
+        x: point.x + deltaX,
+        y: point.y + deltaY,
+      }));
+    }
+  }
+}
+
+function commitSections(
+  doc: GraphDoc,
+  drafts: SectionDraft[],
+  layoutMode: GraphLayoutDirection,
+): void {
+  const sections: Section[] = [];
+  drafts.forEach((draft) => {
+    const deltaX = (draft.section.frame?.x ?? 0) - draft.localFrame.x;
+    const deltaY = (draft.section.frame?.y ?? 0) - draft.localFrame.y;
+    for (const node of doc.nodes.values()) {
+      if (node.meta?.section !== draft.section.index || node.id === draft.modelNode.id) {
+        continue;
+      }
+      node.x += deltaX;
+      node.y += deltaY;
+    }
+    draft.section.layoutDirection = layoutMode;
+    sections.push(draft.section);
+  });
+  doc.setSections(sections);
+}
+
+export function positionModelHeaders(doc: GraphDoc): void {
+  let verticalCursorX = 24;
+  for (const section of doc.sections) {
+    const modelNode = Array.from(doc.nodes.values()).find(
+      (node) =>
+        (node.kind === "model" || node.kind === "collapsed-model") &&
+        node.meta?.section === section.index,
+    );
+    if (!modelNode) {
+      continue;
+    }
+    const frameX = section.frame?.x ?? verticalCursorX;
+    const frameWidth = section.frame?.width ?? modelNode.w;
+    modelNode.x = frameX + (frameWidth - modelNode.w) / 2;
+    modelNode.y = MODEL_HEADER_ROW_Y;
+    verticalCursorX = frameX + frameWidth + VERTICAL_SECTION_GAP;
+  }
+}
+
+function translateFrame(frame: RectFrame, dx: number, dy: number): RectFrame {
+  return {
+    x: frame.x + dx,
+    y: frame.y + dy,
+    width: frame.width,
+    height: frame.height,
+  };
+}
+
+function unionFrames(frames: RectFrame[]): RectFrame {
+  if (frames.length === 0) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+  const minX = Math.min(...frames.map((frame) => frame.x));
+  const minY = Math.min(...frames.map((frame) => frame.y));
+  const maxX = Math.max(...frames.map((frame) => frame.x + frame.width));
+  const maxY = Math.max(...frames.map((frame) => frame.y + frame.height));
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+async function routeGlobalEdges(
+  doc: GraphDoc,
+  edges: Edge[],
+  layoutMode: GraphLayoutDirection,
+): Promise<void> {
+  const strategy = getLayoutStrategy(layoutMode);
+  const routeTargets = edges.filter(
+    (edge) =>
+      (!edge.routePoints || edge.routePoints.length < 2) &&
+      doc.getNode(edge.from) &&
+      doc.getNode(edge.to),
+  );
+  if (routeTargets.length === 0) {
+    return;
+  }
+
+  const routedNodeIds = new Set<string>();
+  routeTargets.forEach((edge) => {
+    routedNodeIds.add(edge.from);
+    routedNodeIds.add(edge.to);
+  });
+  const routedNodes = Array.from(routedNodeIds)
+    .map((id) => doc.getNode(id))
+    .filter((node): node is Node => Boolean(node));
+  if (routedNodes.length !== routedNodeIds.size) {
+    return;
+  }
+
+  const portsByNode = new Map<string, Map<string, string>>();
+  const elkEdges = routeTargets.map((edge, index) => {
+    const sourcePort = `${edge.from}:global-out:${index}`;
+    const targetPort = `${edge.to}:global-in:${index}`;
+    addPort(portsByNode, edge.from, sourcePort, strategy.sourcePortSide);
+    addPort(portsByNode, edge.to, targetPort, strategy.targetPortSide);
+    return {
+      id: `global-edge:${index}`,
+      sources: [sourcePort],
+      targets: [targetPort],
+    };
+  });
+
+  const root: ElkNode = {
+    id: "global-routing-root",
+    children: routedNodes.map((node) => ({
+      id: node.id,
+      width: node.w,
+      height: node.h,
+      x: node.x,
+      y: node.y,
+      layoutOptions: {
+        "org.eclipse.elk.portConstraints": "FIXED_SIDE",
+      },
+      ports: Array.from(portsByNode.get(node.id)?.entries() ?? []).map(
+        ([id, side]) => ({
+          id,
+          layoutOptions: {
+            "org.eclipse.elk.port.side": side,
+          },
+        }),
+      ),
+    })),
+    edges: elkEdges,
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "DOWN",
+      "elk.edgeRouting": "SPLINES",
+      "elk.layered.mergeEdges": "false",
+      "elk.layered.mergeHierarchyEdges": "false",
+      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+      "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
+      "elk.layered.nodePlacement.favorStraightEdges": "true",
+    },
+  };
+
+  const result = await elk.layout(root);
+  const routesById = new Map<string, Array<{ x: number; y: number }>>();
+  for (const edge of result.edges ?? []) {
+    const section = edge.sections?.[0];
+    if (!edge.id || !section?.startPoint || !section?.endPoint) {
+      continue;
+    }
+    routesById.set(edge.id, [
+      { x: section.startPoint.x, y: section.startPoint.y },
+      ...((section.bendPoints ?? []).map((point) => ({ x: point.x, y: point.y }))),
+      { x: section.endPoint.x, y: section.endPoint.y },
+    ]);
+  }
+
+  routeTargets.forEach((edge, index) => {
+    edge.routePoints = routesById.get(`global-edge:${index}`);
+  });
 }
 
 function compareModelIds(
@@ -342,7 +800,9 @@ function compareModelIds(
 
   if (sortKey === "model_name") {
     const byName = leftName.localeCompare(rightName);
-    if (byName !== 0) return byName;
+    if (byName !== 0) {
+      return byName;
+    }
     return leftModelId.localeCompare(rightModelId);
   }
 
@@ -364,7 +824,7 @@ function modelFileName(modelId: string): string {
 
 function estimateModelHeaderWidth(modelName: string, subtitle: string): number {
   const longest = Math.max(modelName.length, subtitle.length);
-  return Math.min(900, Math.max(280, 84 + longest * 7));
+  return Math.min(900, Math.max(MODEL_HEADER_MIN_WIDTH, 84 + longest * 7));
 }
 
 function resolveNodeId(

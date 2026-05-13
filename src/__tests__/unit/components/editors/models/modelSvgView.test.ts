@@ -1,0 +1,173 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { GraphDoc, type Section } from "../../../../../renderer/components/editors/models/view/node-graph/layout/editorNodeGraph";
+import { positionModelHeaders } from "../../../../../renderer/components/editors/models/view/node-graph/layout/buildGraphDocFromModel";
+import {
+  SvgView,
+  createSvgLayers,
+} from "../../../../../renderer/components/editors/models/view/node-graph/render/svgView";
+
+const originalGetBBox = SVGSVGElement.prototype.getBBox;
+const originalGetComputedTextLength = (SVGElement.prototype as SVGElement & {
+  getComputedTextLength?: () => number;
+}).getComputedTextLength;
+
+beforeAll(() => {
+  Object.defineProperty(SVGSVGElement.prototype, "getBBox", {
+    configurable: true,
+    value() {
+      return { x: 0, y: 0, width: 1600, height: 1200 };
+    },
+  });
+  Object.defineProperty(SVGElement.prototype, "getComputedTextLength", {
+    configurable: true,
+    value() {
+      return 0;
+    },
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(SVGSVGElement.prototype, "getBBox", {
+    configurable: true,
+    value: originalGetBBox,
+  });
+  Object.defineProperty(SVGElement.prototype, "getComputedTextLength", {
+    configurable: true,
+    value: originalGetComputedTextLength,
+  });
+});
+
+describe("SvgView vertical model rendering", () => {
+  it("renders vertical model headers in one row with increasing x transforms", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const layers = createSvgLayers(svg);
+    const view = new SvgView(
+      svg,
+      layers,
+      {
+        routeAll: () => [],
+      },
+      "test",
+    );
+    const doc = new GraphDoc();
+    const sections: Section[] = [
+      {
+        index: 0,
+        modelId: "mind",
+        yStart: 40,
+        laneCount: 0,
+        laneHeight: 0,
+        maxNodes: 0,
+        labelY: 48,
+        collapsed: true,
+        layoutDirection: "vertical-offset",
+      },
+      {
+        index: 1,
+        modelId: "animator",
+        yStart: 220,
+        laneCount: 1,
+        laneHeight: 240,
+        maxNodes: 2,
+        labelY: 210,
+        collapsed: false,
+        layoutDirection: "vertical-offset",
+      },
+      {
+        index: 2,
+        modelId: "face",
+        yStart: 520,
+        laneCount: 0,
+        laneHeight: 0,
+        maxNodes: 0,
+        labelY: 528,
+        collapsed: true,
+        layoutDirection: "vertical-offset",
+      },
+    ];
+    doc.setSections(sections);
+    doc.upsertNode({
+      id: "mind:model",
+      kind: "collapsed-model",
+      label: "Mind",
+      x: 24,
+      y: -32,
+      w: 280,
+      h: 52,
+      lane: 0,
+      meta: { modelId: "mind", section: 0, collapsed: true },
+    });
+    doc.upsertNode({
+      id: "animator:model",
+      kind: "model",
+      label: "Animator",
+      x: 24,
+      y: 148,
+      w: 320,
+      h: 52,
+      lane: 0,
+      meta: { modelId: "animator", section: 1, collapsed: false },
+    });
+    doc.upsertNode({
+      id: "face:model",
+      kind: "collapsed-model",
+      label: "Face",
+      x: 24,
+      y: 448,
+      w: 300,
+      h: 52,
+      lane: 0,
+      meta: { modelId: "face", section: 2, collapsed: true },
+    });
+    doc.upsertNode({
+      id: "animator:w1",
+      kind: "workload",
+      label: "One",
+      x: 160,
+      y: 120,
+      w: 140,
+      h: 40,
+      lane: 0,
+      meta: {
+        modelId: "animator",
+        section: 1,
+        slot: 0,
+        layoutDirection: "vertical-offset",
+      },
+    });
+    doc.upsertNode({
+      id: "animator:w2",
+      kind: "workload",
+      label: "Two",
+      x: 160,
+      y: 220,
+      w: 140,
+      h: 40,
+      lane: 0,
+      meta: {
+        modelId: "animator",
+        section: 1,
+        slot: 1,
+        layoutDirection: "vertical-offset",
+      },
+    });
+
+    positionModelHeaders(doc);
+    view.render(doc);
+
+    const mind = svg.querySelector("#mind\\:model");
+    const animator = svg.querySelector("#animator\\:model");
+    const face = svg.querySelector("#face\\:model");
+    expect(mind?.getAttribute("transform")).toBe("translate(24,24)");
+    const animatorTransform = animator?.getAttribute("transform") ?? "";
+    const faceTransform = face?.getAttribute("transform") ?? "";
+    expect(animatorTransform).toMatch(/^translate\(\d+,24\)$/);
+    expect(faceTransform).toMatch(/^translate\(\d+,24\)$/);
+
+    const animatorX = Number(animatorTransform.match(/^translate\((\d+),24\)$/)?.[1] ?? 0);
+    const faceX = Number(faceTransform.match(/^translate\((\d+),24\)$/)?.[1] ?? 0);
+    expect(animatorX).toBeGreaterThan(24 + 280);
+    expect(faceX).toBeGreaterThan(animatorX + 320);
+  });
+});

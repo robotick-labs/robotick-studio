@@ -14,7 +14,7 @@ export type {
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
 
-export const nodeSize = { width: 140, height: 40 } as const;
+export const nodeSize = { width: 168, height: 40 } as const;
 export const marginX = 20;
 export const spacing = 180;
 
@@ -26,7 +26,7 @@ export type NodeGraphAPI = {
   /** Attach graph controllers (selection, drag) */
   attachControllers: () => void;
   /** Force layout rebuild (use after structural edits) */
-  refreshLayout: () => void;
+  refreshLayout: () => Promise<void>;
   /** Stop listening to store/events and detach anything we hooked */
   dispose: () => void;
   /** Access the live graph document (read-only usage preferred) */
@@ -88,13 +88,8 @@ export function initNodeGraph(
   let layoutOptions: GraphLayoutOptions = {
     collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
     modelSortKey: initialLayoutOptions?.modelSortKey ?? "model_path",
-    layoutDirection: initialLayoutOptions?.layoutDirection ?? "horizontal",
+    layoutDirection: "vertical-offset",
   };
-  buildGraphDocFromModel(store, doc, {
-    collapsedModelIds: layoutOptions.collapsedModelIds,
-    modelSortKey: layoutOptions.modelSortKey,
-    layoutDirection: layoutOptions.layoutDirection,
-  });
 
   const layers = createSvgLayers(svgElement);
 
@@ -126,8 +121,24 @@ export function initNodeGraph(
     slotDragController.attachAll();
   };
 
-  // ——— Store subscription (render on any store mutation) ———
-  const unsubscribeStore = store.subscribe(render);
+  let refreshCounter = 0;
+  const refreshLayout = async (): Promise<void> => {
+    const refreshId = ++refreshCounter;
+    await buildGraphDocFromModel(store, doc, {
+      collapsedModelIds: layoutOptions.collapsedModelIds,
+      modelSortKey: layoutOptions.modelSortKey,
+      layoutDirection: layoutOptions.layoutDirection,
+    });
+    if (refreshId !== refreshCounter) {
+      return;
+    }
+    render();
+  };
+
+  // ——— Store subscription (relayout + render on any store mutation) ———
+  const unsubscribeStore = store.subscribe(() => {
+    void refreshLayout();
+  });
 
   // ——— Graph-specific events (kept local to this module) ———
   const plusClickHandler = (e: Event) => {
@@ -189,17 +200,8 @@ export function initNodeGraph(
   );
 
   // First paint + attach controllers (idempotent if caller repeats)
-  render();
+  void refreshLayout();
   attachControllers();
-
-  const refreshLayout = () => {
-    buildGraphDocFromModel(store, doc, {
-      collapsedModelIds: layoutOptions.collapsedModelIds,
-      modelSortKey: layoutOptions.modelSortKey,
-      layoutDirection: layoutOptions.layoutDirection,
-    });
-    render();
-  };
 
   const dispose = () => {
     // Clean up all listeners we installed
@@ -227,7 +229,7 @@ export function initNodeGraph(
   };
   const setCollapsedModelIds = (modelIds: string[]) => {
     layoutOptions = { ...layoutOptions, collapsedModelIds: [...modelIds] };
-    refreshLayout();
+    void refreshLayout();
   };
   const getSelectedNodeId = () => selectedNodeId;
   const setSelectedNodeId = (nodeId: string | null) => {
@@ -236,11 +238,14 @@ export function initNodeGraph(
   };
   const setModelSortKey = (sortKey: ModelSortKey) => {
     layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
-    refreshLayout();
+    void refreshLayout();
   };
   const setLayoutDirection = (direction: GraphLayoutDirection) => {
+    if (layoutOptions.layoutDirection === direction) {
+      return;
+    }
     layoutOptions = { ...layoutOptions, layoutDirection: direction };
-    refreshLayout();
+    void refreshLayout();
   };
 
   return {

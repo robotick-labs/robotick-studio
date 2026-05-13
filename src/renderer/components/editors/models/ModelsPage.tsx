@@ -15,7 +15,6 @@ import { editorSelectionStore } from "./document/editorSelectionStore";
 import {
   initNodeGraph,
   type EdgeVisibilityMode,
-  type GraphLayoutDirection,
   type ModelSortKey,
   type NodeGraphAPI,
 } from "./view/node-graph/initNodeGraph";
@@ -29,14 +28,6 @@ const MODEL_SORT_OPTIONS: ReadonlyArray<{ value: ModelSortKey; label: string }> 
   { value: "telemetry_port", label: "Telemetry Port" },
   { value: "model_name", label: "Model Name" },
   { value: "model_path", label: "Model Path" },
-];
-
-const LAYOUT_DIRECTION_OPTIONS: ReadonlyArray<{
-  value: GraphLayoutDirection;
-  label: string;
-}> = [
-  { value: "horizontal", label: "Horizontal - Stacked" },
-  { value: "vertical", label: "Vertical - Stacked" },
 ];
 
 export default function ModelsPage() {
@@ -90,21 +81,8 @@ export default function ModelsPage() {
       ),
     [panelIdentifier, projectPath, workspaceIdentifier]
   );
-  const layoutDirectionStorageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        "robotick-studio.models.layout-direction",
-        workspaceIdentifier,
-        panelIdentifier,
-        projectPath ?? "no-project"
-      ),
-    [panelIdentifier, projectPath, workspaceIdentifier]
-  );
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() =>
     readModelSortKey(modelSortStorageKey)
-  );
-  const [layoutDirection, setLayoutDirection] = useState<GraphLayoutDirection>(
-    () => readLayoutDirection(layoutDirectionStorageKey)
   );
   const [edgeVisibilityMode, setEdgeVisibilityMode] =
     useState<EdgeVisibilityMode>(
@@ -142,10 +120,6 @@ export default function ModelsPage() {
   useEffect(() => {
     setModelSortKey(readModelSortKey(modelSortStorageKey));
   }, [modelSortStorageKey]);
-
-  useEffect(() => {
-    setLayoutDirection(readLayoutDirection(layoutDirectionStorageKey));
-  }, [layoutDirectionStorageKey]);
 
   useEffect(() => {
     const stored = readModelsViewState(panelViewStateStorageKey);
@@ -221,7 +195,7 @@ export default function ModelsPage() {
           {
             collapsedModelIds: initialCollapsed,
             modelSortKey,
-            layoutDirection,
+            layoutDirection: "vertical-offset",
           },
           {
             selectionScope: selectionScopeKey,
@@ -356,14 +330,6 @@ export default function ModelsPage() {
     if (!graphApi) {
       return;
     }
-    graphApi.setLayoutDirection(layoutDirection);
-  }, [layoutDirection]);
-
-  useEffect(() => {
-    const graphApi = graphApiRef.current;
-    if (!graphApi) {
-      return;
-    }
     graphApi.setCollapsedModelIds(collapsedModelIds);
     const allModelIds = graphApi.getDoc().sections.map((section) => section.modelId);
     const expandedModelIds = allModelIds.filter(
@@ -380,10 +346,6 @@ export default function ModelsPage() {
   useEffect(() => {
     setStorageValue(modelSortStorageKey, modelSortKey);
   }, [modelSortKey, modelSortStorageKey]);
-
-  useEffect(() => {
-    setStorageValue(layoutDirectionStorageKey, layoutDirection);
-  }, [layoutDirection, layoutDirectionStorageKey]);
 
   return (
     <div className={styles.layout}>
@@ -416,21 +378,6 @@ export default function ModelsPage() {
             </select>
           </div>
           <div className={styles.viewportSortControls}>
-            <label htmlFor="models-layout-direction">Draw Mode:</label>
-            <select
-              id="models-layout-direction"
-              value={layoutDirection}
-              onChange={(event) =>
-                setLayoutDirection(event.target.value as GraphLayoutDirection)
-              }
-            >
-              {LAYOUT_DIRECTION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-
             <label htmlFor="models-model-sort">Sort models by:</label>
             <select
               id="models-model-sort"
@@ -867,14 +814,6 @@ function readModelSortKey(storageKey: string): ModelSortKey {
     return value;
   }
   return "model_path";
-}
-
-function readLayoutDirection(storageKey: string): GraphLayoutDirection {
-  const value = readStorageValue(storageKey);
-  if (value === "horizontal" || value === "vertical") {
-    return value;
-  }
-  return "horizontal";
 }
 
 function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
