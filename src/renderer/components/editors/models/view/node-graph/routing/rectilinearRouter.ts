@@ -46,9 +46,16 @@ function buildSplinePath(points: RoutePoint[]): string {
   if ((points.length - 1) % 3 === 0) {
     const commands = [`M${points[0].x},${points[0].y}`];
     for (let index = 1; index < points.length; index += 3) {
-      const controlA = points[index];
-      const controlB = points[index + 1];
+      const start = points[index - 1];
+      const controlA = { ...points[index] };
+      const controlB = { ...points[index + 1] };
       const end = points[index + 2];
+      if (index === 1) {
+        controlA.x = start.x;
+      }
+      if (index + 2 === points.length - 1) {
+        controlB.x = end.x;
+      }
       commands.push(
         `C${controlA.x},${controlA.y} ${controlB.x},${controlB.y} ${end.x},${end.y}`,
       );

@@ -23,9 +23,12 @@ type EdgeVisibilityMode =
   | "expanded-models"
   | "all";
 
+type RemoteConnectionVisibility = "hidden" | "visible";
+
 export interface RenderDisplayOptions {
   selectedNodeId: string | null;
   edgeVisibilityMode: EdgeVisibilityMode;
+  remoteConnectionVisibility?: RemoteConnectionVisibility;
   focusDimming: boolean;
   expandedModelIds: string[];
 }
@@ -33,6 +36,7 @@ export interface RenderDisplayOptions {
 const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
   selectedNodeId: null,
   edgeVisibilityMode: "selected-model",
+  remoteConnectionVisibility: "hidden",
   focusDimming: true,
   expandedModelIds: [],
 };
@@ -542,6 +546,12 @@ export class SvgView {
 
     for (const edge of doc.edges) {
       const key = this.edgeKey(edge.from, edge.to);
+      if (
+        edge.isRemote &&
+        displayOptions.remoteConnectionVisibility === "hidden"
+      ) {
+        continue;
+      }
 
       if (displayOptions.edgeVisibilityMode === "all") {
         visible.add(key);

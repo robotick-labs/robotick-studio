@@ -52,8 +52,11 @@ export type EdgeVisibilityMode =
   | "expanded-models"
   | "all";
 
+export type RemoteConnectionVisibility = "hidden" | "visible";
+
 export type GraphDisplayOptions = {
   edgeVisibilityMode: EdgeVisibilityMode;
+  remoteConnectionVisibility: RemoteConnectionVisibility;
   focusDimming: boolean;
   expandedModelIds: string[];
 };
@@ -66,6 +69,7 @@ export type GraphLayoutOptions = {
 
 const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
   edgeVisibilityMode: "selected-model",
+  remoteConnectionVisibility: "hidden",
   focusDimming: true,
   expandedModelIds: [],
 };
@@ -111,6 +115,7 @@ export function initNodeGraph(
     view.render(doc, {
       selectedNodeId,
       edgeVisibilityMode: displayOptions.edgeVisibilityMode,
+      remoteConnectionVisibility: displayOptions.remoteConnectionVisibility,
       focusDimming: displayOptions.focusDimming,
       expandedModelIds: displayOptions.expandedModelIds,
     });
@@ -120,6 +125,7 @@ export function initNodeGraph(
     view.updateSelectionState(doc, {
       selectedNodeId,
       edgeVisibilityMode: displayOptions.edgeVisibilityMode,
+      remoteConnectionVisibility: displayOptions.remoteConnectionVisibility,
       focusDimming: displayOptions.focusDimming,
       expandedModelIds: displayOptions.expandedModelIds,
     });

@@ -71,7 +71,7 @@ describe("RectilinearRouter", () => {
       (id) => nodes.get(id),
     );
 
-    expect(edge.path).toBe("M84,40 C84,40 120,80 84,100");
+    expect(edge.path).toBe("M84,40 C84,40 84,80 84,100");
     expect(edge.path).not.toContain(" L");
   });
 

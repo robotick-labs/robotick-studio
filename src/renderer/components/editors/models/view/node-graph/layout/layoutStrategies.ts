@@ -24,7 +24,7 @@ export interface LayoutStrategy {
 }
 
 const BASE_NODE_SPACING = 56;
-const BASE_LAYER_SPACING = 64;
+const BASE_LAYER_SPACING = 42;
 
 const verticalOffset: LayoutStrategy = {
   id: "vertical-offset",
