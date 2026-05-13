@@ -35,8 +35,8 @@ const LAYOUT_DIRECTION_OPTIONS: ReadonlyArray<{
   value: GraphLayoutDirection;
   label: string;
 }> = [
-  { value: "horizontal", label: "Horizontal" },
-  { value: "vertical", label: "Vertical" },
+  { value: "horizontal", label: "Horizontal - Stacked" },
+  { value: "vertical", label: "Vertical - Stacked" },
 ];
 
 export default function ModelsPage() {
@@ -431,7 +431,7 @@ export default function ModelsPage() {
               ))}
             </select>
 
-            <label htmlFor="models-layout-direction">Direction:</label>
+            <label htmlFor="models-layout-direction">Draw Mode:</label>
             <select
               id="models-layout-direction"
               value={layoutDirection}
