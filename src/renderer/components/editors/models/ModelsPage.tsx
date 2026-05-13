@@ -416,21 +416,6 @@ export default function ModelsPage() {
             </select>
           </div>
           <div className={styles.viewportSortControls}>
-            <label htmlFor="models-model-sort">Sort models by:</label>
-            <select
-              id="models-model-sort"
-              value={modelSortKey}
-              onChange={(event) =>
-                setModelSortKey(event.target.value as ModelSortKey)
-              }
-            >
-              {MODEL_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-
             <label htmlFor="models-layout-direction">Draw Mode:</label>
             <select
               id="models-layout-direction"
@@ -440,6 +425,21 @@ export default function ModelsPage() {
               }
             >
               {LAYOUT_DIRECTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="models-model-sort">Sort models by:</label>
+            <select
+              id="models-model-sort"
+              value={modelSortKey}
+              onChange={(event) =>
+                setModelSortKey(event.target.value as ModelSortKey)
+              }
+            >
+              {MODEL_SORT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
