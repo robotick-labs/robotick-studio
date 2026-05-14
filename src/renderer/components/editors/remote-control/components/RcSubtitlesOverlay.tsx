@@ -16,6 +16,30 @@ const SUBTITLES_POSITION_STORAGE_BASE = "robotick-studio.rc.subtitles.position";
 const SUBTITLES_COLLAPSED_STORAGE_BASE =
   "robotick-studio.rc.subtitles.collapsed";
 
+function resolveRuntimeFieldPath(
+  model: { workloads?: Array<{ name: string }>; getField?: (path: string) => unknown } | null,
+  configuredFieldPath: string
+): string {
+  if (!model?.getField || !configuredFieldPath) {
+    return configuredFieldPath;
+  }
+  if (model.getField(configuredFieldPath)) {
+    return configuredFieldPath;
+  }
+  const dotIndex = configuredFieldPath.indexOf(".");
+  if (dotIndex <= 0 || dotIndex >= configuredFieldPath.length - 1) {
+    return configuredFieldPath;
+  }
+  const suffix = configuredFieldPath.slice(dotIndex + 1);
+  for (const workload of model.workloads ?? []) {
+    const candidate = `${workload.name}.${suffix}`;
+    if (model.getField(candidate)) {
+      return candidate;
+    }
+  }
+  return configuredFieldPath;
+}
+
 type RcSubtitlesConfig = {
   telemetryBaseUrl?: string;
   fieldPath?: string;
@@ -87,6 +111,10 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
     telemetryBaseUrl ?? "",
     SUBTITLES_SAMPLE_RATE_HZ
   );
+  const effectiveFieldPath = useMemo(
+    () => resolveRuntimeFieldPath(model, fieldPath ?? ""),
+    [fieldPath, model, revision]
+  );
   const [subtitle, setSubtitle] = useState("");
   const [visible, setVisible] = useState(false);
   const [animateKey, setAnimateKey] = useState(0);
@@ -139,8 +167,8 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   }, [collapsed, collapsedStorageKey]);
 
   useEffect(() => {
-    if (!fieldPath || !telemetryBaseUrl || !model?.getField) return;
-    const field = model.getField(fieldPath);
+    if (!effectiveFieldPath || !telemetryBaseUrl || !model?.getField) return;
+    const field = model.getField(effectiveFieldPath);
     const value = field?.getValue?.();
     if (typeof value !== "string") return;
     const normalized = normalizeForDisplay(value);
@@ -150,7 +178,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       setVisible(Boolean(normalized));
       setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
-  }, [fieldPath, model, revision, telemetryBaseUrl]);
+  }, [effectiveFieldPath, model, telemetryBaseUrl]);
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 

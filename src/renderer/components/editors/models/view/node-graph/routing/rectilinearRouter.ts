@@ -12,9 +12,14 @@ export class RectilinearRouter implements ConnectionRouter {
       if (!from || !to || !edge.routePoints || edge.routePoints.length < 2) {
         continue;
       }
-      const path = edge.isRemote
+      const path = edge.isRemote || edge.isInterThread
         ? buildStraightPath(edge.routePoints)
         : buildSplinePath(edge.routePoints);
+      const connectionClass = edge.isRemote
+        ? "remote-connection"
+        : edge.isInterThread
+          ? "inter-thread-connection"
+          : "local-connection";
 
       results.push({
         from: edge.from,
@@ -24,7 +29,7 @@ export class RectilinearRouter implements ConnectionRouter {
         toPath: edge.toPath,
         classList: [
           "connection",
-          edge.isRemote ? "remote-connection" : "local-connection",
+          connectionClass,
         ],
       });
     }

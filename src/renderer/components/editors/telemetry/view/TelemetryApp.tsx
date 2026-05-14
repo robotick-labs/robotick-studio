@@ -143,10 +143,15 @@ export function TelemetryApp({
               }).workloads ?? []
             )
               .map((workload) => ({
+                id: String(workload?.id ?? "").trim(),
                 name: String(workload?.name ?? "").trim(),
                 type: String(workload?.type ?? "").trim(),
               }))
-              .filter((workload) => workload.name.length > 0)
+              .filter(
+                (workload) =>
+                  workload.type.length > 0 &&
+                  (workload.id.length > 0 || workload.name.length > 0)
+              )
           : [],
       }))
       .sort((a, b) =>

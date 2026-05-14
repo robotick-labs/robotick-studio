@@ -396,6 +396,104 @@ describe("buildGraphDocFromModel", () => {
       expect(distanceToRect(edge.routePoints![edge.routePoints!.length - 1], target!)).toBe(0);
     }
   });
+
+  it("keeps in-model threads as horizontal sibling columns while routing cross-thread edges separately", async () => {
+    type FakeWorkload = {
+      id: string;
+      name: string;
+      type: string;
+      children?: Array<{ workload_id: string }>;
+    };
+    type FakeModel = {
+      name: string;
+      root: { workload_id: string };
+      workloads: FakeWorkload[];
+      connections?: Array<{ from: string; to: string }>;
+      remote_models?: Array<{
+        model_id: string;
+        connections?: Array<{
+          from_local?: string;
+          to_remote?: string;
+          from_remote?: string;
+          to_local?: string;
+        }>;
+      }>;
+      telemetry?: { port?: number };
+    };
+
+    const model: FakeModel = {
+      name: "Animator",
+      root: { workload_id: "root" },
+      workloads: [
+        {
+          id: "root",
+          name: "Root",
+          type: "SyncedGroupWorkload",
+          children: [{ workload_id: "thread_a" }, { workload_id: "thread_b" }],
+        },
+        { id: "thread_a", name: "Thread A", type: "Workload" },
+        { id: "thread_b", name: "Thread B", type: "Workload" },
+        { id: "a1", name: "A1", type: "Workload" },
+        { id: "a2", name: "A2", type: "Workload" },
+        { id: "b1", name: "B1", type: "Workload" },
+        { id: "b2", name: "B2", type: "Workload" },
+      ],
+      connections: [
+        { from: "a1.out", to: "a2.in" },
+        { from: "b1.out", to: "b2.in" },
+        { from: "a2.out", to: "b1.in" },
+      ],
+    };
+
+    const store = {
+      getModelIds: () => ["animator"],
+      get: () => model,
+      getModelSourcePath: () => "animator.model.yaml",
+      laneChildren: (_modelId: string, lane: number) =>
+        lane === 0 ? ["a1", "a2"] : lane === 1 ? ["b1", "b2"] : [],
+    } as unknown as Parameters<typeof buildGraphDocFromModel>[0];
+
+    const doc = new GraphDoc();
+    await buildGraphDocFromModel(store, doc, {
+      layoutDirection: "vertical-offset",
+    });
+
+    expect(doc.sections).toHaveLength(1);
+    const [section] = doc.sections;
+    expect(section.lanes).toHaveLength(2);
+    expect(section.lanes?.[1].frame.x).toBeGreaterThan(
+      section.lanes![0].frame.x + section.lanes![0].frame.width,
+    );
+
+    const lane0Nodes = Array.from(doc.nodes.values()).filter(
+      (node) => node.kind === "workload" && node.lane === 0,
+    );
+    const lane1Nodes = Array.from(doc.nodes.values()).filter(
+      (node) => node.kind === "workload" && node.lane === 1,
+    );
+    expect(lane0Nodes.length).toBeGreaterThan(0);
+    expect(lane1Nodes.length).toBeGreaterThan(0);
+
+    for (const node of lane0Nodes) {
+      expect(node.x).toBeGreaterThanOrEqual(section.lanes![0].frame.x);
+      expect(node.x + node.w).toBeLessThanOrEqual(
+        section.lanes![0].frame.x + section.lanes![0].frame.width,
+      );
+    }
+    for (const node of lane1Nodes) {
+      expect(node.x).toBeGreaterThanOrEqual(section.lanes![1].frame.x);
+      expect(node.x + node.w).toBeLessThanOrEqual(
+        section.lanes![1].frame.x + section.lanes![1].frame.width,
+      );
+    }
+
+    const crossThreadEdge = doc.edges.find(
+      (edge) => edge.from === "animator:a2" && edge.to === "animator:b1",
+    );
+    expect(crossThreadEdge?.isInterThread).toBe(true);
+    expect(crossThreadEdge?.isRemote).not.toBe(true);
+    expect(crossThreadEdge?.routePoints?.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 function distanceToRect(

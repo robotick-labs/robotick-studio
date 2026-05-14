@@ -129,12 +129,25 @@ function findModelByNameInList(
   const key = normalizeModelKey(modelName);
   if (!key) return undefined;
   return models.find((model) => {
+    if (normalizeModelKey(model.modelPath) === key) {
+      return true;
+    }
     const shortKey = normalizeModelKey(model.modelShortName);
     if (shortKey && shortKey === key) {
       return true;
     }
     const friendlyKey = normalizeModelKey(model.modelName);
-    return Boolean(friendlyKey && friendlyKey === key);
+    if (friendlyKey && friendlyKey === key) {
+      return true;
+    }
+    const data =
+      model.data && typeof model.data === "object"
+        ? (model.data as Record<string, unknown>)
+        : null;
+    const idKey = normalizeModelKey(
+      typeof data?.id === "string" ? data.id : undefined
+    );
+    return Boolean(idKey && idKey === key);
   });
 }
 

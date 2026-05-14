@@ -235,6 +235,29 @@ function createEmptyPendingWork(): PendingBaseUrlWork {
   };
 }
 
+function resolveRuntimeFieldPath(
+  model: ITelemetryModel | null,
+  configuredFieldPath: string
+): string {
+  if (!model?.writable_inputs_by_path || !configuredFieldPath) {
+    return configuredFieldPath;
+  }
+  if (model.writable_inputs_by_path.has(configuredFieldPath)) {
+    return configuredFieldPath;
+  }
+  const dotIndex = configuredFieldPath.indexOf(".");
+  if (dotIndex <= 0 || dotIndex >= configuredFieldPath.length - 1) {
+    return configuredFieldPath;
+  }
+  const suffix = configuredFieldPath.slice(dotIndex + 1);
+  for (const fieldPath of model.writable_inputs_by_path.keys()) {
+    if (fieldPath.endsWith(`.${suffix}`)) {
+      return fieldPath;
+    }
+  }
+  return configuredFieldPath;
+}
+
 function buildModeTooltip(
   stickName: RemoteControlStickName,
   mode: RemoteControlStickMode | undefined
@@ -816,7 +839,11 @@ export default function RemoteControlsPanel({
         }
         const baseUrl = binding.telemetryBaseUrl;
         const liveModel = telemetryService.getLatestModel(baseUrl);
-        const writableMeta = getWritableMeta(liveModel, binding.fieldPath);
+        const runtimeFieldPath = resolveRuntimeFieldPath(
+          liveModel,
+          binding.fieldPath
+        );
+        const writableMeta = getWritableMeta(liveModel, runtimeFieldPath);
         const hasIncomingConnection =
           typeof writableMeta?.incoming_connection_handle === "number";
         const wasSuppressed = heldSuppressedFieldsRef.current.has(fieldKey);
@@ -826,7 +853,7 @@ export default function RemoteControlsPanel({
         if (wantsSuppression && !wasSuppressed) {
           heldSuppressedFieldsRef.current.add(fieldKey);
           queuePendingWork(baseUrl, {
-            disableFieldPath: binding.fieldPath,
+            disableFieldPath: runtimeFieldPath,
           });
         }
 
@@ -834,7 +861,7 @@ export default function RemoteControlsPanel({
           next?.value ??
           (typeof previous?.value === "boolean" ? false : 0);
         queuePendingWork(baseUrl, {
-          writeFieldPath: binding.fieldPath,
+          writeFieldPath: runtimeFieldPath,
           writeValue: nextValue,
           writeRequiresSuppression:
             Boolean(next?.reassertSuppressionOnWrite) && wantsSuppression,
@@ -843,7 +870,7 @@ export default function RemoteControlsPanel({
         if (!wantsSuppression && wasSuppressed) {
           heldSuppressedFieldsRef.current.delete(fieldKey);
           queuePendingWork(baseUrl, {
-            enableFieldPath: binding.fieldPath,
+            enableFieldPath: runtimeFieldPath,
           });
         }
       }
@@ -887,11 +914,18 @@ export default function RemoteControlsPanel({
         if (!desiredState.binding.telemetryBaseUrl) {
           continue;
         }
+        const liveModel = telemetryService.getLatestModel(
+          desiredState.binding.telemetryBaseUrl
+        );
+        const runtimeFieldPath = resolveRuntimeFieldPath(
+          liveModel,
+          desiredState.binding.fieldPath
+        );
         queuePendingWorkRef.current(desiredState.binding.telemetryBaseUrl, {
-          writeFieldPath: desiredState.binding.fieldPath,
+          writeFieldPath: runtimeFieldPath,
           writeValue: typeof desiredState.value === "boolean" ? false : 0,
           enableFieldPath: heldSuppressedFieldsRef.current.has(fieldKey)
-            ? desiredState.binding.fieldPath
+            ? runtimeFieldPath
             : null,
         });
       }

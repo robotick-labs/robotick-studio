@@ -95,4 +95,25 @@ describe("RectilinearRouter", () => {
     expect(edge.path).toBe("M84,40 L120,80 L84,100");
     expect(edge.classList).toContain("remote-connection");
   });
+
+  it("renders inter-thread connections with remote-style straight routing and a dedicated class", () => {
+    const [edge] = new RectilinearRouter().routeAll(
+      [
+        {
+          from: "a",
+          to: "b",
+          isInterThread: true,
+          routePoints: [
+            { x: 84, y: 40 },
+            { x: 120, y: 80 },
+            { x: 84, y: 100 },
+          ],
+        },
+      ],
+      (id) => nodes.get(id),
+    );
+
+    expect(edge.path).toBe("M84,40 L120,80 L84,100");
+    expect(edge.classList).toContain("inter-thread-connection");
+  });
 });

@@ -216,8 +216,11 @@ export async function buildGraphDocFromModel(
   commitSections(doc, drafts, layoutMode);
 
   const externalEdges = buildExternalEdges(store, modelIds, collapsedNodeIds, doc);
+  const crossThreadEdges = drafts.flatMap((draft) =>
+    draft.internalEdges.filter((edge) => edge.isInterThread),
+  );
   const allEdges = [...drafts.flatMap((draft) => draft.internalEdges), ...externalEdges];
-  await routeGlobalEdges(doc, externalEdges, layoutMode);
+  await routeGlobalEdges(doc, [...crossThreadEdges, ...externalEdges], layoutMode);
   doc.setEdges(allEdges);
 
   const bounds = doc.bounds();
@@ -234,6 +237,39 @@ async function layoutSectionWorkloads(
   edges: Edge[],
   layoutMode: GraphLayoutDirection,
 ): Promise<void> {
+  const laneNodeIds = laneWorkloadIds.map((laneIds) =>
+    laneIds
+      .map((workloadId) => workloadNodes.find((node) => node.id.endsWith(`:${workloadId}`))?.id)
+      .filter((nodeId): nodeId is string => Boolean(nodeId)),
+  );
+  const nodeById = new Map(workloadNodes.map((node) => [node.id, node] as const));
+
+  for (const laneIds of laneNodeIds) {
+    const laneNodes = laneIds
+      .map((nodeId) => nodeById.get(nodeId))
+      .filter((node): node is Node => Boolean(node));
+    const laneNodeIdSet = new Set(laneIds);
+    const laneEdges = edges.filter(
+      (edge) =>
+        !edge.isInterThread &&
+        laneNodeIdSet.has(edge.from) &&
+        laneNodeIdSet.has(edge.to),
+    );
+    await layoutThreadWorkloads(laneNodes, laneEdges, layoutMode);
+  }
+
+  positionLaneColumns(workloadNodes, laneNodeIds, edges);
+}
+
+async function layoutThreadWorkloads(
+  workloadNodes: Node[],
+  edges: Edge[],
+  layoutMode: GraphLayoutDirection,
+): Promise<void> {
+  if (workloadNodes.length === 0) {
+    return;
+  }
+
   const strategy = getLayoutStrategy(layoutMode);
   const portsByNode = new Map<string, Map<string, string>>();
   const elkEdges: ElkExtendedEdge[] = [];
@@ -251,24 +287,21 @@ async function layoutSectionWorkloads(
     });
   });
 
-  const laneNodeIds = laneWorkloadIds.map((laneIds) =>
-    laneIds
-      .map((workloadId) => workloadNodes.find((node) => node.id.endsWith(`:${workloadId}`))?.id)
-      .filter((nodeId): nodeId is string => Boolean(nodeId)),
-  );
-  laneNodeIds.forEach((laneIds) => {
-    for (let i = 0; i < laneIds.length - 1; i += 1) {
-      const sourcePort = `${laneIds[i]}:synthetic-out:${syntheticCount}`;
-      const targetPort = `${laneIds[i + 1]}:synthetic-in:${syntheticCount}`;
-      addPort(portsByNode, laneIds[i], sourcePort, strategy.sourcePortSide);
-      addPort(portsByNode, laneIds[i + 1], targetPort, strategy.targetPortSide);
-      elkEdges.push({
-        id: `synthetic:${syntheticCount++}`,
-        sources: [sourcePort],
-        targets: [targetPort],
-      });
-    }
-  });
+  const orderedNodeIds = workloadNodes
+    .slice()
+    .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0))
+    .map((node) => node.id);
+  for (let i = 0; i < orderedNodeIds.length - 1; i += 1) {
+    const sourcePort = `${orderedNodeIds[i]}:synthetic-out:${syntheticCount}`;
+    const targetPort = `${orderedNodeIds[i + 1]}:synthetic-in:${syntheticCount}`;
+    addPort(portsByNode, orderedNodeIds[i], sourcePort, strategy.sourcePortSide);
+    addPort(portsByNode, orderedNodeIds[i + 1], targetPort, strategy.targetPortSide);
+    elkEdges.push({
+      id: `synthetic:${syntheticCount++}`,
+      sources: [sourcePort],
+      targets: [targetPort],
+    });
+  }
 
   const root: ElkNode = {
     id: "section-root",
@@ -405,14 +438,21 @@ function buildInternalEdges(
   workloadNodes: Node[],
 ): Edge[] {
   const nodeIds = new Set(workloadNodes.map((node) => node.id));
+  const nodesById = new Map(workloadNodes.map((node) => [node.id, node] as const));
   const edges: Edge[] = [];
   connections.forEach((connection) => {
     const from = nodeIdFor(modelId, connection.from.split(".")[0]);
     const to = nodeIdFor(modelId, connection.to.split(".")[0]);
     if (nodeIds.has(from) && nodeIds.has(to)) {
+      const fromNode = nodesById.get(from);
+      const toNode = nodesById.get(to);
       edges.push({
         from,
         to,
+        isInterThread:
+          fromNode != null &&
+          toNode != null &&
+          fromNode.lane !== toNode.lane,
         fromPath: connection.from,
         toPath: connection.to,
       });
@@ -521,6 +561,54 @@ function normalizeSectionGeometry(nodes: Node[], edges: Edge[]): void {
       x: point.x - minX,
       y: point.y - minY,
     }));
+  });
+}
+
+function positionLaneColumns(
+  nodes: Node[],
+  laneNodeIds: string[][],
+  edges: Edge[],
+): void {
+  let cursorX = 0;
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+
+  laneNodeIds.forEach((ids) => {
+    const laneNodes = ids
+      .map((id) => nodeById.get(id))
+      .filter((node): node is Node => Boolean(node));
+    if (laneNodes.length === 0) {
+      cursorX += NODE_SIZE.width + CONTENT_GAP_X;
+      return;
+    }
+
+    const minX = Math.min(...laneNodes.map((node) => node.x));
+    const maxX = Math.max(...laneNodes.map((node) => node.x + node.w));
+    const minY = Math.min(...laneNodes.map((node) => node.y));
+    const deltaX = cursorX - minX;
+    const deltaY = -minY;
+
+    laneNodes.forEach((node) => {
+      node.x += deltaX;
+      node.y += deltaY;
+    });
+
+    const laneNodeIdSet = new Set(ids);
+    edges.forEach((edge) => {
+      if (
+        edge.isInterThread ||
+        !edge.routePoints ||
+        !laneNodeIdSet.has(edge.from) ||
+        !laneNodeIdSet.has(edge.to)
+      ) {
+        return;
+      }
+      edge.routePoints = edge.routePoints.map((point) => ({
+        x: point.x + deltaX,
+        y: point.y + deltaY,
+      }));
+    });
+
+    cursorX += maxX - minX + LANE_PADDING_X * 2 + CONTENT_GAP_X;
   });
 }
 

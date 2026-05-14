@@ -60,6 +60,7 @@ type ImageFieldOption = {
 type DeclaredWorkload = {
   id: string;
   name: string;
+  runtimeName: string;
 };
 
 type RegistryTypeDef = {
@@ -293,39 +294,65 @@ export default function TelemetryImageViewer() {
   const workloads = model?.workloads ?? [];
   const hasTelemetrySchema = !!model && !!schemaSessionId && workloads.length > 0;
 
-  const declaredWorkloads = useMemo<DeclaredWorkload[]>(() => {
+  const declaredWorkloads = useMemo<Array<{ id: string; name: string }>>(() => {
     const raw = selectedModel?.data;
     if (!raw || typeof raw !== "object") return [];
     const modelData = raw as Record<string, unknown>;
     const workloadEntries = Array.isArray(modelData.workloads)
       ? modelData.workloads
       : [];
-    const parsed: DeclaredWorkload[] = [];
+    const parsed: Array<{ id: string; name: string }> = [];
     for (const entry of workloadEntries) {
       if (!entry || typeof entry !== "object") continue;
       const workload = entry as Record<string, unknown>;
-      const name = String(workload.name ?? "").trim();
-      if (!name) continue;
       const id = String(workload.id ?? "").trim();
-      parsed.push({ id, name });
+      const name = String(workload.name ?? "").trim();
+      if (!id && !name) continue;
+      parsed.push({ id, name: name || id });
     }
     return parsed;
   }, [selectedModel?.data]);
-
-  const declaredWorkloadNames = useMemo(
-    () => new Set(declaredWorkloads.map((workload) => workload.name)),
-    [declaredWorkloads]
+  const runtimeWorkloadByName = useMemo(
+    () => new Map(workloads.map((workload) => [workload.name, workload] as const)),
+    [workloads]
   );
+  const declaredToRuntimeWorkloadName = useMemo(() => {
+    const mapping = new Map<string, string>();
+    for (const declared of declaredWorkloads) {
+      const id = declared.id.trim();
+      const name = declared.name.trim();
+      if (id && runtimeWorkloadByName.has(id)) {
+        mapping.set(id, id);
+      }
+      if (name && runtimeWorkloadByName.has(name)) {
+        mapping.set(name, name);
+      }
+      if (id && name && runtimeWorkloadByName.has(id)) {
+        mapping.set(name, id);
+      } else if (id && name && runtimeWorkloadByName.has(name)) {
+        mapping.set(id, name);
+      }
+    }
+    return mapping;
+  }, [declaredWorkloads, runtimeWorkloadByName]);
 
   const telemetryWorkloadsForSelectedModel = useMemo(() => {
-    if (declaredWorkloadNames.size === 0) return workloads;
-    return workloads.filter((workload) => declaredWorkloadNames.has(workload.name));
-  }, [declaredWorkloadNames, workloads]);
-
-  const workloadName =
-    migratedSettings.workloadName && migratedSettings.workloadName.length > 0
-      ? migratedSettings.workloadName
-      : "";
+    if (declaredWorkloads.length === 0) return workloads;
+    const runtimeNames = new Set<string>();
+    declaredWorkloads.forEach((declared) => {
+      const idMatch = declared.id
+        ? declaredToRuntimeWorkloadName.get(declared.id)
+        : undefined;
+      const nameMatch = declared.name
+        ? declaredToRuntimeWorkloadName.get(declared.name)
+        : undefined;
+      if (idMatch) runtimeNames.add(idMatch);
+      if (nameMatch) runtimeNames.add(nameMatch);
+    });
+    return runtimeNames.size === 0
+      ? workloads
+      : workloads.filter((workload) => runtimeNames.has(workload.name));
+  }, [declaredToRuntimeWorkloadName, declaredWorkloads, workloads]);
 
   const fieldPath = migratedSettings.fieldPath ?? "";
 
@@ -347,30 +374,58 @@ export default function TelemetryImageViewer() {
     return set;
   }, [model, telemetryWorkloadsForSelectedModel]);
 
-  const declaredWorkloadsWithImages = useMemo<DeclaredWorkload[]>(() => {
-    if (declaredWorkloads.length === 0) return [];
-    return declaredWorkloads.filter((workload) =>
-      workloadsWithImages.has(workload.name)
-    );
-  }, [declaredWorkloads, workloadsWithImages]);
-
   const availableWorkloads = useMemo<DeclaredWorkload[]>(() => {
-    if (declaredWorkloads.length > 0) return declaredWorkloadsWithImages;
+    if (declaredWorkloads.length > 0) {
+      return declaredWorkloads
+        .map((declared) => {
+          const runtimeName =
+            (declared.id && declaredToRuntimeWorkloadName.get(declared.id)) ||
+            (declared.name && declaredToRuntimeWorkloadName.get(declared.name)) ||
+            "";
+          if (!runtimeName || !workloadsWithImages.has(runtimeName)) {
+            return null;
+          }
+          return {
+            id: declared.id || runtimeName,
+            name: declared.name || declared.id || runtimeName,
+            runtimeName,
+          };
+        })
+        .filter((workload): workload is DeclaredWorkload => workload !== null);
+    }
     return telemetryWorkloadsForSelectedModel
       .filter((workload) => workloadsWithImages.has(workload.name))
       .map((workload) => ({
-      id: "",
-      name: workload.name,
-    }));
+        id: workload.name,
+        name: workload.name,
+        runtimeName: workload.name,
+      }));
   }, [
     declaredWorkloads,
-    declaredWorkloadsWithImages,
+    declaredToRuntimeWorkloadName,
     telemetryWorkloadsForSelectedModel,
     workloadsWithImages,
   ]);
+  const selectedWorkload = useMemo(() => {
+    const selectedId = (migratedSettings.workloadId ?? "").trim();
+    const selectedName = (migratedSettings.workloadName ?? "").trim();
+    if (selectedId) {
+      const byId = availableWorkloads.find((workload) => workload.id === selectedId);
+      if (byId) return byId;
+    }
+    if (selectedName) {
+      const byName = availableWorkloads.find(
+        (workload) => workload.name === selectedName
+      );
+      if (byName) return byName;
+    }
+    return null;
+  }, [availableWorkloads, migratedSettings.workloadId, migratedSettings.workloadName]);
 
-  const workloadsToScan = workloadName
-    ? telemetryWorkloadsForSelectedModel.filter((w) => w.name === workloadName)
+  const workloadsToScan = selectedWorkload
+    ? telemetryWorkloadsForSelectedModel.filter(
+        (w) => w.name === selectedWorkload.runtimeName
+      )
     : telemetryWorkloadsForSelectedModel;
 
   const imageFieldOptions = useMemo(() => {
@@ -415,13 +470,14 @@ export default function TelemetryImageViewer() {
     if (!hasTelemetrySchema) return;
     if (availableWorkloads.length === 0) return;
 
-    if (!availableWorkloads.some((w) => w.name === workloadName)) {
+    if (!selectedWorkload) {
+      const first = availableWorkloads[0];
       updateSettings({
-        workloadId: "",
-        workloadName: availableWorkloads[0].name,
+        workloadId: first?.id ?? "",
+        workloadName: first?.name ?? "",
       });
     }
-  }, [hasTelemetrySchema, availableWorkloads, workloadName, updateSettings]);
+  }, [availableWorkloads, hasTelemetrySchema, selectedWorkload, updateSettings]);
 
   useEffect(() => {
     if (!hasTelemetrySchema) return;
@@ -517,21 +573,13 @@ export default function TelemetryImageViewer() {
   const handleWorkloadChange = (
     event: React.ChangeEvent<HTMLSelectElement>
   ) => {
-    const selectedWorkloadName = event.target.value;
-    const workloadId =
-      Array.isArray(
-        (selectedModel?.data as { workloads?: Array<Record<string, unknown>> })
-          ?.workloads
-      )
-        ? (
-            (selectedModel?.data as {
-              workloads?: Array<Record<string, unknown>>;
-            }).workloads ?? []
-          ).find((workload) => String(workload?.name ?? "") === selectedWorkloadName)?.id
-        : "";
+    const selectedWorkloadId = event.target.value;
+    const selected = availableWorkloads.find(
+      (workload) => workload.id === selectedWorkloadId
+    );
     updateSettings({
-      workloadId: typeof workloadId === "string" ? workloadId : "",
-      workloadName: selectedWorkloadName,
+      workloadId: selected?.id ?? selectedWorkloadId,
+      workloadName: selected?.name ?? selectedWorkloadId,
     });
   };
 
@@ -571,14 +619,14 @@ export default function TelemetryImageViewer() {
           <label htmlFor="image-workload">Workload</label>
           <select
             id="image-workload"
-            value={workloadName}
+            value={selectedWorkload?.id ?? ""}
             onChange={handleWorkloadChange}
             disabled={!hasTelemetrySchema || availableWorkloads.length === 0}
           >
             {availableWorkloads.map((workload) => (
               <option
-                value={workload.name}
-                key={workload.id || workload.name}
+                value={workload.id}
+                key={workload.id}
               >
                 {workload.name}
               </option>

@@ -16,6 +16,8 @@ import { formatBytesWithCommas } from "../utils/format-bytes";
 
 interface TelemetryWorkloadProps {
   w: ITelemetryWorkload;
+  displayName?: string;
+  workloadId?: string;
   telemetryBaseUrl?: string;
   modelName?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
@@ -33,6 +35,8 @@ interface TelemetryWorkloadProps {
  */
 export function TelemetryWorkload({
   w,
+  displayName,
+  workloadId,
   telemetryBaseUrl,
   modelName,
   fieldConnectionHints,
@@ -62,10 +66,17 @@ export function TelemetryWorkload({
       : styles.usageRed;
   const panelScope = useFloatingPanelsScope();
   const hasDynamicMemory = w.workloadsBufferDynamicBytes > 0;
+  const resolvedDisplayName = (displayName ?? "").trim() || w.name;
+  const resolvedWorkloadId = (workloadId ?? "").trim() || w.name;
 
   return (
     <tr>
-      <td>{w.name}</td>
+      <td>
+        <div className={styles.multiline}>
+          <span>{resolvedDisplayName}</span>
+          <span className={styles.memoryMeta}>({resolvedWorkloadId})</span>
+        </div>
+      </td>
       <td>
         <div className={styles.multiline}>
           <span>{w.type}</span>

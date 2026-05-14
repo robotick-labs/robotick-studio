@@ -351,10 +351,43 @@ export default function TelemetryTreeViewer() {
     TREE_REFRESH_INTERVAL_MS
   );
   const workloads = model?.workloads ?? [];
-  const workloadName =
-    migratedSettings.workloadName && migratedSettings.workloadName.length > 0
-      ? migratedSettings.workloadName
-      : "";
+  const declaredWorkloadsById = useMemo(() => {
+    const map = new Map<string, string>();
+    const modelData =
+      selectedModel?.data && typeof selectedModel.data === "object"
+        ? (selectedModel.data as Record<string, unknown>)
+        : null;
+    const entries = Array.isArray(modelData?.workloads) ? modelData.workloads : [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const workload = entry as Record<string, unknown>;
+      const id = String(workload.id ?? "").trim();
+      const name = String(workload.name ?? "").trim();
+      if (!id) continue;
+      map.set(id, name || id);
+    }
+    return map;
+  }, [selectedModel?.data]);
+  const workloadOptions = useMemo(() => {
+    return workloads.map((workload) => ({
+      id: workload.name,
+      name: declaredWorkloadsById.get(workload.name) ?? workload.name,
+      runtimeName: workload.name,
+    }));
+  }, [declaredWorkloadsById, workloads]);
+  const selectedWorkload = useMemo(() => {
+    const selectedId = (migratedSettings.workloadId ?? "").trim();
+    const selectedName = (migratedSettings.workloadName ?? "").trim();
+    if (selectedId) {
+      const byId = workloadOptions.find((workload) => workload.id === selectedId);
+      if (byId) return byId;
+    }
+    if (selectedName) {
+      const byName = workloadOptions.find((workload) => workload.name === selectedName);
+      if (byName) return byName;
+    }
+    return null;
+  }, [migratedSettings.workloadId, migratedSettings.workloadName, workloadOptions]);
   const sectionSelection: DataKindSelection = settings.dataKind ?? "outputs";
   const activeSectionKinds: SectionKind[] =
     sectionSelection === "all" ? SECTION_KINDS : [sectionSelection];
@@ -363,9 +396,9 @@ export default function TelemetryTreeViewer() {
     useState(fieldFilterRaw);
   const fieldFilter = debouncedFieldFilterRaw.trim().toLowerCase();
 
-  const targetWorkload = workloads.find(
-    (workload) => workload.name === workloadName
-  );
+  const targetWorkload = selectedWorkload
+    ? workloads.find((workload) => workload.name === selectedWorkload.runtimeName)
+    : undefined;
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
     () => new Set<string>(storedExpandedPathsPreference?.paths ?? [])
   );
@@ -392,15 +425,13 @@ export default function TelemetryTreeViewer() {
 
   useEffect(() => {
     if (
-      migratedSettings.workloadName &&
+      selectedWorkload &&
       workloads.length > 0 &&
-      !workloads.some(
-        (workload) => workload.name === migratedSettings.workloadName
-      )
+      !workloads.some((workload) => workload.name === selectedWorkload.runtimeName)
     ) {
       updateSettings({ workloadId: "", workloadName: "" });
     }
-  }, [migratedSettings.workloadName, updateSettings, workloads]);
+  }, [selectedWorkload, updateSettings, workloads]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -412,7 +443,7 @@ export default function TelemetryTreeViewer() {
   const rootNodes = useMemo<ITelemetryField[]>(() => {
     if (!model) return [];
     const workloadsToInspect =
-      workloadName && targetWorkload ? [targetWorkload] : workloads;
+      selectedWorkload && targetWorkload ? [targetWorkload] : workloads;
     if (workloadsToInspect.length === 0) return [];
 
     if (fieldFilter) {
@@ -422,7 +453,8 @@ export default function TelemetryTreeViewer() {
             model,
             workload,
             activeSectionKinds,
-            fieldFilter
+            fieldFilter,
+            declaredWorkloadsById.get(workload.name) ?? workload.name
           )
         )
         .filter((node): node is ITelemetryField => Boolean(node));
@@ -430,16 +462,22 @@ export default function TelemetryTreeViewer() {
 
     return workloadsToInspect
       .map((workload) =>
-        createWorkloadNode(model, workload, activeSectionKinds)
+        createWorkloadNode(
+          model,
+          workload,
+          activeSectionKinds,
+          declaredWorkloadsById.get(workload.name) ?? workload.name
+        )
       )
       .filter((node): node is ITelemetryField => Boolean(node));
   }, [
     model,
     workloads,
-    workloadName,
+    selectedWorkload,
     targetWorkload,
     fieldFilter,
     sectionSelection,
+    declaredWorkloadsById,
   ]);
   const valueReader = useMemo(() => {
     const cache = new WeakMap<ITelemetryField, unknown>();
@@ -513,21 +551,13 @@ export default function TelemetryTreeViewer() {
   const handleWorkloadChange = (
     event: React.ChangeEvent<HTMLSelectElement>
   ) => {
-    const selectedWorkloadName = event.target.value;
-    const workloadId =
-      Array.isArray(
-        (selectedModel?.data as { workloads?: Array<Record<string, unknown>> })
-          ?.workloads
-      )
-        ? (
-            (selectedModel?.data as {
-              workloads?: Array<Record<string, unknown>>;
-            }).workloads ?? []
-          ).find((workload) => String(workload?.name ?? "") === selectedWorkloadName)?.id
-        : "";
+    const selectedWorkloadId = event.target.value;
+    const selected = workloadOptions.find(
+      (workload) => workload.id === selectedWorkloadId
+    );
     updateSettings({
-      workloadId: typeof workloadId === "string" ? workloadId : "",
-      workloadName: selectedWorkloadName,
+      workloadId: selected?.id ?? selectedWorkloadId,
+      workloadName: selected?.name ?? selectedWorkloadId,
       fieldPath: "",
     });
   };
@@ -548,15 +578,18 @@ export default function TelemetryTreeViewer() {
 
   const handleFilterToItem = useCallback(
     (target: TelemetryTreeFilterTarget) => {
+      const selected =
+        workloadOptions.find((workload) => workload.id === target.workloadName) ??
+        workloadOptions.find((workload) => workload.name === target.workloadName);
       updateSettings({
-        workloadId: "",
-        workloadName: target.workloadName,
+        workloadId: selected?.id ?? "",
+        workloadName: selected?.name ?? target.workloadName,
         dataKind: target.sectionKind ?? "all",
         fieldPath: target.fieldFilter,
       });
       setTreeContextMenu(null);
     },
-    [updateSettings]
+    [updateSettings, workloadOptions]
   );
 
   useEffect(() => {
@@ -609,12 +642,12 @@ export default function TelemetryTreeViewer() {
           <label htmlFor="tree-workload">Workload</label>
           <select
             id="tree-workload"
-            value={workloadName}
+            value={selectedWorkload?.id ?? ""}
             onChange={handleWorkloadChange}
           >
             <option value="">All Workloads</option>
-            {workloads.map((workload) => (
-              <option value={workload.name} key={workload.name}>
+            {workloadOptions.map((workload) => (
+              <option value={workload.id} key={workload.id}>
                 {workload.name}
               </option>
             ))}
@@ -995,7 +1028,8 @@ function createFilteredSectionNode(
 function createWorkloadNode(
   model: ITelemetryModel,
   workload: ITelemetryWorkload,
-  kinds: SectionKind[]
+  kinds: SectionKind[],
+  displayName: string
 ): ITelemetryField | null {
   const sections = kinds
     .map((kind) => createSectionNode(model, workload, kind))
@@ -1003,7 +1037,7 @@ function createWorkloadNode(
   if (!sections.length) return null;
 
   return {
-    name: workload.name,
+    name: displayName,
     type: "workload",
     path: `workload:${workload.name}`,
     offset: sections[0].offset ?? 0,
@@ -1018,7 +1052,8 @@ function createFilteredWorkloadNode(
   model: ITelemetryModel,
   workload: ITelemetryWorkload,
   kinds: SectionKind[],
-  filter: string
+  filter: string,
+  displayName: string
 ): ITelemetryField | null {
   const sections = kinds
     .map((kind) => createFilteredSectionNode(model, workload, kind, filter))
@@ -1026,7 +1061,7 @@ function createFilteredWorkloadNode(
   if (!sections.length) return null;
 
   return {
-    name: workload.name,
+    name: displayName,
     type: "workload",
     path: `workload:${workload.name}`,
     offset: sections[0].offset ?? 0,

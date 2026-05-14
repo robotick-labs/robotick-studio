@@ -12,5 +12,5 @@ export interface EngineModel {
   instanceURL: string;
   telemetryPushRateHz?: number;
   fieldConnectionHints: Record<string, FieldConnectionHint>;
-  expectedWorkloads?: Array<{ name: string; type: string }>;
+  expectedWorkloads?: Array<{ id?: string; name?: string; type: string }>;
 }

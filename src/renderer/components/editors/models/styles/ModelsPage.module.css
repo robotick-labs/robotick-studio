@@ -491,6 +491,12 @@
   animation: dash-shift 2s linear infinite;
 }
 
+:global(.inter-thread-connection) {
+  stroke: #58a6ff;
+  stroke-dasharray: 2 4;
+  animation: dash-shift 2.4s linear infinite;
+}
+
 :global(.connection-group.is-hidden) {
   display: none;
 }

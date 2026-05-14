@@ -242,9 +242,21 @@ export function TelemetryModel({
     const actual = latestModel?.workloads ?? [];
     if (expected.length === 0 || actual.length === 0) return false;
 
-    const expectedPairs = new Set(
-      expected.map((workload) => `${workload.name}::${workload.type}`)
-    );
+    const expectedPairs = new Set<string>();
+    expected.forEach((workload) => {
+      const type = workload.type?.trim();
+      if (!type) {
+        return;
+      }
+      const id = workload.id?.trim();
+      const name = workload.name?.trim();
+      if (id) {
+        expectedPairs.add(`${id}::${type}`);
+      }
+      if (name) {
+        expectedPairs.add(`${name}::${type}`);
+      }
+    });
     const actualPairs = new Set(
       actual.map((workload) => `${workload.name}::${workload.type}`)
     );
@@ -288,6 +300,25 @@ export function TelemetryModel({
       ),
     [model.fieldConnectionHints]
   );
+  const workloadDisplayMetaByRuntimeName = useMemo(() => {
+    const map = new Map<string, { displayName: string; workloadId: string }>();
+    for (const expectedWorkload of model.expectedWorkloads ?? []) {
+      const id = expectedWorkload.id?.trim() ?? "";
+      const name = expectedWorkload.name?.trim() ?? "";
+      if (id) {
+        map.set(id, {
+          displayName: name || id,
+          workloadId: id,
+        });
+      } else if (name) {
+        map.set(name, {
+          displayName: name,
+          workloadId: name,
+        });
+      }
+    }
+    return map;
+  }, [model.expectedWorkloads]);
 
   const handleToggle = () => setIsExpanded((prev) => !prev);
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
@@ -428,15 +459,20 @@ export function TelemetryModel({
                   </tr>
                 </thead>
                 <tbody>
-                  {workloads.map((w) => (
+                  {workloads.map((w) => {
+                    const meta = workloadDisplayMetaByRuntimeName.get(w.name);
+                    return (
                     <TelemetryWorkload
                       key={w.name}
                       w={w}
+                      displayName={meta?.displayName}
+                      workloadId={meta?.workloadId}
                       telemetryBaseUrl={model.instanceURL}
                       modelName={model.modelName}
                       fieldConnectionHints={fieldConnectionHints}
                     />
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

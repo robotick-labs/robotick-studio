@@ -2597,7 +2597,14 @@ function handleTelemetryFrame(
   if (!activeCanvas) {
     return;
   }
-  const field = model.getField?.(source.sourceField);
+  const sourceFieldPath = resolveRuntimeFieldPath(model, source.sourceField);
+  const detectionsFieldPath = source.detectionsSourceField
+    ? resolveRuntimeFieldPath(model, source.detectionsSourceField)
+    : undefined;
+  const fieldOfViewFieldPath = source.fieldOfViewSourceField
+    ? resolveRuntimeFieldPath(model, source.fieldOfViewSourceField)
+    : undefined;
+  const field = model.getField?.(sourceFieldPath);
   if (!field) {
     return;
   }
@@ -2612,14 +2619,14 @@ function handleTelemetryFrame(
     ? usesSeparateDetectionsTelemetry(source)
       ? latestDetections
       : extractObjectDetectionOverlays(
-          model.getField?.(source.detectionsSourceField)?.getValue?.(),
+          model.getField?.(detectionsFieldPath ?? "")?.getValue?.(),
         )
     : [];
   const fieldOfViewRect = source.fieldOfViewSourceField
     ? usesSeparateFieldOfViewTelemetry(source)
       ? latestFieldOfViewRect
       : extractNormalizedRectOverlay(
-          model.getField?.(source.fieldOfViewSourceField)?.getValue?.(),
+          model.getField?.(fieldOfViewFieldPath ?? "")?.getValue?.(),
         )
     : null;
   const frame = {
@@ -2686,6 +2693,31 @@ function handleTelemetryFrame(
     fieldOfViewRect,
   );
   latestFieldOfViewRect = fieldOfViewRect;
+}
+
+function resolveRuntimeFieldPath(
+  model: ITelemetryModel,
+  configuredFieldPath: string,
+): string {
+  const trimmed = configuredFieldPath.trim();
+  if (!trimmed || !model.getField) {
+    return configuredFieldPath;
+  }
+  if (model.getField(trimmed)) {
+    return trimmed;
+  }
+  const dotIndex = trimmed.indexOf(".");
+  if (dotIndex <= 0 || dotIndex >= trimmed.length - 1) {
+    return trimmed;
+  }
+  const suffix = trimmed.slice(dotIndex + 1);
+  for (const workload of model.workloads ?? []) {
+    const candidate = `${workload.name}.${suffix}`;
+    if (model.getField(candidate)) {
+      return candidate;
+    }
+  }
+  return trimmed;
 }
 
 function setBlackFrame() {

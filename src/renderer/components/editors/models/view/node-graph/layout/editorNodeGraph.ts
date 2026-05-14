@@ -37,6 +37,7 @@ export interface Edge {
   from: NodeId;
   to: NodeId;
   isRemote?: boolean;
+  isInterThread?: boolean;
   fromPath?: string;
   toPath?: string;
   routePoints?: Array<{ x: number; y: number }>;
