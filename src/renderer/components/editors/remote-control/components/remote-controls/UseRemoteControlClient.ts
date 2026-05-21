@@ -124,6 +124,7 @@ function buildProgrammaticInputSources(): RemoteControlStateKeysMeta["inputSourc
 }
 
 class RemoteControlClient {
+  private static readonly GAMEPAD_RESCAN_INTERVAL_MS = 1000;
   private leftStick: StickController;
   private rightStick: StickController;
   private joystickState: RemoteControlState;
@@ -330,21 +331,37 @@ class RemoteControlClient {
 
   private setupGamepadPolling() {
     let activeGamepadIndex: number | null = null;
+    const isUsableGamepad = (gamepad: Gamepad | null | undefined) => {
+      if (!gamepad) return false;
+      if (gamepad.connected) return true;
+      if (gamepad.mapping === "standard") return true;
+      if ((gamepad.axes?.length ?? 0) > 0) return true;
+      if ((gamepad.buttons?.length ?? 0) > 0) return true;
+      return false;
+    };
+
     const findConnectedGamepadIndex = () => {
       const pads = navigator.getGamepads();
       for (let i = 0; i < pads.length; i += 1) {
-        if (pads[i]?.connected) return i;
+        if (isUsableGamepad(pads[i])) return i;
       }
       return null;
     };
 
-    const onConnected = (e: GamepadEvent) => {
-      activeGamepadIndex = e.gamepad.index;
+    const startPollingIfNeeded = (index: number) => {
+      if (activeGamepadIndex === index && this.rafId !== null) {
+        return;
+      }
+      activeGamepadIndex = index;
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
         this.rafId = null;
       }
-      this.pollGamepad(activeGamepadIndex!);
+      this.pollGamepad(index);
+    };
+
+    const onConnected = (e: GamepadEvent) => {
+      startPollingIfNeeded(e.gamepad.index);
     };
 
     const onDisconnected = (e: GamepadEvent) => {
@@ -359,7 +376,7 @@ class RemoteControlClient {
         this.rafId = null;
       }
       if (fallbackIndex !== null) {
-        this.pollGamepad(fallbackIndex);
+        startPollingIfNeeded(fallbackIndex);
       }
     };
 
@@ -373,10 +390,20 @@ class RemoteControlClient {
       window.removeEventListener("gamepaddisconnected", onDisconnected)
     );
 
+    const scanIntervalId = window.setInterval(() => {
+      if (this.disposed || this.rafId !== null) {
+        return;
+      }
+      const fallbackIndex = findConnectedGamepadIndex();
+      if (fallbackIndex !== null) {
+        startPollingIfNeeded(fallbackIndex);
+      }
+    }, RemoteControlClient.GAMEPAD_RESCAN_INTERVAL_MS);
+    this.cleanup.push(() => window.clearInterval(scanIntervalId));
+
     const initialIndex = findConnectedGamepadIndex();
     if (initialIndex !== null) {
-      activeGamepadIndex = initialIndex;
-      this.pollGamepad(initialIndex);
+      startPollingIfNeeded(initialIndex);
     }
   }
 
@@ -391,7 +418,9 @@ class RemoteControlClient {
     const findConnectedGamepadIndex = () => {
       const pads = navigator.getGamepads();
       for (let i = 0; i < pads.length; i += 1) {
-        if (pads[i]?.connected) return i;
+        if (pads[i] && (pads[i].connected || pads[i].mapping === "standard")) {
+          return i;
+        }
       }
       return null;
     };

@@ -936,4 +936,136 @@ describe("RemoteControlsPanel", () => {
       restorePointerCapture();
     }
   });
+
+  it("detects a late-appearing gamepad without relying on a connection event", async () => {
+    const originalGetGamepads = Object.getOwnPropertyDescriptor(
+      Navigator.prototype,
+      "getGamepads"
+    );
+    let connected = false;
+    const gamepad = {
+      id: "Xbox Wireless Controller",
+      index: 0,
+      connected: false,
+      mapping: "standard",
+      axes: [0.5, -0.25, 0, 0],
+      buttons: Array.from({ length: 17 }, () => ({
+        pressed: false,
+        value: 0,
+      })),
+    };
+    Object.defineProperty(Navigator.prototype, "getGamepads", {
+      configurable: true,
+      writable: true,
+      value: () => (connected ? [gamepad] : []),
+    });
+
+    const telemetryModel = makeTelemetryModel();
+    const telemetryService = {
+      subscribeTelemetry: vi.fn((_baseUrl, _samplingRateHz, subscriber) => {
+        subscriber.callback(telemetryModel as any);
+        return () => {};
+      }),
+      ensureLayout: vi.fn(async () => telemetryModel as any),
+      refreshLayout: vi.fn(async () => telemetryModel as any),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => telemetryModel as any),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const projectModels = [
+      {
+        modelPath: "models/demo-robot-spine.model.yaml",
+        modelShortName: "demo-robot-spine",
+        modelName: "DemoBot Spine",
+        telemetryPort: 7095,
+        telemetryBaseUrl: "http://example-spine",
+        data: {},
+      },
+    ];
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <TestLauncherProviders
+              serviceOverrides={{
+                getProjectModels: vi.fn(async () => projectModels as any),
+                refreshProjectModels: vi.fn(async () => projectModels as any),
+              }}
+            >
+              <RemoteControlsPanel
+                config={{
+                  sticks: {
+                    left: {
+                      selectedMode: "drive_wheels",
+                      modes: {
+                        drive_wheels: {
+                          outputs: {
+                            x: "demo-robot-spine.spine_interface.inputs.angular_speed_norm",
+                            y: "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
+                          },
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </TestLauncherProviders>
+          </TelemetryServiceProvider>
+        );
+      });
+
+      await settle();
+      await settle();
+      telemetryService.setWorkloadInputFieldsData.mockClear();
+
+      connected = true;
+      await waitForTimers(1100);
+      await waitForTimers(80);
+
+      expect(telemetryService.setWorkloadInputFieldsData).toHaveBeenCalled();
+      const writes =
+        telemetryService.setWorkloadInputFieldsData.mock.calls.at(-1)?.[1]
+          ?.writes ?? [];
+      expect(writes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.angular_speed_norm",
+            value: 0.5,
+          }),
+          expect.objectContaining({
+            field_path: "spine_interface.inputs.linear_speed_norm",
+            value: 0.25,
+          }),
+        ])
+      );
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+      if (originalGetGamepads) {
+        Object.defineProperty(
+          Navigator.prototype,
+          "getGamepads",
+          originalGetGamepads
+        );
+      } else {
+        delete (Navigator.prototype as Navigator & { getGamepads?: unknown })
+          .getGamepads;
+      }
+    }
+  });
 });
