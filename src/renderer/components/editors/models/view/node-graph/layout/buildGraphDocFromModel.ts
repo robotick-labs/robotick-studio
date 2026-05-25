@@ -26,6 +26,7 @@ const PLUS_SLOT_SIZE = { width: 140, height: 40 } as const;
 const PLUS_SLOT_GAP = 24;
 const COLLAPSED_PLACEHOLDER_HEIGHT = 0;
 const MODEL_HEADER_MIN_WIDTH = 280;
+const SLOT_ROW_PITCH = 70;
 const BASE_NODE_SPACING = 56;
 const BASE_LAYER_SPACING = 42;
 
@@ -365,6 +366,7 @@ async function layoutThreadWorkloads(
       edge.routePoints = routePoints;
     }
   });
+  enforceFixedSlotRows(workloadNodes, edges);
 }
 
 function buildSectionWorkloadNodes(
@@ -386,8 +388,8 @@ function buildSectionWorkloadNodes(
         id: nodeIdFor(modelId, workload.id),
         kind: "workload",
         label: workload.name,
-        x: laneIndex * 220 + fan * 36,
-        y: slotIndex * 170 + sectionIndex * 36,
+        x: fan * 36,
+        y: slotY(slotIndex),
         w: NODE_SIZE.width,
         h: NODE_SIZE.height,
         lane: laneIndex,
@@ -911,6 +913,93 @@ function distributedPortX(
     return node.x + node.w / 2;
   }
   return node.x + (node.w * (duplicateIndex + 1)) / (duplicateCount + 1);
+}
+
+function enforceFixedSlotRows(nodes: Node[], edges: Edge[]): void {
+  if (nodes.length === 0) {
+    return;
+  }
+
+  const sortedNodes = nodes
+    .slice()
+    .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0));
+  const oldCenters = sortedNodes.map((node) => node.y + node.h / 2);
+  const newCenters = sortedNodes.map((node) => slotCenterY(node.meta?.slot ?? 0));
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+
+  sortedNodes.forEach((node) => {
+    node.y = slotY(node.meta?.slot ?? 0);
+  });
+
+  edges.forEach((edge) => {
+    if (!edge.routePoints || edge.routePoints.length < 2) {
+      return;
+    }
+    edge.routePoints = edge.routePoints.map((point) => ({
+      x: point.x,
+      y: remapRouteY(point.y, oldCenters, newCenters),
+    }));
+
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) {
+      return;
+    }
+    edge.routePoints[0] = clampPointToPort(edge.routePoints[0], from, "bottom");
+    edge.routePoints[edge.routePoints.length - 1] = clampPointToPort(
+      edge.routePoints[edge.routePoints.length - 1],
+      to,
+      "top",
+    );
+  });
+}
+
+function remapRouteY(
+  y: number,
+  oldCenters: number[],
+  newCenters: number[],
+): number {
+  if (oldCenters.length === 0 || oldCenters.length !== newCenters.length) {
+    return y;
+  }
+  if (oldCenters.length === 1) {
+    return y - oldCenters[0] + newCenters[0];
+  }
+
+  if (y <= oldCenters[0]) {
+    return y - oldCenters[0] + newCenters[0];
+  }
+
+  for (let index = 0; index < oldCenters.length - 1; index += 1) {
+    const startOld = oldCenters[index];
+    const endOld = oldCenters[index + 1];
+    if (y <= endOld) {
+      const range = endOld - startOld || 1;
+      const t = (y - startOld) / range;
+      return newCenters[index] + t * (newCenters[index + 1] - newCenters[index]);
+    }
+  }
+
+  return y - oldCenters[oldCenters.length - 1] + newCenters[newCenters.length - 1];
+}
+
+function clampPointToPort(
+  point: { x: number; y: number },
+  node: Node,
+  side: "top" | "bottom",
+): { x: number; y: number } {
+  return {
+    x: Math.max(node.x, Math.min(point.x, node.x + node.w)),
+    y: side === "top" ? node.y : node.y + node.h,
+  };
+}
+
+function slotY(slotIndex: number): number {
+  return slotIndex * SLOT_ROW_PITCH;
+}
+
+function slotCenterY(slotIndex: number): number {
+  return slotY(slotIndex) + NODE_SIZE.height / 2;
 }
 
 function compareModelIds(

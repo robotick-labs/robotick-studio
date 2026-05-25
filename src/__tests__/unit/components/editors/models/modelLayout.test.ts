@@ -476,6 +476,18 @@ describe("buildGraphDocFromModel", () => {
       );
     }
 
+    const lane0BySlot = lane0Nodes
+      .slice()
+      .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0));
+    const lane1BySlot = lane1Nodes
+      .slice()
+      .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0));
+    expect(lane0BySlot[0].y).toBe(lane1BySlot[0].y);
+    expect(lane0BySlot[1].y).toBe(lane1BySlot[1].y);
+    expect(lane0BySlot[1].y - lane0BySlot[0].y).toBe(
+      lane1BySlot[1].y - lane1BySlot[0].y,
+    );
+
     const crossThreadEdge = doc.edges.find(
       (edge) => edge.from === "animator:a2" && edge.to === "animator:b1",
     );
