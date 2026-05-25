@@ -12,7 +12,7 @@ import {
 import type { DocumentStore } from "../../../document/documentStore";
 import type { Workload } from "../../../document/modelData";
 
-const NODE_SIZE = { width: 168, height: 40 } as const;
+const NODE_SIZE = { width: 220, height: 40 } as const;
 const MODEL_HEADER_HEIGHT = 52;
 const MODEL_HEADER_ROW_Y = 24;
 const CONTENT_GAP_Y = 20;
@@ -76,7 +76,11 @@ export async function buildGraphDocFromModel(
   const collapsedNodeIds = new Map<string, string>();
   let globalMaxNodes = 0;
 
-  for (let sectionIndex = 0; sectionIndex < modelIds.length; sectionIndex += 1) {
+  for (
+    let sectionIndex = 0;
+    sectionIndex < modelIds.length;
+    sectionIndex += 1
+  ) {
     const modelId = modelIds[sectionIndex];
     const model = store.get(modelId)!;
     const root = model.workloads.find(
@@ -91,7 +95,9 @@ export async function buildGraphDocFromModel(
     );
     const isCollapsed = collapsedModelIds.has(modelId);
     const modelName =
-      typeof model.name === "string" && model.name.trim() ? model.name : modelId;
+      typeof model.name === "string" && model.name.trim()
+        ? model.name
+        : modelId;
     const modelNode: Node = {
       id: nodeIdFor(modelId, "__model__"),
       kind: isCollapsed ? "collapsed-model" : "model",
@@ -181,10 +187,7 @@ export async function buildGraphDocFromModel(
         root.type ?? "Workload",
         hasSequencedGroup,
       );
-      const addSlots = buildAddSlotLayouts(
-        workloadNodes,
-        laneLayouts,
-      );
+      const addSlots = buildAddSlotLayouts(workloadNodes, laneLayouts);
       const localFrame = unionFrames([
         ...laneLayouts.map((lane) => lane.frame),
         ...addSlots.map((slot) => slot.frame),
@@ -204,18 +207,27 @@ export async function buildGraphDocFromModel(
   positionSectionsAndModelNodes(drafts);
   commitSections(doc, drafts);
 
-  const externalEdges = buildExternalEdges(store, modelIds, collapsedNodeIds, doc);
+  const externalEdges = buildExternalEdges(
+    store,
+    modelIds,
+    collapsedNodeIds,
+    doc,
+  );
   const crossThreadEdges = drafts.flatMap((draft) =>
     draft.internalEdges.filter((edge) => edge.isInterThread),
   );
-  const allEdges = [...drafts.flatMap((draft) => draft.internalEdges), ...externalEdges];
+  const allEdges = [
+    ...drafts.flatMap((draft) => draft.internalEdges),
+    ...externalEdges,
+  ];
   await routeGlobalEdges(doc, [...crossThreadEdges, ...externalEdges]);
   doc.setEdges(allEdges);
 
   const bounds = doc.bounds();
   return {
     sections: doc.sections,
-    totalHeight: bounds.h + MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y,
+    totalHeight:
+      bounds.h + MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y,
     globalMaxNodes,
   };
 }
@@ -227,10 +239,15 @@ async function layoutSectionWorkloads(
 ): Promise<void> {
   const laneNodeIds = laneWorkloadIds.map((laneIds) =>
     laneIds
-      .map((workloadId) => workloadNodes.find((node) => node.id.endsWith(`:${workloadId}`))?.id)
+      .map(
+        (workloadId) =>
+          workloadNodes.find((node) => node.id.endsWith(`:${workloadId}`))?.id,
+      )
       .filter((nodeId): nodeId is string => Boolean(nodeId)),
   );
-  const nodeById = new Map(workloadNodes.map((node) => [node.id, node] as const));
+  const nodeById = new Map(
+    workloadNodes.map((node) => [node.id, node] as const),
+  );
 
   for (const laneIds of laneNodeIds) {
     const laneNodes = laneIds
@@ -356,7 +373,10 @@ async function layoutThreadWorkloads(
     }
     routeByEdgeId.set(edge.id, [
       { x: section.startPoint.x, y: section.startPoint.y },
-      ...((section.bendPoints ?? []).map((point) => ({ x: point.x, y: point.y }))),
+      ...(section.bendPoints ?? []).map((point) => ({
+        x: point.x,
+        y: point.y,
+      })),
       { x: section.endPoint.x, y: section.endPoint.y },
     ]);
   }
@@ -379,7 +399,9 @@ function buildSectionWorkloadNodes(
   const nodes: Node[] = [];
   laneWorkloadIds.forEach((laneIds, laneIndex) => {
     laneIds.forEach((workloadId, slotIndex) => {
-      const workload = workloads.find((candidate) => candidate.id === workloadId);
+      const workload = workloads.find(
+        (candidate) => candidate.id === workloadId,
+      );
       if (!workload) {
         return;
       }
@@ -428,7 +450,9 @@ function buildInternalEdges(
   workloadNodes: Node[],
 ): Edge[] {
   const nodeIds = new Set(workloadNodes.map((node) => node.id));
-  const nodesById = new Map(workloadNodes.map((node) => [node.id, node] as const));
+  const nodesById = new Map(
+    workloadNodes.map((node) => [node.id, node] as const),
+  );
   const edges: Edge[] = [];
   connections.forEach((connection) => {
     const from = nodeIdFor(modelId, connection.from.split(".")[0]);
@@ -440,9 +464,7 @@ function buildInternalEdges(
         from,
         to,
         isInterThread:
-          fromNode != null &&
-          toNode != null &&
-          fromNode.lane !== toNode.lane,
+          fromNode != null && toNode != null && fromNode.lane !== toNode.lane,
         fromPath: connection.from,
         toPath: connection.to,
       });
@@ -614,7 +636,9 @@ function buildLaneLayouts(
     if (laneNodes.length === 0) {
       layouts.push({
         laneIndex,
-        label: hasSequencedGroup ? `Thread ${laneIndex + 1} · Sequenced Group` : `Thread ${laneIndex + 1}`,
+        label: hasSequencedGroup
+          ? `Thread ${laneIndex + 1} · Sequenced Group`
+          : `Thread ${laneIndex + 1}`,
         frame: {
           x: laneIndex * (NODE_SIZE.width + CONTENT_GAP_X),
           y: 0,
@@ -652,7 +676,9 @@ function buildAddSlotLayouts(
   laneLayouts: LaneLayout[],
 ): AddSlotLayout[] {
   return laneLayouts.map((laneLayout) => {
-    const laneNodes = nodes.filter((node) => node.lane === laneLayout.laneIndex);
+    const laneNodes = nodes.filter(
+      (node) => node.lane === laneLayout.laneIndex,
+    );
     const maxY =
       laneNodes.length > 0
         ? Math.max(...laneNodes.map((node) => node.y + node.h))
@@ -660,7 +686,10 @@ function buildAddSlotLayouts(
     return {
       laneIndex: laneLayout.laneIndex,
       frame: {
-        x: laneLayout.frame.x + laneLayout.frame.width / 2 - PLUS_SLOT_SIZE.width / 2,
+        x:
+          laneLayout.frame.x +
+          laneLayout.frame.width / 2 -
+          PLUS_SLOT_SIZE.width / 2,
         y: maxY + PLUS_SLOT_GAP,
         width: PLUS_SLOT_SIZE.width,
         height: PLUS_SLOT_SIZE.height,
@@ -669,9 +698,7 @@ function buildAddSlotLayouts(
   });
 }
 
-function positionSectionsAndModelNodes(
-  drafts: SectionDraft[],
-): void {
+function positionSectionsAndModelNodes(drafts: SectionDraft[]): void {
   let cursorX = 24;
   const contentY = MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y;
   drafts.forEach((draft) => {
@@ -717,16 +744,16 @@ function translateSectionDraft(
   }
 }
 
-function commitSections(
-  doc: GraphDoc,
-  drafts: SectionDraft[],
-): void {
+function commitSections(doc: GraphDoc, drafts: SectionDraft[]): void {
   const sections: Section[] = [];
   drafts.forEach((draft) => {
     const deltaX = (draft.section.frame?.x ?? 0) - draft.localFrame.x;
     const deltaY = (draft.section.frame?.y ?? 0) - draft.localFrame.y;
     for (const node of doc.nodes.values()) {
-      if (node.meta?.section !== draft.section.index || node.id === draft.modelNode.id) {
+      if (
+        node.meta?.section !== draft.section.index ||
+        node.id === draft.modelNode.id
+      ) {
         continue;
       }
       node.x += deltaX;
@@ -781,10 +808,7 @@ function unionFrames(frames: RectFrame[]): RectFrame {
   };
 }
 
-async function routeGlobalEdges(
-  doc: GraphDoc,
-  edges: Edge[],
-): Promise<void> {
+async function routeGlobalEdges(doc: GraphDoc, edges: Edge[]): Promise<void> {
   const routeTargets = edges.filter(
     (edge) =>
       (!edge.routePoints || edge.routePoints.length < 2) &&
@@ -860,7 +884,10 @@ async function routeGlobalEdges(
     }
     routesById.set(edge.id, [
       { x: section.startPoint.x, y: section.startPoint.y },
-      ...((section.bendPoints ?? []).map((point) => ({ x: point.x, y: point.y }))),
+      ...(section.bendPoints ?? []).map((point) => ({
+        x: point.x,
+        y: point.y,
+      })),
       { x: section.endPoint.x, y: section.endPoint.y },
     ]);
   }
@@ -924,7 +951,9 @@ function enforceFixedSlotRows(nodes: Node[], edges: Edge[]): void {
     .slice()
     .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0));
   const oldCenters = sortedNodes.map((node) => node.y + node.h / 2);
-  const newCenters = sortedNodes.map((node) => slotCenterY(node.meta?.slot ?? 0));
+  const newCenters = sortedNodes.map((node) =>
+    slotCenterY(node.meta?.slot ?? 0),
+  );
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
 
   sortedNodes.forEach((node) => {
@@ -976,11 +1005,15 @@ function remapRouteY(
     if (y <= endOld) {
       const range = endOld - startOld || 1;
       const t = (y - startOld) / range;
-      return newCenters[index] + t * (newCenters[index + 1] - newCenters[index]);
+      return (
+        newCenters[index] + t * (newCenters[index + 1] - newCenters[index])
+      );
     }
   }
 
-  return y - oldCenters[oldCenters.length - 1] + newCenters[newCenters.length - 1];
+  return (
+    y - oldCenters[oldCenters.length - 1] + newCenters[newCenters.length - 1]
+  );
 }
 
 function clampPointToPort(
