@@ -29,7 +29,6 @@ export interface Node {
     subtitle?: string;
     stubDirection?: "incoming" | "outgoing";
     slot?: number;
-    layoutDirection?: "vertical-offset";
   };
 }
 
@@ -72,7 +71,6 @@ export interface Section {
   rootType?: string;
   hasSequencedGroup?: boolean;
   collapsed?: boolean;
-  layoutDirection?: "vertical-offset";
   frame?: RectFrame;
   lanes?: LaneLayout[];
   addSlots?: AddSlotLayout[];

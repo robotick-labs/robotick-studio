@@ -11,11 +11,6 @@ import {
 } from "./editorNodeGraph";
 import type { DocumentStore } from "../../../document/documentStore";
 import type { Workload } from "../../../document/modelData";
-import {
-  getLayoutStrategy,
-  resolveLayoutMode,
-  type GraphLayoutDirection,
-} from "./layoutStrategies";
 
 const NODE_SIZE = { width: 168, height: 40 } as const;
 const MODEL_HEADER_HEIGHT = 52;
@@ -31,6 +26,8 @@ const PLUS_SLOT_SIZE = { width: 140, height: 40 } as const;
 const PLUS_SLOT_GAP = 24;
 const COLLAPSED_PLACEHOLDER_HEIGHT = 0;
 const MODEL_HEADER_MIN_WIDTH = 280;
+const BASE_NODE_SPACING = 56;
+const BASE_LAYER_SPACING = 42;
 
 const elk = new ELK();
 
@@ -43,11 +40,9 @@ export interface LayoutSummary {
 export type BuildGraphOptions = {
   collapsedModelIds?: Iterable<string>;
   modelSortKey?: ModelSortKey;
-  layoutDirection?: GraphLayoutDirection;
 };
 
 export type ModelSortKey = "telemetry_port" | "model_name" | "model_path";
-export type { GraphLayoutDirection } from "./layoutStrategies";
 
 type SectionDraft = {
   section: Section;
@@ -69,8 +64,6 @@ export async function buildGraphDocFromModel(
 ): Promise<LayoutSummary> {
   const collapsedModelIds = new Set(options.collapsedModelIds ?? []);
   const modelSortKey = options.modelSortKey ?? "model_path";
-  const layoutMode = resolveLayoutMode(options.layoutDirection);
-  const layoutStrategy = getLayoutStrategy(layoutMode);
   const modelIds = store
     .getModelIds()
     .sort((left, right) => compareModelIds(store, left, right, modelSortKey));
@@ -130,7 +123,6 @@ export async function buildGraphDocFromModel(
       rootType: root.type ?? "Workload",
       hasSequencedGroup,
       collapsed: isCollapsed,
-      layoutDirection: layoutMode,
       frame: {
         x: 0,
         y: 0,
@@ -169,7 +161,6 @@ export async function buildGraphDocFromModel(
         model.workloads,
         laneWorkloadIds,
         sectionIndex,
-        layoutMode,
       );
       const localConnections = buildInternalEdges(
         modelId,
@@ -181,7 +172,6 @@ export async function buildGraphDocFromModel(
         workloadNodes,
         laneWorkloadIds,
         internalEdges,
-        layoutMode,
       );
       normalizeSectionGeometry(workloadNodes, internalEdges);
       const laneLayouts = buildLaneLayouts(
@@ -189,12 +179,10 @@ export async function buildGraphDocFromModel(
         laneWorkloadIds,
         root.type ?? "Workload",
         hasSequencedGroup,
-        layoutMode,
       );
       const addSlots = buildAddSlotLayouts(
         workloadNodes,
         laneLayouts,
-        layoutMode,
       );
       const localFrame = unionFrames([
         ...laneLayouts.map((lane) => lane.frame),
@@ -212,15 +200,15 @@ export async function buildGraphDocFromModel(
     }
   }
 
-  positionSectionsAndModelNodes(drafts, layoutMode);
-  commitSections(doc, drafts, layoutMode);
+  positionSectionsAndModelNodes(drafts);
+  commitSections(doc, drafts);
 
   const externalEdges = buildExternalEdges(store, modelIds, collapsedNodeIds, doc);
   const crossThreadEdges = drafts.flatMap((draft) =>
     draft.internalEdges.filter((edge) => edge.isInterThread),
   );
   const allEdges = [...drafts.flatMap((draft) => draft.internalEdges), ...externalEdges];
-  await routeGlobalEdges(doc, [...crossThreadEdges, ...externalEdges], layoutMode);
+  await routeGlobalEdges(doc, [...crossThreadEdges, ...externalEdges]);
   doc.setEdges(allEdges);
 
   const bounds = doc.bounds();
@@ -235,7 +223,6 @@ async function layoutSectionWorkloads(
   workloadNodes: Node[],
   laneWorkloadIds: string[][],
   edges: Edge[],
-  layoutMode: GraphLayoutDirection,
 ): Promise<void> {
   const laneNodeIds = laneWorkloadIds.map((laneIds) =>
     laneIds
@@ -255,7 +242,7 @@ async function layoutSectionWorkloads(
         laneNodeIdSet.has(edge.from) &&
         laneNodeIdSet.has(edge.to),
     );
-    await layoutThreadWorkloads(laneNodes, laneEdges, layoutMode);
+    await layoutThreadWorkloads(laneNodes, laneEdges);
   }
 
   positionLaneColumns(workloadNodes, laneNodeIds, edges);
@@ -264,13 +251,11 @@ async function layoutSectionWorkloads(
 async function layoutThreadWorkloads(
   workloadNodes: Node[],
   edges: Edge[],
-  layoutMode: GraphLayoutDirection,
 ): Promise<void> {
   if (workloadNodes.length === 0) {
     return;
   }
 
-  const strategy = getLayoutStrategy(layoutMode);
   const portsByNode = new Map<string, Map<string, string>>();
   const elkEdges: ElkExtendedEdge[] = [];
   let syntheticCount = 0;
@@ -278,8 +263,8 @@ async function layoutThreadWorkloads(
   edges.forEach((edge, index) => {
     const sourcePort = `${edge.from}:out:${index}`;
     const targetPort = `${edge.to}:in:${index}`;
-    addPort(portsByNode, edge.from, sourcePort, strategy.sourcePortSide);
-    addPort(portsByNode, edge.to, targetPort, strategy.targetPortSide);
+    addPort(portsByNode, edge.from, sourcePort, "SOUTH");
+    addPort(portsByNode, edge.to, targetPort, "NORTH");
     elkEdges.push({
       id: `edge:${index}`,
       sources: [sourcePort],
@@ -294,8 +279,8 @@ async function layoutThreadWorkloads(
   for (let i = 0; i < orderedNodeIds.length - 1; i += 1) {
     const sourcePort = `${orderedNodeIds[i]}:synthetic-out:${syntheticCount}`;
     const targetPort = `${orderedNodeIds[i + 1]}:synthetic-in:${syntheticCount}`;
-    addPort(portsByNode, orderedNodeIds[i], sourcePort, strategy.sourcePortSide);
-    addPort(portsByNode, orderedNodeIds[i + 1], targetPort, strategy.targetPortSide);
+    addPort(portsByNode, orderedNodeIds[i], sourcePort, "SOUTH");
+    addPort(portsByNode, orderedNodeIds[i + 1], targetPort, "NORTH");
     elkEdges.push({
       id: `synthetic:${syntheticCount++}`,
       sources: [sourcePort],
@@ -325,9 +310,21 @@ async function layoutThreadWorkloads(
     })),
     edges: elkEdges,
   };
-  strategy.configureRoot(root, {
-    hasRemoteEdges: false,
-  });
+  root.layoutOptions = {
+    ...(root.layoutOptions ?? {}),
+    "elk.algorithm": "layered",
+    "elk.direction": "DOWN",
+    "elk.spacing.nodeNode": String(BASE_NODE_SPACING),
+    "elk.layered.spacing.nodeNodeBetweenLayers": String(BASE_LAYER_SPACING),
+    "elk.edgeRouting": "SPLINES",
+    "elk.layered.mergeEdges": "false",
+    "elk.layered.mergeHierarchyEdges": "false",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+    "elk.layered.crossingMinimization.forceNodeModelOrder": "true",
+    "elk.layered.cycleBreaking.strategy": "GREEDY_MODEL_ORDER",
+    "elk.layered.layering.strategy": "LONGEST_PATH_SOURCE",
+    "elk.layered.nodePlacement.favorStraightEdges": "true",
+  };
 
   const result = await elk.layout(root);
   const laidOutNodes = new Map<string, { x: number; y: number }>();
@@ -376,9 +373,7 @@ function buildSectionWorkloadNodes(
   workloads: Workload[],
   laneWorkloadIds: string[][],
   sectionIndex: number,
-  layoutMode: GraphLayoutDirection,
 ): Node[] {
-  const strategy = getLayoutStrategy(layoutMode);
   const nodes: Node[] = [];
   laneWorkloadIds.forEach((laneIds, laneIndex) => {
     laneIds.forEach((workloadId, slotIndex) => {
@@ -386,19 +381,13 @@ function buildSectionWorkloadNodes(
       if (!workload) {
         return;
       }
-      const seeded = strategy.seedNodePosition({
-        slot: slotIndex,
-        lane: laneIndex,
-        sectionIndex,
-        laneCount: laneWorkloadIds.length,
-        indexInSection: slotIndex,
-      });
+      const fan = (slotIndex % 3) - 1;
       const node: Node = {
         id: nodeIdFor(modelId, workload.id),
         kind: "workload",
         label: workload.name,
-        x: seeded.x,
-        y: seeded.y,
+        x: laneIndex * 220 + fan * 36,
+        y: slotIndex * 170 + sectionIndex * 36,
         w: NODE_SIZE.width,
         h: NODE_SIZE.height,
         lane: laneIndex,
@@ -407,7 +396,6 @@ function buildSectionWorkloadNodes(
           modelId,
           section: sectionIndex,
           slot: slotIndex,
-          layoutDirection: layoutMode,
           type: workload.type,
         },
       };
@@ -617,7 +605,6 @@ function buildLaneLayouts(
   laneWorkloadIds: string[][],
   rootType: string,
   hasSequencedGroup: boolean,
-  layoutMode: GraphLayoutDirection,
 ): LaneLayout[] {
   const layouts: LaneLayout[] = [];
   laneWorkloadIds.forEach((laneIds, laneIndex) => {
@@ -661,7 +648,6 @@ function buildLaneLayouts(
 function buildAddSlotLayouts(
   nodes: Node[],
   laneLayouts: LaneLayout[],
-  layoutMode: GraphLayoutDirection,
 ): AddSlotLayout[] {
   return laneLayouts.map((laneLayout) => {
     const laneNodes = nodes.filter((node) => node.lane === laneLayout.laneIndex);
@@ -683,7 +669,6 @@ function buildAddSlotLayouts(
 
 function positionSectionsAndModelNodes(
   drafts: SectionDraft[],
-  layoutMode: GraphLayoutDirection,
 ): void {
   let cursorX = 24;
   const contentY = MODEL_HEADER_ROW_Y + MODEL_HEADER_HEIGHT + CONTENT_GAP_Y;
@@ -733,7 +718,6 @@ function translateSectionDraft(
 function commitSections(
   doc: GraphDoc,
   drafts: SectionDraft[],
-  layoutMode: GraphLayoutDirection,
 ): void {
   const sections: Section[] = [];
   drafts.forEach((draft) => {
@@ -746,7 +730,6 @@ function commitSections(
       node.x += deltaX;
       node.y += deltaY;
     }
-    draft.section.layoutDirection = layoutMode;
     sections.push(draft.section);
   });
   doc.setSections(sections);
@@ -799,7 +782,6 @@ function unionFrames(frames: RectFrame[]): RectFrame {
 async function routeGlobalEdges(
   doc: GraphDoc,
   edges: Edge[],
-  _layoutMode: GraphLayoutDirection,
 ): Promise<void> {
   const routeTargets = edges.filter(
     (edge) =>

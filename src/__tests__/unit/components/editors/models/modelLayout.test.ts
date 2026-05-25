@@ -36,13 +36,12 @@ function createWorkloadNode(section: number, lane: number, x: number, y: number)
     w: 140,
     h: 40,
     lane,
-      meta: {
-        modelId: `model-${section}`,
-        section,
-        slot: 0,
-        layoutDirection: "vertical-offset",
-      },
-    };
+    meta: {
+      modelId: `model-${section}`,
+      section,
+      slot: 0,
+    },
+  };
 }
 
 describe("positionModelHeaders", () => {
@@ -58,7 +57,6 @@ describe("positionModelHeaders", () => {
         maxNodes: 0,
         labelY: 48,
         collapsed: true,
-        layoutDirection: "vertical-offset",
       },
       {
         index: 1,
@@ -69,7 +67,6 @@ describe("positionModelHeaders", () => {
         maxNodes: 4,
         labelY: 210,
         collapsed: false,
-        layoutDirection: "vertical-offset",
       },
       {
         index: 2,
@@ -80,7 +77,6 @@ describe("positionModelHeaders", () => {
         maxNodes: 2,
         labelY: 670,
         collapsed: false,
-        layoutDirection: "vertical-offset",
       },
     ];
     doc.setSections(sections);
@@ -190,7 +186,6 @@ describe("buildGraphDocFromModel", () => {
 
     const doc = new GraphDoc();
     await buildGraphDocFromModel(store, doc, {
-      layoutDirection: "vertical-offset",
       collapsedModelIds: ["mind", "face", "spine"],
     });
 
@@ -275,9 +270,7 @@ describe("buildGraphDocFromModel", () => {
     } as unknown as Parameters<typeof buildGraphDocFromModel>[0];
 
     const doc = new GraphDoc();
-    await buildGraphDocFromModel(store, doc, {
-      layoutDirection: "vertical-offset",
-    });
+    await buildGraphDocFromModel(store, doc);
 
     expect(doc.edges).toHaveLength(1);
     expect(doc.edges[0].from).toBe("source:a");
@@ -370,9 +363,7 @@ describe("buildGraphDocFromModel", () => {
     } as unknown as Parameters<typeof buildGraphDocFromModel>[0];
 
     const doc = new GraphDoc();
-    await buildGraphDocFromModel(store, doc, {
-      layoutDirection: "vertical-offset",
-    });
+    await buildGraphDocFromModel(store, doc);
 
     for (const node of doc.nodes.values()) {
       if (node.kind !== "workload") {
@@ -454,9 +445,7 @@ describe("buildGraphDocFromModel", () => {
     } as unknown as Parameters<typeof buildGraphDocFromModel>[0];
 
     const doc = new GraphDoc();
-    await buildGraphDocFromModel(store, doc, {
-      layoutDirection: "vertical-offset",
-    });
+    await buildGraphDocFromModel(store, doc);
 
     expect(doc.sections).toHaveLength(1);
     const [section] = doc.sections;

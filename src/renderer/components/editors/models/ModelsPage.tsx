@@ -202,11 +202,19 @@ export default function ModelsPage() {
           {
             collapsedModelIds: initialCollapsed,
             modelSortKey,
-            layoutDirection: "vertical-offset",
           },
           {
             selectionScope: selectionScopeKey,
             initialSelectedNodeId: selectedNodeId,
+            onSelectedNodeIdChange: setSelectedNodeId,
+            onToggleCollapsedModel: (modelId) => {
+              setCollapsedModelIds((current) => {
+                if (current.includes(modelId)) {
+                  return current.filter((id) => id !== modelId);
+                }
+                return [...current, modelId];
+              });
+            },
           }
         );
         graphApiRef.current = graphApi;
@@ -234,48 +242,9 @@ export default function ModelsPage() {
           writeViewport(viewportStorageKey, initialViewport);
         }
 
-        const onToggleCollapsed = (event: Event) => {
-          const ce = event as CustomEvent<{ modelId?: string; scope?: string }>;
-          if ((ce.detail?.scope ?? "default") !== selectionScopeKey) {
-            return;
-          }
-          const modelId = ce.detail?.modelId;
-          if (!modelId) {
-            return;
-          }
-          setCollapsedModelIds((current) => {
-            if (current.includes(modelId)) {
-              return current.filter((id) => id !== modelId);
-            }
-            return [...current, modelId];
-          });
-        };
-        graphElement.addEventListener(
-          "models-graph:toggle-model-collapsed",
-          onToggleCollapsed as EventListener
-        );
-        const onSelectionChanged = (event: Event) => {
-          const ce = event as CustomEvent<{ nodeId?: string | null; scope?: string }>;
-          if ((ce.detail?.scope ?? "default") !== selectionScopeKey) {
-            return;
-          }
-          setSelectedNodeId(ce.detail?.nodeId ?? null);
-        };
-        window.addEventListener(
-          "models-graph:selection-changed",
-          onSelectionChanged as EventListener
-        );
         const prevDispose = disposeViewportControls;
         disposeViewportControls = () => {
           prevDispose?.();
-          graphElement.removeEventListener(
-            "models-graph:toggle-model-collapsed",
-            onToggleCollapsed as EventListener
-          );
-          window.removeEventListener(
-            "models-graph:selection-changed",
-            onSelectionChanged as EventListener
-          );
         };
       } catch (err) {
         if (!disposed) {

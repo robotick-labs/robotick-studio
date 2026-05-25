@@ -1,6 +1,14 @@
 import type { GraphDoc, Node, Section } from "../layout/editorNodeGraph";
 import type { ConnectionRouter } from "../routing/connectionRouter";
+import { ConnectionTooltip } from "./connectionTooltip";
 import { createSvgLayers } from "./svgLayers";
+import {
+  computeRelatedNodeIds,
+  computeVisibleEdgeKeys,
+  edgeKey,
+  getSelectedModelId,
+  type RenderDisplayOptions,
+} from "./graphDisplayState";
 
 export { createSvgLayers };
 
@@ -9,28 +17,6 @@ export interface Layers {
   group: SVGGElement;
   nodes: SVGGElement;
   edges: SVGGElement;
-}
-
-export interface CanvasSize {
-  width: number;
-  height: number;
-}
-
-type EdgeVisibilityMode =
-  | "none"
-  | "selected-node"
-  | "selected-model"
-  | "expanded-models"
-  | "all";
-
-type RemoteConnectionVisibility = "hidden" | "visible";
-
-export interface RenderDisplayOptions {
-  selectedNodeId: string | null;
-  edgeVisibilityMode: EdgeVisibilityMode;
-  remoteConnectionVisibility?: RemoteConnectionVisibility;
-  focusDimming: boolean;
-  expandedModelIds: string[];
 }
 
 const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
@@ -42,33 +28,34 @@ const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
 };
 
 export class SvgView {
+  private tooltip: ConnectionTooltip;
+
   constructor(
     private svg: SVGSVGElement,
     private layers: Layers,
     private router: ConnectionRouter,
     private eventScope: string = "default",
-  ) {}
+  ) {
+    this.tooltip = new ConnectionTooltip(svg);
+  }
 
   render(
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
-    this.hideConnectionTooltip();
+    this.tooltip.hide();
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
       ...displayOptions,
     };
     const selectedNodeId = resolvedOptions.selectedNodeId;
-    const selectedModelId =
-      selectedNodeId != null
-        ? (doc.getNode(selectedNodeId)?.meta?.modelId ?? null)
-        : null;
-    const visibleEdges = this.computeVisibleEdges(
+    const selectedModelId = getSelectedModelId(doc, selectedNodeId);
+    const visibleEdges = computeVisibleEdgeKeys(
       doc,
       resolvedOptions,
       selectedModelId,
     );
-    const relatedNodeIds = this.computeRelatedNodeIds(
+    const relatedNodeIds = computeRelatedNodeIds(
       doc,
       visibleEdges,
       selectedNodeId,
@@ -92,8 +79,8 @@ export class SvgView {
       resolvedOptions,
     );
     this.drawPlusButtons(doc);
+    this.renderSwimlanes(doc.sections);
 
-    // Step 2: measure actual bounding box
     const margin = 40;
     const bounds = this.svg.getBBox();
 
@@ -109,31 +96,25 @@ export class SvgView {
         `${viewX} ${viewY} ${viewWidth} ${viewHeight}`,
       );
     }
-
-    void viewWidth;
-    this.renderSwimlanes(doc.sections);
   }
 
   updateSelectionState(
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
-    this.hideConnectionTooltip();
+    this.tooltip.hide();
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
       ...displayOptions,
     };
     const selectedNodeId = resolvedOptions.selectedNodeId;
-    const selectedModelId =
-      selectedNodeId != null
-        ? (doc.getNode(selectedNodeId)?.meta?.modelId ?? null)
-        : null;
-    const visibleEdges = this.computeVisibleEdges(
+    const selectedModelId = getSelectedModelId(doc, selectedNodeId);
+    const visibleEdges = computeVisibleEdgeKeys(
       doc,
       resolvedOptions,
       selectedModelId,
     );
-    const relatedNodeIds = this.computeRelatedNodeIds(
+    const relatedNodeIds = computeRelatedNodeIds(
       doc,
       visibleEdges,
       selectedNodeId,
@@ -436,8 +417,8 @@ export class SvgView {
       visiblePath.classList.add("connection", ...e.classList);
       const from = e.from;
       const to = e.to;
-      const edgeKey = this.edgeKey(from, to);
-      const isVisible = visibleEdgeKeys.has(edgeKey);
+      const currentEdgeKey = edgeKey(from, to);
+      const isVisible = visibleEdgeKeys.has(currentEdgeKey);
       const fromNode = doc.getNode(from);
       const toNode = doc.getNode(to);
       const sourceLabel = this.formatConnectionEndpoint(
@@ -475,10 +456,10 @@ export class SvgView {
       g.setAttribute("data-edge-from", from);
       g.setAttribute("data-edge-to", to);
       hoverPath.addEventListener("mousemove", (event) => {
-        this.showConnectionTooltip(event, sourceLabel, targetLabel);
+        this.tooltip.show(event, sourceLabel, targetLabel);
       });
       hoverPath.addEventListener("mouseleave", () => {
-        this.hideConnectionTooltip();
+        this.tooltip.hide();
       });
       g.appendChild(hoverPath);
       g.appendChild(visiblePath);
@@ -524,8 +505,7 @@ export class SvgView {
       if (!from || !to) {
         continue;
       }
-      const edgeKey = this.edgeKey(from, to);
-      const isVisible = visibleEdgeKeys.has(edgeKey);
+      const isVisible = visibleEdgeKeys.has(edgeKey(from, to));
       const fromNode = doc.getNode(from);
       const toNode = doc.getNode(to);
       const touchesSelectedNode =
@@ -553,110 +533,6 @@ export class SvgView {
     }
   }
 
-  private computeVisibleEdges(
-    doc: GraphDoc,
-    displayOptions: RenderDisplayOptions,
-    selectedModelId: string | null,
-  ): Set<string> {
-    const visible = new Set<string>();
-    const selectedNodeId = displayOptions.selectedNodeId;
-    const expandedModels = new Set(displayOptions.expandedModelIds);
-
-    for (const edge of doc.edges) {
-      const key = this.edgeKey(edge.from, edge.to);
-      if (
-        edge.isRemote &&
-        displayOptions.remoteConnectionVisibility === "hidden"
-      ) {
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "all") {
-        visible.add(key);
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "none") {
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "expanded-models") {
-        if (expandedModels.size === 0) {
-          continue;
-        }
-        const fromNode = doc.getNode(edge.from);
-        const toNode = doc.getNode(edge.to);
-        if (
-          (fromNode?.meta?.modelId &&
-            expandedModels.has(fromNode.meta.modelId)) ||
-          (toNode?.meta?.modelId && expandedModels.has(toNode.meta.modelId))
-        ) {
-          visible.add(key);
-        }
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "selected-node") {
-        if (!selectedNodeId) {
-          continue;
-        }
-        if (edge.from === selectedNodeId || edge.to === selectedNodeId) {
-          visible.add(key);
-        }
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "selected-model") {
-        if (!selectedNodeId || !selectedModelId) {
-          continue;
-        }
-        const fromNode = doc.getNode(edge.from);
-        const toNode = doc.getNode(edge.to);
-        if (
-          fromNode?.meta?.modelId === selectedModelId ||
-          toNode?.meta?.modelId === selectedModelId
-        ) {
-          visible.add(key);
-        }
-      }
-    }
-
-    return visible;
-  }
-
-  private computeRelatedNodeIds(
-    doc: GraphDoc,
-    visibleEdgeKeys: Set<string>,
-    selectedNodeId: string | null,
-    selectedModelId: string | null,
-    edgeVisibilityMode: EdgeVisibilityMode,
-  ): Set<string> {
-    const related = new Set<string>();
-    if (selectedNodeId) {
-      related.add(selectedNodeId);
-    }
-
-    for (const key of visibleEdgeKeys) {
-      const [from, to] = key.split("->", 2);
-      if (from) related.add(from);
-      if (to) related.add(to);
-    }
-
-    if (edgeVisibilityMode === "selected-model" && selectedModelId) {
-      for (const node of doc.nodes.values()) {
-        if (node.meta?.modelId === selectedModelId) {
-          related.add(node.id);
-        }
-      }
-    }
-
-    return related;
-  }
-
-  private edgeKey(from: string, to: string): string {
-    return `${from}->${to}`;
-  }
-
   private formatConnectionEndpoint(
     path: string | undefined,
     node: Node | undefined,
@@ -674,105 +550,6 @@ export class SvgView {
       return node.label;
     }
     return `${node.label}.${rest.join(".")}`;
-  }
-
-  private ensureConnectionTooltipLayer(): SVGGElement {
-    let group = this.svg.querySelector(
-      "g.connection-tooltip-layer",
-    ) as SVGGElement | null;
-    if (group) {
-      return group;
-    }
-
-    const ns = "http://www.w3.org/2000/svg";
-    group = document.createElementNS(ns, "g");
-    group.classList.add("connection-tooltip-layer", "is-hidden");
-    group.setAttribute("pointer-events", "none");
-
-    const background = document.createElementNS(ns, "rect");
-    background.classList.add("connection-tooltip-bg");
-    background.setAttribute("rx", "6");
-    background.setAttribute("ry", "6");
-
-    const sourceText = document.createElementNS(ns, "text");
-    sourceText.classList.add("connection-tooltip-text");
-    sourceText.setAttribute("x", "10");
-    sourceText.setAttribute("y", "18");
-
-    const targetText = document.createElementNS(ns, "text");
-    targetText.classList.add("connection-tooltip-text");
-    targetText.setAttribute("x", "10");
-    targetText.setAttribute("y", "34");
-
-    group.append(background, sourceText, targetText);
-    this.svg.appendChild(group);
-    return group;
-  }
-
-  private showConnectionTooltip(
-    event: MouseEvent,
-    sourceLabel: string,
-    targetLabel: string,
-  ): void {
-    const svgPoint = this.clientToSvgPoint(event.clientX, event.clientY);
-    if (!svgPoint) {
-      return;
-    }
-
-    const tooltip = this.ensureConnectionTooltipLayer();
-    const sourceText = tooltip.querySelectorAll(
-      "text.connection-tooltip-text",
-    )[0] as SVGTextElement | undefined;
-    const targetText = tooltip.querySelectorAll(
-      "text.connection-tooltip-text",
-    )[1] as SVGTextElement | undefined;
-    const background = tooltip.querySelector(
-      "rect.connection-tooltip-bg",
-    ) as SVGRectElement | null;
-    if (!sourceText || !targetText || !background) {
-      return;
-    }
-
-    sourceText.textContent = `From: ${sourceLabel}`;
-    targetText.textContent = `To: ${targetLabel}`;
-
-    const width =
-      Math.max(
-        sourceText.getComputedTextLength(),
-        targetText.getComputedTextLength(),
-      ) + 20;
-    background.setAttribute("width", String(width));
-    background.setAttribute("height", "42");
-
-    const offsetX = 16;
-    const offsetY = -12;
-    tooltip.setAttribute(
-      "transform",
-      `translate(${svgPoint.x + offsetX},${svgPoint.y + offsetY})`,
-    );
-    tooltip.classList.remove("is-hidden");
-  }
-
-  private hideConnectionTooltip(): void {
-    const tooltip = this.svg.querySelector(
-      "g.connection-tooltip-layer",
-    ) as SVGGElement | null;
-    tooltip?.classList.add("is-hidden");
-  }
-
-  private clientToSvgPoint(
-    clientX: number,
-    clientY: number,
-  ): { x: number; y: number } | null {
-    const ctm = this.svg.getScreenCTM();
-    if (!ctm) {
-      return null;
-    }
-    const point = this.svg.createSVGPoint();
-    point.x = clientX;
-    point.y = clientY;
-    const world = point.matrixTransform(ctm.inverse());
-    return { x: world.x, y: world.y };
   }
 
   private drawPlusButtons(doc: GraphDoc) {

@@ -61,7 +61,6 @@ describe("SvgView vertical model rendering", () => {
         maxNodes: 0,
         labelY: 48,
         collapsed: true,
-        layoutDirection: "vertical-offset",
       },
       {
         index: 1,
@@ -72,7 +71,6 @@ describe("SvgView vertical model rendering", () => {
         maxNodes: 2,
         labelY: 210,
         collapsed: false,
-        layoutDirection: "vertical-offset",
       },
       {
         index: 2,
@@ -83,7 +81,6 @@ describe("SvgView vertical model rendering", () => {
         maxNodes: 0,
         labelY: 528,
         collapsed: true,
-        layoutDirection: "vertical-offset",
       },
     ];
     doc.setSections(sections);
@@ -129,12 +126,7 @@ describe("SvgView vertical model rendering", () => {
       w: 140,
       h: 40,
       lane: 0,
-      meta: {
-        modelId: "animator",
-        section: 1,
-        slot: 0,
-        layoutDirection: "vertical-offset",
-      },
+      meta: { modelId: "animator", section: 1, slot: 0 },
     });
     doc.upsertNode({
       id: "animator:w2",
@@ -145,12 +137,7 @@ describe("SvgView vertical model rendering", () => {
       w: 140,
       h: 40,
       lane: 0,
-      meta: {
-        modelId: "animator",
-        section: 1,
-        slot: 1,
-        layoutDirection: "vertical-offset",
-      },
+      meta: { modelId: "animator", section: 1, slot: 1 },
     });
 
     positionModelHeaders(doc);
@@ -200,12 +187,7 @@ describe("SvgView vertical model rendering", () => {
       w: 168,
       h: 40,
       lane: 0,
-      meta: {
-        modelId: "animator",
-        section: 0,
-        slot: 0,
-        layoutDirection: "vertical-offset",
-      },
+      meta: { modelId: "animator", section: 0, slot: 0 },
     });
     doc.upsertNode({
       id: "animator:w2",
@@ -216,12 +198,7 @@ describe("SvgView vertical model rendering", () => {
       w: 168,
       h: 40,
       lane: 0,
-      meta: {
-        modelId: "animator",
-        section: 0,
-        slot: 1,
-        layoutDirection: "vertical-offset",
-      },
+      meta: { modelId: "animator", section: 0, slot: 1 },
     });
     doc.setEdges([
       {
@@ -308,7 +285,7 @@ describe("SvgView vertical model rendering", () => {
       w: 168,
       h: 40,
       lane: 0,
-      meta: { modelId: "animator", section: 0, slot: 0, layoutDirection: "vertical-offset" },
+      meta: { modelId: "animator", section: 0, slot: 0 },
     });
     doc.upsertNode({
       id: "animator:w2",
@@ -319,7 +296,7 @@ describe("SvgView vertical model rendering", () => {
       w: 168,
       h: 40,
       lane: 0,
-      meta: { modelId: "animator", section: 0, slot: 1, layoutDirection: "vertical-offset" },
+      meta: { modelId: "animator", section: 0, slot: 1 },
     });
     doc.setEdges([
       {

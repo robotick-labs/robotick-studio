@@ -1,24 +1,14 @@
 import type { GraphDoc } from "../view/node-graph/layout/editorNodeGraph";
 import { DocumentStore } from "../document/documentStore";
 
-const verticalLaneHeaderHeight = 42,
-  verticalNodeSpacing = 58,
-  nodeH = 40;
 const DRAG_THRESHOLD_PX = 4;
-
-function slotFromY(y: number, sectionYStart: number): number {
-  const raw =
-    (y - sectionYStart - verticalLaneHeaderHeight) / verticalNodeSpacing;
-  return Math.max(0, Math.round(raw));
-}
 
 export class SlotDragController {
   private dragging = false;
   private startLane = 0;
   private startSlot = 0;
   private modelId = "";
-  private layoutDirection: "vertical-offset" = "vertical-offset";
-  private sectionYStart = 0;
+  private sectionIndex = -1;
   private startClientX = 0;
   private startClientY = 0;
   private didDrag = false;
@@ -58,11 +48,8 @@ export class SlotDragController {
 
     this.modelId = n.meta?.modelId ?? "";
     this.startLane = n.lane;
-    this.layoutDirection = n.meta?.layoutDirection ?? "vertical-offset";
-    this.sectionYStart = this.doc.sections[n.meta?.section ?? -1]?.yStart ?? 0;
-    this.startSlot =
-      n.meta?.slot ??
-      slotFromY(n.y, this.sectionYStart);
+    this.sectionIndex = n.meta?.section ?? -1;
+    this.startSlot = n.meta?.slot ?? 0;
     this.startClientX = e.clientX;
     this.startClientY = e.clientY;
     this.didDrag = false;
@@ -94,7 +81,7 @@ export class SlotDragController {
     }
 
     const p = this.toSvg(ev);
-    const targetSlot = slotFromY(p.y - nodeH / 2, this.sectionYStart);
+    const targetSlot = this.resolveTargetSlot(p.y);
     if (targetSlot !== this.startSlot) {
       this.store.moveWithinLane(
         this.modelId,
@@ -119,5 +106,40 @@ export class SlotDragController {
     pt.y = e.clientY;
     const ctm = this.svg.getScreenCTM();
     return ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+  }
+
+  private resolveTargetSlot(dropY: number): number {
+    const laneNodes = Array.from(this.doc.nodes.values())
+      .filter(
+        (node) =>
+          node.kind === "workload" &&
+          node.meta?.section === this.sectionIndex &&
+          node.lane === this.startLane,
+      )
+      .sort((left, right) => (left.meta?.slot ?? 0) - (right.meta?.slot ?? 0));
+    if (laneNodes.length === 0) {
+      return 0;
+    }
+
+    const section = this.doc.sections[this.sectionIndex];
+    const addSlot = section?.addSlots?.find(
+      (slot) => slot.laneIndex === this.startLane,
+    );
+    const addSlotCenterY = addSlot
+      ? addSlot.frame.y + addSlot.frame.height / 2
+      : Number.POSITIVE_INFINITY;
+    if (dropY >= addSlotCenterY) {
+      return laneNodes.length;
+    }
+
+    let insertIndex = 0;
+    for (const node of laneNodes) {
+      const centerY = node.y + node.h / 2;
+      if (dropY < centerY) {
+        return insertIndex;
+      }
+      insertIndex += 1;
+    }
+    return laneNodes.length;
   }
 }

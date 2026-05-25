@@ -4,15 +4,21 @@ import { RectilinearRouter } from "./routing/rectilinearRouter";
 import { DocumentStore } from "../../document/documentStore";
 import {
   buildGraphDocFromModel,
-  type GraphLayoutDirection,
   type ModelSortKey,
 } from "./layout/buildGraphDocFromModel";
 export type {
-  GraphLayoutDirection,
   ModelSortKey,
 } from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
+import type {
+  EdgeVisibilityMode,
+  RemoteConnectionVisibility,
+} from "./render/graphDisplayState";
+export type {
+  EdgeVisibilityMode,
+  RemoteConnectionVisibility,
+} from "./render/graphDisplayState";
 
 export const nodeSize = { width: 168, height: 40 } as const;
 export const marginX = 20;
@@ -41,18 +47,7 @@ export type NodeGraphAPI = {
   setSelectedNodeId: (nodeId: string | null) => void;
   /** Replace model ordering and refresh layout */
   setModelSortKey: (sortKey: ModelSortKey) => void;
-  /** Replace graph layout direction and refresh layout */
-  setLayoutDirection: (direction: GraphLayoutDirection) => void;
 };
-
-export type EdgeVisibilityMode =
-  | "none"
-  | "selected-node"
-  | "selected-model"
-  | "expanded-models"
-  | "all";
-
-export type RemoteConnectionVisibility = "hidden" | "visible";
 
 export type GraphDisplayOptions = {
   edgeVisibilityMode: EdgeVisibilityMode;
@@ -64,7 +59,6 @@ export type GraphDisplayOptions = {
 export type GraphLayoutOptions = {
   collapsedModelIds: string[];
   modelSortKey: ModelSortKey;
-  layoutDirection: GraphLayoutDirection;
 };
 
 const DEFAULT_DISPLAY_OPTIONS: GraphDisplayOptions = {
@@ -79,7 +73,12 @@ export function initNodeGraph(
   store: DocumentStore,
   initialDisplayOptions?: Partial<GraphDisplayOptions>,
   initialLayoutOptions?: Partial<GraphLayoutOptions>,
-  options?: { selectionScope?: string; initialSelectedNodeId?: string | null },
+  options?: {
+    selectionScope?: string;
+    initialSelectedNodeId?: string | null;
+    onSelectedNodeIdChange?: (nodeId: string | null) => void;
+    onToggleCollapsedModel?: (modelId: string) => void;
+  },
 ): NodeGraphAPI {
   if (!svgElement) {
     throw new Error("initNodeGraph requires an SVGSVGElement");
@@ -88,11 +87,9 @@ export function initNodeGraph(
   // Keep the graph's state local to this instance
   const doc = new GraphDoc();
 
-  // Initial build (so we know sizes before first paint)
   let layoutOptions: GraphLayoutOptions = {
     collapsedModelIds: initialLayoutOptions?.collapsedModelIds ?? [],
     modelSortKey: initialLayoutOptions?.modelSortKey ?? "model_path",
-    layoutDirection: "vertical-offset",
   };
 
   const layers = createSvgLayers(svgElement);
@@ -102,7 +99,16 @@ export function initNodeGraph(
   const view = new SvgView(svgElement, layers, router, selectionScope);
   const selectionController = new SelectionController(
     svgElement,
-    selectionScope,
+    {
+      onSelectNode: (nodeId) => {
+        selectedNodeId = nodeId;
+        options?.onSelectedNodeIdChange?.(nodeId);
+        renderSelectionState();
+      },
+      onToggleCollapsedModel: (modelId) => {
+        options?.onToggleCollapsedModel?.(modelId);
+      },
+    },
   );
   const slotDragController = new SlotDragController(svgElement, doc, store);
   let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
@@ -143,7 +149,6 @@ export function initNodeGraph(
     await buildGraphDocFromModel(store, nextDoc, {
       collapsedModelIds: layoutOptions.collapsedModelIds,
       modelSortKey: layoutOptions.modelSortKey,
-      layoutDirection: layoutOptions.layoutDirection,
     });
     if (refreshId !== refreshCounter) {
       return;
@@ -203,19 +208,6 @@ export function initNodeGraph(
     "models-graph:rename-requested",
     renameHandler as EventListener,
   );
-  const selectionChangedHandler = (e: Event) => {
-    const ce = e as CustomEvent<{ nodeId?: string | null; scope?: string }>;
-    if ((ce.detail?.scope ?? "default") !== selectionScope) {
-      return;
-    }
-    selectedNodeId = ce.detail?.nodeId ?? null;
-    renderSelectionState();
-  };
-  window.addEventListener(
-    "models-graph:selection-changed",
-    selectionChangedHandler as EventListener,
-  );
-
   // First paint + attach controllers (idempotent if caller repeats)
   void refreshLayout();
   attachControllers();
@@ -230,10 +222,6 @@ export function initNodeGraph(
     svgElement.removeEventListener(
       "models-graph:rename-requested",
       renameHandler as EventListener,
-    );
-    window.removeEventListener(
-      "models-graph:selection-changed",
-      selectionChangedHandler as EventListener,
     );
     selectionController.detach();
     slotDragController.detach();
@@ -251,17 +239,11 @@ export function initNodeGraph(
   const getSelectedNodeId = () => selectedNodeId;
   const setSelectedNodeId = (nodeId: string | null) => {
     selectedNodeId = nodeId;
+    options?.onSelectedNodeIdChange?.(nodeId);
     renderSelectionState();
   };
   const setModelSortKey = (sortKey: ModelSortKey) => {
     layoutOptions = { ...layoutOptions, modelSortKey: sortKey };
-    void refreshLayout();
-  };
-  const setLayoutDirection = (direction: GraphLayoutDirection) => {
-    if (layoutOptions.layoutDirection === direction) {
-      return;
-    }
-    layoutOptions = { ...layoutOptions, layoutDirection: direction };
     void refreshLayout();
   };
 
@@ -278,7 +260,6 @@ export function initNodeGraph(
     getSelectedNodeId,
     setSelectedNodeId,
     setModelSortKey,
-    setLayoutDirection,
   };
 }
 
