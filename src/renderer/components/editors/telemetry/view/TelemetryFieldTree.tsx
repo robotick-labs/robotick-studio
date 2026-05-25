@@ -24,6 +24,7 @@ const DEFAULT_ARRAY_PAGE_SIZE = 64;
 type ReadValue = (field: ITelemetryField) => unknown;
 
 export type TelemetryFieldTreeContext = {
+  workloadId?: string;
   workloadName?: string;
   sectionKind?: string;
   depth: number;
@@ -34,7 +35,11 @@ type TelemetryFieldTreeProps = {
   className?: string;
   telemetryBaseUrl?: string;
   panelScope?: string;
+  workloadId?: string;
+  workloadName?: string;
+  modelId?: string;
   modelName?: string;
+  modelPath?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
   expandedPaths?: ReadonlySet<string>;
   onTogglePath?: (path: string) => void;
@@ -124,6 +129,7 @@ function deriveChildContext(
 ): TelemetryFieldTreeContext {
   if (field.type === "workload") {
     return {
+      workloadId: undefined,
       workloadName: field.name,
       sectionKind: undefined,
       depth: parentContext.depth + 1,
@@ -136,6 +142,7 @@ function deriveChildContext(
     parentContext.workloadName ??
     (field.path.includes(".") ? field.path.split(".")[0] : undefined);
   return {
+    workloadId: parentContext.workloadId,
     workloadName,
     sectionKind,
     depth: parentContext.depth + 1,
@@ -280,7 +287,11 @@ type TelemetryFieldTreeNodeProps = {
   context: TelemetryFieldTreeContext;
   telemetryBaseUrl?: string;
   panelScope: string;
+  workloadId?: string;
+  workloadName?: string;
+  modelId?: string;
   modelName?: string;
+  modelPath?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
   expandedPaths: ReadonlySet<string>;
   togglePath: (path: string) => void;
@@ -299,7 +310,11 @@ const TelemetryFieldTreeNode = React.memo(function TelemetryFieldTreeNode({
   context,
   telemetryBaseUrl,
   panelScope,
+  workloadId,
+  workloadName: explicitWorkloadName,
+  modelId,
   modelName,
+  modelPath,
   fieldConnectionHints,
   expandedPaths,
   togglePath,
@@ -325,7 +340,10 @@ const TelemetryFieldTreeNode = React.memo(function TelemetryFieldTreeNode({
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
   const workloadName =
-    context.workloadName ?? getWorkloadNameForField(field);
+    context.workloadName ??
+    explicitWorkloadName ??
+    getWorkloadNameForField(field);
+  const resolvedWorkloadId = context.workloadId ?? workloadId ?? workloadName;
   const isWritableInput =
     typeof field.writable_input_handle === "number" &&
     field.path.includes(".inputs.") &&
@@ -337,6 +355,9 @@ const TelemetryFieldTreeNode = React.memo(function TelemetryFieldTreeNode({
       settings: {
         panelTitle: field.path,
         telemetryBaseUrl,
+        modelId,
+        modelPath,
+        workloadId: resolvedWorkloadId,
         workloadName,
         modelName,
         fieldPath: field.path,
@@ -490,7 +511,11 @@ export function TelemetryFieldTree({
   className,
   telemetryBaseUrl,
   panelScope,
+  workloadId,
+  workloadName,
+  modelId,
   modelName,
+  modelPath,
   fieldConnectionHints,
   expandedPaths,
   onTogglePath,
@@ -528,10 +553,14 @@ export function TelemetryFieldTree({
         >
           <TelemetryFieldTreeNode
             field={field}
-            context={{ depth: 0 }}
+            context={{ depth: 0, workloadId, workloadName }}
             telemetryBaseUrl={telemetryBaseUrl}
             panelScope={floatingScope}
+            workloadId={workloadId}
+            workloadName={workloadName}
+            modelId={modelId}
             modelName={modelName}
+            modelPath={modelPath}
             fieldConnectionHints={fieldConnectionHints}
             expandedPaths={treeState.expandedPaths}
             togglePath={treeState.togglePath}

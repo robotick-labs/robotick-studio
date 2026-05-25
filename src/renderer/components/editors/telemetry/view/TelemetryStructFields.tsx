@@ -9,8 +9,11 @@ import styles from "../Telemetry.module.css";
 type StructFieldProps = {
   struct?: TelemetryStruct;
   telemetryBaseUrl?: string;
+  workloadId?: string;
   workloadName?: string;
+  modelId?: string;
   modelName?: string;
+  modelPath?: string;
   panelScope?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 };
@@ -18,8 +21,11 @@ type StructFieldProps = {
 export function TelemetryStructFields({
   struct,
   telemetryBaseUrl,
+  workloadId,
   workloadName,
+  modelId,
   modelName,
+  modelPath,
   panelScope,
   fieldConnectionHints,
 }: StructFieldProps) {
@@ -33,8 +39,12 @@ export function TelemetryStructFields({
       className={styles.telemetryStructTreeCompact}
       fields={fields}
       telemetryBaseUrl={telemetryBaseUrl}
+      workloadId={workloadId}
+      workloadName={workloadName}
       panelScope={panelScope}
+      modelId={modelId}
       modelName={modelName}
+      modelPath={modelPath}
       fieldConnectionHints={fieldConnectionHints}
       defaultExpandedPaths={[]}
     />

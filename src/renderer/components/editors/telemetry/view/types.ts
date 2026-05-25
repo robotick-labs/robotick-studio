@@ -7,6 +7,7 @@ export interface FieldConnectionHint {
 }
 
 export interface EngineModel {
+  modelId?: string;
   modelName: string;
   modelPath: string;
   instanceURL: string;

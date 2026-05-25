@@ -11,6 +11,7 @@ vi.mock(
 );
 
 import { TelemetryStructFields } from "../../../../renderer/components/editors/telemetry/view/TelemetryStructFields";
+import { spawnTelemetryImagePanel } from "../../../../renderer/components/editors/telemetry/panels";
 import type {
   ITelemetryField,
   ITelemetryModel,
@@ -46,6 +47,14 @@ function render(node: React.ReactElement) {
 }
 
 describe("TelemetryStructFields", () => {
+  beforeEach(() => {
+    vi.mocked(spawnTelemetryImagePanel).mockClear();
+  });
+
+  afterEach(() => {
+    vi.mocked(spawnTelemetryImagePanel).mockClear();
+  });
+
   it("keeps image-like leaf rendering stable when the backing value changes", async () => {
     let currentValue: unknown = "not-image-bytes";
 
@@ -151,6 +160,71 @@ describe("TelemetryStructFields", () => {
 
     expect(tree.container.querySelector("input[type='checkbox']")).not.toBeNull();
     expect(tree.container.textContent).toContain("enabled");
+
+    tree.unmount();
+  });
+
+  it("opens image panels with stable model and workload ids", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+    };
+
+    const field: ITelemetryField = {
+      name: "data_buffer",
+      type: "DynamicStructStorageVector<uint8_t>",
+      path: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+      offset: 0,
+      elementCount: 1,
+      mime_type: "image/png",
+      model,
+      getValue: () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    };
+
+    const struct: ITelemetryStruct = {
+      typeName: "Outputs",
+      offset: 0,
+      fields: [field],
+    };
+
+    const tree = render(
+      <TelemetryStructFields
+        struct={struct}
+        telemetryBaseUrl="http://example.test:7092"
+        workloadId="image_ref_to_image_workload_2B89C0A3"
+        workloadName="head_segmented_png"
+        modelId="barr_e_perception_visual_model_C6D836F5"
+        modelName="demo-robot-perception-visual"
+        modelPath="robots/barr-e/models/barr-e-perception-visual.model.yaml"
+        panelScope="test-floating-panels"
+      />
+    );
+
+    const button = tree.container.querySelector("button");
+    expect(button?.textContent).toContain("Open image panel");
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(spawnTelemetryImagePanel).toHaveBeenCalledWith({
+      scope: "test-floating-panels",
+      settings: {
+        panelTitle: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+        telemetryBaseUrl: "http://example.test:7092",
+        modelId: "barr_e_perception_visual_model_C6D836F5",
+        modelName: "demo-robot-perception-visual",
+        modelPath: "robots/barr-e/models/barr-e-perception-visual.model.yaml",
+        workloadId: "image_ref_to_image_workload_2B89C0A3",
+        workloadName: "head_segmented_png",
+        fieldPath: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+      },
+    });
 
     tree.unmount();
   });

@@ -468,7 +468,9 @@ export function TelemetryModel({
                       displayName={meta?.displayName}
                       workloadId={meta?.workloadId}
                       telemetryBaseUrl={model.instanceURL}
+                      modelId={model.modelId}
                       modelName={model.modelName}
+                      modelPath={model.modelPath}
                       fieldConnectionHints={fieldConnectionHints}
                     />
                     );

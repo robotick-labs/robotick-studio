@@ -77,6 +77,7 @@ let transformScratchContext: CanvasRenderingContext2D | null = null;
 let createImageBitmapUnavailableReported = false;
 let activeCompositeStreamMode = false;
 let layeredFrameSequenceByLayerId = new Map<string, number>();
+let workloadAliasCache = new Map<string, Map<string, string[]>>();
 
 type PendingFrame = {
   mime: string;
@@ -313,6 +314,7 @@ function resetRuntimeState() {
   createImageBitmapUnavailableReported = false;
   activeCompositeStreamMode = false;
   layeredFrameSequenceByLayerId = new Map<string, number>();
+  workloadAliasCache = new Map<string, Map<string, string[]>>();
   activeCanvasStackElement = null;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
@@ -2380,11 +2382,16 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
             if (sessionId !== viewerSessionId) {
               return;
             }
+            const detectionsFieldPath = resolveRuntimeFieldPath(
+              model,
+              layer.detectionsSourceField!,
+              layer.detectionsSourceModel,
+            );
             // Keep the latest overlay telemetry cached, but let the actual
             // overlay presentation advance with the image stream so the mask
             // cannot run ahead of the currently displayed frame.
             latestDetections = extractObjectDetectionOverlays(
-              model.getField?.(layer.detectionsSourceField!)?.getValue?.(),
+              model.getField?.(detectionsFieldPath)?.getValue?.(),
             );
           },
           error: (err) => {
@@ -2425,11 +2432,16 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
             if (sessionId !== viewerSessionId) {
               return;
             }
+            const fieldOfViewFieldPath = resolveRuntimeFieldPath(
+              model,
+              layer.fieldOfViewSourceField!,
+              layer.fieldOfViewSourceModel,
+            );
             // Keep the latest overlay telemetry cached, but let the actual
             // overlay presentation advance with the image stream so the mask
             // cannot run ahead of the currently displayed frame.
             latestFieldOfViewRect = extractNormalizedRectOverlay(
-              model.getField?.(layer.fieldOfViewSourceField!)?.getValue?.(),
+              model.getField?.(fieldOfViewFieldPath)?.getValue?.(),
             );
           },
           error: (err) => {
@@ -2597,12 +2609,24 @@ function handleTelemetryFrame(
   if (!activeCanvas) {
     return;
   }
-  const sourceFieldPath = resolveRuntimeFieldPath(model, source.sourceField);
+  const sourceFieldPath = resolveRuntimeFieldPath(
+    model,
+    source.sourceField,
+    source.sourceModel,
+  );
   const detectionsFieldPath = source.detectionsSourceField
-    ? resolveRuntimeFieldPath(model, source.detectionsSourceField)
+    ? resolveRuntimeFieldPath(
+        model,
+        source.detectionsSourceField,
+        source.detectionsSourceModel,
+      )
     : undefined;
   const fieldOfViewFieldPath = source.fieldOfViewSourceField
-    ? resolveRuntimeFieldPath(model, source.fieldOfViewSourceField)
+    ? resolveRuntimeFieldPath(
+        model,
+        source.fieldOfViewSourceField,
+        source.fieldOfViewSourceModel,
+      )
     : undefined;
   const field = model.getField?.(sourceFieldPath);
   if (!field) {
@@ -2698,6 +2722,7 @@ function handleTelemetryFrame(
 function resolveRuntimeFieldPath(
   model: ITelemetryModel,
   configuredFieldPath: string,
+  sourceModelName?: string,
 ): string {
   const trimmed = configuredFieldPath.trim();
   if (!trimmed || !model.getField) {
@@ -2710,14 +2735,81 @@ function resolveRuntimeFieldPath(
   if (dotIndex <= 0 || dotIndex >= trimmed.length - 1) {
     return trimmed;
   }
+  const workloadSegment = trimmed.slice(0, dotIndex);
   const suffix = trimmed.slice(dotIndex + 1);
-  for (const workload of model.workloads ?? []) {
-    const candidate = `${workload.name}.${suffix}`;
+  for (const alias of getDeclaredWorkloadAliases(
+    sourceModelName,
+    workloadSegment,
+  )) {
+    if (alias === workloadSegment) {
+      continue;
+    }
+    const candidate = `${alias}.${suffix}`;
     if (model.getField(candidate)) {
       return candidate;
     }
   }
   return trimmed;
+}
+
+function getDeclaredWorkloadAliases(
+  sourceModelName: string | undefined,
+  workloadSegment: string,
+): string[] {
+  const trimmedModel = sourceModelName?.trim();
+  const trimmedWorkload = workloadSegment.trim();
+  if (!trimmedModel || !trimmedWorkload) {
+    return [];
+  }
+
+  let aliases = workloadAliasCache.get(trimmedModel);
+  if (!aliases) {
+    aliases = buildDeclaredWorkloadAliasMap(trimmedModel);
+    workloadAliasCache.set(trimmedModel, aliases);
+  }
+  return aliases.get(trimmedWorkload.toLowerCase()) ?? [];
+}
+
+function buildDeclaredWorkloadAliasMap(
+  sourceModelName: string,
+): Map<string, string[]> {
+  const state = ProjectData.getProjectModelsStateSnapshot?.();
+  const descriptor = state
+    ? ProjectData.findModelDescriptorInState(state, sourceModelName)
+    : undefined;
+  const data =
+    descriptor?.data && typeof descriptor.data === "object"
+      ? (descriptor.data as Record<string, unknown>)
+      : null;
+  const rawWorkloads = Array.isArray(data?.workloads) ? data.workloads : [];
+  const aliases = new Map<string, Set<string>>();
+
+  for (const entry of rawWorkloads) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const workload = entry as Record<string, unknown>;
+    const id =
+      typeof workload.id === "string" ? workload.id.trim() : "";
+    const name =
+      typeof workload.name === "string" ? workload.name.trim() : "";
+    if (!id && !name) {
+      continue;
+    }
+    const values = [id, name].filter((value) => value.length > 0);
+    for (const key of values) {
+      const normalizedKey = key.toLowerCase();
+      const existing = aliases.get(normalizedKey) ?? new Set<string>();
+      for (const value of values) {
+        existing.add(value);
+      }
+      aliases.set(normalizedKey, existing);
+    }
+  }
+
+  return new Map(
+    Array.from(aliases.entries()).map(([key, value]) => [key, [...value]]),
+  );
 }
 
 function setBlackFrame() {

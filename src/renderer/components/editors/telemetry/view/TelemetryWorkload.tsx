@@ -19,7 +19,9 @@ interface TelemetryWorkloadProps {
   displayName?: string;
   workloadId?: string;
   telemetryBaseUrl?: string;
+  modelId?: string;
   modelName?: string;
+  modelPath?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }
 
@@ -38,7 +40,9 @@ export function TelemetryWorkload({
   displayName,
   workloadId,
   telemetryBaseUrl,
+  modelId,
   modelName,
+  modelPath,
   fieldConnectionHints,
 }: TelemetryWorkloadProps) {
   const stats = deriveWorkloadStats(w);
@@ -96,8 +100,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.config}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />
@@ -106,8 +113,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.inputs}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />
@@ -116,8 +126,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.outputs}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />

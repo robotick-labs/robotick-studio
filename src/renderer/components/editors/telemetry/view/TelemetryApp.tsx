@@ -128,6 +128,12 @@ export function TelemetryApp({
 
     return [...projectModels.data]
       .map((model) => ({
+        modelId:
+          typeof (model.data as Record<string, unknown> | null)?.id === "string"
+            ? String(
+                (model.data as Record<string, unknown>).id ?? "",
+              ).trim()
+            : undefined,
         modelName: model.modelName,
         modelPath: model.modelPath,
         instanceURL: model.telemetryBaseUrl,
