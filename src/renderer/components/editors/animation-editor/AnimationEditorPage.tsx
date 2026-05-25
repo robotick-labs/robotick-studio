@@ -2116,8 +2116,8 @@ export default function AnimationEditorPage() {
           overlayWidth={overlayWidth}
           playheadOverlayMetrics={playheadOverlayMetrics}
           beginRangeSelection={beginRangeSelection}
-          normalizedSelectedTimeRange={normalizedSelectedTimeRange}
-          normalizedSelectionFalloff={normalizedSelectionFalloff}
+          normalizedSelectedTimeRange={activeTool === "Range" ? normalizedSelectedTimeRange : null}
+          normalizedSelectionFalloff={activeTool === "Range" ? normalizedSelectionFalloff : 0}
           isLoopResetActive={isLoopResetActive}
           loopResetSlugRangeNorm={loopResetSlugRangeNorm}
           rulerMarks={rulerMarks}
