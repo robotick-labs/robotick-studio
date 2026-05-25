@@ -1,4 +1,6 @@
 import type { GraphDoc, Node, Section } from "../layout/editorNodeGraph";
+import type { DragPreviewState } from "../dragPreviewState";
+import { getLaneSlotRows, getLaneWorkloadNodes } from "../dragSlotGeometry";
 import type { ConnectionRouter } from "../routing/connectionRouter";
 import { ConnectionTooltip } from "./connectionTooltip";
 import { createSvgLayers } from "./svgLayers";
@@ -17,6 +19,7 @@ export interface Layers {
   group: SVGGElement;
   nodes: SVGGElement;
   edges: SVGGElement;
+  overlay: SVGGElement;
 }
 
 const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
@@ -29,6 +32,7 @@ const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
 
 export class SvgView {
   private tooltip: ConnectionTooltip;
+  private currentDragPreview: DragPreviewState | null = null;
 
   constructor(
     private svg: SVGSVGElement,
@@ -80,6 +84,7 @@ export class SvgView {
     );
     this.drawPlusButtons(doc);
     this.renderSwimlanes(doc.sections);
+    this.renderDragPreview(doc, this.currentDragPreview);
 
     const margin = 40;
     const bounds = this.svg.getBBox();
@@ -135,6 +140,12 @@ export class SvgView {
       selectedModelId,
       resolvedOptions,
     );
+    this.renderDragPreview(doc, this.currentDragPreview);
+  }
+
+  setDragPreview(doc: GraphDoc, preview: DragPreviewState | null): void {
+    this.currentDragPreview = preview;
+    this.renderDragPreview(doc, preview);
   }
 
   private renderSwimlanes(sections: Section[]): void {
@@ -152,6 +163,8 @@ export class SvgView {
         rect.setAttribute("ry", "6");
         rect.setAttribute("width", String(lane.frame.width));
         rect.setAttribute("height", String(lane.frame.height));
+        rect.setAttribute("data-section", String(section.index));
+        rect.setAttribute("data-lane", String(lane.laneIndex));
         if (section.collapsed) {
           rect.classList.add("collapsed-swimlane");
         }
@@ -164,6 +177,8 @@ export class SvgView {
         label.classList.add("label");
         label.setAttribute("x", String(lane.frame.x + 10));
         label.setAttribute("y", String(lane.frame.y + 20));
+        label.setAttribute("data-section", String(section.index));
+        label.setAttribute("data-lane", String(lane.laneIndex));
         if (!section.collapsed) {
           label.textContent = lane.label;
           this.layers.swim.appendChild(label);
@@ -224,7 +239,6 @@ export class SvgView {
           text.setAttribute("x", "10");
           text.setAttribute("y", "25");
           g.append(text);
-          // Fit label to available width (account for left padding ~10 and a little right padding)
           const maxTextWidth = Math.max(0, n.w - 20);
           this.fitTextWithEllipsis(text, n.label, maxTextWidth);
         }
@@ -238,7 +252,12 @@ export class SvgView {
     } else {
       g.removeAttribute("data-model-id");
     }
-    g.classList.remove("is-structural-group", "is-selected", "is-dimmed");
+    g.classList.remove(
+      "is-structural-group",
+      "is-selected",
+      "is-dimmed",
+      "is-drag-source",
+    );
     if (
       n.workload?.type === "SyncedGroupWorkload" ||
       n.workload?.type === "SequencedGroupWorkload"
@@ -383,6 +402,7 @@ export class SvgView {
         g.classList.add("is-dimmed");
       }
     }
+    this.renderDragPreview(doc, this.currentDragPreview);
   }
 
   private renderEdges(
@@ -488,6 +508,7 @@ export class SvgView {
         g.classList.add("is-dimmed");
       }
     }
+    this.renderDragPreview(doc, this.currentDragPreview);
   }
 
   private updateEdgeSelectionClasses(
@@ -628,6 +649,141 @@ export class SvgView {
       }
     }
   }
+
+  private renderDragPreview(
+    doc: GraphDoc,
+    preview: DragPreviewState | null,
+  ): void {
+    this.layers.overlay.replaceChildren();
+    this.clearDragPreviewClasses(doc);
+    if (!preview) {
+      return;
+    }
+
+    const draggedNode = doc.getNode(preview.draggedNodeId);
+    if (!draggedNode || draggedNode.kind !== "workload") {
+      return;
+    }
+
+    const laneNodes = getLaneWorkloadNodes(
+      doc,
+      preview.sectionIndex,
+      preview.laneIndex,
+    );
+    const draggedIndex = laneNodes.findIndex((node) => node.id === draggedNode.id);
+    if (draggedIndex < 0) {
+      return;
+    }
+
+    const remainingNodes = laneNodes.filter((node) => node.id !== draggedNode.id);
+    const anchorYs = laneNodes.map((node) => node.y);
+    const rows = getLaneSlotRows(doc, preview.sectionIndex, preview.laneIndex);
+    const targetSlot = preview.targetSlot;
+    if (targetSlot != null) {
+      this.highlightLane(preview.sectionIndex, preview.laneIndex);
+      const finalIds = remainingNodes.map((node) => node.id);
+      finalIds.splice(targetSlot, 0, draggedNode.id);
+      for (const node of remainingNodes) {
+        const finalIndex = finalIds.indexOf(node.id);
+        if (finalIndex < 0) {
+          continue;
+        }
+        const desiredY = anchorYs[finalIndex];
+        this.setNodeTransform(node.id, node.x, desiredY);
+      }
+      this.renderSlotRows(rows, targetSlot);
+    }
+
+    const draggedGroup = this.layers.nodes.querySelector(
+      `g.workload-node[id="${cssEscape(draggedNode.id)}"]`,
+    ) as SVGGElement | null;
+    draggedGroup?.classList.add("is-drag-source");
+    this.renderDragGhost(draggedNode, preview);
+  }
+
+  private clearDragPreviewClasses(doc: GraphDoc): void {
+    for (const group of Array.from(
+      this.layers.nodes.querySelectorAll("g.workload-node"),
+    )) {
+      group.classList.remove("is-drag-source");
+      const nodeId = (group as SVGGElement).id;
+      const node = doc.getNode(nodeId);
+      if (!node) {
+        continue;
+      }
+      this.setNodeTransform(node.id, node.x, node.y);
+    }
+    for (const lane of Array.from(
+      this.layers.swim.querySelectorAll("rect.swimlane, text.label"),
+    )) {
+      lane.classList.remove("is-drag-target");
+    }
+  }
+
+  private highlightLane(sectionIndex: number, laneIndex: number): void {
+    const selector = `[data-section="${sectionIndex}"][data-lane="${laneIndex}"]`;
+    for (const element of Array.from(this.layers.swim.querySelectorAll(selector))) {
+      element.classList.add("is-drag-target");
+    }
+  }
+
+  private renderSlotRows(
+    rows: Array<{ slotIndex: number; frame: { x: number; y: number; width: number; height: number } }>,
+    targetSlot: number,
+  ): void {
+    const ns = "http://www.w3.org/2000/svg";
+    for (const row of rows) {
+      const rect = document.createElementNS(ns, "rect");
+      rect.classList.add("drag-slot-row");
+      if (row.slotIndex === targetSlot) {
+        rect.classList.add("is-active");
+      }
+      rect.setAttribute("x", String(row.frame.x));
+      rect.setAttribute("y", String(row.frame.y));
+      rect.setAttribute("width", String(row.frame.width));
+      rect.setAttribute("height", String(row.frame.height));
+      rect.setAttribute("rx", "8");
+      rect.setAttribute("ry", "8");
+      this.layers.overlay.appendChild(rect);
+    }
+  }
+
+  private renderDragGhost(draggedNode: Node, preview: DragPreviewState): void {
+    const ns = "http://www.w3.org/2000/svg";
+    const group = document.createElementNS(ns, "g");
+    group.classList.add("drag-ghost");
+    group.setAttribute(
+      "transform",
+      `translate(${preview.pointerX - preview.pointerOffsetX},${preview.pointerY - preview.pointerOffsetY})`,
+    );
+
+    const rect = document.createElementNS(ns, "rect");
+    rect.classList.add("workload");
+    if (
+      draggedNode.workload?.type === "SyncedGroupWorkload" ||
+      draggedNode.workload?.type === "SequencedGroupWorkload"
+    ) {
+      rect.classList.add("drag-ghost-structural");
+    }
+    rect.setAttribute("width", String(draggedNode.w));
+    rect.setAttribute("height", String(draggedNode.h));
+    rect.setAttribute("rx", "6");
+    rect.setAttribute("ry", "6");
+
+    const text = document.createElementNS(ns, "text");
+    text.classList.add("drag-ghost-label");
+    text.setAttribute("x", "10");
+    text.setAttribute("y", "25");
+    group.append(rect, text);
+    this.layers.overlay.appendChild(group);
+    this.fitTextWithEllipsis(text, draggedNode.label, Math.max(0, draggedNode.w - 20));
+  }
+
+  private setNodeTransform(nodeId: string, x: number, y: number): void {
+    const selector = `g.workload-node[id="${cssEscape(nodeId)}"]`;
+    const group = this.layers.nodes.querySelector(selector) as SVGGElement | null;
+    group?.setAttribute("transform", `translate(${x},${y})`);
+  }
 }
 
 function roundedLeftRectPath(
@@ -650,4 +806,10 @@ function roundedLeftRectPath(
     `Q ${x} ${y} ${x + r} ${y}`,
     "Z",
   ].join(" ");
+}
+
+function cssEscape(value: string): string {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(value)
+    : value.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
 }

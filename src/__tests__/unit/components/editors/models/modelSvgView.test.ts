@@ -336,4 +336,98 @@ describe("SvgView vertical model rendering", () => {
       "To: Target Node.inputs.pose",
     ]);
   });
+
+  it("renders drag preview affordances for workload reordering", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const layers = createSvgLayers(svg);
+    const view = new SvgView(
+      svg,
+      layers,
+      {
+        routeAll: () => [],
+      },
+      "test",
+    );
+    const doc = new GraphDoc();
+    doc.setSections([
+      {
+        index: 0,
+        modelId: "animator",
+        yStart: 100,
+        laneCount: 1,
+        laneHeight: 260,
+        maxNodes: 3,
+        labelY: 92,
+        collapsed: false,
+        lanes: [
+          {
+            laneIndex: 0,
+            label: "Thread 1",
+            frame: { x: 80, y: 80, width: 220, height: 260 },
+          },
+        ],
+        addSlots: [
+          {
+            laneIndex: 0,
+            frame: { x: 120, y: 300, width: 140, height: 40 },
+          },
+        ],
+        frame: { x: 80, y: 80, width: 220, height: 260 },
+      },
+    ]);
+    doc.upsertNode({
+      id: "animator:w1",
+      kind: "workload",
+      label: "One",
+      x: 110,
+      y: 110,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: { modelId: "animator", section: 0, slot: 0 },
+    });
+    doc.upsertNode({
+      id: "animator:w2",
+      kind: "workload",
+      label: "Two",
+      x: 110,
+      y: 180,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: { modelId: "animator", section: 0, slot: 1 },
+    });
+    doc.upsertNode({
+      id: "animator:w3",
+      kind: "workload",
+      label: "Three",
+      x: 110,
+      y: 250,
+      w: 168,
+      h: 40,
+      lane: 0,
+      meta: { modelId: "animator", section: 0, slot: 2 },
+    });
+
+    view.render(doc);
+    view.setDragPreview(doc, {
+      draggedNodeId: "animator:w1",
+      sectionIndex: 0,
+      laneIndex: 0,
+      sourceSlot: 0,
+      targetSlot: 2,
+      pointerX: 160,
+      pointerY: 210,
+      pointerOffsetX: 12,
+      pointerOffsetY: 20,
+    });
+
+    expect(svg.querySelector("g.drag-ghost")).not.toBeNull();
+    expect(svg.querySelectorAll("rect.drag-slot-row").length).toBe(3);
+    expect(svg.querySelector("rect.drag-slot-row.is-active")).not.toBeNull();
+    expect(svg.querySelector("rect.swimlane.is-drag-target")).not.toBeNull();
+    expect(svg.querySelector("#animator\\:w1")?.classList.contains("is-drag-source")).toBe(
+      true,
+    );
+  });
 });

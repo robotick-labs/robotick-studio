@@ -3,6 +3,7 @@ export interface Layers {
   group: SVGGElement;
   nodes: SVGGElement;
   edges: SVGGElement;
+  overlay: SVGGElement;
 }
 
 /**
@@ -18,38 +19,34 @@ export function createSvgLayer(id: string): SVGGElement {
 }
 
 /**
- * Ensure the SVG contains four named layer groups and return them.
+ * Ensure the SVG contains named layer groups and return them.
  *
  * @param svg - The root SVG element to inspect and possibly augment with layer groups
- * @returns An object with `swim`, `group`, `edges`, and `nodes` properties, each an `SVGGElement` representing the corresponding layer; missing layers are created and appended to `svg`
+ * @returns An object with `swim`, `group`, `edges`, `nodes`, and `overlay`
+ * properties, each an `SVGGElement` representing the corresponding layer;
+ * missing layers are created and appended to `svg`
  */
 export function createSvgLayers(svg: SVGSVGElement): Layers {
-  const existing = {
-    swim: svg.querySelector("g.layer-swim") as SVGGElement | null,
-    group: svg.querySelector("g.layer-group") as SVGGElement | null,
-    edges: svg.querySelector("g.layer-edges") as SVGGElement | null,
-    nodes: svg.querySelector("g.layer-nodes") as SVGGElement | null,
-  };
+  const swim = ensureLayer("layer-swim");
+  const group = ensureLayer("layer-group");
+  const edges = ensureLayer("layer-edges");
+  const nodes = ensureLayer("layer-nodes");
+  const overlay = ensureLayer("layer-overlay");
 
-  if (existing.swim && existing.group && existing.edges && existing.nodes) {
-    return existing as Layers;
+  // Fixed ordering: background → top.
+  svg.append(swim, group, edges, nodes, overlay);
+
+  return { swim, group, edges, nodes, overlay };
+
+  function ensureLayer(className: string) {
+    const existing = svg.querySelector(`g.${className}`) as SVGGElement | null;
+    if (existing) {
+      return existing;
+    }
+    return make(className);
   }
 
-  // first-time creation
-  const swim = make("layer-swim");
-  const group = make("layer-group");
-  const edges = make("layer-edges");
-  const nodes = make("layer-nodes");
-
-  // fixed ordering: background → top
-  svg.append(swim);
-  svg.append(group);
-  svg.append(edges);
-  svg.append(nodes);
-
-  return { swim, group, edges, nodes };
-
-  function make(className: string) {
+  function make(className: string): SVGGElement {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.classList.add(className);
     return g;

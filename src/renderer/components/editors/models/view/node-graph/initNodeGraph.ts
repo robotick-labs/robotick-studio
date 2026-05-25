@@ -11,6 +11,7 @@ export type {
 } from "./layout/buildGraphDocFromModel";
 import { SlotDragController } from "../../controllers/slotDragController";
 import { SelectionController } from "../../controllers/selectionController";
+import type { DragPreviewState } from "./dragPreviewState";
 import type {
   EdgeVisibilityMode,
   RemoteConnectionVisibility,
@@ -110,7 +111,13 @@ export function initNodeGraph(
       },
     },
   );
-  const slotDragController = new SlotDragController(svgElement, doc, store);
+  let dragPreviewState: DragPreviewState | null = null;
+  const slotDragController = new SlotDragController(svgElement, doc, store, {
+    onDragPreviewChange: (preview) => {
+      dragPreviewState = preview;
+      view.setDragPreview(doc, preview);
+    },
+  });
   let selectedNodeId: string | null = options?.initialSelectedNodeId ?? null;
   let displayOptions: GraphDisplayOptions = {
     ...DEFAULT_DISPLAY_OPTIONS,
@@ -125,6 +132,7 @@ export function initNodeGraph(
       focusDimming: displayOptions.focusDimming,
       expandedModelIds: displayOptions.expandedModelIds,
     });
+    view.setDragPreview(doc, dragPreviewState);
   };
 
   const renderSelectionState = () => {
@@ -135,6 +143,7 @@ export function initNodeGraph(
       focusDimming: displayOptions.focusDimming,
       expandedModelIds: displayOptions.expandedModelIds,
     });
+    view.setDragPreview(doc, dragPreviewState);
   };
 
   const attachControllers = () => {
@@ -154,6 +163,9 @@ export function initNodeGraph(
       return;
     }
     replaceGraphDoc(doc, nextDoc);
+    if (dragPreviewState?.phase === "drop-pending") {
+      dragPreviewState = null;
+    }
     render();
   };
 
