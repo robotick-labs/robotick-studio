@@ -4,6 +4,7 @@ import { getLaneSlotRows, getLaneWorkloadNodes } from "../dragSlotGeometry";
 import type { ConnectionRouter } from "../routing/connectionRouter";
 import { ConnectionTooltip } from "./connectionTooltip";
 import { createSvgLayers } from "./svgLayers";
+import { WorkloadTooltip } from "./workloadTooltip";
 import {
   computeRelatedNodeIds,
   computeVisibleEdgeKeys,
@@ -31,7 +32,8 @@ const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
 };
 
 export class SvgView {
-  private tooltip: ConnectionTooltip;
+  private connectionTooltip: ConnectionTooltip;
+  private workloadTooltip: WorkloadTooltip;
   private currentDragPreview: DragPreviewState | null = null;
 
   constructor(
@@ -40,14 +42,16 @@ export class SvgView {
     private router: ConnectionRouter,
     private eventScope: string = "default",
   ) {
-    this.tooltip = new ConnectionTooltip(svg);
+    this.connectionTooltip = new ConnectionTooltip(svg);
+    this.workloadTooltip = new WorkloadTooltip(svg);
   }
 
   render(
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
-    this.tooltip.hide();
+    this.connectionTooltip.hide();
+    this.workloadTooltip.hide();
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
       ...displayOptions,
@@ -107,7 +111,8 @@ export class SvgView {
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
-    this.tooltip.hide();
+    this.connectionTooltip.hide();
+    this.workloadTooltip.hide();
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
       ...displayOptions,
@@ -241,6 +246,10 @@ export class SvgView {
           g.append(text);
           const maxTextWidth = Math.max(0, n.w - 20);
           this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+          if (n.kind === "workload") {
+            g.addEventListener("mousemove", this.onWorkloadMouseMove);
+            g.addEventListener("mouseleave", this.onWorkloadMouseLeave);
+          }
         }
       }
     } else if (n.kind === "model" || n.kind === "collapsed-model") {
@@ -251,6 +260,15 @@ export class SvgView {
       g.setAttribute("data-model-id", n.meta.modelId);
     } else {
       g.removeAttribute("data-model-id");
+    }
+    if (n.kind === "workload") {
+      g.setAttribute("data-workload-name", n.workload?.name ?? n.label);
+      g.setAttribute("data-workload-type", n.workload?.type ?? n.meta?.type ?? "Workload");
+      g.setAttribute("data-workload-id", n.workload?.id ?? n.id);
+    } else {
+      g.removeAttribute("data-workload-name");
+      g.removeAttribute("data-workload-type");
+      g.removeAttribute("data-workload-id");
     }
     g.classList.remove(
       "is-structural-group",
@@ -476,10 +494,10 @@ export class SvgView {
       g.setAttribute("data-edge-from", from);
       g.setAttribute("data-edge-to", to);
       hoverPath.addEventListener("mousemove", (event) => {
-        this.tooltip.show(event, sourceLabel, targetLabel);
+        this.connectionTooltip.show(event, sourceLabel, targetLabel);
       });
       hoverPath.addEventListener("mouseleave", () => {
-        this.tooltip.hide();
+        this.connectionTooltip.hide();
       });
       g.appendChild(hoverPath);
       g.appendChild(visiblePath);
@@ -784,6 +802,24 @@ export class SvgView {
     const group = this.layers.nodes.querySelector(selector) as SVGGElement | null;
     group?.setAttribute("transform", `translate(${x},${y})`);
   }
+
+  private onWorkloadMouseMove = (event: MouseEvent): void => {
+    const group = (event.currentTarget as Element | null) as SVGGElement | null;
+    if (!group) {
+      return;
+    }
+    const workloadName = group.getAttribute("data-workload-name");
+    const workloadType = group.getAttribute("data-workload-type");
+    const workloadId = group.getAttribute("data-workload-id");
+    if (!workloadName || !workloadType || !workloadId) {
+      return;
+    }
+    this.workloadTooltip.show(event, workloadName, workloadType, workloadId);
+  };
+
+  private onWorkloadMouseLeave = (): void => {
+    this.workloadTooltip.hide();
+  };
 }
 
 function roundedLeftRectPath(

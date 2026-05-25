@@ -51,7 +51,7 @@ def test_workloads_registry_reports_missing_primitive_defaults(
     }
     assert defaults_by_field["gain"] is None
     assert defaults_by_field["count"] is None
-    assert defaults_by_field["label"] is None
+    assert defaults_by_field["label"] == ""
     assert defaults_by_field["enabled"] is None
 
     assert any(
@@ -66,10 +66,8 @@ def test_workloads_registry_reports_missing_primitive_defaults(
         in err
         for err in result["validation_errors"]
     )
-    assert any(
-        "Missing default_value in schema metadata for primitive field "
-        "'DemoConfig.label' (std::string, kind=string)."
-        in err
+    assert not any(
+        "'DemoConfig.label' (std::string, kind=string)." in err
         for err in result["validation_errors"]
     )
     assert any(

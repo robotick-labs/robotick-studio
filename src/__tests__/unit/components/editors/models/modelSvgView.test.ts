@@ -430,4 +430,75 @@ describe("SvgView vertical model rendering", () => {
       true,
     );
   });
+
+  it("shows workload name, type and id on workload hover", () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    Object.defineProperty(svg, "getScreenCTM", {
+      configurable: true,
+      value: () => ({
+        inverse: () => ({}),
+      }),
+    });
+    Object.defineProperty(svg, "createSVGPoint", {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        matrixTransform() {
+          return { x: this.x, y: this.y };
+        },
+      }),
+    });
+    const layers = createSvgLayers(svg);
+    const view = new SvgView(
+      svg,
+      layers,
+      {
+        routeAll: () => [],
+      },
+      "test",
+    );
+    const doc = new GraphDoc();
+    doc.upsertNode({
+      id: "animator:w1",
+      kind: "workload",
+      label: "Short Name",
+      x: 100,
+      y: 120,
+      w: 168,
+      h: 40,
+      lane: 0,
+      workload: {
+        id: "w1",
+        name: "Very Long Workload Name",
+        type: "TemplateWorkload",
+        tick_rate_hz: 0,
+        config: {},
+        inputs: {},
+      },
+      meta: { modelId: "animator", section: 0, slot: 0, type: "TemplateWorkload" },
+    });
+
+    view.render(doc);
+
+    const workloadGroup = svg.querySelector("#animator\\:w1");
+    workloadGroup?.dispatchEvent(
+      new MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 140,
+      }),
+    );
+
+    const tooltip = svg.querySelector("g.workload-tooltip-layer");
+    const text = Array.from(
+      svg.querySelectorAll("text.workload-tooltip-text"),
+    ).map((node) => node.textContent);
+    expect(tooltip?.classList.contains("is-hidden")).toBe(false);
+    expect(text).toEqual([
+      "Name: Very Long Workload Name",
+      "Type: TemplateWorkload",
+      "Id: w1",
+    ]);
+  });
 });

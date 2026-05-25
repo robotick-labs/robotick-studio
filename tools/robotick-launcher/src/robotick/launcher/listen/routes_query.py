@@ -26,6 +26,12 @@ _HARDCODED_FIELD_DEFAULTS: Dict[tuple[str, str], str] = {
 }
 
 
+def _synthesized_primitive_default(primitive_kind: str) -> str | None:
+    if primitive_kind == "string":
+        return ""
+    return None
+
+
 class _DiscoveryConfig:
     def __init__(
         self,
@@ -459,10 +465,16 @@ def get_workloads_registry(
                     continue
                 primitive_kind = primitive_kind_by_type.get(field_type)
                 if primitive_kind is not None:
-                    validation_errors.append(
-                        "Missing default_value in schema metadata for primitive field "
-                        f"'{type_name}.{field_name}' ({field_type}, kind={primitive_kind})."
+                    synthesized_default = _synthesized_primitive_default(
+                        primitive_kind
                     )
+                    if synthesized_default is not None:
+                        field_entry["default_value"] = synthesized_default
+                    else:
+                        validation_errors.append(
+                            "Missing default_value in schema metadata for primitive field "
+                            f"'{type_name}.{field_name}' ({field_type}, kind={primitive_kind})."
+                        )
             primitive_meta = shared_primitives.get(field_type, {})
             if isinstance(primitive_meta, dict):
                 primitive_kind = primitive_meta.get("primitive_kind")
