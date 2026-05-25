@@ -45,6 +45,9 @@ describe("AnimationTimelineViewport imperative playhead", () => {
       selectedTimeRange: null as { startSec: number; endSec: number } | null,
       rangeFalloffSec: 0,
       smoothBrushPreview: null as { channel: string; centerSec: number } | null,
+      warpBrushPreview: null as { channel: string; centerSec: number } | null,
+      warpRangeSec: 0.45,
+      warpFalloffFraction: 0.12,
       smoothRangeSec: 0.4,
       smoothFalloffSec: 0.2,
       handleLaneHoverChange: vi.fn(),
@@ -54,6 +57,7 @@ describe("AnimationTimelineViewport imperative playhead", () => {
       beginDrawStroke: vi.fn(),
       beginRangeOffset: vi.fn(),
       handleSmoothBrushPreviewChange: vi.fn(),
+      handleWarpBrushPreviewChange: vi.fn(),
       playheadViewportInsetsPx: { left: 0, right: 0 },
       overlayWidth: 400,
       playheadOverlayMetrics: {

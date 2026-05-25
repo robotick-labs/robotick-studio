@@ -34,7 +34,7 @@ import { TransportBar } from "./TransportBar";
 import { ActiveClipFieldMenu } from "./ActiveClipFieldMenu";
 import { AnimSetFieldMenu } from "./AnimSetFieldMenu";
 import { listAnimationTools } from "./tools/registry";
-import type { AnimationToolId, AnimationToolSettingsContext } from "./tools/types";
+import type { AnimationToolId, AnimationToolSettingsContext, WarpMode } from "./tools/types";
 import { beginRangeSelectionBehavior } from "./tools/range/range-behavior";
 import { handleSmoothBrushPreviewBehavior } from "./tools/smooth/smooth-behavior";
 import { handleLaneHoverBehavior, handleLaneSelectBehavior } from "./tools/pencil/pencil-behavior";
@@ -120,6 +120,10 @@ type PersistedAnimEditorState = {
   lineSnapEnd?: boolean;
   rangeFalloffSec?: number;
   rangeFalloffCurve?: number;
+  warpMode?: WarpMode;
+  warpTimeStrength?: number;
+  warpValueStrength?: number;
+  warpLockEndpoints?: boolean;
   smoothFalloffSec?: number;
   smoothFalloffCurve?: number;
   smoothStrength?: number;
@@ -145,6 +149,9 @@ const DEFAULT_RANGE_SIZE_SEC = 0.45;
 const DEFAULT_RANGE_FALLOFF_SEC = 0.12;
 const RANGE_FALLOFF_FRACTION_STEP = 0.05;
 const DEFAULT_FALLOFF_CURVE = 1;
+const DEFAULT_WARP_MODE: WarpMode = "time+value";
+const DEFAULT_WARP_TIME_STRENGTH = 1;
+const DEFAULT_WARP_VALUE_STRENGTH = 1;
 const DEFAULT_SMOOTH_FALLOFF_SEC = 0.18;
 const DEFAULT_SMOOTH_STRENGTH = 0.65;
 const DEFAULT_SMOOTH_APPLY_RATE_HZ = 60;
@@ -462,6 +469,24 @@ export default function AnimationEditorPage() {
     () => initialPersistedState?.rangeFalloffCurve ?? DEFAULT_FALLOFF_CURVE
   );
   const [rangeFalloffCurveDraft, setRangeFalloffCurveDraft] = React.useState(() => DEFAULT_FALLOFF_CURVE.toFixed(2));
+  const [warpMode, setWarpMode] = React.useState<WarpMode>(
+    () => initialPersistedState?.warpMode ?? DEFAULT_WARP_MODE
+  );
+  const [warpTimeStrength, setWarpTimeStrength] = React.useState(
+    () => initialPersistedState?.warpTimeStrength ?? DEFAULT_WARP_TIME_STRENGTH
+  );
+  const [warpTimeStrengthDraft, setWarpTimeStrengthDraft] = React.useState(
+    () => DEFAULT_WARP_TIME_STRENGTH.toFixed(2)
+  );
+  const [warpValueStrength, setWarpValueStrength] = React.useState(
+    () => initialPersistedState?.warpValueStrength ?? DEFAULT_WARP_VALUE_STRENGTH
+  );
+  const [warpValueStrengthDraft, setWarpValueStrengthDraft] = React.useState(
+    () => DEFAULT_WARP_VALUE_STRENGTH.toFixed(2)
+  );
+  const [warpLockEndpoints, setWarpLockEndpoints] = React.useState(
+    () => initialPersistedState?.warpLockEndpoints ?? true
+  );
   const [smoothFalloffSec, setSmoothFalloffSec] = React.useState(
     () => initialPersistedState?.smoothFalloffSec ?? DEFAULT_SMOOTH_FALLOFF_SEC
   );
@@ -484,6 +509,7 @@ export default function AnimationEditorPage() {
   const [smoothRangeDraft, setSmoothRangeDraft] = React.useState(() => DEFAULT_SMOOTH_RANGE_SEC.toFixed(3));
   const animationTools = React.useMemo(() => listAnimationTools(), []);
   const [smoothBrushPreview, setSmoothBrushPreview] = React.useState<{ channel: string; centerSec: number } | null>(null);
+  const [warpBrushPreview, setWarpBrushPreview] = React.useState<{ channel: string; centerSec: number } | null>(null);
   const [channelVisible, setChannelVisible] = React.useState<Record<string, boolean>>(
     () => initialPersistedState?.channelVisible ?? {}
   );
@@ -528,15 +554,17 @@ export default function AnimationEditorPage() {
     active: boolean;
     clipIndex: number;
     channel: string;
-    mode: "Range" | "Smooth" | null;
+    mode: "Range" | "Warp" | "Smooth" | null;
     coreRange: { startSampleIndex: number; endSampleIndex: number } | null;
     writeRange: { startSampleIndex: number; endSampleIndex: number } | null;
     baseSamples: Float32Array | null;
     baseDirty: boolean;
+    startClientX: number;
     startClientY: number;
+    laneWidthPx: number;
     laneHeightPx: number;
+    visibleDurationSec: number;
     laneValueSpan: number;
-    startStrength: number;
   }>({
     active: false,
     clipIndex: -1,
@@ -546,10 +574,12 @@ export default function AnimationEditorPage() {
     writeRange: null,
     baseSamples: null,
     baseDirty: false,
+    startClientX: 0,
     startClientY: 0,
+    laneWidthPx: 1,
     laneHeightPx: 1,
+    visibleDurationSec: 1,
     laneValueSpan: 1,
-    startStrength: DEFAULT_SMOOTH_STRENGTH,
   });
   const linePreviewStateRef = React.useRef<{
     active: boolean;
@@ -1311,6 +1341,14 @@ export default function AnimationEditorPage() {
   }, [rangeFalloffCurve]);
 
   React.useEffect(() => {
+    setWarpTimeStrengthDraft(warpTimeStrength.toFixed(2));
+  }, [warpTimeStrength]);
+
+  React.useEffect(() => {
+    setWarpValueStrengthDraft(warpValueStrength.toFixed(2));
+  }, [warpValueStrength]);
+
+  React.useEffect(() => {
     setSmoothFalloffDraft(smoothFalloffSec.toFixed(3));
   }, [smoothFalloffSec]);
 
@@ -1342,6 +1380,25 @@ export default function AnimationEditorPage() {
     if (activeTool === "Smooth") return;
     setSmoothBrushPreview(null);
   }, [activeTool]);
+
+  React.useEffect(() => {
+    if (activeTool === "Warp") return;
+    setWarpBrushPreview(null);
+  }, [activeTool]);
+
+  React.useEffect(() => {
+    if (activeTool !== "Warp") return;
+    if (warpBrushPreview) return;
+    const previewChannel =
+      (selectedChannel && channelNames.includes(selectedChannel) ? selectedChannel : null) ??
+      visibleChannels[0] ??
+      null;
+    if (!previewChannel) return;
+    setWarpBrushPreview({
+      channel: previewChannel,
+      centerSec: Math.min(durationSec, Math.max(0, playheadSec)),
+    });
+  }, [activeTool, channelNames, durationSec, playheadSec, selectedChannel, visibleChannels, warpBrushPreview]);
 
   const applyActiveClipPath = React.useCallback(
     (nextPath: string) => {
@@ -1396,6 +1453,10 @@ export default function AnimationEditorPage() {
       lineSnapEnd,
       rangeFalloffSec,
       rangeFalloffCurve,
+      warpMode,
+      warpTimeStrength,
+      warpValueStrength,
+      warpLockEndpoints,
       smoothFalloffSec,
       smoothFalloffCurve,
       smoothStrength,
@@ -1436,6 +1497,10 @@ export default function AnimationEditorPage() {
     smoothRangeSec,
     smoothStrength,
     timelineViewportRangeNorm,
+    warpLockEndpoints,
+    warpMode,
+    warpTimeStrength,
+    warpValueStrength,
   ]);
 
 
@@ -1615,9 +1680,13 @@ export default function AnimationEditorPage() {
         clipRefs,
         selectedClipPath,
         durationSec,
+        viewportRangeNorm: timelineViewportRangeNorm,
         rangeFalloffSec,
         rangeFalloffCurve,
-        defaultSmoothStrength: DEFAULT_SMOOTH_STRENGTH,
+        warpMode,
+        warpTimeStrength,
+        warpValueStrength,
+        warpLockEndpoints,
         clipDataRef,
         rangeOffsetStateRef,
         drawWriteStateRef,
@@ -1643,6 +1712,11 @@ export default function AnimationEditorPage() {
       selectedClipPath,
       rangeFalloffSec,
       selectedTimeRange,
+      timelineViewportRangeNorm,
+      warpLockEndpoints,
+      warpMode,
+      warpTimeStrength,
+      warpValueStrength,
     ]
   );
 
@@ -1670,11 +1744,17 @@ export default function AnimationEditorPage() {
         lineSnapStart,
         lineSnapEnd,
         smoothRangeSec,
+        rangeSizeSec,
+        rangeFalloffSec,
+        rangeFalloffCurve,
+        warpMode,
+        warpTimeStrength,
+        warpValueStrength,
+        warpLockEndpoints,
         smoothStrength,
         smoothApplyRateHz,
         smoothFalloffSec,
         smoothFalloffCurve,
-        defaultSmoothStrength: DEFAULT_SMOOTH_STRENGTH,
         clipDataRef,
         linePreviewStateRef,
         drawWriteStateRef,
@@ -1686,6 +1766,7 @@ export default function AnimationEditorPage() {
         flushDrawStroke,
         setSelectedChannel,
         setSmoothBrushPreview,
+        setWarpBrushPreview,
         pointerToDrawPoint,
         closestSamplePointToClientPoint,
       });
@@ -1707,6 +1788,13 @@ export default function AnimationEditorPage() {
       smoothFalloffSec,
       smoothFalloffCurve,
       smoothRangeSec,
+      rangeSizeSec,
+      rangeFalloffSec,
+      rangeFalloffCurve,
+      warpLockEndpoints,
+      warpMode,
+      warpTimeStrength,
+      warpValueStrength,
       smoothStrength,
       smoothApplyRateHz,
     ]
@@ -1750,6 +1838,20 @@ export default function AnimationEditorPage() {
     },
     [activeTool, durationSec]
   );
+  const handleWarpBrushPreviewChange = React.useCallback(
+    (channel: string, timeSec: number | null) => {
+      if (activeTool !== "Warp") return;
+      if (timeSec === null) {
+        setWarpBrushPreview(null);
+        return;
+      }
+      setWarpBrushPreview({
+        channel,
+        centerSec: Math.min(durationSec, Math.max(0, timeSec)),
+      });
+    },
+    [activeTool, durationSec]
+  );
   const toolSettingsContext: AnimationToolSettingsContext = {
     durationSec,
     lineSnapStart,
@@ -1772,6 +1874,18 @@ export default function AnimationEditorPage() {
     rangeFalloffCurveDraft,
     setRangeFalloffCurveDraft,
     setRangeFalloffCurve,
+    warpMode,
+    setWarpMode,
+    warpTimeStrength,
+    warpTimeStrengthDraft,
+    setWarpTimeStrengthDraft,
+    setWarpTimeStrength,
+    warpValueStrength,
+    warpValueStrengthDraft,
+    setWarpValueStrengthDraft,
+    setWarpValueStrength,
+    warpLockEndpoints,
+    setWarpLockEndpoints,
     smoothRangeSec,
     smoothRangeDraft,
     setSmoothRangeDraft,
@@ -1985,6 +2099,9 @@ export default function AnimationEditorPage() {
           selectedTimeRange={selectedTimeRange}
           rangeFalloffSec={rangeFalloffSec}
           smoothBrushPreview={smoothBrushPreview}
+          warpBrushPreview={warpBrushPreview}
+          warpRangeSec={rangeSizeSec}
+          warpFalloffFraction={rangeFalloffSec}
           smoothRangeSec={smoothRangeSec}
           smoothFalloffSec={smoothFalloffSec}
           handleLaneHoverChange={handleLaneHoverChange}
@@ -1994,6 +2111,7 @@ export default function AnimationEditorPage() {
           beginDrawStroke={beginDrawStroke}
           beginRangeOffset={beginRangeOffset}
           handleSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
+          handleWarpBrushPreviewChange={handleWarpBrushPreviewChange}
           playheadViewportInsetsPx={playheadViewportInsetsPx}
           overlayWidth={overlayWidth}
           playheadOverlayMetrics={playheadOverlayMetrics}

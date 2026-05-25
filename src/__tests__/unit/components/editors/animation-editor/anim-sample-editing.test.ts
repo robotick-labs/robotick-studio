@@ -6,6 +6,7 @@ import {
   applyOffsetToSampleRangeWithFalloff,
   applySmoothBrushToSamples,
   applySmoothToSampleRangeWithFalloff,
+  applyWarpToSampleRangeWithFalloff,
   buildInterpolatedDrawDelta,
   sampleIndexRangeFromTimes,
   sampleIndexFromTime,
@@ -96,5 +97,48 @@ describe("anim-sample-editing", () => {
     expect(result.writeRange.endSampleIndex).toBeGreaterThanOrEqual(3);
     expect(result.samples[2]).toBeLessThan(1);
     expect(result.samples[2]).toBeGreaterThan(0);
+  });
+
+  it("warps a selected range in time with falloff while preserving locked endpoints", () => {
+    const result = applyWarpToSampleRangeWithFalloff(
+      new Float32Array([0, 0, 1, 0, 0]),
+      1,
+      { startSampleIndex: 1, endSampleIndex: 3 },
+      0.125,
+      0,
+      1,
+      "time",
+      1,
+      0,
+      1,
+      true
+    );
+    expect(result.writeRange).toEqual({ startSampleIndex: 0, endSampleIndex: 4 });
+    expect(result.samples[1]).toBeCloseTo(0, 6);
+    expect(result.samples[3]).toBeGreaterThan(0);
+    expect(result.samples[3]).toBeLessThan(1);
+    expect(result.samples[2]).toBeLessThan(1);
+    expect(result.samples[2]).toBeGreaterThan(0);
+  });
+
+  it("supports combined time and value warp modes", () => {
+    const result = applyWarpToSampleRangeWithFalloff(
+      new Float32Array([0, 0, 1, 0, 0]),
+      1,
+      { startSampleIndex: 1, endSampleIndex: 3 },
+      0.125,
+      0.5,
+      1,
+      "time+value",
+      1,
+      1,
+      1,
+      false
+    );
+    expect(result.samples[2]).toBeGreaterThanOrEqual(0.5);
+    expect(result.samples[1]).toBeGreaterThanOrEqual(0);
+    expect(result.samples[3]).toBeGreaterThanOrEqual(0);
+    expect(result.samples[0]).toBeGreaterThanOrEqual(0);
+    expect(result.samples[4]).toBeGreaterThanOrEqual(0);
   });
 });

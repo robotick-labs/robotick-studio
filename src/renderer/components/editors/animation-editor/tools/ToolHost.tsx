@@ -45,6 +45,7 @@ export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: T
                 tool.id === "Pencil" ||
                 tool.id === "Line" ||
                 tool.id === "Range" ||
+                tool.id === "Warp" ||
                 tool.id === "Smooth";
               return (
                 <button

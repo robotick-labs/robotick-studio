@@ -6,7 +6,7 @@ import type { AnimationDocumentMutations, TimeSelectionRange } from "../document
 export const rangeBehaviorId = "range-behavior-v2";
 
 export function beginRangeSelectionBehavior(args: {
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth" | null;
   durationSec: number;
   viewportRangeNorm: { startNorm: number; endNorm: number };
   viewportElement: HTMLElement | null;

@@ -1,6 +1,8 @@
 import React from "react";
 
-export type AnimationToolId = "Pencil" | "Line" | "Range" | "Smooth";
+export type WarpMode = "value" | "time" | "time+value";
+
+export type AnimationToolId = "Pencil" | "Line" | "Range" | "Warp" | "Smooth";
 
 export type AnimationToolSettingsContext = {
   durationSec: number;
@@ -24,6 +26,18 @@ export type AnimationToolSettingsContext = {
   rangeFalloffCurveDraft: string;
   setRangeFalloffCurveDraft: React.Dispatch<React.SetStateAction<string>>;
   setRangeFalloffCurve: React.Dispatch<React.SetStateAction<number>>;
+  warpMode: WarpMode;
+  setWarpMode: React.Dispatch<React.SetStateAction<WarpMode>>;
+  warpTimeStrength: number;
+  warpTimeStrengthDraft: string;
+  setWarpTimeStrengthDraft: React.Dispatch<React.SetStateAction<string>>;
+  setWarpTimeStrength: React.Dispatch<React.SetStateAction<number>>;
+  warpValueStrength: number;
+  warpValueStrengthDraft: string;
+  setWarpValueStrengthDraft: React.Dispatch<React.SetStateAction<string>>;
+  setWarpValueStrength: React.Dispatch<React.SetStateAction<number>>;
+  warpLockEndpoints: boolean;
+  setWarpLockEndpoints: React.Dispatch<React.SetStateAction<boolean>>;
   smoothRangeSec: number;
   smoothRangeDraft: string;
   setSmoothRangeDraft: React.Dispatch<React.SetStateAction<string>>;

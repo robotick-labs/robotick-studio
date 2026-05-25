@@ -20,9 +20,11 @@ type LaneRowProps = {
   isHovered: boolean;
   isSelected: boolean;
   drawActive: boolean;
+  rangeActive: boolean;
   selectedTimeRange: TimeSelectionRange | null;
   rangeFalloffSec: number;
   smoothBrushPreview: { centerSec: number; coreRangeSec: number; falloffSec: number } | null;
+  warpBrushPreview: { centerSec: number; coreRangeSec: number; falloffFraction: number } | null;
   isFirstVisible: boolean;
   onHoverChange: (channel: string, hovered: boolean) => void;
   onSelect: (channel: string) => void;
@@ -43,6 +45,7 @@ type LaneRowProps = {
     maxV: number
   ) => void;
   onSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
+  onWarpBrushPreviewChange: (channel: string, timeSec: number | null) => void;
   firstLaneSvgRef: React.RefObject<SVGSVGElement | null>;
   viewportRangeNorm: { startNorm: number; endNorm: number };
 };
@@ -204,9 +207,11 @@ const LaneRow = React.memo(function LaneRow({
   isHovered,
   isSelected,
   drawActive,
+  rangeActive,
   selectedTimeRange,
   rangeFalloffSec,
   smoothBrushPreview,
+  warpBrushPreview,
   isFirstVisible,
   onHoverChange,
   onSelect,
@@ -215,6 +220,7 @@ const LaneRow = React.memo(function LaneRow({
   onBeginDraw,
   onBeginRangeOffset,
   onSmoothBrushPreviewChange,
+  onWarpBrushPreviewChange,
   firstLaneSvgRef,
   viewportRangeNorm,
 }: LaneRowProps) {
@@ -455,9 +461,13 @@ const LaneRow = React.memo(function LaneRow({
             const timeSec =
               Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) *
               durationSec;
+            onWarpBrushPreviewChange(channel, timeSec);
             onSmoothBrushPreviewChange(channel, timeSec);
           }}
-          onPointerLeave={() => onSmoothBrushPreviewChange(channel, null)}
+          onPointerLeave={() => {
+            onWarpBrushPreviewChange(channel, null);
+            onSmoothBrushPreviewChange(channel, null);
+          }}
         >
           {smoothOverlay && smoothOverlay.falloffLeftWidth > 0 ? (
             <rect
@@ -494,6 +504,61 @@ const LaneRow = React.memo(function LaneRow({
               y2={LANE_CURVE_DRAW_HEIGHT}
               className={styles.smoothBrushCenterLineLane}
             />
+          ) : null}
+          {warpBrushPreview ? (
+            <>
+              {(() => {
+                const centerNorm = Math.min(
+                  1,
+                  Math.max(0, warpBrushPreview.centerSec / durationSec)
+                );
+                const halfSpanNorm = Math.min(
+                  0.5,
+                  Math.max(0, (warpBrushPreview.coreRangeSec * 0.5) / durationSec)
+                );
+                const totalShape = computeCenteredRangeShape(
+                  Math.max(0, centerNorm - halfSpanNorm),
+                  Math.min(1, centerNorm + halfSpanNorm),
+                  warpBrushPreview.falloffFraction
+                );
+                return (
+                  <g>
+                    {totalShape.coreStart > totalShape.start ? (
+                      <rect
+                        x={totalShape.start * LANE_VIEWBOX_WIDTH}
+                        y={0}
+                        width={(totalShape.coreStart - totalShape.start) * LANE_VIEWBOX_WIDTH}
+                        height={LANE_CURVE_DRAW_HEIGHT}
+                        className={styles.smoothBrushFalloffBandLane}
+                      />
+                    ) : null}
+                    <rect
+                      x={totalShape.coreStart * LANE_VIEWBOX_WIDTH}
+                      y={0}
+                      width={Math.max(3, (totalShape.coreEnd - totalShape.coreStart) * LANE_VIEWBOX_WIDTH)}
+                      height={LANE_CURVE_DRAW_HEIGHT}
+                      className={styles.smoothBrushCoreBandLane}
+                    />
+                    {totalShape.end > totalShape.coreEnd ? (
+                      <rect
+                        x={totalShape.coreEnd * LANE_VIEWBOX_WIDTH}
+                        y={0}
+                        width={(totalShape.end - totalShape.coreEnd) * LANE_VIEWBOX_WIDTH}
+                        height={LANE_CURVE_DRAW_HEIGHT}
+                        className={styles.smoothBrushFalloffBandLane}
+                      />
+                    ) : null}
+                    <line
+                      x1={totalShape.midpoint * LANE_VIEWBOX_WIDTH}
+                      y1={0}
+                      x2={totalShape.midpoint * LANE_VIEWBOX_WIDTH}
+                      y2={LANE_CURVE_DRAW_HEIGHT}
+                      className={styles.smoothBrushCenterLineLane}
+                    />
+                  </g>
+                );
+              })()}
+            </>
           ) : null}
           {rangeOverlay && rangeOverlay.falloffLeftWidth > 0 ? (
             <rect
@@ -532,7 +597,7 @@ const LaneRow = React.memo(function LaneRow({
           preserveAspectRatio="none"
           aria-hidden="true"
         >
-          {rangeHandleOverlay ? (
+          {rangeHandleOverlay && rangeActive ? (
             <g
               className={styles.rangeOffsetHandle}
               transform={`translate(${rangeHandleOverlay.cx.toFixed(2)} ${rangeHandleOverlay.cy.toFixed(2)})`}
@@ -573,10 +638,13 @@ type AnimationTimelineViewportProps = {
   channelColor: Record<string, string>;
   hoveredChannel: string | null;
   selectedChannel: string | null;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth" | null;
   selectedTimeRange: TimeSelectionRange | null;
   rangeFalloffSec: number;
   smoothBrushPreview: { channel: string; centerSec: number } | null;
+  warpBrushPreview: { channel: string; centerSec: number } | null;
+  warpRangeSec: number;
+  warpFalloffFraction: number;
   smoothRangeSec: number;
   smoothFalloffSec: number;
   handleLaneHoverChange: (channel: string, hovered: boolean) => void;
@@ -598,6 +666,7 @@ type AnimationTimelineViewportProps = {
     maxV: number
   ) => void;
   handleSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
+  handleWarpBrushPreviewChange: (channel: string, timeSec: number | null) => void;
   playheadViewportInsetsPx: { left: number; right: number };
   overlayWidth: number;
   playheadOverlayMetrics: {
@@ -633,10 +702,13 @@ type LaneListProps = {
   channelColor: Record<string, string>;
   hoveredChannel: string | null;
   selectedChannel: string | null;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth" | null;
   selectedTimeRange: TimeSelectionRange | null;
   rangeFalloffSec: number;
   smoothBrushPreview: { channel: string; centerSec: number } | null;
+  warpBrushPreview: { channel: string; centerSec: number } | null;
+  warpRangeSec: number;
+  warpFalloffFraction: number;
   smoothRangeSec: number;
   smoothFalloffSec: number;
   handleLaneHoverChange: (channel: string, hovered: boolean) => void;
@@ -658,6 +730,7 @@ type LaneListProps = {
     maxV: number
   ) => void;
   handleSmoothBrushPreviewChange: (channel: string, timeSec: number | null) => void;
+  handleWarpBrushPreviewChange: (channel: string, timeSec: number | null) => void;
   viewportRangeNorm: { startNorm: number; endNorm: number };
 };
 
@@ -675,6 +748,9 @@ const LaneList = React.memo(function LaneList({
   selectedTimeRange,
   rangeFalloffSec,
   smoothBrushPreview,
+  warpBrushPreview,
+  warpRangeSec,
+  warpFalloffFraction,
   smoothRangeSec,
   smoothFalloffSec,
   handleLaneHoverChange,
@@ -684,6 +760,7 @@ const LaneList = React.memo(function LaneList({
   beginDrawStroke,
   beginRangeOffset,
   handleSmoothBrushPreviewChange,
+  handleWarpBrushPreviewChange,
   viewportRangeNorm,
 }: LaneListProps) {
   return (
@@ -701,6 +778,7 @@ const LaneList = React.memo(function LaneList({
             isHovered={hoveredChannel === channel}
             isSelected={selectedChannel === channel}
             drawActive={activeTool !== null}
+            rangeActive={activeTool === "Range"}
             selectedTimeRange={activeTool === "Range" ? selectedTimeRange : null}
             rangeFalloffSec={activeTool === "Range" ? rangeFalloffSec : 0}
             smoothBrushPreview={
@@ -712,6 +790,15 @@ const LaneList = React.memo(function LaneList({
                   }
                 : null
             }
+            warpBrushPreview={
+              activeTool === "Warp" && warpBrushPreview?.channel === channel
+                ? {
+                    centerSec: warpBrushPreview.centerSec,
+                    coreRangeSec: warpRangeSec,
+                    falloffFraction: warpFalloffFraction,
+                  }
+                : null
+            }
             isFirstVisible={visibleChannels[0] === channel}
             onHoverChange={handleLaneHoverChange}
             onSelect={handleLaneSelect}
@@ -720,6 +807,7 @@ const LaneList = React.memo(function LaneList({
             onBeginDraw={beginDrawStroke}
             onBeginRangeOffset={beginRangeOffset}
             onSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
+            onWarpBrushPreviewChange={handleWarpBrushPreviewChange}
             firstLaneSvgRef={firstLaneSvgRef}
             viewportRangeNorm={viewportRangeNorm}
           />
@@ -749,7 +837,7 @@ type PlayheadOverlayProps = {
   loopResetSlugRangeNorm: { left: number; right: number };
   rulerMarks: { norm: number; label: string }[];
   durationSec: number;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth" | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth" | null;
   playheadTimeSec: number;
   beginPlayheadDragFromClientX: (clientX: number) => void;
   viewportRangeNorm: { startNorm: number; endNorm: number };
@@ -827,7 +915,14 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
     >
       <div className={styles.timelineCadenceHud}>{cadenceHudText}</div>
       <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
-        <rect x={0} y={0} width={overlayWidth} height={playheadOverlayMetrics.topRulerHeight} className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect} onPointerDown={beginRangeSelection} />
+        <rect
+          x={0}
+          y={0}
+          width={overlayWidth}
+          height={playheadOverlayMetrics.topRulerHeight}
+          className={activeTool === "Range" ? styles.rulerHitRectActive : styles.rulerHitRect}
+          onPointerDown={beginRangeSelection}
+        />
         {viewportSelectedTimeRange ? (() => {
           const totalShape = computeCenteredRangeShape(
             viewportSelectedTimeRange.startNorm,
@@ -907,6 +1002,9 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     selectedTimeRange,
     rangeFalloffSec,
     smoothBrushPreview,
+    warpBrushPreview,
+    warpRangeSec,
+    warpFalloffFraction,
     smoothRangeSec,
     smoothFalloffSec,
     handleLaneHoverChange,
@@ -916,6 +1014,7 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     beginDrawStroke,
     beginRangeOffset,
     handleSmoothBrushPreviewChange,
+    handleWarpBrushPreviewChange,
     playheadViewportInsetsPx,
     overlayWidth,
     playheadOverlayMetrics,
@@ -1144,6 +1243,9 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
           selectedTimeRange={selectedTimeRange}
           rangeFalloffSec={rangeFalloffSec}
           smoothBrushPreview={smoothBrushPreview}
+          warpBrushPreview={warpBrushPreview}
+          warpRangeSec={warpRangeSec}
+          warpFalloffFraction={warpFalloffFraction}
           smoothRangeSec={smoothRangeSec}
           smoothFalloffSec={smoothFalloffSec}
           handleLaneHoverChange={handleLaneHoverChange}
@@ -1153,6 +1255,7 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
           beginDrawStroke={beginDrawStroke}
           beginRangeOffset={beginRangeOffset}
           handleSmoothBrushPreviewChange={handleSmoothBrushPreviewChange}
+          handleWarpBrushPreviewChange={handleWarpBrushPreviewChange}
           viewportRangeNorm={viewportRangeNorm}
         />
         <div ref={bottomRulerRef} className={styles.timeRulerBottom} />

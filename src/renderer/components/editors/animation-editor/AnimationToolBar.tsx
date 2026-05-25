@@ -46,14 +46,14 @@ export function AnimationToolBar({
   setLineSnapEnd,
 }: Props) {
   React.useEffect(() => {
-    if (activeTool !== "Range" && activeTool !== "Smooth") return;
+    if (activeTool !== "Range" && activeTool !== "Warp" && activeTool !== "Smooth") return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableKeyboardTarget(event.target)) return;
       if (event.code === "BracketLeft" || event.code === "BracketRight") {
         event.preventDefault();
         const direction = event.code === "BracketRight" ? 1 : -1;
         if (event.shiftKey) {
-          if (activeTool === "Range") {
+          if (activeTool === "Range" || activeTool === "Warp") {
             setRangeFalloffSec((current) =>
               Math.min(1, Math.max(0, current + direction * rangeFalloffFractionStep))
             );
@@ -62,7 +62,7 @@ export function AnimationToolBar({
           }
           return;
         }
-        if (activeTool === "Range") {
+        if (activeTool === "Range" || activeTool === "Warp") {
           setSelectedTimeRangeDurationSec(rangeSizeSec + direction * smoothRangeStepSec);
         } else {
           setSmoothRangeSec((current) => Math.min(durationSec, Math.max(0.01, current + direction * smoothRangeStepSec)));

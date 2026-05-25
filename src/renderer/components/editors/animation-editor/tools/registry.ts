@@ -3,6 +3,7 @@ import { createLineTool } from "./line";
 import { createPencilTool } from "./pencil";
 import { createRangeTool } from "./range";
 import { createSmoothTool } from "./smooth";
+import { createWarpTool } from "./warp";
 
 const PLACEHOLDER_TOOLS: AnimationToolDefinition[] = [
   {
@@ -29,5 +30,5 @@ const PLACEHOLDER_TOOLS: AnimationToolDefinition[] = [
 ];
 
 export function listAnimationTools(): AnimationToolDefinition[] {
-  return [createPencilTool(), createLineTool(), createRangeTool(), ...PLACEHOLDER_TOOLS, createSmoothTool()];
+  return [createPencilTool(), createLineTool(), createRangeTool(), createWarpTool(), ...PLACEHOLDER_TOOLS, createSmoothTool()];
 }

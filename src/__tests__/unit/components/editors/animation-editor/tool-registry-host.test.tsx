@@ -13,6 +13,10 @@ function makeContext(): AnimationToolSettingsContext {
     lineSnapEnd: true,
     setLineSnapStart: vi.fn(),
     setLineSnapEnd: vi.fn(),
+    rangeMidpointSec: 0.225,
+    rangeMidpointDraft: "0.225",
+    setRangeMidpointDraft: vi.fn(),
+    setSelectedTimeRangeMidpointSec: vi.fn(),
     rangeSizeSec: 0.45,
     rangeSizeDraft: "0.450",
     setRangeSizeDraft: vi.fn(),
@@ -25,6 +29,18 @@ function makeContext(): AnimationToolSettingsContext {
     rangeFalloffCurveDraft: "1.00",
     setRangeFalloffCurveDraft: vi.fn(),
     setRangeFalloffCurve: vi.fn(),
+    warpMode: "time+value",
+    setWarpMode: vi.fn(),
+    warpTimeStrength: 1,
+    warpTimeStrengthDraft: "1.00",
+    setWarpTimeStrengthDraft: vi.fn(),
+    setWarpTimeStrength: vi.fn(),
+    warpValueStrength: 1,
+    warpValueStrengthDraft: "1.00",
+    setWarpValueStrengthDraft: vi.fn(),
+    setWarpValueStrength: vi.fn(),
+    warpLockEndpoints: true,
+    setWarpLockEndpoints: vi.fn(),
     smoothRangeSec: 0.45,
     smoothRangeDraft: "0.450",
     setSmoothRangeDraft: vi.fn(),
@@ -41,6 +57,10 @@ function makeContext(): AnimationToolSettingsContext {
     smoothStrengthDraft: "0.65",
     setSmoothStrengthDraft: vi.fn(),
     setSmoothStrength: vi.fn(),
+    smoothApplyRateHz: 60,
+    smoothApplyRateDraft: "60",
+    setSmoothApplyRateDraft: vi.fn(),
+    setSmoothApplyRateHz: vi.fn(),
     smoothRangeStepSec: 0.01,
     rangeFalloffStepSec: 0.01,
   };
@@ -53,6 +73,7 @@ describe("animation tool registry + host", () => {
     expect(ids).toContain("Pencil");
     expect(ids).toContain("Line");
     expect(ids).toContain("Range");
+    expect(ids).toContain("Warp");
     expect(ids).toContain("Smooth");
   });
 

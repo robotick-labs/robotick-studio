@@ -1,11 +1,13 @@
 import type React from "react";
 import {
+  applyWarpToSampleRangeWithFalloff,
   applyOffsetToSampleRangeWithFalloff,
   applySampleDeltaToBuffer,
   applySmoothBrushToSamples,
   buildInterpolatedDrawDelta,
   sampleIndexRangeFromTimes,
   type Point,
+  type WarpMode,
 } from "../anim-sample-editing";
 import { computeCenteredRangeShape } from "./range/range-shape";
 
@@ -24,15 +26,17 @@ type RangeOffsetState = {
   active: boolean;
   clipIndex: number;
   channel: string;
-  mode: "Range" | "Smooth"  | null;
+  mode: "Range" | "Warp" | "Smooth" | null;
   coreRange: { startSampleIndex: number; endSampleIndex: number } | null;
   writeRange: { startSampleIndex: number; endSampleIndex: number } | null;
   baseSamples: Float32Array | null;
   baseDirty: boolean;
+  startClientX: number;
   startClientY: number;
+  laneWidthPx: number;
   laneHeightPx: number;
+  visibleDurationSec: number;
   laneValueSpan: number;
-  startStrength: number;
 };
 
 type LinePreviewState = {
@@ -59,7 +63,7 @@ export function runBeginRangeOffsetBehavior<
   TClipData extends ClipDataLike,
 >(args: {
   event: React.PointerEvent<SVGElement>;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth"  | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth"  | null;
   channel: string;
   channelSamples: Float32Array;
   minV: number;
@@ -68,9 +72,13 @@ export function runBeginRangeOffsetBehavior<
   clipRefs: ClipRef[];
   selectedClipPath: string;
   durationSec: number;
+  viewportRangeNorm: { startNorm: number; endNorm: number };
   rangeFalloffSec: number;
   rangeFalloffCurve: number;
-  defaultSmoothStrength: number;
+  warpMode: WarpMode;
+  warpTimeStrength: number;
+  warpValueStrength: number;
+  warpLockEndpoints: boolean;
   clipDataRef: React.MutableRefObject<TClipData>;
   rangeOffsetStateRef: React.MutableRefObject<RangeOffsetState>;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;
@@ -97,9 +105,13 @@ export function runBeginRangeOffsetBehavior<
     clipRefs,
     selectedClipPath,
     durationSec,
+    viewportRangeNorm,
     rangeFalloffSec,
     rangeFalloffCurve,
-    defaultSmoothStrength,
+    warpMode,
+    warpTimeStrength,
+    warpValueStrength,
+    warpLockEndpoints,
     clipDataRef,
     rangeOffsetStateRef,
     drawWriteStateRef,
@@ -111,7 +123,7 @@ export function runBeginRangeOffsetBehavior<
     flushDrawStroke,
   } = args;
 
-  if (activeTool !== "Range" || !selectedTimeRange) return;
+  if ((activeTool !== "Range" && activeTool !== "Warp") || !selectedTimeRange) return;
   event.preventDefault();
   event.stopPropagation();
   const selectedClip =
@@ -149,7 +161,10 @@ export function runBeginRangeOffsetBehavior<
     ) as HTMLElement | null) ??
     event.currentTarget.ownerSVGElement?.parentElement;
   const laneRect = laneTrack?.getBoundingClientRect();
+  const laneWidthPx = Math.max(1, laneRect?.width ?? 1);
   const laneHeightPx = Math.max(1, laneRect?.height ?? 1);
+  const visibleDurationSec =
+    durationSec * Math.max(1e-6, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
   const laneValueSpan = Math.max(1e-6, maxV - minV);
 
   beginDrawStrokeSession(clipIndex, channel);
@@ -157,30 +172,48 @@ export function runBeginRangeOffsetBehavior<
     active: true,
     clipIndex,
     channel,
-    mode: "Range",
+    mode: activeTool,
     coreRange: coreSampleRange,
     writeRange: coreSampleRange,
     baseSamples: (
       clipDataRef.current.channels[channel] ?? channelSamples
     ).slice(),
     baseDirty: clipDataRef.current.dirty,
+    startClientX: event.clientX,
     startClientY: event.clientY,
+    laneWidthPx,
     laneHeightPx,
+    visibleDurationSec,
     laneValueSpan,
-    startStrength: defaultSmoothStrength,
   };
 
-  const applyRangePreview = (clientY: number) => {
+  const applyPreview = (clientX: number, clientY: number) => {
     const state = rangeOffsetStateRef.current;
     if (!state.active || !state.baseSamples || !state.coreRange) return;
-    const result = applyOffsetToSampleRangeWithFalloff(
-      state.baseSamples,
-      state.coreRange,
-      -((clientY - state.startClientY) / state.laneHeightPx) *
-        state.laneValueSpan,
-      falloffSampleCount,
-      rangeFalloffCurve,
-    );
+    const verticalOffset =
+      -((clientY - state.startClientY) / state.laneHeightPx) * state.laneValueSpan;
+    const result =
+      state.mode === "Warp"
+        ? applyWarpToSampleRangeWithFalloff(
+            state.baseSamples,
+            durationSec,
+            state.coreRange,
+            ((clientX - state.startClientX) / state.laneWidthPx) * state.visibleDurationSec,
+            verticalOffset,
+            falloffSampleCount,
+            warpMode,
+            warpTimeStrength,
+            warpValueStrength,
+            rangeFalloffCurve,
+            warpLockEndpoints
+          )
+        : applyOffsetToSampleRangeWithFalloff(
+            state.baseSamples,
+            state.coreRange,
+            verticalOffset,
+            falloffSampleCount,
+            rangeFalloffCurve
+          );
     state.writeRange = result.writeRange;
     scheduleClipDataRender({
       ...clipDataRef.current,
@@ -195,7 +228,7 @@ export function runBeginRangeOffsetBehavior<
       channel,
       result.writeRange.startSampleIndex,
       result.writeRange.endSampleIndex,
-    );
+      );
   };
 
   const finishRangeOffset = (applyEdit: boolean) => {
@@ -212,10 +245,12 @@ export function runBeginRangeOffsetBehavior<
       writeRange: null,
       baseSamples: null,
       baseDirty: false,
+      startClientX: 0,
       startClientY: 0,
+      laneWidthPx: 1,
       laneHeightPx: 1,
+      visibleDurationSec: 1,
       laneValueSpan: 1,
-      startStrength: defaultSmoothStrength,
     };
     if (!state.baseSamples || !state.coreRange || !state.writeRange) return;
 
@@ -247,7 +282,7 @@ export function runBeginRangeOffsetBehavior<
   };
 
   const onMove = (moveEvent: PointerEvent) => {
-    applyRangePreview(moveEvent.clientY);
+    applyPreview(moveEvent.clientX, moveEvent.clientY);
   };
   const onUp = () => finishRangeOffset(true);
   const onKeyDown = (keyEvent: KeyboardEvent) => {
@@ -265,7 +300,7 @@ export function runBeginDrawStrokeBehavior<
   TClipData extends ClipDataLike,
 >(args: {
   event: React.PointerEvent<SVGSVGElement>;
-  activeTool: "Pencil" | "Line" | "Range" | "Smooth"  | null;
+  activeTool: "Pencil" | "Line" | "Range" | "Warp" | "Smooth"  | null;
   channel: string;
   channelSamples: Float32Array;
   minV: number;
@@ -275,12 +310,18 @@ export function runBeginDrawStrokeBehavior<
   durationSec: number;
   lineSnapStart: boolean;
   lineSnapEnd: boolean;
+  rangeSizeSec: number;
+  rangeFalloffSec: number;
+  rangeFalloffCurve: number;
+  warpMode: WarpMode;
+  warpTimeStrength: number;
+  warpValueStrength: number;
+  warpLockEndpoints: boolean;
   smoothRangeSec: number;
   smoothStrength: number;
   smoothApplyRateHz: number;
   smoothFalloffSec: number;
   smoothFalloffCurve: number;
-  defaultSmoothStrength: number;
   clipDataRef: React.MutableRefObject<TClipData>;
   linePreviewStateRef: React.MutableRefObject<LinePreviewState>;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;
@@ -297,6 +338,9 @@ export function runBeginDrawStrokeBehavior<
   flushDrawStroke: (force: boolean) => Promise<void>;
   setSelectedChannel: (channel: string) => void;
   setSmoothBrushPreview: (
+    next: { channel: string; centerSec: number } | null,
+  ) => void;
+  setWarpBrushPreview: (
     next: { channel: string; centerSec: number } | null,
   ) => void;
   pointerToDrawPoint: (
@@ -328,12 +372,18 @@ export function runBeginDrawStrokeBehavior<
     durationSec,
     lineSnapStart,
     lineSnapEnd,
+    rangeSizeSec,
+    rangeFalloffSec,
+    rangeFalloffCurve,
+    warpMode,
+    warpTimeStrength,
+    warpValueStrength,
+    warpLockEndpoints,
     smoothRangeSec,
     smoothStrength,
     smoothApplyRateHz,
     smoothFalloffSec,
     smoothFalloffCurve,
-    defaultSmoothStrength,
     clipDataRef,
     linePreviewStateRef,
     drawWriteStateRef,
@@ -345,6 +395,7 @@ export function runBeginDrawStrokeBehavior<
     flushDrawStroke,
     setSelectedChannel,
     setSmoothBrushPreview,
+    setWarpBrushPreview,
     pointerToDrawPoint,
     closestSamplePointToClientPoint,
   } = args;
@@ -352,6 +403,7 @@ export function runBeginDrawStrokeBehavior<
   if (
     activeTool !== "Pencil" &&
     activeTool !== "Line" &&
+    activeTool !== "Warp" &&
     activeTool !== "Smooth"
   ) {
     return;
@@ -377,6 +429,138 @@ export function runBeginDrawStrokeBehavior<
     maxV,
   );
   if (!startPoint) return;
+
+  if (activeTool === "Warp") {
+    const baseSamples = (
+      clipDataRef.current.channels[channel] ?? channelSamples
+    ).slice();
+    const baseDirty = clipDataRef.current.dirty;
+    const totalRangeShape = computeCenteredRangeShape(
+      Math.max(0, startPoint.t - rangeSizeSec * 0.5),
+      Math.min(durationSec, startPoint.t + rangeSizeSec * 0.5),
+      rangeFalloffSec
+    );
+    const coreSampleRange = sampleIndexRangeFromTimes(
+      baseSamples.length,
+      durationSec,
+      totalRangeShape.coreStart,
+      totalRangeShape.coreEnd
+    );
+    if (!coreSampleRange) return;
+    const falloffSampleCount =
+      baseSamples.length > 1 && durationSec > 0
+        ? Math.max(
+            0,
+            Math.round((totalRangeShape.falloffPerSide / durationSec) * (baseSamples.length - 1))
+          )
+        : 0;
+    let touchedRange: {
+      startSampleIndex: number;
+      endSampleIndex: number;
+    } | null = null;
+    setWarpBrushPreview({ channel, centerSec: startPoint.t });
+
+    const applyWarpPreview = (point: Point) => {
+      setWarpBrushPreview({ channel, centerSec: point.t });
+      const result = applyWarpToSampleRangeWithFalloff(
+        baseSamples,
+        durationSec,
+        coreSampleRange,
+        point.t - startPoint.t,
+        point.v - startPoint.v,
+        falloffSampleCount,
+        warpMode,
+        warpTimeStrength,
+        warpValueStrength,
+        rangeFalloffCurve,
+        warpLockEndpoints
+      );
+      touchedRange = touchedRange
+        ? {
+            startSampleIndex: Math.min(touchedRange.startSampleIndex, result.writeRange.startSampleIndex),
+            endSampleIndex: Math.max(touchedRange.endSampleIndex, result.writeRange.endSampleIndex),
+          }
+        : result.writeRange;
+      scheduleClipDataRender({
+        ...clipDataRef.current,
+        dirty: true,
+        channels: {
+          ...clipDataRef.current.channels,
+          [channel]: result.samples,
+        },
+      });
+      queueDrawStrokeRange(
+        clipIndex,
+        channel,
+        result.writeRange.startSampleIndex,
+        result.writeRange.endSampleIndex
+      );
+    };
+
+    applyWarpPreview(startPoint);
+
+    const finishWarpSession = (applyEdit: boolean) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("keydown", onKeyDown);
+      if (!applyEdit) {
+        setWarpBrushPreview(null);
+      }
+      clearDrawFlushTimer();
+      flushPendingClipDataRender();
+
+      if (!applyEdit) {
+        drawWriteStateRef.current.queuedStartSampleIndex = null;
+        drawWriteStateRef.current.queuedEndSampleIndex = null;
+        scheduleClipDataRender({
+          ...clipDataRef.current,
+          dirty: baseDirty,
+          channels: {
+            ...clipDataRef.current.channels,
+            [channel]: baseSamples,
+          },
+        });
+        if (touchedRange) {
+          queueDrawStrokeRange(
+            clipIndex,
+            channel,
+            touchedRange.startSampleIndex,
+            touchedRange.endSampleIndex
+          );
+        }
+        flushPendingClipDataRender();
+        void flushDrawStroke(true);
+        return;
+      }
+
+      if (touchedRange) {
+        flushPendingClipDataRender();
+        void flushDrawStroke(true);
+      }
+    };
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const point = pointerToDrawPoint(
+        svg,
+        moveEvent.clientX,
+        moveEvent.clientY,
+        minV,
+        maxV,
+      );
+      if (!point) return;
+      applyWarpPreview(point);
+    };
+    const onUp = () => finishWarpSession(true);
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.preventDefault();
+      finishWarpSession(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("keydown", onKeyDown);
+    return;
+  }
 
   if (activeTool === "Smooth") {
     const baseSamples = (
