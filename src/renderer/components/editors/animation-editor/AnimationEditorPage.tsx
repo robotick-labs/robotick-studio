@@ -38,6 +38,7 @@ import { useAnimTelemetryService } from "./hooks/useAnimTelemetryService";
 import { useAnimTimelineController } from "./hooks/useAnimTimelineController";
 import { useAnimToolSettings } from "./hooks/useAnimToolSettings";
 import { useQueuedPlayheadSeek } from "./hooks/useQueuedPlayheadSeek";
+import { useSelectedClipLoader } from "./hooks/useSelectedClipLoader";
 import { isAnimPlaybackActive } from "./playback-state";
 import styles from "./AnimationEditorPage.module.css";
 const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
@@ -46,6 +47,12 @@ const ANIM_EDITOR_STORAGE_BASE_KEY = "robotick-studio.anim-editor.state.v1";
 const RANGE_FALLOFF_FRACTION_STEP = 0.05;
 const ANIM_TELEMETRY_SAMPLE_RATE_HZ = 20;
 const CADENCE_WINDOW_MS = 4000;
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
 
 export default function AnimationEditorPage() {
   const panelInstance = usePanelInstance();
@@ -83,6 +90,7 @@ export default function AnimationEditorPage() {
     () => initialPersistedState?.selectedClipPath ?? ""
   );
   const [clipData, setClipData] = React.useState<ClipData>({
+    animclipPath: "",
     name: "clip",
     channels: {},
     durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
@@ -191,6 +199,7 @@ export default function AnimationEditorPage() {
 
   const resetClipData = React.useCallback(() => {
     setClipData({
+      animclipPath: "",
       name: "clip",
       channels: {},
       durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
@@ -207,6 +216,7 @@ export default function AnimationEditorPage() {
     buildAnimServiceUrl,
     loadLiveClipData,
     performAnimAuthoringAction,
+    performAnimHistoryAction,
     performAnimSave,
     reloadAnimsetClipRefs,
   } = useAnimTelemetryService({
@@ -214,7 +224,6 @@ export default function AnimationEditorPage() {
     preferredWorkloadName,
     selectedClipPath,
     reportAnimLoadStatus,
-    applyLoadedClipData,
     setClipRefs,
     setSelectedClipPath,
     setAnimsetOptionsFromEngine,
@@ -329,25 +338,15 @@ export default function AnimationEditorPage() {
     setAnimLoadStatus({ level: "ok", message: "OK" });
   }, [selectedSourceId, selectedWorkloadName, animTelemetryServiceId]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    async function loadSelectedClip() {
-      if (!animTelemetryServiceId || !selectedClipPath) return;
-      const selectedClip = clipRefs.find((clip) => clip.animclipPath === selectedClipPath) ?? null;
-      const clipIndex = selectedClip ? clipRefs.findIndex((clip) => clip.animclipPath === selectedClip.animclipPath) : -1;
-      if (clipIndex < 0) return;
-      const parsed = await loadLiveClipData(clipIndex, selectedClip?.name);
-      if (cancelled) return;
-      if (!parsed) return;
-    }
-    void loadSelectedClip().catch(() => {
-      if (cancelled) return;
-      reportAnimLoadStatus("error", "Failed to load clip samples. Check Terminal logs.");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [animTelemetryServiceId, clipRefs, loadLiveClipData, reportAnimLoadStatus, selectedClipPath]);
+  useSelectedClipLoader({
+    animTelemetryServiceId,
+    clipDataRef,
+    clipRefs,
+    loadLiveClipData,
+    applyLoadedClipData,
+    reportAnimLoadStatus,
+    selectedClipPath,
+  });
 
   React.useEffect(() => {
     if (!selectedWorkloadName) return;
@@ -567,6 +566,40 @@ export default function AnimationEditorPage() {
     [clipRefs, selectedClipPath]
   );
   const selectedClipRef = selectedClipIndex >= 0 ? clipRefs[selectedClipIndex] : null;
+  const reloadSelectedClipData = React.useCallback(async () => {
+    if (selectedClipIndex < 0) return;
+    const loaded = await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+    if (loaded) {
+      applyLoadedClipData(loaded);
+    }
+  }, [applyLoadedClipData, loadLiveClipData, selectedClipIndex, selectedClipRef?.name]);
+
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
+      if (selectedClipIndex < 0) return;
+      if (event.altKey) return;
+      const modifierPressed = event.metaKey || event.ctrlKey;
+      if (!modifierPressed) return;
+      const key = event.key.toLowerCase();
+      const redoRequested = key === "y" || (key === "z" && event.shiftKey);
+      const undoRequested = key === "z" && !event.shiftKey;
+      if (!undoRequested && !redoRequested) return;
+      event.preventDefault();
+      void (async () => {
+        try {
+          await performAnimHistoryAction(redoRequested ? "/redo-edit" : "/undo-edit", selectedClipIndex);
+          await reloadSelectedClipData();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Anim history action failed.";
+          reportAnimLoadStatus("warning", message);
+        }
+      })();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [performAnimHistoryAction, reloadSelectedClipData, reportAnimLoadStatus, selectedClipIndex]);
+
   const {
     handleCommitDurationSec,
     handleCommitLoopResetDurationSec,
@@ -582,6 +615,7 @@ export default function AnimationEditorPage() {
     saveButtonUi,
   } = useAnimAuthoringActions({
     animsetPath,
+    applyLoadedClipData,
     clipDirty: clipData.dirty,
     clipDataRef,
     durationSec,

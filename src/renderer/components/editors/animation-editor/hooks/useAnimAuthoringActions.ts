@@ -12,6 +12,7 @@ import {
 
 type UseAnimAuthoringActionsArgs = {
   animsetPath: string;
+  applyLoadedClipData: (nextClipData: ClipData) => void;
   clipDirty: boolean;
   clipDataRef: React.RefObject<ClipData>;
   durationSec: number;
@@ -28,6 +29,7 @@ type UseAnimAuthoringActionsArgs = {
 
 export function useAnimAuthoringActions({
   animsetPath,
+  applyLoadedClipData,
   clipDirty,
   clipDataRef,
   durationSec,
@@ -189,12 +191,16 @@ export function useAnimAuthoringActions({
         duration_sec: nextDurationSec,
         allow_crop: allowCrop,
       });
-      await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+      const loaded = await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+      if (loaded) {
+        applyLoadedClipData(loaded);
+      }
       await reloadAnimsetClipRefs();
     } catch (error) {
       reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to update clip duration.");
     }
   }, [
+    applyLoadedClipData,
     durationSec,
     loadLiveClipData,
     performAnimAuthoringAction,
@@ -211,12 +217,16 @@ export function useAnimAuthoringActions({
         clip_index: selectedClipIndex,
         loop_reset_duration_sec: nextLoopResetDurationSec,
       });
-      await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+      const loaded = await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+      if (loaded) {
+        applyLoadedClipData(loaded);
+      }
       await reloadAnimsetClipRefs();
     } catch (error) {
       reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to update loop reset duration.");
     }
   }, [
+    applyLoadedClipData,
     loadLiveClipData,
     performAnimAuthoringAction,
     reloadAnimsetClipRefs,
@@ -234,7 +244,10 @@ export function useAnimAuthoringActions({
     try {
       const payload = await performAnimSave();
       if (selectedClipIndex >= 0) {
-        await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+        const loaded = await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+        if (loaded) {
+          applyLoadedClipData(loaded);
+        }
       }
       await reloadAnimsetClipRefs();
       setSaveStatus(payload.dirty ? "dirty" : "clean");
@@ -243,7 +256,7 @@ export function useAnimAuthoringActions({
       setSaveStatus("failed");
       reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to save animation changes.");
     }
-  }, [clipDataRef, loadLiveClipData, performAnimSave, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef?.name]);
+  }, [applyLoadedClipData, clipDataRef, loadLiveClipData, performAnimSave, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef?.name]);
 
   return {
     handleCommitDurationSec,

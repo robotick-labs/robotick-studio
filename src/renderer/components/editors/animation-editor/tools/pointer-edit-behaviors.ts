@@ -82,7 +82,7 @@ export function runBeginRangeOffsetBehavior<
   clipDataRef: React.MutableRefObject<TClipData>;
   rangeOffsetStateRef: React.MutableRefObject<RangeOffsetState>;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;
-  beginDrawStrokeSession: (clipIndex: number, channel: string) => void;
+  beginDrawStrokeSession: (clipIndex: number, channel: string) => boolean;
   scheduleClipDataRender: (next: TClipData) => void;
   queueDrawStrokeRange: (
     clipIndex: number,
@@ -169,7 +169,7 @@ export function runBeginRangeOffsetBehavior<
     durationSec * Math.max(1e-6, viewportRangeNorm.endNorm - viewportRangeNorm.startNorm);
   const laneValueSpan = Math.max(1e-6, maxV - minV);
 
-  beginDrawStrokeSession(clipIndex, channel);
+  if (!beginDrawStrokeSession(clipIndex, channel)) return;
   rangeOffsetStateRef.current = {
     active: true,
     clipIndex,
@@ -321,7 +321,7 @@ export function runBeginDrawStrokeBehavior<
   clipDataRef: React.MutableRefObject<TClipData>;
   linePreviewStateRef: React.MutableRefObject<LinePreviewState>;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;
-  beginDrawStrokeSession: (clipIndex: number, channel: string) => void;
+  beginDrawStrokeSession: (clipIndex: number, channel: string) => boolean;
   scheduleClipDataRender: (next: TClipData) => void;
   queueDrawStrokeRange: (
     clipIndex: number,
@@ -417,7 +417,7 @@ export function runBeginDrawStrokeBehavior<
     : -1;
   const svg = event.currentTarget;
   setSelectedChannel(channel);
-  beginDrawStrokeSession(clipIndex, channel);
+  if (!beginDrawStrokeSession(clipIndex, channel)) return;
 
   const startPoint = pointerToDrawPoint(
     svg,

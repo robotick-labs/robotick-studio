@@ -5,6 +5,7 @@ import {
   clipDataFromTelemetryMetadata,
   clipRefsFromAnimsetResponse,
   type AnimAuthoringActionResponse,
+  type AnimHistoryActionResponse,
   type AnimLoadStatusLevel,
   type AnimSaveResponse,
   type AnimTelemetryAnimsetResponse,
@@ -19,7 +20,6 @@ type UseAnimTelemetryServiceArgs = {
   preferredWorkloadName: string;
   selectedClipPath: string;
   reportAnimLoadStatus: (level: AnimLoadStatusLevel, message: string) => void;
-  applyLoadedClipData: (nextClipData: ClipData) => void;
   setClipRefs: React.Dispatch<React.SetStateAction<ClipRef[]>>;
   setSelectedClipPath: React.Dispatch<React.SetStateAction<string>>;
   setAnimsetOptionsFromEngine: React.Dispatch<React.SetStateAction<string[]>>;
@@ -34,7 +34,6 @@ export function useAnimTelemetryService({
   preferredWorkloadName,
   selectedClipPath,
   reportAnimLoadStatus,
-  applyLoadedClipData,
   setClipRefs,
   setSelectedClipPath,
   setAnimsetOptionsFromEngine,
@@ -110,6 +109,35 @@ export function useAnimTelemetryService({
     return (await response.json()) as AnimSaveResponse;
   }, [buildAnimServiceUrl]);
 
+  const performAnimHistoryAction = React.useCallback(
+    async (suffix: "/undo-edit" | "/redo-edit", clipIndex: number) => {
+      const url = buildAnimServiceUrl(suffix);
+      if (!url) {
+        throw new Error("Missing animation history service URL");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clip_index: clipIndex }),
+      });
+      if (!response.ok) {
+        let errorText = `${suffix} failed: ${response.status}`;
+        try {
+          const payload = (await response.json()) as { error?: string };
+          if (payload?.error) {
+            errorText = payload.error;
+          }
+        } catch {
+          // Ignore malformed error payloads and keep the HTTP status-based message.
+        }
+        throw new Error(errorText);
+      }
+      return (await response.json()) as AnimHistoryActionResponse;
+    },
+    [buildAnimServiceUrl]
+  );
+
   const reloadAnimsetClipRefs = React.useCallback(async () => {
     const url = buildAnimServiceUrl("/animset");
     if (!url) return;
@@ -183,10 +211,9 @@ export function useAnimTelemetryService({
         name: clipName?.trim() || metadata.name,
         channels: Object.fromEntries(channelEntries),
       };
-      applyLoadedClipData(nextClipData);
       return nextClipData;
     },
-    [animTelemetryServiceId, applyLoadedClipData, buildAnimServiceUrl]
+    [animTelemetryServiceId, buildAnimServiceUrl]
   );
 
   React.useEffect(() => {
@@ -251,6 +278,7 @@ export function useAnimTelemetryService({
     buildAnimServiceUrl,
     loadLiveClipData,
     performAnimAuthoringAction,
+    performAnimHistoryAction,
     performAnimSave,
     reloadAnimsetClipRefs,
   };

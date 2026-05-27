@@ -1,12 +1,18 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AnimationEditorPage from "../../../../../renderer/components/editors/animation-editor/AnimationEditorPage";
 
 const targetPanelSpy = vi.fn();
 const timelineControllerSpy = vi.fn();
+const loadLiveClipDataSpy = vi.fn();
+const performAnimHistoryActionSpy = vi.fn();
+
+afterEach(() => {
+  cleanup();
+});
 
 vi.mock("../../../../../renderer/components/workspaces/PanelInstanceContext", () => ({
   usePanelInstance: () => ({ panelId: "panel-1", workspaceId: "workspace-1" }),
@@ -55,14 +61,24 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAn
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAnimTelemetryService", () => ({
-  useAnimTelemetryService: () => ({
-    animTelemetryServiceId: "anim:actual_anim_workload",
-    buildAnimServiceUrl: () => "http://telemetry/api/anim",
-    loadLiveClipData: vi.fn(),
-    performAnimAuthoringAction: vi.fn(),
-    performAnimSave: vi.fn(),
-    reloadAnimsetClipRefs: vi.fn(),
-  }),
+  useAnimTelemetryService: (args: {
+    setClipRefs: (value: { name: string; animclipPath: string }[]) => void;
+    setSelectedClipPath: (value: string) => void;
+  }) => {
+    React.useEffect(() => {
+      args.setClipRefs([{ name: "base_clip", animclipPath: "content/anim/clips/base.animclip.yaml" }]);
+      args.setSelectedClipPath("content/anim/clips/base.animclip.yaml");
+    }, [args.setClipRefs, args.setSelectedClipPath]);
+    return {
+      animTelemetryServiceId: "anim:actual_anim_workload",
+      buildAnimServiceUrl: () => "http://telemetry/api/anim",
+      loadLiveClipData: loadLiveClipDataSpy,
+      performAnimAuthoringAction: vi.fn(),
+      performAnimHistoryAction: performAnimHistoryActionSpy,
+      performAnimSave: vi.fn(),
+      reloadAnimsetClipRefs: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAnimControlFields", () => ({
@@ -296,6 +312,31 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/TransportBa
 }));
 
 describe("AnimationEditorPage telemetry reflection", () => {
+  it("submits undo and redo history actions for the selected clip", async () => {
+    loadLiveClipDataSpy.mockReset();
+    performAnimHistoryActionSpy.mockReset();
+    loadLiveClipDataSpy.mockResolvedValue(null);
+    performAnimHistoryActionSpy.mockResolvedValue({
+      clip_revision: "9",
+      dirty: true,
+      can_undo: true,
+      can_redo: false,
+    });
+
+    render(<AnimationEditorPage />);
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => {
+      expect(performAnimHistoryActionSpy).toHaveBeenCalledWith("/undo-edit", 0);
+    });
+    expect(loadLiveClipDataSpy).toHaveBeenCalledWith(0, "base_clip");
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(performAnimHistoryActionSpy).toHaveBeenCalledWith("/redo-edit", 0);
+    });
+  });
+
   it("reflects transport and playhead state using the discovered anim service workload fallback", () => {
     targetPanelSpy.mockClear();
     timelineControllerSpy.mockClear();

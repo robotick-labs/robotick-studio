@@ -2,6 +2,7 @@ import React from "react";
 
 type ClipRef = { name: string; animclipPath: string };
 type ClipData = {
+  animclipPath: string;
   name: string;
   channels: Record<string, Float32Array>;
   durationSec: number;
@@ -24,12 +25,13 @@ type DrawWriteState = {
   acceptedClipRevision: string;
   transactionId: string | null;
   sessionSerial: number;
+  finalizeInFlightPromise: Promise<void> | null;
 };
 
 export function useClipWriteQueue(args: {
   clipDataRef: React.MutableRefObject<ClipData>;
   clipRefs: ClipRef[];
-  loadLiveClipData: (clipIndex: number, clipNameHint?: string) => Promise<{ clipRevision: string } | null>;
+  loadLiveClipData: (clipIndex: number, clipNameHint?: string) => Promise<ClipData | null>;
   buildAnimServiceUrl: (suffix?: string, params?: Record<string, string | number | undefined>) => string;
   scheduleClipDataRender: (nextClipData: ClipData) => void;
 }) {
@@ -53,6 +55,7 @@ export function useClipWriteQueue(args: {
     acceptedClipRevision: "0",
     transactionId: null,
     sessionSerial: 0,
+    finalizeInFlightPromise: null,
   });
 
   const clearDrawFlushTimer = React.useCallback(() => {
@@ -63,8 +66,15 @@ export function useClipWriteQueue(args: {
     }
   }, []);
 
+  const errorTextFromPayload = React.useCallback((payload: { error?: string } | null | undefined, fallback: string) => {
+    return typeof payload?.error === "string" && payload.error.length > 0 ? payload.error : fallback;
+  }, []);
+
   const beginDrawStrokeSession = React.useCallback((clipIndex: number, channel: string) => {
     const state = drawWriteStateRef.current;
+    if (state.beginInFlight || state.inFlightPromise || state.finalizeInFlightPromise || state.transactionId) {
+      return false;
+    }
     state.clipIndex = clipIndex;
     state.channel = channel;
     state.queuedStartSampleIndex = null;
@@ -74,6 +84,7 @@ export function useClipWriteQueue(args: {
     state.beginInFlight = null;
     state.inFlightPromise = null;
     state.sessionSerial += 1;
+    return true;
   }, [clipDataRef]);
 
   const beginEditTransaction = React.useCallback(
@@ -101,12 +112,13 @@ export function useClipWriteQueue(args: {
         const payload = (await response.json()) as {
           transaction_id?: string;
           clip_revision?: string;
+          error?: string;
         };
         if (!response.ok) {
           if (response.status === 409 && typeof payload.clip_revision === "string") {
             state.acceptedClipRevision = payload.clip_revision;
           }
-          throw new Error(`Failed to begin edit transaction: ${response.status}`);
+          throw new Error(errorTextFromPayload(payload, `Failed to begin edit transaction: ${response.status}`));
         }
         if (state.sessionSerial !== sessionSerial) {
           return null;
@@ -123,7 +135,7 @@ export function useClipWriteQueue(args: {
         state.beginInFlight = null;
       }
     },
-    [buildAnimServiceUrl]
+    [buildAnimServiceUrl, errorTextFromPayload]
   );
 
   const refreshSelectedClipFromEngine = React.useCallback(
@@ -133,9 +145,10 @@ export function useClipWriteQueue(args: {
       const loaded = await loadLiveClipData(clipIndex, clipRef.name);
       if (loaded) {
         drawWriteStateRef.current.acceptedClipRevision = loaded.clipRevision;
+        scheduleClipDataRender(loaded);
       }
     },
-    [clipRefs, loadLiveClipData]
+    [clipRefs, loadLiveClipData, scheduleClipDataRender]
   );
 
   const writePreviewRange = React.useCallback(
@@ -195,10 +208,10 @@ export function useClipWriteQueue(args: {
         if (response.status === 409 && typeof payload.clip_revision === "string") {
           drawWriteStateRef.current.acceptedClipRevision = payload.clip_revision;
         }
-        throw new Error(`Failed to apply preview delta: ${response.status}`);
+        throw new Error(errorTextFromPayload(payload, `Failed to apply preview delta: ${response.status}`));
       }
     },
-    [beginEditTransaction, buildAnimServiceUrl, clipDataRef]
+    [beginEditTransaction, buildAnimServiceUrl, clipDataRef, errorTextFromPayload]
   );
 
   const flushPreviewStroke = React.useCallback(
@@ -324,66 +337,98 @@ export function useClipWriteQueue(args: {
   }, []);
 
   const commitDrawStrokeSession = React.useCallback(async () => {
-    clearDrawFlushTimer();
-    await flushPreviewStroke(true);
-    await waitForInFlightPreview();
     const state = drawWriteStateRef.current;
-    if (!state.transactionId) {
+    if (state.finalizeInFlightPromise) {
+      await state.finalizeInFlightPromise;
       return;
     }
-    const url = buildAnimServiceUrl("/commit-edit");
-    if (!url) {
-      throw new Error("Missing commit-edit URL");
-    }
-    const response = await fetch(url, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transaction_id: state.transactionId }),
-    });
-    const payload = (await response.json()) as { clip_revision?: string };
-    if (!response.ok) {
-      if (response.status === 409 && typeof payload.clip_revision === "string") {
-        state.acceptedClipRevision = payload.clip_revision;
+    const finalizePromise = (async () => {
+      clearDrawFlushTimer();
+      await flushPreviewStroke(true);
+      await waitForInFlightPreview();
+      const activeState = drawWriteStateRef.current;
+      if (!activeState.transactionId) {
+        return;
       }
-      state.transactionId = null;
-      throw new Error(`Failed to commit edit transaction: ${response.status}`);
+      const transactionId = activeState.transactionId;
+      const url = buildAnimServiceUrl("/commit-edit");
+      if (!url) {
+        throw new Error("Missing commit-edit URL");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transaction_id: transactionId }),
+      });
+      const payload = (await response.json()) as { clip_revision?: string; error?: string };
+      if (!response.ok) {
+        if (response.status === 409 && typeof payload.clip_revision === "string") {
+          activeState.acceptedClipRevision = payload.clip_revision;
+        }
+        activeState.transactionId = null;
+        throw new Error(errorTextFromPayload(payload, `Failed to commit edit transaction: ${response.status}`));
+      }
+      activeState.transactionId = null;
+      if (typeof payload.clip_revision === "string") {
+        activeState.acceptedClipRevision = payload.clip_revision;
+      }
+      scheduleClipDataRender({
+        ...clipDataRef.current,
+        clipRevision: activeState.acceptedClipRevision,
+        dirty: true,
+      });
+    })();
+    state.finalizeInFlightPromise = finalizePromise;
+    try {
+      await finalizePromise;
+    } finally {
+      if (drawWriteStateRef.current.finalizeInFlightPromise === finalizePromise) {
+        drawWriteStateRef.current.finalizeInFlightPromise = null;
+      }
     }
-    state.transactionId = null;
-    if (typeof payload.clip_revision === "string") {
-      state.acceptedClipRevision = payload.clip_revision;
-    }
-    scheduleClipDataRender({
-      ...clipDataRef.current,
-      clipRevision: state.acceptedClipRevision,
-      dirty: true,
-    });
-  }, [buildAnimServiceUrl, clearDrawFlushTimer, clipDataRef, flushPreviewStroke, scheduleClipDataRender, waitForInFlightPreview]);
+  }, [buildAnimServiceUrl, clearDrawFlushTimer, clipDataRef, errorTextFromPayload, flushPreviewStroke, scheduleClipDataRender, waitForInFlightPreview]);
 
   const cancelDrawStrokeSession = React.useCallback(async () => {
-    clearDrawFlushTimer();
     const state = drawWriteStateRef.current;
-    state.queuedStartSampleIndex = null;
-    state.queuedEndSampleIndex = null;
-    await waitForInFlightPreview();
-    if (!state.transactionId) {
+    if (state.finalizeInFlightPromise) {
+      await state.finalizeInFlightPromise;
       return;
     }
-    const url = buildAnimServiceUrl("/cancel-edit");
-    if (!url) {
-      throw new Error("Missing cancel-edit URL");
+    const finalizePromise = (async () => {
+      clearDrawFlushTimer();
+      state.queuedStartSampleIndex = null;
+      state.queuedEndSampleIndex = null;
+      await waitForInFlightPreview();
+      if (!state.transactionId) {
+        return;
+      }
+      const transactionId = state.transactionId;
+      const url = buildAnimServiceUrl("/cancel-edit");
+      if (!url) {
+        throw new Error("Missing cancel-edit URL");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transaction_id: transactionId }),
+      });
+      state.transactionId = null;
+      const payload = (await response.json().catch(() => ({}) as { error?: string })) as { error?: string };
+      if (!response.ok) {
+        throw new Error(errorTextFromPayload(payload, `Failed to cancel edit transaction: ${response.status}`));
+      }
+    })();
+    state.finalizeInFlightPromise = finalizePromise;
+    try {
+      await finalizePromise;
+    } finally {
+      if (drawWriteStateRef.current.finalizeInFlightPromise === finalizePromise) {
+        drawWriteStateRef.current.finalizeInFlightPromise = null;
+      }
     }
-    const response = await fetch(url, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transaction_id: state.transactionId }),
-    });
-    state.transactionId = null;
-    if (!response.ok) {
-      throw new Error(`Failed to cancel edit transaction: ${response.status}`);
-    }
-  }, [buildAnimServiceUrl, clearDrawFlushTimer, waitForInFlightPreview]);
+  }, [buildAnimServiceUrl, clearDrawFlushTimer, errorTextFromPayload, waitForInFlightPreview]);
 
   React.useEffect(
     () => () => {

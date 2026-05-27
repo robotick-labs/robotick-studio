@@ -35,7 +35,7 @@ type UseAnimTimelineControllerArgs = {
   channelNames: string[];
   clipDataRef: React.RefObject<ClipData>;
   clipRefs: ClipRef[];
-  beginDrawStrokeSession: (clipIndex: number, channel: string) => void;
+  beginDrawStrokeSession: (clipIndex: number, channel: string) => boolean;
   cancelDrawStrokeSession: () => Promise<void>;
   clearDrawFlushTimer: () => void;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;

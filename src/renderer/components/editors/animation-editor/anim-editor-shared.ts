@@ -1,6 +1,7 @@
 export type ClipRef = { name: string; animclipPath: string; durationSec?: number; channels?: string[] };
 
 export type ClipData = {
+  animclipPath: string;
   name: string;
   channels: Record<string, Float32Array>;
   durationSec: number;
@@ -96,6 +97,13 @@ export type AnimSaveResponse = {
   dirty?: boolean;
 };
 
+export type AnimHistoryActionResponse = {
+  clip_revision?: string;
+  dirty?: boolean;
+  can_undo?: boolean;
+  can_redo?: boolean;
+};
+
 export type TimeSelectionRange = { startSec: number; endSec: number };
 
 export type AnimLoadStatusLevel = "ok" | "warning" | "error";
@@ -160,6 +168,7 @@ export function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse
     channels[parsed] = new Float32Array(0);
   }
   return {
+    animclipPath: typeof payload?.clip_identity?.animclip_path === "string" ? payload.clip_identity.animclip_path : "",
     name,
     channels,
     durationSec,
