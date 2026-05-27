@@ -36,11 +36,12 @@ type UseAnimTimelineControllerArgs = {
   clipDataRef: React.RefObject<ClipData>;
   clipRefs: ClipRef[];
   beginDrawStrokeSession: (clipIndex: number, channel: string) => void;
+  cancelDrawStrokeSession: () => Promise<void>;
   clearDrawFlushTimer: () => void;
   drawWriteStateRef: React.MutableRefObject<DrawWriteState>;
   durationSec: number;
   ensureAnimControlSuppressed: (fieldName: string) => Promise<boolean>;
-  endDrawStroke: (force: boolean) => Promise<void>;
+  commitDrawStrokeSession: () => Promise<void>;
   flushPendingClipDataRender: () => void;
   heldSuppressedAnimControlFieldsRef: React.MutableRefObject<Set<string>>;
   initialPersistedState: PersistedAnimEditorState | null;
@@ -86,13 +87,14 @@ export function useAnimTimelineController({
   activeTool,
   channelNames,
   beginDrawStrokeSession,
+  cancelDrawStrokeSession,
   clipDataRef,
   clipRefs,
   clearDrawFlushTimer,
   drawWriteStateRef,
   durationSec,
   ensureAnimControlSuppressed,
-  endDrawStroke,
+  commitDrawStrokeSession,
   flushPendingClipDataRender,
   heldSuppressedAnimControlFieldsRef,
   initialPersistedState,
@@ -460,7 +462,8 @@ export function useAnimTimelineController({
         queueDrawStrokeRange,
         clearDrawFlushTimer,
         flushPendingClipDataRender,
-        flushDrawStroke: endDrawStroke,
+        commitDrawStrokeSession,
+        cancelDrawStrokeSession,
       });
     },
     [
@@ -471,7 +474,8 @@ export function useAnimTimelineController({
       clipRefs,
       drawWriteStateRef,
       durationSec,
-      endDrawStroke,
+      cancelDrawStrokeSession,
+      commitDrawStrokeSession,
       flushPendingClipDataRender,
       queueDrawStrokeRange,
       queueRenderClipData,
@@ -530,7 +534,8 @@ export function useAnimTimelineController({
         queueDrawStrokeRange,
         clearDrawFlushTimer,
         flushPendingClipDataRender,
-        flushDrawStroke: endDrawStroke,
+        commitDrawStrokeSession,
+        cancelDrawStrokeSession,
         setSelectedChannel,
         setSmoothBrushPreview,
         setWarpBrushPreview,
@@ -546,8 +551,9 @@ export function useAnimTimelineController({
       clipRefs,
       drawWriteStateRef,
       durationSec,
-      endDrawStroke,
+      cancelDrawStrokeSession,
       flushPendingClipDataRender,
+      commitDrawStrokeSession,
       lineSnapEnd,
       lineSnapStart,
       pointerToDrawPoint,

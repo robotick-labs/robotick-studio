@@ -92,7 +92,8 @@ export function runBeginRangeOffsetBehavior<
   ) => void;
   clearDrawFlushTimer: () => void;
   flushPendingClipDataRender: () => void;
-  flushDrawStroke: (force: boolean) => Promise<void>;
+  commitDrawStrokeSession: () => Promise<void>;
+  cancelDrawStrokeSession: () => Promise<void>;
 }) {
   const {
     event,
@@ -120,7 +121,8 @@ export function runBeginRangeOffsetBehavior<
     queueDrawStrokeRange,
     clearDrawFlushTimer,
     flushPendingClipDataRender,
-    flushDrawStroke,
+    commitDrawStrokeSession,
+    cancelDrawStrokeSession,
   } = args;
 
   if ((activeTool !== "Range" && activeTool !== "Warp") || !selectedTimeRange) return;
@@ -267,18 +269,12 @@ export function runBeginRangeOffsetBehavior<
         },
       });
       flushPendingClipDataRender();
-      queueDrawStrokeRange(
-        clipIndex,
-        channel,
-        state.writeRange.startSampleIndex,
-        state.writeRange.endSampleIndex,
-      );
-      void flushDrawStroke(true);
+      void cancelDrawStrokeSession();
       return;
     }
 
     flushPendingClipDataRender();
-    void flushDrawStroke(true);
+    void commitDrawStrokeSession();
   };
 
   const onMove = (moveEvent: PointerEvent) => {
@@ -335,7 +331,8 @@ export function runBeginDrawStrokeBehavior<
   ) => void;
   clearDrawFlushTimer: () => void;
   flushPendingClipDataRender: () => void;
-  flushDrawStroke: (force: boolean) => Promise<void>;
+  commitDrawStrokeSession: () => Promise<void>;
+  cancelDrawStrokeSession: () => Promise<void>;
   setSelectedChannel: (channel: string) => void;
   setSmoothBrushPreview: (
     next: { channel: string; centerSec: number } | null,
@@ -392,7 +389,8 @@ export function runBeginDrawStrokeBehavior<
     queueDrawStrokeRange,
     clearDrawFlushTimer,
     flushPendingClipDataRender,
-    flushDrawStroke,
+    commitDrawStrokeSession,
+    cancelDrawStrokeSession,
     setSelectedChannel,
     setSmoothBrushPreview,
     setWarpBrushPreview,
@@ -521,21 +519,16 @@ export function runBeginDrawStrokeBehavior<
           },
         });
         if (touchedRange) {
-          queueDrawStrokeRange(
-            clipIndex,
-            channel,
-            touchedRange.startSampleIndex,
-            touchedRange.endSampleIndex
-          );
+          void cancelDrawStrokeSession();
+        } else {
+          void cancelDrawStrokeSession();
         }
-        flushPendingClipDataRender();
-        void flushDrawStroke(true);
         return;
       }
 
       if (touchedRange) {
         flushPendingClipDataRender();
-        void flushDrawStroke(true);
+        void commitDrawStrokeSession();
       }
     };
 
@@ -650,7 +643,7 @@ export function runBeginDrawStrokeBehavior<
       setSmoothBrushPreview(null);
       clearDrawFlushTimer();
       flushPendingClipDataRender();
-      void flushDrawStroke(true);
+      void commitDrawStrokeSession();
     };
     const onKeyDown = (keyEvent: KeyboardEvent) => {
       if (keyEvent.key !== "Escape") return;
@@ -671,16 +664,8 @@ export function runBeginDrawStrokeBehavior<
           [channel]: baseSamples,
         },
       });
-      if (touchedRange) {
-        queueDrawStrokeRange(
-          clipIndex,
-          channel,
-          touchedRange.startSampleIndex,
-          touchedRange.endSampleIndex,
-        );
-      }
       flushPendingClipDataRender();
-      void flushDrawStroke(true);
+      void cancelDrawStrokeSession();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -804,21 +789,17 @@ export function runBeginDrawStrokeBehavior<
             },
           });
           if (touchedRange) {
-            queueDrawStrokeRange(
-              clipIndex,
-              channel,
-              touchedRange.startSampleIndex,
-              touchedRange.endSampleIndex,
-            );
             flushPendingClipDataRender();
-            void flushDrawStroke(true);
+            void cancelDrawStrokeSession();
+          } else {
+            void cancelDrawStrokeSession();
           }
         }
         return;
       }
       if (touchedRange) {
         flushPendingClipDataRender();
-        void flushDrawStroke(true);
+        void commitDrawStrokeSession();
       }
     };
 
@@ -894,7 +875,7 @@ export function runBeginDrawStrokeBehavior<
     window.removeEventListener("pointerup", onUp);
     clearDrawFlushTimer();
     flushPendingClipDataRender();
-    void flushDrawStroke(true);
+    void commitDrawStrokeSession();
   };
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);

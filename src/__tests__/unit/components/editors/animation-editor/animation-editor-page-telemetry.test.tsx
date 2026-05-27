@@ -94,7 +94,8 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useCl
     drawWriteStateRef: { current: { clipIndex: -1, channel: "", queuedStartSampleIndex: null, queuedEndSampleIndex: null, inFlight: false, timerId: null, acceptedClipRevision: "0" } },
     clearDrawFlushTimer: vi.fn(),
     beginDrawStrokeSession: vi.fn(),
-    flushDrawStroke: vi.fn().mockResolvedValue(undefined),
+    commitDrawStrokeSession: vi.fn().mockResolvedValue(undefined),
+    cancelDrawStrokeSession: vi.fn().mockResolvedValue(undefined),
     queueDrawStrokeRange: vi.fn(),
   }),
 }));

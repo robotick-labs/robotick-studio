@@ -18,8 +18,12 @@ type DrawWriteState = {
   queuedStartSampleIndex: number | null;
   queuedEndSampleIndex: number | null;
   inFlight: boolean;
+  beginInFlight: Promise<string | null> | null;
+  inFlightPromise: Promise<void> | null;
   timerId: ReturnType<typeof setTimeout> | null;
   acceptedClipRevision: string;
+  transactionId: string | null;
+  sessionSerial: number;
 };
 
 export function useClipWriteQueue(args: {
@@ -43,8 +47,12 @@ export function useClipWriteQueue(args: {
     queuedStartSampleIndex: null,
     queuedEndSampleIndex: null,
     inFlight: false,
+    beginInFlight: null,
+    inFlightPromise: null,
     timerId: null,
     acceptedClipRevision: "0",
+    transactionId: null,
+    sessionSerial: 0,
   });
 
   const clearDrawFlushTimer = React.useCallback(() => {
@@ -62,7 +70,61 @@ export function useClipWriteQueue(args: {
     state.queuedStartSampleIndex = null;
     state.queuedEndSampleIndex = null;
     state.acceptedClipRevision = clipDataRef.current.clipRevision;
+    state.transactionId = null;
+    state.beginInFlight = null;
+    state.inFlightPromise = null;
+    state.sessionSerial += 1;
   }, [clipDataRef]);
+
+  const beginEditTransaction = React.useCallback(
+    async (clipIndex: number) => {
+      const state = drawWriteStateRef.current;
+      if (state.transactionId) return state.transactionId;
+      if (state.beginInFlight) {
+        return state.beginInFlight;
+      }
+      const url = buildAnimServiceUrl("/begin-edit");
+      if (!url) {
+        throw new Error("Missing begin-edit URL");
+      }
+      const sessionSerial = state.sessionSerial;
+      state.beginInFlight = (async () => {
+        const response = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clip_index: clipIndex,
+            expected_clip_revision: state.acceptedClipRevision,
+          }),
+        });
+        const payload = (await response.json()) as {
+          transaction_id?: string;
+          clip_revision?: string;
+        };
+        if (!response.ok) {
+          if (response.status === 409 && typeof payload.clip_revision === "string") {
+            state.acceptedClipRevision = payload.clip_revision;
+          }
+          throw new Error(`Failed to begin edit transaction: ${response.status}`);
+        }
+        if (state.sessionSerial !== sessionSerial) {
+          return null;
+        }
+        state.transactionId = typeof payload.transaction_id === "string" ? payload.transaction_id : null;
+        if (typeof payload.clip_revision === "string") {
+          state.acceptedClipRevision = payload.clip_revision;
+        }
+        return state.transactionId;
+      })();
+      try {
+        return await state.beginInFlight;
+      } finally {
+        state.beginInFlight = null;
+      }
+    },
+    [buildAnimServiceUrl]
+  );
 
   const refreshSelectedClipFromEngine = React.useCallback(
     async (clipIndex: number) => {
@@ -76,7 +138,7 @@ export function useClipWriteQueue(args: {
     [clipRefs, loadLiveClipData]
   );
 
-  const writeSampleRange = React.useCallback(
+  const writePreviewRange = React.useCallback(
     async (
       clipIndex: number,
       channel: string,
@@ -92,20 +154,23 @@ export function useClipWriteQueue(args: {
       ) {
         throw new Error("Invalid sample range");
       }
+      const transactionId = await beginEditTransaction(clipIndex);
+      if (!transactionId) {
+        return;
+      }
       const values = Array.from(
         channelSamples.subarray(startSampleIndex, endSampleIndex + 1)
       );
-      const url = buildAnimServiceUrl("/clip-edit", {
-        clip_index: clipIndex >= 0 ? clipIndex : undefined,
-      });
+      const url = buildAnimServiceUrl("/apply-preview-delta");
       if (!url) {
-        throw new Error("Missing clip-edit URL");
+        throw new Error("Missing apply-preview-delta URL");
       }
       const response = await fetch(url, {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          transaction_id: transactionId,
           operation: "replace_sample_range",
           expected_clip_revision: drawWriteStateRef.current.acceptedClipRevision,
           target: {
@@ -130,21 +195,13 @@ export function useClipWriteQueue(args: {
         if (response.status === 409 && typeof payload.clip_revision === "string") {
           drawWriteStateRef.current.acceptedClipRevision = payload.clip_revision;
         }
-        throw new Error(`Failed to write live samples: ${response.status}`);
+        throw new Error(`Failed to apply preview delta: ${response.status}`);
       }
-      if (typeof payload.clip_revision === "string") {
-        drawWriteStateRef.current.acceptedClipRevision = payload.clip_revision;
-      }
-      scheduleClipDataRender({
-        ...clipDataRef.current,
-        clipRevision: drawWriteStateRef.current.acceptedClipRevision,
-        dirty: true,
-      });
     },
-    [buildAnimServiceUrl, clipDataRef, scheduleClipDataRender]
+    [beginEditTransaction, buildAnimServiceUrl, clipDataRef]
   );
 
-  const flushDrawStroke = React.useCallback(
+  const flushPreviewStroke = React.useCallback(
     async (force: boolean) => {
       const state = drawWriteStateRef.current;
       if (
@@ -164,35 +221,55 @@ export function useClipWriteQueue(args: {
       state.queuedStartSampleIndex = null;
       state.queuedEndSampleIndex = null;
       state.inFlight = true;
-      try {
-        state.acceptedClipRevision = clipRevision;
-        await writeSampleRange(clipIndex, channel, startSampleIndex, endSampleIndex);
-      } catch (error) {
-        console.warn("Live draw request failed", {
-          clipIndex,
-          channel,
-          startSampleIndex,
-          endSampleIndex,
-          error,
-        });
-        state.queuedStartSampleIndex = null;
-        state.queuedEndSampleIndex = null;
-        void refreshSelectedClipFromEngine(clipIndex).catch(() => undefined);
-      } finally {
-        state.inFlight = false;
-        if (state.queuedStartSampleIndex !== null && state.queuedEndSampleIndex !== null) {
-          if (force) {
-            void flushDrawStroke(true);
-          } else {
-            state.timerId = setTimeout(() => {
-              state.timerId = null;
-              void flushDrawStroke(false);
-            }, 40);
+      state.inFlightPromise = (async () => {
+        try {
+          state.acceptedClipRevision = clipRevision;
+          await writePreviewRange(clipIndex, channel, startSampleIndex, endSampleIndex);
+        } catch (error) {
+          console.warn("Live draw request failed", {
+            clipIndex,
+            channel,
+            startSampleIndex,
+            endSampleIndex,
+            error,
+          });
+          state.queuedStartSampleIndex = null;
+          state.queuedEndSampleIndex = null;
+          const activeTransactionId = state.transactionId;
+          state.transactionId = null;
+          if (activeTransactionId) {
+            const cancelUrl = buildAnimServiceUrl("/cancel-edit");
+            if (cancelUrl) {
+              await fetch(cancelUrl, {
+                method: "POST",
+                cache: "no-store",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ transaction_id: activeTransactionId }),
+              }).catch(() => undefined);
+            }
+          }
+          void refreshSelectedClipFromEngine(clipIndex).catch(() => undefined);
+        } finally {
+          state.inFlight = false;
+          state.inFlightPromise = null;
+          if (state.queuedStartSampleIndex !== null && state.queuedEndSampleIndex !== null) {
+            if (force) {
+              void flushPreviewStroke(true);
+            } else {
+              state.timerId = setTimeout(() => {
+                state.timerId = null;
+                void flushPreviewStroke(false);
+              }, 40);
+            }
           }
         }
+      })();
+      try {
+        await state.inFlightPromise;
+      } finally {
       }
     },
-    [refreshSelectedClipFromEngine, writeSampleRange]
+    [buildAnimServiceUrl, refreshSelectedClipFromEngine, writePreviewRange]
   );
 
   const queueDrawStrokeRange = React.useCallback(
@@ -226,24 +303,115 @@ export function useClipWriteQueue(args: {
         state.queuedEndSampleIndex - state.queuedStartSampleIndex >= 8
       ) {
         clearDrawFlushTimer();
-        void flushDrawStroke(false);
+        void flushPreviewStroke(false);
         return;
       }
       if (state.timerId === null) {
         state.timerId = setTimeout(() => {
           state.timerId = null;
-          void flushDrawStroke(false);
+          void flushPreviewStroke(false);
         }, 40);
       }
     },
-    [clearDrawFlushTimer, flushDrawStroke]
+    [clearDrawFlushTimer, flushPreviewStroke]
+  );
+
+  const waitForInFlightPreview = React.useCallback(async () => {
+    const state = drawWriteStateRef.current;
+    while (state.inFlightPromise) {
+      await state.inFlightPromise;
+    }
+  }, []);
+
+  const commitDrawStrokeSession = React.useCallback(async () => {
+    clearDrawFlushTimer();
+    await flushPreviewStroke(true);
+    await waitForInFlightPreview();
+    const state = drawWriteStateRef.current;
+    if (!state.transactionId) {
+      return;
+    }
+    const url = buildAnimServiceUrl("/commit-edit");
+    if (!url) {
+      throw new Error("Missing commit-edit URL");
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transaction_id: state.transactionId }),
+    });
+    const payload = (await response.json()) as { clip_revision?: string };
+    if (!response.ok) {
+      if (response.status === 409 && typeof payload.clip_revision === "string") {
+        state.acceptedClipRevision = payload.clip_revision;
+      }
+      state.transactionId = null;
+      throw new Error(`Failed to commit edit transaction: ${response.status}`);
+    }
+    state.transactionId = null;
+    if (typeof payload.clip_revision === "string") {
+      state.acceptedClipRevision = payload.clip_revision;
+    }
+    scheduleClipDataRender({
+      ...clipDataRef.current,
+      clipRevision: state.acceptedClipRevision,
+      dirty: true,
+    });
+  }, [buildAnimServiceUrl, clearDrawFlushTimer, clipDataRef, flushPreviewStroke, scheduleClipDataRender, waitForInFlightPreview]);
+
+  const cancelDrawStrokeSession = React.useCallback(async () => {
+    clearDrawFlushTimer();
+    const state = drawWriteStateRef.current;
+    state.queuedStartSampleIndex = null;
+    state.queuedEndSampleIndex = null;
+    await waitForInFlightPreview();
+    if (!state.transactionId) {
+      return;
+    }
+    const url = buildAnimServiceUrl("/cancel-edit");
+    if (!url) {
+      throw new Error("Missing cancel-edit URL");
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transaction_id: state.transactionId }),
+    });
+    state.transactionId = null;
+    if (!response.ok) {
+      throw new Error(`Failed to cancel edit transaction: ${response.status}`);
+    }
+  }, [buildAnimServiceUrl, clearDrawFlushTimer, waitForInFlightPreview]);
+
+  React.useEffect(
+    () => () => {
+      const state = drawWriteStateRef.current;
+      clearDrawFlushTimer();
+      if (!state.transactionId) {
+        return;
+      }
+      const url = buildAnimServiceUrl("/cancel-edit");
+      if (!url) {
+        return;
+      }
+      void fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transaction_id: state.transactionId }),
+      }).catch(() => undefined);
+    },
+    [buildAnimServiceUrl, clearDrawFlushTimer]
   );
 
   return {
     drawWriteStateRef,
     clearDrawFlushTimer,
     beginDrawStrokeSession,
-    flushDrawStroke,
+    commitDrawStrokeSession,
+    cancelDrawStrokeSession,
     queueDrawStrokeRange,
   };
 }

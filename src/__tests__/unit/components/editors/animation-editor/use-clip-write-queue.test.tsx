@@ -9,14 +9,34 @@ describe("useClipWriteQueue", () => {
     vi.restoreAllMocks();
   });
 
-  it("submits draw edits through the generic clip-edit contract", async () => {
+  it("streams draw edits through begin/apply/commit transaction endpoints", async () => {
     vi.useFakeTimers();
 
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ clip_revision: "8" }),
-    } as Response);
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/begin-edit")) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ transaction_id: "edit_1", clip_revision: "7" }),
+        } as Response;
+      }
+      if (url.includes("/apply-preview-delta")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ accepted: true }),
+        } as Response;
+      }
+      if (url.includes("/commit-edit")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ clip_revision: "8" }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const clipDataRef = {
@@ -54,12 +74,31 @@ describe("useClipWriteQueue", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(40);
     });
+    await act(async () => {
+      await result.current.commitDrawStrokeSession();
+    });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toContain("/clip-edit");
-    expect(init?.method).toBe("POST");
-    const body = JSON.parse(String(init?.body));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [beginUrl, beginInit] = fetchMock.mock.calls[0]!;
+    expect(String(beginUrl)).toContain("/begin-edit");
+    expect(beginInit?.method).toBe("POST");
+    expect(JSON.parse(String(beginInit?.body))).toEqual({
+      clip_index: 0,
+      expected_clip_revision: "7",
+    });
+
+    const [applyUrl, applyInit] = fetchMock.mock.calls[1]!;
+    expect(String(applyUrl)).toContain("/apply-preview-delta");
+    expect(applyInit?.method).toBe("POST");
+    const [commitUrl, commitInit] = fetchMock.mock.calls[2]!;
+    expect(String(commitUrl)).toContain("/commit-edit");
+    expect(commitInit?.method).toBe("POST");
+    expect(JSON.parse(String(commitInit?.body))).toEqual({
+      transaction_id: "edit_1",
+    });
+
+    const body = JSON.parse(String(applyInit?.body));
+    expect(body.transaction_id).toBe("edit_1");
     expect(body.operation).toBe("replace_sample_range");
     expect(body.expected_clip_revision).toBe("7");
     expect(body.target).toEqual({
