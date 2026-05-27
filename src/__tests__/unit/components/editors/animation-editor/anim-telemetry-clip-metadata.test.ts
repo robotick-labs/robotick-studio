@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clipDataFromTelemetryMetadata,
   saveButtonPresentation,
+  selectTelemetryWorkload,
 } from "../../../../../renderer/components/editors/animation-editor/anim-editor-shared";
 
 describe("clipDataFromTelemetryMetadata", () => {
@@ -58,5 +59,17 @@ describe("saveButtonPresentation", () => {
       tone: "failed",
       showDirtyDot: false,
     });
+  });
+});
+
+describe("selectTelemetryWorkload", () => {
+  it("falls back to the discovered anim service workload name when the preferred name mismatches", () => {
+    expect(
+      selectTelemetryWorkload(
+        [{ name: "actual_anim_workload" }],
+        "stale_model_workload_name",
+        "actual_anim_workload"
+      )
+    ).toEqual({ name: "actual_anim_workload" });
   });
 });

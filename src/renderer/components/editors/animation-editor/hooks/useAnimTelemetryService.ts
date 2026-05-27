@@ -17,7 +17,6 @@ import {
 type UseAnimTelemetryServiceArgs = {
   telemetryBaseUrl: string;
   preferredWorkloadName: string;
-  activeClipIndexRaw: unknown;
   selectedClipPath: string;
   reportAnimLoadStatus: (level: AnimLoadStatusLevel, message: string) => void;
   applyLoadedClipData: (nextClipData: ClipData) => void;
@@ -33,7 +32,6 @@ type UseAnimTelemetryServiceArgs = {
 export function useAnimTelemetryService({
   telemetryBaseUrl,
   preferredWorkloadName,
-  activeClipIndexRaw,
   selectedClipPath,
   reportAnimLoadStatus,
   applyLoadedClipData,
@@ -138,16 +136,9 @@ export function useAnimTelemetryService({
       if (prev && parsed.some((clip) => clip.animclipPath === prev)) {
         return prev;
       }
-      if (typeof activeClipIndexRaw === "number") {
-        const activeIndex = Math.floor(activeClipIndexRaw);
-        if (activeIndex >= 0 && activeIndex < parsed.length) {
-          return parsed[activeIndex].animclipPath;
-        }
-      }
       return parsed.length > 0 ? parsed[0].animclipPath : "";
     });
   }, [
-    activeClipIndexRaw,
     buildAnimServiceUrl,
     setAnimsetOptionsFromEngine,
     setAnimsetPath,

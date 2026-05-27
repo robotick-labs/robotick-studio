@@ -24,6 +24,10 @@ export type AnimTelemetryServicesResponse = {
   services?: AnimTelemetryServiceDescriptor[];
 };
 
+export type TelemetryWorkloadRef = {
+  name: string;
+};
+
 export type AnimTelemetryAnimsetClip = {
   clip_index: number;
   clip_name: string;
@@ -112,6 +116,22 @@ export type SaveButtonPresentation = {
 };
 
 export const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
+
+export function selectTelemetryWorkload(
+  workloads: TelemetryWorkloadRef[] | undefined,
+  preferredWorkloadName: string,
+  fallbackWorkloadName: string
+): TelemetryWorkloadRef | null {
+  if (!workloads?.length) return null;
+  const preferredNames = [preferredWorkloadName, fallbackWorkloadName].filter(
+    (name, idx, arr) => name.length > 0 && arr.indexOf(name) === idx
+  );
+  for (const preferredName of preferredNames) {
+    const match = workloads.find((workload) => workload.name === preferredName);
+    if (match) return match;
+  }
+  return workloads[0] ?? null;
+}
 
 export function clipRefsFromAnimsetResponse(response: AnimTelemetryAnimsetResponse): ClipRef[] {
   return (response.clips ?? []).map((clip) => ({

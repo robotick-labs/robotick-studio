@@ -19,6 +19,7 @@ import { AnimationTargetPanel } from "./AnimationTargetPanel";
 import { TransportBar } from "./TransportBar";
 import {
   DEFAULT_EMPTY_CLIP_DURATION_SEC,
+  selectTelemetryWorkload,
   type AnimLoadStatusLevel,
   type ClipData,
   type ClipRef,
@@ -163,17 +164,80 @@ export default function AnimationEditorPage() {
   );
   const preferredWorkloadName = selectedSource?.workloadName ?? "";
   const telemetryBaseUrl = selectedSource?.telemetryBaseUrl ?? "";
-  const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, ANIM_TELEMETRY_SAMPLE_RATE_HZ);
-  const selectedTelemetryWorkload = React.useMemo(() => {
-    if (!telemetryModel) return null;
-    const preferredNames = [selectedSource?.workloadName ?? ""].filter((name) => name.length > 0);
-    for (const preferredName of preferredNames) {
-      const match = telemetryModel.workloads.find((workload) => workload.name === preferredName);
-      if (match) return match;
+
+  const applyLoadedClipData = React.useCallback((nextClipData: ClipData) => {
+    if (pendingClipDataRafRef.current !== null) {
+      cancelAnimationFrame(pendingClipDataRafRef.current);
+      pendingClipDataRafRef.current = null;
     }
-    return telemetryModel.workloads[0] ?? null;
-  }, [selectedSource?.workloadName, telemetryModel]);
-  const selectedWorkloadName = selectedTelemetryWorkload?.name ?? selectedSource?.workloadName ?? "";
+    pendingClipDataRenderRef.current = null;
+    clipDataRef.current = nextClipData;
+    setClipData(nextClipData);
+    const names = Object.keys(nextClipData.channels);
+    setChannelVisible((prev) => {
+      const next: Record<string, boolean> = {};
+      names.forEach((n) => (next[n] = prev[n] ?? true));
+      return next;
+    });
+    setChannelColor((prev) => {
+      const palette = ["#77ceff", "#7ef9a9", "#ffd166", "#ff7b72", "#d9a3ff", "#7afcff", "#fcbf49", "#f07167"];
+      const next: Record<string, string> = {};
+      names.forEach((n, i) => (next[n] = prev[n] ?? palette[i % palette.length]));
+      return next;
+    });
+    syncClipChannelsRef.current(nextClipData);
+  }, []);
+
+  const resetClipData = React.useCallback(() => {
+    setClipData({
+      name: "clip",
+      channels: {},
+      durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
+      loopResetDurationSec: 1,
+      sampleCount: 0,
+      liveSampleRateHz: 0,
+      clipRevision: "0",
+      dirty: false,
+    });
+  }, []);
+
+  const {
+    animTelemetryServiceId,
+    buildAnimServiceUrl,
+    loadLiveClipData,
+    performAnimAuthoringAction,
+    performAnimSave,
+    reloadAnimsetClipRefs,
+  } = useAnimTelemetryService({
+    telemetryBaseUrl,
+    preferredWorkloadName,
+    selectedClipPath,
+    reportAnimLoadStatus,
+    applyLoadedClipData,
+    setClipRefs,
+    setSelectedClipPath,
+    setAnimsetOptionsFromEngine,
+    setAnimsetPath,
+    setChannelsetPath,
+    setChannelsetId,
+    resetClipData,
+  });
+  const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, ANIM_TELEMETRY_SAMPLE_RATE_HZ);
+  const fallbackWorkloadNameFromServiceId = React.useMemo(() => {
+    if (!animTelemetryServiceId.startsWith("anim:")) return "";
+    return animTelemetryServiceId.slice("anim:".length);
+  }, [animTelemetryServiceId]);
+  const selectedTelemetryWorkload = React.useMemo(
+    () =>
+      selectTelemetryWorkload(
+        telemetryModel?.workloads,
+        selectedSource?.workloadName ?? "",
+        fallbackWorkloadNameFromServiceId
+      ),
+    [fallbackWorkloadNameFromServiceId, selectedSource?.workloadName, telemetryModel?.workloads]
+  );
+  const selectedWorkloadName =
+    selectedTelemetryWorkload?.name ?? selectedSource?.workloadName ?? fallbackWorkloadNameFromServiceId;
   const {
     heldSuppressedAnimControlFieldsRef,
     readFieldValue,
@@ -244,65 +308,6 @@ export default function AnimationEditorPage() {
     durationSec: Math.max(DEFAULT_EMPTY_CLIP_DURATION_SEC, clipData.durationSec),
     playheadSec: runtimePlayheadSec ?? 0,
     initialPersistedState,
-  });
-
-  const applyLoadedClipData = React.useCallback((nextClipData: ClipData) => {
-    if (pendingClipDataRafRef.current !== null) {
-      cancelAnimationFrame(pendingClipDataRafRef.current);
-      pendingClipDataRafRef.current = null;
-    }
-    pendingClipDataRenderRef.current = null;
-    clipDataRef.current = nextClipData;
-    setClipData(nextClipData);
-    const names = Object.keys(nextClipData.channels);
-    setChannelVisible((prev) => {
-      const next: Record<string, boolean> = {};
-      names.forEach((n) => (next[n] = prev[n] ?? true));
-      return next;
-    });
-    setChannelColor((prev) => {
-      const palette = ["#77ceff", "#7ef9a9", "#ffd166", "#ff7b72", "#d9a3ff", "#7afcff", "#fcbf49", "#f07167"];
-      const next: Record<string, string> = {};
-      names.forEach((n, i) => (next[n] = prev[n] ?? palette[i % palette.length]));
-      return next;
-    });
-    syncClipChannelsRef.current(nextClipData);
-  }, []);
-
-  const resetClipData = React.useCallback(() => {
-    setClipData({
-      name: "clip",
-      channels: {},
-      durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
-      loopResetDurationSec: 1,
-      sampleCount: 0,
-      liveSampleRateHz: 0,
-      clipRevision: "0",
-      dirty: false,
-    });
-  }, []);
-
-  const {
-    animTelemetryServiceId,
-    buildAnimServiceUrl,
-    loadLiveClipData,
-    performAnimAuthoringAction,
-    performAnimSave,
-    reloadAnimsetClipRefs,
-  } = useAnimTelemetryService({
-    telemetryBaseUrl,
-    preferredWorkloadName,
-    activeClipIndexRaw,
-    selectedClipPath,
-    reportAnimLoadStatus,
-    applyLoadedClipData,
-    setClipRefs,
-    setSelectedClipPath,
-    setAnimsetOptionsFromEngine,
-    setAnimsetPath,
-    setChannelsetPath,
-    setChannelsetId,
-    resetClipData,
   });
   const {
     drawWriteStateRef,
