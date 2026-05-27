@@ -28,6 +28,7 @@ import { defaultLaneRangeForChannel, normalizeTimeRange } from "./anim-editor-la
 import { listAnimationTools } from "./tools/registry";
 import { useClipWriteQueue } from "./hooks/useClipWriteQueue";
 import {
+  PERSISTED_ANIM_EDITOR_STATE_VERSION,
   resolveInitialPersistedAnimEditorState,
   useAnimEditorPersistence,
 } from "./hooks/useAnimEditorPersistence";
@@ -40,6 +41,10 @@ import { useAnimToolSettings } from "./hooks/useAnimToolSettings";
 import { useQueuedPlayheadSeek } from "./hooks/useQueuedPlayheadSeek";
 import { useSelectedClipLoader } from "./hooks/useSelectedClipLoader";
 import { normalizePlaybackRate } from "./playback-state";
+import {
+  channelMaskFromSelection,
+  channelSelectionFromMask,
+} from "./recording-state";
 import styles from "./AnimationEditorPage.module.css";
 const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
 const DEFAULT_CHANNELSET = "content/anim/channelsets/barr_e_expression_mvp.channelset.yaml";
@@ -109,11 +114,11 @@ export default function AnimationEditorPage() {
   const [channelColor, setChannelColor] = React.useState<Record<string, string>>(
     () => initialPersistedState?.channelColor ?? {}
   );
-  const [recordArmByChannel, setRecordArmByChannel] = React.useState<Record<string, boolean>>(
-    () => initialPersistedState?.channelRecordArm ?? {}
-  );
+  const [monitorByChannel, setMonitorByChannel] = React.useState<Record<string, boolean>>({});
+  const [recordArmByChannel, setRecordArmByChannel] = React.useState<Record<string, boolean>>({});
   const pendingClipDataRenderRef = React.useRef<ClipData | null>(null);
   const pendingClipDataRafRef = React.useRef<number | null>(null);
+  const pendingRuntimeReloadRevisionRef = React.useRef("");
   const syncClipChannelsRef = React.useRef<(nextClipData: ClipData) => void>(() => {});
   React.useEffect(() => {
     clipDataRef.current = clipData;
@@ -276,6 +281,9 @@ export default function AnimationEditorPage() {
   const isRecordingRaw = selectedWorkloadName
     ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.is_recording`)
     : null;
+  const recordRequestedRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.inputs.anim_controls.record_enabled`)
+    : null;
   const isLoopResetActiveRaw = selectedWorkloadName
     ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.is_loop_reset_active`)
     : null;
@@ -284,6 +292,24 @@ export default function AnimationEditorPage() {
     : null;
   const activeClipIndexRaw = selectedWorkloadName
     ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_index`)
+    : null;
+  const monitorChannelMaskRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.monitor_channel_mask`)
+    : null;
+  const recordArmChannelMaskRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.record_arm_channel_mask`)
+    : null;
+  const activeClipRevisionRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_revision`)
+    : null;
+  const activeClipDirtyRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_dirty`)
+    : null;
+  const activeClipCanUndoRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_can_undo`)
+    : null;
+  const activeClipCanRedoRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.active_clip_can_redo`)
     : null;
 
   const runtimePlayheadSec = typeof playheadTimeRaw === "number" ? Math.max(0, playheadTimeRaw) : null;
@@ -366,9 +392,11 @@ export default function AnimationEditorPage() {
     }
   }, [readFieldValue, selectedWorkloadName]);
 
-  const channelNames = Object.keys(clipData.channels);
+  const channelNames = React.useMemo(() => Object.keys(clipData.channels), [clipData.channels]);
   const visibleChannels = channelNames.filter((n) => channelVisible[n] !== false);
   const allChannelsVisible = channelNames.length > 0 && visibleChannels.length === channelNames.length;
+  const monitoredChannels = channelNames.filter((n) => monitorByChannel[n] === true);
+  const allChannelsMonitored = channelNames.length > 0 && monitoredChannels.length === channelNames.length;
   const armedChannels = channelNames.filter((n) => recordArmByChannel[n] === true);
   const allChannelsArmed = channelNames.length > 0 && armedChannels.length === channelNames.length;
   const hasClipSamples = React.useMemo(
@@ -468,7 +496,12 @@ export default function AnimationEditorPage() {
   const [telemetryReceiveHz, setTelemetryReceiveHz] = React.useState(0);
   const playbackRate = normalizePlaybackRate(typeof playbackRateRaw === "number" ? playbackRateRaw : null);
   const isRecording = Boolean(isRecordingRaw);
+  const recordRequested = Boolean(recordRequestedRaw);
   const isLoopResetActive = Boolean(isLoopResetActiveRaw);
+  const runtimeActiveClipRevision =
+    typeof activeClipRevisionRaw === "number" && Number.isFinite(activeClipRevisionRaw)
+      ? String(Math.max(0, Math.trunc(activeClipRevisionRaw)))
+      : "";
   const loopResetProgressNorm =
     typeof loopResetProgressRaw === "number"
       ? Math.min(1, Math.max(0, loopResetProgressRaw))
@@ -568,6 +601,34 @@ export default function AnimationEditorPage() {
     [clipRefs, selectedClipPath]
   );
   const selectedClipRef = selectedClipIndex >= 0 ? clipRefs[selectedClipIndex] : null;
+  const runtimeActiveClipIndex =
+    typeof activeClipIndexRaw === "number" && Number.isFinite(activeClipIndexRaw) ? Math.trunc(activeClipIndexRaw) : -1;
+
+  React.useEffect(() => {
+    setMonitorByChannel(channelSelectionFromMask(channelNames, monitorChannelMaskRaw));
+  }, [channelNames, monitorChannelMaskRaw]);
+
+  React.useEffect(() => {
+    setRecordArmByChannel(channelSelectionFromMask(channelNames, recordArmChannelMaskRaw));
+  }, [channelNames, recordArmChannelMaskRaw]);
+
+  React.useEffect(() => {
+    if (selectedClipIndex < 0 || runtimeActiveClipIndex !== selectedClipIndex) return;
+    const dirty = Boolean(activeClipDirtyRaw);
+    const canUndo = Boolean(activeClipCanUndoRaw);
+    const canRedo = Boolean(activeClipCanRedoRaw);
+    const current = clipDataRef.current;
+    if (current.dirty === dirty && current.canUndo === canUndo && current.canRedo === canRedo) {
+      return;
+    }
+    scheduleClipDataRender({
+      ...current,
+      dirty,
+      canUndo,
+      canRedo,
+    });
+  }, [activeClipCanRedoRaw, activeClipCanUndoRaw, activeClipDirtyRaw, runtimeActiveClipIndex, scheduleClipDataRender, selectedClipIndex]);
+
   const reloadSelectedClipData = React.useCallback(async () => {
     if (selectedClipIndex < 0) return;
     const loaded = await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
@@ -575,6 +636,35 @@ export default function AnimationEditorPage() {
       applyLoadedClipData(loaded);
     }
   }, [applyLoadedClipData, loadLiveClipData, selectedClipIndex, selectedClipRef?.name]);
+
+  const wasRecordingRef = React.useRef(false);
+  React.useEffect(() => {
+    if (wasRecordingRef.current && !isRecording) {
+      void reloadSelectedClipData();
+      if (playbackRate === 0 && recordRequested) {
+        void writeAnimControlFieldRaw("record_enabled", false);
+      }
+    }
+    wasRecordingRef.current = isRecording;
+  }, [isRecording, playbackRate, recordRequested, reloadSelectedClipData, writeAnimControlFieldRaw]);
+
+  React.useEffect(() => {
+    if (selectedClipIndex < 0 || runtimeActiveClipIndex !== selectedClipIndex || !runtimeActiveClipRevision) return;
+    if (runtimeActiveClipRevision === clipDataRef.current.clipRevision) return;
+    if (pendingRuntimeReloadRevisionRef.current === runtimeActiveClipRevision) return;
+    pendingRuntimeReloadRevisionRef.current = runtimeActiveClipRevision;
+    void reloadSelectedClipData().finally(() => {
+      if (clipDataRef.current.clipRevision === runtimeActiveClipRevision) {
+        pendingRuntimeReloadRevisionRef.current = "";
+      }
+    });
+  }, [reloadSelectedClipData, runtimeActiveClipIndex, runtimeActiveClipRevision, selectedClipIndex]);
+
+  React.useEffect(() => {
+    if (clipData.clipRevision === runtimeActiveClipRevision) {
+      pendingRuntimeReloadRevisionRef.current = "";
+    }
+  }, [clipData.clipRevision, runtimeActiveClipRevision]);
 
   const performClipHistoryAction = React.useCallback(
     async (suffix: "/undo-edit" | "/redo-edit") => {
@@ -608,6 +698,65 @@ export default function AnimationEditorPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [performClipHistoryAction, selectedClipIndex]);
 
+  const applyMonitorMask = React.useCallback(
+    (nextByChannel: Record<string, boolean>) => {
+      setMonitorByChannel(nextByChannel);
+      void writeAnimControlField("monitor_channel_mask", channelMaskFromSelection(channelNames, nextByChannel));
+    },
+    [channelNames, writeAnimControlField]
+  );
+
+  const applyRecordArmMask = React.useCallback(
+    (nextByChannel: Record<string, boolean>) => {
+      setRecordArmByChannel(nextByChannel);
+      void writeAnimControlField("record_arm_channel_mask", channelMaskFromSelection(channelNames, nextByChannel));
+    },
+    [channelNames, writeAnimControlField]
+  );
+
+  const toggleAllMonitor = React.useCallback(() => {
+    const nextValue = !allChannelsMonitored;
+    const next: Record<string, boolean> = {};
+    for (const channelName of channelNames) {
+      next[channelName] = nextValue;
+    }
+    applyMonitorMask(next);
+  }, [allChannelsMonitored, applyMonitorMask, channelNames]);
+
+  const toggleChannelMonitor = React.useCallback(
+    (channel: string) => {
+      applyMonitorMask({ ...monitorByChannel, [channel]: !monitorByChannel[channel] });
+    },
+    [applyMonitorMask, monitorByChannel]
+  );
+
+  const toggleAllRecordArm = React.useCallback(() => {
+    const nextValue = !allChannelsArmed;
+    const next: Record<string, boolean> = {};
+    for (const channelName of channelNames) {
+      next[channelName] = nextValue;
+    }
+    applyRecordArmMask(next);
+  }, [allChannelsArmed, applyRecordArmMask, channelNames]);
+
+  const toggleChannelRecordArm = React.useCallback(
+    (channel: string) => {
+      applyRecordArmMask({ ...recordArmByChannel, [channel]: !recordArmByChannel[channel] });
+    },
+    [applyRecordArmMask, recordArmByChannel]
+  );
+
+  const armedCount = armedChannels.length;
+  const canStartRecording = selectedClipIndex >= 0 && armedCount > 0;
+  const recordingStartHint =
+    selectedClipIndex < 0
+      ? "Select an active clip before recording."
+      : armedCount <= 0
+        ? "Arm at least one channel to record."
+        : loopEnabled
+          ? "Record overwrite into the active clip. Loop playback will be turned off first."
+          : "Record overwrite into the active clip.";
+
   const {
     handleCommitDurationSec,
     handleCommitLoopResetDurationSec,
@@ -638,7 +787,8 @@ export default function AnimationEditorPage() {
     reportAnimLoadStatus,
   });
 
-  useAnimEditorPersistence(panelStorageKey, {
+  useAnimEditorPersistence(panelStorageKey, ANIM_EDITOR_STORAGE_BASE_KEY, {
+    persistenceVersion: PERSISTED_ANIM_EDITOR_STATE_VERSION,
     selectedSourceId,
     selectedClipPath,
     activeTool,
@@ -657,7 +807,6 @@ export default function AnimationEditorPage() {
     smoothApplyRateHz,
     smoothRangeSec,
     channelVisible,
-    channelRecordArm: recordArmByChannel,
     channelColor,
     selectedChannel,
     laneRange,
@@ -695,17 +844,22 @@ export default function AnimationEditorPage() {
           />
           <AnimationChannelsPanel
             allChannelsArmed={allChannelsArmed}
+            allChannelsMonitored={allChannelsMonitored}
             allChannelsVisible={allChannelsVisible}
             channelColor={channelColor}
             channelNames={channelNames}
             channelVisible={channelVisible}
             hoveredChannel={hoveredChannel}
+            monitorByChannel={monitorByChannel}
+            onToggleAllMonitor={toggleAllMonitor}
+            onToggleAllRecordArm={toggleAllRecordArm}
+            onToggleChannelMonitor={toggleChannelMonitor}
+            onToggleChannelRecordArm={toggleChannelRecordArm}
             recordArmByChannel={recordArmByChannel}
             selectedChannel={selectedChannel}
             setChannelColor={setChannelColor}
             setChannelVisible={setChannelVisible}
             setHoveredChannel={setHoveredChannel}
-            setRecordArmByChannel={setRecordArmByChannel}
             setSelectedChannel={setSelectedChannel}
           />
         </aside>
@@ -787,8 +941,11 @@ export default function AnimationEditorPage() {
         loopEnabled={loopEnabled}
         loopResetDurationSec={clipData.loopResetDurationSec}
         durationSec={durationSec}
+        canStartRecording={canStartRecording}
         playheadSec={playheadSec}
         playheadSampleStepSec={playheadSampleStepSec}
+        recordRequested={recordRequested}
+        recordingStartHint={recordingStartHint}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={setLoopEnabled}
         seekPlayheadToTimeSec={seekPlayheadToTimeSec}

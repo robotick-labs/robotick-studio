@@ -2,35 +2,60 @@ import React from "react";
 
 import styles from "./AnimationEditorPage.module.css";
 
+function MonitorPassThroughIcon() {
+  return (
+    <svg
+      className={styles.monitorToggleIcon}
+      viewBox="0 0 16 12"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.5 6C2.4 6 2.8 4 3.8 4S5.2 8 6.2 8" />
+      <path d="M9.8 4C10.8 4 11.2 8 12.2 8S13.6 6 14.5 6" />
+      <path d="M8 1.5V10.5" />
+    </svg>
+  );
+}
+
 type AnimationChannelsPanelProps = {
   allChannelsArmed: boolean;
+  allChannelsMonitored: boolean;
   allChannelsVisible: boolean;
   channelColor: Record<string, string>;
   channelNames: string[];
   channelVisible: Record<string, boolean>;
   hoveredChannel: string | null;
+  monitorByChannel: Record<string, boolean>;
+  onToggleAllMonitor: () => void;
+  onToggleAllRecordArm: () => void;
+  onToggleChannelMonitor: (channel: string) => void;
+  onToggleChannelRecordArm: (channel: string) => void;
   recordArmByChannel: Record<string, boolean>;
   selectedChannel: string | null;
   setChannelColor: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setChannelVisible: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setHoveredChannel: React.Dispatch<React.SetStateAction<string | null>>;
-  setRecordArmByChannel: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setSelectedChannel: React.Dispatch<React.SetStateAction<string | null>>;
 };
 
 export function AnimationChannelsPanel({
   allChannelsArmed,
+  allChannelsMonitored,
   allChannelsVisible,
   channelColor,
   channelNames,
   channelVisible,
   hoveredChannel,
+  monitorByChannel,
+  onToggleAllMonitor,
+  onToggleAllRecordArm,
+  onToggleChannelMonitor,
+  onToggleChannelRecordArm,
   recordArmByChannel,
   selectedChannel,
   setChannelColor,
   setChannelVisible,
   setHoveredChannel,
-  setRecordArmByChannel,
   setSelectedChannel,
 }: AnimationChannelsPanelProps) {
   return (
@@ -38,19 +63,20 @@ export function AnimationChannelsPanel({
       <div className={styles.channelsHeader}>
         <h3>Channels</h3>
         <button
+          className={`${styles.monitorToggle} ${allChannelsMonitored ? styles.monitorToggleActive : ""}`}
+          type="button"
+          title={allChannelsMonitored ? "Disable monitor on all channels." : "Enable monitor on all channels."}
+          aria-label={allChannelsMonitored ? "Disable monitor on all channels" : "Enable monitor on all channels"}
+          onClick={onToggleAllMonitor}
+        >
+          <MonitorPassThroughIcon />
+        </button>
+        <button
           className={`${styles.recordArmToggle} ${allChannelsArmed ? styles.recordArmToggleActive : ""}`}
           type="button"
-          title={allChannelsArmed ? "Disarm all channels (stub)." : "Arm all channels (stub)."}
+          title={allChannelsArmed ? "Disarm all channels for recording." : "Arm all channels for recording."}
           aria-label={allChannelsArmed ? "Disarm all channels" : "Arm all channels"}
-          onClick={() =>
-            setRecordArmByChannel((prev) => {
-              const next: Record<string, boolean> = { ...prev };
-              for (const name of channelNames) {
-                next[name] = !allChannelsArmed;
-              }
-              return next;
-            })
-          }
+          onClick={onToggleAllRecordArm}
         >
           ●
         </button>
@@ -97,13 +123,25 @@ export function AnimationChannelsPanel({
               {channel}
             </span>
             <button
+              className={`${styles.monitorToggle} ${monitorByChannel[channel] ? styles.monitorToggleActive : ""}`}
+              type="button"
+              title={monitorByChannel[channel] ? "Disable live input monitor for this channel." : "Enable live input monitor for this channel."}
+              aria-label={monitorByChannel[channel] ? "Disable live input monitor for this channel" : "Enable live input monitor for this channel"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleChannelMonitor(channel);
+              }}
+            >
+              <MonitorPassThroughIcon />
+            </button>
+            <button
               className={`${styles.recordArmToggle} ${recordArmByChannel[channel] ? styles.recordArmToggleActive : ""}`}
               type="button"
-              title={recordArmByChannel[channel] ? "Disarm recording for this channel (stub)." : "Arm recording for this channel (stub)."}
+              title={recordArmByChannel[channel] ? "Disarm recording for this channel." : "Arm recording for this channel."}
               aria-label={recordArmByChannel[channel] ? "Disarm recording for this channel" : "Arm recording for this channel"}
               onClick={(event) => {
                 event.stopPropagation();
-                setRecordArmByChannel((prev) => ({ ...prev, [channel]: !prev[channel] }));
+                onToggleChannelRecordArm(channel);
               }}
             >
               ●

@@ -20,8 +20,11 @@ type Props = {
   loopEnabled: boolean;
   loopResetDurationSec: number;
   durationSec: number;
+  canStartRecording: boolean;
   playheadSec: number;
   playheadSampleStepSec: number;
+  recordRequested: boolean;
+  recordingStartHint: string;
   writeAnimControlField: (fieldName: string, value: unknown) => Promise<void>;
   setLoopEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   seekPlayheadToTimeSec: (nextTimeSec: number) => void;
@@ -35,8 +38,11 @@ export function TransportBar({
   loopEnabled,
   loopResetDurationSec,
   durationSec,
+  canStartRecording,
   playheadSec,
   playheadSampleStepSec,
+  recordRequested,
+  recordingStartHint,
   writeAnimControlField,
   setLoopEnabled,
   seekPlayheadToTimeSec,
@@ -105,12 +111,21 @@ export function TransportBar({
   }, [writeTransportState]);
 
   const toggleRecording = React.useCallback(() => {
-    if (isRecording) {
+    if (isRecording || recordRequested) {
       void writeTransportState(0, false);
       return;
     }
-    void writeTransportState(DEFAULT_FORWARD_PLAYBACK_RATE, true);
-  }, [isRecording, writeTransportState]);
+    if (!canStartRecording) {
+      return;
+    }
+    void (async () => {
+      if (loopEnabled) {
+        setLoopEnabled(false);
+        await writeAnimControlField("loop", false);
+      }
+      await writeTransportState(DEFAULT_FORWARD_PLAYBACK_RATE, true);
+    })();
+  }, [canStartRecording, isRecording, loopEnabled, recordRequested, setLoopEnabled, writeAnimControlField, writeTransportState]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -221,7 +236,7 @@ export function TransportBar({
               className={`${styles.transportIconButton} ${styles.iconRecord} ${isRecording ? styles.transportIconButtonRecordActive : ""}`}
               type="button"
               aria-label="Record"
-              title={isRecording ? "Stop recording." : "Record forward playback."}
+              title={isRecording || recordRequested ? "Stop recording." : recordingStartHint}
               onClick={toggleRecording}
             >
               <span className={styles.iconRecordGlyph}>●</span>

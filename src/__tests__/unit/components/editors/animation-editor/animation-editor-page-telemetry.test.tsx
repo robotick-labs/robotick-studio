@@ -8,11 +8,44 @@ import AnimationEditorPage from "../../../../../renderer/components/editors/anim
 const targetPanelSpy = vi.fn();
 const toolbarSpy = vi.fn();
 const timelineControllerSpy = vi.fn();
+const timelineViewportSpy = vi.fn();
 const loadLiveClipDataSpy = vi.fn();
 const performAnimHistoryActionSpy = vi.fn();
+const mockFieldValues: Record<string, unknown> = {
+  "actual_anim_workload.outputs.anim_state.playback_rate": 0,
+  "actual_anim_workload.outputs.anim_state.playhead_time_sec": 1.25,
+  "actual_anim_workload.outputs.anim_state.is_recording": false,
+  "actual_anim_workload.outputs.anim_state.is_loop_reset_active": false,
+  "actual_anim_workload.outputs.anim_state.loop_reset_progress_norm": 0,
+  "actual_anim_workload.outputs.anim_state.active_clip_index": 0,
+  "actual_anim_workload.outputs.anim_state.active_clip_revision": 0,
+  "actual_anim_workload.outputs.anim_state.active_clip_dirty": false,
+  "actual_anim_workload.outputs.anim_state.active_clip_can_undo": false,
+  "actual_anim_workload.outputs.anim_state.active_clip_can_redo": false,
+  "actual_anim_workload.outputs.anim_state.monitor_channel_mask": 0,
+  "actual_anim_workload.outputs.anim_state.record_arm_channel_mask": 0,
+  "actual_anim_workload.inputs.anim_controls.record_enabled": false,
+  "actual_anim_workload.inputs.anim_controls.loop": false,
+  "actual_anim_workload.inputs.animset_path": "content/anim/animsets/base.animset.yaml",
+  "actual_anim_workload.config.channelset_path": "content/anim/channelsets/base.channelset.yaml",
+};
 
 afterEach(() => {
   cleanup();
+  mockFieldValues["actual_anim_workload.outputs.anim_state.playback_rate"] = 0;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.playhead_time_sec"] = 1.25;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.is_recording"] = false;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.is_loop_reset_active"] = false;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.loop_reset_progress_norm"] = 0;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_index"] = 0;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_revision"] = 0;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_dirty"] = false;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_can_undo"] = false;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_can_redo"] = false;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.monitor_channel_mask"] = 0;
+  mockFieldValues["actual_anim_workload.outputs.anim_state.record_arm_channel_mask"] = 0;
+  mockFieldValues["actual_anim_workload.inputs.anim_controls.record_enabled"] = false;
+  mockFieldValues["actual_anim_workload.inputs.anim_controls.loop"] = false;
 });
 
 vi.mock("../../../../../renderer/components/workspaces/PanelInstanceContext", () => ({
@@ -85,20 +118,7 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAn
 vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAnimControlFields", () => ({
   useAnimControlFields: () => ({
     heldSuppressedAnimControlFieldsRef: { current: new Set<string>() },
-    readFieldValue: (fieldPath: string) => {
-      const fields: Record<string, unknown> = {
-        "actual_anim_workload.outputs.anim_state.playback_rate": 0,
-        "actual_anim_workload.outputs.anim_state.playhead_time_sec": 1.25,
-        "actual_anim_workload.outputs.anim_state.is_recording": false,
-        "actual_anim_workload.outputs.anim_state.is_loop_reset_active": false,
-        "actual_anim_workload.outputs.anim_state.loop_reset_progress_norm": 0,
-        "actual_anim_workload.outputs.anim_state.active_clip_index": 0,
-        "actual_anim_workload.inputs.anim_controls.loop": false,
-        "actual_anim_workload.inputs.animset_path": "content/anim/animsets/base.animset.yaml",
-        "actual_anim_workload.config.channelset_path": "content/anim/channelsets/base.channelset.yaml",
-      };
-      return fields[fieldPath];
-    },
+    readFieldValue: (fieldPath: string) => mockFieldValues[fieldPath],
     resolveAnimWritableField: vi.fn(),
     setAnimControlConnectionState: vi.fn().mockResolvedValue(true),
     writeAnimControlField: vi.fn().mockResolvedValue(undefined),
@@ -315,7 +335,10 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationTo
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationTimelineViewport", () => ({
-  AnimationTimelineViewport: () => <div data-testid="timeline" />,
+  AnimationTimelineViewport: (props: { beginPlayheadDragFromClientX: (clientX: number) => void }) => {
+    timelineViewportSpy(props);
+    return <div data-testid="timeline" />;
+  },
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/TransportBar", () => ({
@@ -404,6 +427,7 @@ describe("AnimationEditorPage telemetry reflection", () => {
   it("reflects transport and playhead state using the discovered anim service workload fallback", () => {
     targetPanelSpy.mockClear();
     timelineControllerSpy.mockClear();
+    timelineViewportSpy.mockClear();
     render(<AnimationEditorPage />);
 
     expect(screen.getByTestId("transport-props")).toHaveTextContent(
@@ -428,5 +452,45 @@ describe("AnimationEditorPage telemetry reflection", () => {
         selectedWorkloadName: "actual_anim_workload",
       })
     );
+    expect(timelineViewportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        beginPlayheadDragFromClientX: expect.any(Function),
+      })
+    );
+  });
+
+  it("reloads the selected clip when recording transitions from active to stopped", async () => {
+    loadLiveClipDataSpy.mockReset();
+    loadLiveClipDataSpy.mockResolvedValue({
+      animclipPath: "content/anim/clips/base.animclip.yaml",
+      name: "base_clip",
+      channels: {},
+      durationSec: 1,
+      loopResetDurationSec: 1,
+      sampleCount: 0,
+      liveSampleRateHz: 20,
+      clipRevision: "9",
+      dirty: true,
+      canUndo: true,
+      canRedo: false,
+    });
+    mockFieldValues["actual_anim_workload.outputs.anim_state.is_recording"] = true;
+
+    const { rerender } = render(<AnimationEditorPage />);
+
+    await waitFor(() => {
+      expect(loadLiveClipDataSpy).toHaveBeenCalledWith(0, "base_clip");
+    });
+
+    loadLiveClipDataSpy.mockClear();
+    mockFieldValues["actual_anim_workload.outputs.anim_state.is_recording"] = false;
+    mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_revision"] = 9;
+    mockFieldValues["actual_anim_workload.outputs.anim_state.active_clip_dirty"] = true;
+
+    rerender(<AnimationEditorPage />);
+
+    await waitFor(() => {
+      expect(loadLiveClipDataSpy).toHaveBeenCalledWith(0, "base_clip");
+    });
   });
 });

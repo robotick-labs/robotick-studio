@@ -1,6 +1,7 @@
 import React from "react";
 import { sampleIndexRangeFromTimes } from "./anim-sample-editing";
 import styles from "./AnimationEditorPage.module.css";
+import { normalizedFromClientX } from "./playhead-math";
 import { computeCenteredRangeShape } from "./tools/range/range-shape";
 
 const LANE_VIEWBOX_WIDTH = 1000;
@@ -59,6 +60,24 @@ export function mapTimeSecToViewportX(
   const safeWidth = Math.max(0, viewportWidth);
   const clampedTime = Math.min(safeDuration, Math.max(0, timeSec));
   return (clampedTime / safeDuration) * safeWidth;
+}
+
+export function mapClientXToViewportTimeSec(
+  clientX: number,
+  leftPx: number,
+  widthPx: number,
+  durationSec: number,
+  viewportRangeNorm: { startNorm: number; endNorm: number }
+): number {
+  const viewportNorm = clamp01(normalizedFromClientX(clientX, leftPx, widthPx));
+  const viewportWidthNorm = Math.max(
+    1e-6,
+    viewportRangeNorm.endNorm - viewportRangeNorm.startNorm
+  );
+  const globalNorm = clamp01(
+    viewportRangeNorm.startNorm + viewportNorm * viewportWidthNorm
+  );
+  return globalNorm * Math.max(0, durationSec);
 }
 
 export function buildDisplaySampleIndices(
@@ -450,6 +469,7 @@ const LaneRow = React.memo(function LaneRow({
         <svg
           ref={isFirstVisible ? firstLaneSvgRef : undefined}
           className={styles.laneSvg}
+          data-timeline-lane-curve="true"
           viewBox="0 0 1000 40"
           preserveAspectRatio="none"
           aria-hidden="true"
@@ -914,8 +934,16 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
       }}
     >
       <div className={styles.timelineCadenceHud}>{cadenceHudText}</div>
-      <svg className={styles.playheadOverlaySvg} viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`} preserveAspectRatio="none" aria-hidden="true">
+      <svg
+        className={styles.playheadOverlaySvg}
+        data-timeline-playhead-overlay="true"
+        data-testid="timeline-playhead-overlay"
+        viewBox={`0 0 ${overlayWidth} ${playheadOverlayMetrics.height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
         <rect
+          data-testid="timeline-ruler-hit-area"
           x={0}
           y={0}
           width={overlayWidth}
@@ -973,10 +1001,10 @@ const PlayheadOverlay = React.memo(function PlayheadOverlay({
           </text>
         ))}
         <line ref={lineRef} data-testid="timeline-playhead-line" x1={0} x2={0} y1={playheadOverlayMetrics.topBlobCenterY} y2={playheadOverlayMetrics.bottomBlobCenterY} className={`${styles.playheadLineSvg} ${activeTool !== null ? styles.playheadLineMutedSvg : ""}`} />
-        <rect ref={topBlobRef} x={-5} y={playheadOverlayMetrics.topBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
-        <rect ref={bottomBlobRef} x={-5} y={playheadOverlayMetrics.bottomBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        <rect ref={topBlobRef} data-playhead-drag-handle="true" x={-5} y={playheadOverlayMetrics.topBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+        <rect ref={bottomBlobRef} data-playhead-drag-handle="true" x={-5} y={playheadOverlayMetrics.bottomBlobCenterY - 6} width={10} height={12} rx={4} ry={4} className={styles.rulerEndBlobSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
         {activeTool === null ? (
-          <rect ref={grabRef} x={-9} y={playheadOverlayMetrics.topBlobCenterY} width={18} height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)} className={styles.playheadGrabSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
+          <rect ref={grabRef} data-playhead-drag-handle="true" x={-9} y={playheadOverlayMetrics.topBlobCenterY} width={18} height={Math.max(0, playheadOverlayMetrics.bottomBlobCenterY - playheadOverlayMetrics.topBlobCenterY)} className={styles.playheadGrabSvg} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); beginPlayheadDragFromClientX(event.clientX); }} />
         ) : null}
       </svg>
     </div>
@@ -1215,12 +1243,74 @@ export function AnimationTimelineViewport(props: AnimationTimelineViewportProps)
     [onViewportRangeNormChange, viewportRangeNorm.endNorm, viewportRangeNorm.startNorm]
   );
 
+  const handleTimelinePointerDownCapture = React.useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-playhead-drag-handle='true']")) return;
+
+      const overlay = playheadViewportRef.current;
+      if (!overlay) return;
+      const rect = overlay.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return;
+      }
+
+      const localY = event.clientY - rect.top;
+      const inTopRuler = localY >= 0 && localY <= playheadOverlayMetrics.topRulerHeight;
+      const inBottomRuler =
+        localY >= playheadOverlayMetrics.bottomRulerTop &&
+        localY <=
+          playheadOverlayMetrics.bottomRulerTop +
+            playheadOverlayMetrics.bottomRulerHeight;
+      const inLaneViewport =
+        localY > playheadOverlayMetrics.topRulerHeight &&
+        localY < playheadOverlayMetrics.bottomRulerTop;
+      const clickedLaneCurve = Boolean(
+        target.closest("[data-timeline-lane-curve='true']")
+      );
+      const clickedPlayheadOverlay = Boolean(
+        target.closest("[data-timeline-playhead-overlay='true']")
+      );
+      const shouldSnapFromRuler =
+        (inTopRuler || inBottomRuler) && activeTool !== "Range";
+      const shouldSnapFromViewport =
+        activeTool === null &&
+        inLaneViewport &&
+        (clickedLaneCurve || clickedPlayheadOverlay);
+
+      if (!shouldSnapFromRuler && !shouldSnapFromViewport) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      beginPlayheadDragFromClientX(event.clientX);
+    },
+    [
+      activeTool,
+      beginPlayheadDragFromClientX,
+      playheadOverlayMetrics.bottomRulerHeight,
+      playheadOverlayMetrics.bottomRulerTop,
+      playheadOverlayMetrics.topRulerHeight,
+      playheadViewportRef,
+    ]
+  );
+
   return (
     <main className={styles.timelineArea}>
       <section
         ref={timelineRef}
         className={styles.timelineCanvas}
         aria-label="Animation timeline"
+        onPointerDownCapture={handleTimelinePointerDownCapture}
         onMouseDownCapture={beginTimelinePan}
         onContextMenu={(event) => {
           if (isTimelinePanActive) {

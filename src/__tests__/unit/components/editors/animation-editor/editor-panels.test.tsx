@@ -71,26 +71,42 @@ describe("AnimationChannelsPanel", () => {
         look_y: "#7ef9a9",
       });
       const [hoveredChannel, setHoveredChannel] = React.useState<string | null>(null);
+      const [monitorByChannel, setMonitorByChannel] = React.useState<Record<string, boolean>>({});
       const [recordArmByChannel, setRecordArmByChannel] = React.useState<Record<string, boolean>>({});
       const [selectedChannel, setSelectedChannel] = React.useState<string | null>(null);
       return (
         <>
           <AnimationChannelsPanel
             allChannelsArmed={false}
+            allChannelsMonitored={false}
             allChannelsVisible={channelVisible.look_x !== false && channelVisible.look_y !== false}
             channelColor={channelColor}
             channelNames={["look_x", "look_y"]}
             channelVisible={channelVisible}
             hoveredChannel={hoveredChannel}
+            monitorByChannel={monitorByChannel}
+            onToggleAllMonitor={() =>
+              setMonitorByChannel((prev) => ({ look_x: !(prev.look_x && prev.look_y), look_y: !(prev.look_x && prev.look_y) }))
+            }
+            onToggleAllRecordArm={() =>
+              setRecordArmByChannel((prev) => ({ look_x: !(prev.look_x && prev.look_y), look_y: !(prev.look_x && prev.look_y) }))
+            }
+            onToggleChannelMonitor={(channel) =>
+              setMonitorByChannel((prev) => ({ ...prev, [channel]: !prev[channel] }))
+            }
+            onToggleChannelRecordArm={(channel) =>
+              setRecordArmByChannel((prev) => ({ ...prev, [channel]: !prev[channel] }))
+            }
             recordArmByChannel={recordArmByChannel}
             selectedChannel={selectedChannel}
             setChannelColor={setChannelColor}
             setChannelVisible={setChannelVisible}
             setHoveredChannel={setHoveredChannel}
-            setRecordArmByChannel={setRecordArmByChannel}
             setSelectedChannel={setSelectedChannel}
           />
           <div data-testid="visibility-state">{JSON.stringify(channelVisible)}</div>
+          <div data-testid="monitor-state">{JSON.stringify(monitorByChannel)}</div>
+          <div data-testid="record-state">{JSON.stringify(recordArmByChannel)}</div>
         </>
       );
     }
@@ -103,5 +119,11 @@ describe("AnimationChannelsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Hide channel" }), { shiftKey: true });
     expect(screen.getByTestId("visibility-state")).toHaveTextContent('{"look_x":true,"look_y":true}');
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Enable live input monitor for this channel" })[0]);
+    expect(screen.getByTestId("monitor-state")).toHaveTextContent('{"look_x":true}');
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Arm recording for this channel" })[0]);
+    expect(screen.getByTestId("record-state")).toHaveTextContent('{"look_x":true}');
   });
 });

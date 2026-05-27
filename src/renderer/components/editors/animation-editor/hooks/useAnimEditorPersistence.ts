@@ -7,7 +7,18 @@ import {
 import type { AnimationToolId, WarpMode } from "../tools/types";
 import type { LaneRange, TimeSelectionRange } from "../anim-editor-shared";
 
+export const PERSISTED_ANIM_EDITOR_STATE_VERSION = 2;
+
+const VALID_ANIMATION_TOOL_IDS: ReadonlySet<AnimationToolId> = new Set([
+  "Pencil",
+  "Line",
+  "Range",
+  "Warp",
+  "Smooth",
+]);
+
 export type PersistedAnimEditorState = {
+  persistenceVersion?: number;
   selectedSourceId?: string;
   selectedClipPath?: string;
   activeTool?: AnimationToolId | null;
@@ -33,15 +44,40 @@ export type PersistedAnimEditorState = {
   timelineViewportRangeNorm?: { startNorm: number; endNorm: number } | null;
 };
 
+function sanitizePersistedActiveTool(
+  value: unknown
+): AnimationToolId | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return VALID_ANIMATION_TOOL_IDS.has(value as AnimationToolId)
+    ? (value as AnimationToolId)
+    : null;
+}
+
+function normalizePersistedAnimEditorState(
+  parsed: PersistedAnimEditorState
+): PersistedAnimEditorState {
+  return {
+    ...parsed,
+    persistenceVersion: PERSISTED_ANIM_EDITOR_STATE_VERSION,
+    activeTool: sanitizePersistedActiveTool(parsed.activeTool),
+  };
+}
+
 export function resolveInitialPersistedAnimEditorState(
   panelStorageKey: string,
   legacyStorageKey: string
 ): PersistedAnimEditorState | null {
   const { value, key } = getFirstAvailableValue([panelStorageKey, legacyStorageKey]);
-  if (value !== null && key && key !== panelStorageKey) {
-    setStorageValue(panelStorageKey, value);
+  const parsed = parsePersistedAnimEditorState(value);
+  if (parsed && key) {
+    const normalizedValue = JSON.stringify(parsed);
+    if (key !== panelStorageKey || normalizedValue !== value) {
+      setStorageValue(panelStorageKey, normalizedValue);
+    }
   }
-  return parsePersistedAnimEditorState(value);
+  return parsed;
 }
 
 export function parsePersistedAnimEditorState(rawValue: string | null): PersistedAnimEditorState | null {
@@ -49,7 +85,7 @@ export function parsePersistedAnimEditorState(rawValue: string | null): Persiste
   try {
     const parsed = JSON.parse(rawValue) as PersistedAnimEditorState;
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
+    return normalizePersistedAnimEditorState(parsed);
   } catch {
     return null;
   }
@@ -98,6 +134,7 @@ export function sanitizePersistedViewportRangeNorm(
 
 export function useAnimEditorPersistence(
   panelStorageKey: string,
+  legacyStorageKey: string,
   persistedState: PersistedAnimEditorState
 ) {
   const persistStateTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,7 +155,11 @@ export function useAnimEditorPersistence(
     }
     persistStateTimeoutRef.current = setTimeout(() => {
       persistStateTimeoutRef.current = null;
-      setStorageValue(panelStorageKey, JSON.stringify(persistedState));
+      const serialized = JSON.stringify(persistedState);
+      setStorageValue(panelStorageKey, serialized);
+      if (legacyStorageKey !== panelStorageKey) {
+        setStorageValue(legacyStorageKey, serialized);
+      }
     }, 120);
-  }, [panelStorageKey, persistedState]);
+  }, [legacyStorageKey, panelStorageKey, persistedState]);
 }

@@ -18,8 +18,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -42,8 +45,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -73,8 +79,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -85,8 +94,9 @@ describe("TransportBar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     await waitFor(() => {
-      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "playback_rate", 1);
-      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "record_enabled", true);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "loop", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 1);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(3, "record_enabled", true);
     });
   });
 
@@ -100,8 +110,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -124,8 +137,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -166,8 +182,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={0.75}
         durationSec={1.25}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue()}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -195,8 +214,11 @@ describe("TransportBar", () => {
         loopEnabled
         loopResetDurationSec={0.75}
         durationSec={1.25}
+        canStartRecording
         playheadSec={0.5}
         playheadSampleStepSec={0.1}
+        recordRequested={false}
+        recordingStartHint={"Record overwrite into the active clip."}
         writeAnimControlField={vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue()}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={seekPlayheadToTimeSec}
