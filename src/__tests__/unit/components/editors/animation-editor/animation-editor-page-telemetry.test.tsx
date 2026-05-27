@@ -87,8 +87,9 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/hooks/useAn
     heldSuppressedAnimControlFieldsRef: { current: new Set<string>() },
     readFieldValue: (fieldPath: string) => {
       const fields: Record<string, unknown> = {
-        "actual_anim_workload.outputs.anim_state.playback_state": 0,
+        "actual_anim_workload.outputs.anim_state.playback_rate": 0,
         "actual_anim_workload.outputs.anim_state.playhead_time_sec": 1.25,
+        "actual_anim_workload.outputs.anim_state.is_recording": false,
         "actual_anim_workload.outputs.anim_state.is_loop_reset_active": false,
         "actual_anim_workload.outputs.anim_state.loop_reset_progress_norm": 0,
         "actual_anim_workload.outputs.anim_state.active_clip_index": 0,
@@ -318,10 +319,11 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationTi
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/TransportBar", () => ({
-  TransportBar: (props: { isPlaying: boolean; loopEnabled: boolean; playheadSec: number }) => (
+  TransportBar: (props: { playbackRate: number; isRecording: boolean; loopEnabled: boolean; playheadSec: number }) => (
     <div data-testid="transport-props">
       {JSON.stringify({
-        isPlaying: props.isPlaying,
+        playbackRate: props.playbackRate,
+        isRecording: props.isRecording,
         loopEnabled: props.loopEnabled,
         playheadSec: props.playheadSec,
       })}
@@ -406,7 +408,8 @@ describe("AnimationEditorPage telemetry reflection", () => {
 
     expect(screen.getByTestId("transport-props")).toHaveTextContent(
       JSON.stringify({
-        isPlaying: false,
+        playbackRate: 0,
+        isRecording: false,
         loopEnabled: false,
         playheadSec: 1.25,
       })

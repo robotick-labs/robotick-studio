@@ -1,23 +1,20 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TransportBar } from "../../../../../renderer/components/editors/animation-editor/TransportBar";
-import {
-  ANIM_PLAYBACK_STATE_PAUSED,
-  ANIM_PLAYBACK_STATE_PLAYING,
-} from "../../../../../renderer/components/editors/animation-editor/playback-state";
 
 afterEach(() => {
   cleanup();
 });
 
 describe("TransportBar", () => {
-  it("play/pause button toggles playback state writes", () => {
+  it("writes forward, reverse, stop, and record transport state", async () => {
     const writeAnimControlField = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue();
 
     const { rerender } = render(
       <TransportBar
-        isPlaying={false}
+        playbackRate={0}
+        isRecording={false}
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
@@ -32,11 +29,16 @@ describe("TransportBar", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
-    expect(writeAnimControlField).toHaveBeenCalledWith("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 1);
+    });
 
+    writeAnimControlField.mockClear();
     rerender(
       <TransportBar
-        isPlaying
+        playbackRate={1}
+        isRecording={false}
         loopEnabled
         loopResetDurationSec={1}
         durationSec={1}
@@ -50,8 +52,107 @@ describe("TransportBar", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(writeAnimControlField).toHaveBeenCalledWith("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
+    fireEvent.click(screen.getByRole("button", { name: "Play Reverse" }));
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", -1);
+    });
+
+    writeAnimControlField.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 0);
+    });
+
+    writeAnimControlField.mockClear();
+    rerender(
+      <TransportBar
+        playbackRate={0}
+        isRecording={false}
+        loopEnabled
+        loopResetDurationSec={1}
+        durationSec={1}
+        playheadSec={0.5}
+        playheadSampleStepSec={1 / 30}
+        writeAnimControlField={writeAnimControlField}
+        setLoopEnabled={vi.fn()}
+        seekPlayheadToTimeSec={vi.fn()}
+        onCommitDurationSec={vi.fn()}
+        onCommitLoopResetDurationSec={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "playback_rate", 1);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "record_enabled", true);
+    });
+  });
+
+  it("supports J/K/L shortcuts and ramps forward shuttle speed", async () => {
+    const writeAnimControlField = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue();
+
+    const { rerender } = render(
+      <TransportBar
+        playbackRate={0}
+        isRecording={false}
+        loopEnabled
+        loopResetDurationSec={1}
+        durationSec={1}
+        playheadSec={0.5}
+        playheadSampleStepSec={1 / 30}
+        writeAnimControlField={writeAnimControlField}
+        setLoopEnabled={vi.fn()}
+        seekPlayheadToTimeSec={vi.fn()}
+        onCommitDurationSec={vi.fn()}
+        onCommitLoopResetDurationSec={vi.fn()}
+      />
+    );
+
+    fireEvent.keyDown(window, { code: "KeyL" });
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 1);
+    });
+
+    writeAnimControlField.mockClear();
+    rerender(
+      <TransportBar
+        playbackRate={1}
+        isRecording={false}
+        loopEnabled
+        loopResetDurationSec={1}
+        durationSec={1}
+        playheadSec={0.5}
+        playheadSampleStepSec={1 / 30}
+        writeAnimControlField={writeAnimControlField}
+        setLoopEnabled={vi.fn()}
+        seekPlayheadToTimeSec={vi.fn()}
+        onCommitDurationSec={vi.fn()}
+        onCommitLoopResetDurationSec={vi.fn()}
+      />
+    );
+
+    fireEvent.keyDown(window, { code: "KeyL" });
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 2);
+    });
+
+    writeAnimControlField.mockClear();
+    fireEvent.keyDown(window, { code: "KeyJ" });
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", -1);
+    });
+
+    writeAnimControlField.mockClear();
+    fireEvent.keyDown(window, { code: "KeyK" });
+    await waitFor(() => {
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(1, "record_enabled", false);
+      expect(writeAnimControlField).toHaveBeenNthCalledWith(2, "playback_rate", 0);
+    });
   });
 
   it("commits duration and loop reset edits on blur", () => {
@@ -60,7 +161,8 @@ describe("TransportBar", () => {
 
     render(
       <TransportBar
-        isPlaying={false}
+        playbackRate={0}
+        isRecording={false}
         loopEnabled
         loopResetDurationSec={0.75}
         durationSec={1.25}
@@ -88,7 +190,8 @@ describe("TransportBar", () => {
 
     render(
       <TransportBar
-        isPlaying={false}
+        playbackRate={0}
+        isRecording={false}
         loopEnabled
         loopResetDurationSec={0.75}
         durationSec={1.25}

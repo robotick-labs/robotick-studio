@@ -1,6 +1,12 @@
 import React from "react";
 import styles from "./AnimationEditorPage.module.css";
-import { ANIM_PLAYBACK_STATE_PAUSED, ANIM_PLAYBACK_STATE_PLAYING, ANIM_PLAYBACK_STATE_RECORDING } from "./playback-state";
+import {
+  DEFAULT_FORWARD_PLAYBACK_RATE,
+  DEFAULT_REVERSE_PLAYBACK_RATE,
+  isAnimPlaybackActive,
+  nextShuttlePlaybackRate,
+  playbackDirection,
+} from "./playback-state";
 
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -9,7 +15,8 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 }
 
 type Props = {
-  isPlaying: boolean;
+  playbackRate: number;
+  isRecording: boolean;
   loopEnabled: boolean;
   loopResetDurationSec: number;
   durationSec: number;
@@ -23,7 +30,8 @@ type Props = {
 };
 
 export function TransportBar({
-  isPlaying,
+  playbackRate,
+  isRecording,
   loopEnabled,
   loopResetDurationSec,
   durationSec,
@@ -37,6 +45,7 @@ export function TransportBar({
 }: Props) {
   const [loopResetDraft, setLoopResetDraft] = React.useState(() => loopResetDurationSec.toFixed(2));
   const [durationDraft, setDurationDraft] = React.useState(() => durationSec.toFixed(2));
+  const requestedPlaybackRateRef = React.useRef(playbackRate);
 
   React.useEffect(() => {
     setLoopResetDraft(loopResetDurationSec.toFixed(2));
@@ -46,22 +55,88 @@ export function TransportBar({
     setDurationDraft(durationSec.toFixed(2));
   }, [durationSec]);
 
+  React.useEffect(() => {
+    requestedPlaybackRateRef.current = playbackRate;
+  }, [playbackRate]);
+
+  const transportActive = isAnimPlaybackActive(playbackRate, isRecording);
+  const direction = playbackDirection(playbackRate);
+
+  const writeTransportState = React.useCallback(
+    async (nextPlaybackRate: number, nextRecordEnabled: boolean) => {
+      requestedPlaybackRateRef.current = nextPlaybackRate;
+      if (nextRecordEnabled) {
+        await writeAnimControlField("playback_rate", nextPlaybackRate);
+        await writeAnimControlField("record_enabled", true);
+        return;
+      }
+      await writeAnimControlField("record_enabled", false);
+      await writeAnimControlField("playback_rate", nextPlaybackRate);
+    },
+    [writeAnimControlField]
+  );
+
   const toggleLoopEnabled = React.useCallback(() => {
     const nextLoopEnabled = !loopEnabled;
     setLoopEnabled(nextLoopEnabled);
     void writeAnimControlField("loop", nextLoopEnabled);
   }, [loopEnabled, setLoopEnabled, writeAnimControlField]);
 
+  const requestReversePlay = React.useCallback(() => {
+    void writeTransportState(DEFAULT_REVERSE_PLAYBACK_RATE, false);
+  }, [writeTransportState]);
+
+  const requestReverseShuttle = React.useCallback(() => {
+    const nextPlaybackRate = nextShuttlePlaybackRate(requestedPlaybackRateRef.current, -1);
+    void writeTransportState(nextPlaybackRate, false);
+  }, [writeTransportState]);
+
+  const requestStop = React.useCallback(() => {
+    void writeTransportState(0, false);
+  }, [writeTransportState]);
+
+  const requestForwardPlay = React.useCallback(() => {
+    void writeTransportState(DEFAULT_FORWARD_PLAYBACK_RATE, false);
+  }, [writeTransportState]);
+
+  const requestForwardShuttle = React.useCallback(() => {
+    const nextPlaybackRate = nextShuttlePlaybackRate(requestedPlaybackRateRef.current, 1);
+    void writeTransportState(nextPlaybackRate, false);
+  }, [writeTransportState]);
+
+  const toggleRecording = React.useCallback(() => {
+    if (isRecording) {
+      void writeTransportState(0, false);
+      return;
+    }
+    void writeTransportState(DEFAULT_FORWARD_PLAYBACK_RATE, true);
+  }, [isRecording, writeTransportState]);
+
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableKeyboardTarget(event.target)) return;
       if (event.code === "Space") {
         event.preventDefault();
-        if (isPlaying) {
-          void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
+        if (transportActive) {
+          requestStop();
           return;
         }
-        void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
+        void writeTransportState(DEFAULT_FORWARD_PLAYBACK_RATE, false);
+        return;
+      }
+      if (event.code === "KeyJ") {
+        event.preventDefault();
+        requestReverseShuttle();
+        return;
+      }
+      if (event.code === "KeyK") {
+        event.preventDefault();
+        requestStop();
+        return;
+      }
+      if (event.code === "KeyL") {
+        event.preventDefault();
+        requestForwardShuttle();
         return;
       }
       if (event.code === "NumpadDivide" || (event.key === "/" && event.location === 3)) {
@@ -71,12 +146,12 @@ export function TransportBar({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isPlaying, toggleLoopEnabled, writeAnimControlField]);
+  }, [requestForwardShuttle, requestReverseShuttle, requestStop, toggleLoopEnabled, transportActive, writeTransportState]);
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableKeyboardTarget(event.target)) return;
-      if (isPlaying) return;
+      if (transportActive) return;
       if (event.code !== "ArrowLeft" && event.code !== "ArrowRight") return;
       event.preventDefault();
       const direction = event.code === "ArrowRight" ? 1 : -1;
@@ -85,7 +160,7 @@ export function TransportBar({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isPlaying, playheadSampleStepSec, playheadSec, seekPlayheadToTimeSec]);
+  }, [playheadSampleStepSec, playheadSec, seekPlayheadToTimeSec, transportActive]);
 
   return (
     <footer className={styles.transportBar}>
@@ -116,27 +191,38 @@ export function TransportBar({
           </button>
           <div className={styles.transportCluster} role="group" aria-label="Playback controls">
             <button
-              className={`${styles.transportIconButton} ${styles.iconPlayPause}`}
+              className={`${styles.transportIconButton} ${direction < 0 ? styles.transportIconButtonActive : ""}`}
               type="button"
-              aria-label={isPlaying ? "Pause" : "Play"}
-              title={isPlaying ? "Pause playback. Shortcut: Space." : "Play playback. Shortcut: Space."}
-              onClick={() => {
-                const nextPlaying = !isPlaying;
-                if (nextPlaying) {
-                  void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PLAYING);
-                  return;
-                }
-                void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_PAUSED);
-              }}
+              aria-label="Play Reverse"
+              title="Play reverse. Shortcut: J. Repeated J increases shuttle speed."
+              onClick={requestReversePlay}
             >
-              <span className={isPlaying ? styles.iconPauseGlyph : styles.iconPlayGlyph}>{isPlaying ? "⏸" : "▶"}</span>
+              <span className={styles.iconPlayGlyph}>◀</span>
             </button>
             <button
-              className={`${styles.transportIconButton} ${styles.iconRecord}`}
+              className={`${styles.transportIconButton} ${direction === 0 && !isRecording ? styles.transportIconButtonActive : ""} ${styles.iconStop}`}
+              type="button"
+              aria-label="Stop"
+              title="Stop playback. Shortcut: K."
+              onClick={requestStop}
+            >
+              <span className={styles.iconStopGlyph}>■</span>
+            </button>
+            <button
+              className={`${styles.transportIconButton} ${direction > 0 && !isRecording ? styles.transportIconButtonActive : ""} ${styles.iconPlayPause}`}
+              type="button"
+              aria-label="Play"
+              title="Play forward. Shortcuts: L, Space. Repeated L increases shuttle speed."
+              onClick={requestForwardPlay}
+            >
+              <span className={styles.iconPlayGlyph}>▶</span>
+            </button>
+            <button
+              className={`${styles.transportIconButton} ${styles.iconRecord} ${isRecording ? styles.transportIconButtonRecordActive : ""}`}
               type="button"
               aria-label="Record"
-              title="Record playback."
-              onClick={() => void writeAnimControlField("playback_state", ANIM_PLAYBACK_STATE_RECORDING)}
+              title={isRecording ? "Stop recording." : "Record forward playback."}
+              onClick={toggleRecording}
             >
               <span className={styles.iconRecordGlyph}>●</span>
             </button>

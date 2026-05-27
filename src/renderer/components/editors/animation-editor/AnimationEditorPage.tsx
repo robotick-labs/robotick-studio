@@ -19,8 +19,8 @@ import { AnimationTargetPanel } from "./AnimationTargetPanel";
 import { TransportBar } from "./TransportBar";
 import {
   DEFAULT_EMPTY_CLIP_DURATION_SEC,
-  selectTelemetryWorkload,
   type AnimLoadStatusLevel,
+  selectTelemetryWorkload,
   type ClipData,
   type ClipRef,
 } from "./anim-editor-shared";
@@ -39,7 +39,7 @@ import { useAnimTimelineController } from "./hooks/useAnimTimelineController";
 import { useAnimToolSettings } from "./hooks/useAnimToolSettings";
 import { useQueuedPlayheadSeek } from "./hooks/useQueuedPlayheadSeek";
 import { useSelectedClipLoader } from "./hooks/useSelectedClipLoader";
-import { isAnimPlaybackActive } from "./playback-state";
+import { normalizePlaybackRate } from "./playback-state";
 import styles from "./AnimationEditorPage.module.css";
 const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
 const DEFAULT_CHANNELSET = "content/anim/channelsets/barr_e_expression_mvp.channelset.yaml";
@@ -74,7 +74,6 @@ export default function AnimationEditorPage() {
   const telemetryService = useTelemetryService();
   const { projectPath } = useProjectContext();
   const { projectModels } = ProjectData.use();
-  const [isPlaying, setIsPlaying] = React.useState(true);
   const [loopEnabled, setLoopEnabled] = React.useState(true);
   const [selectedSourceId, setSelectedSourceId] = React.useState(() => initialPersistedState?.selectedSourceId ?? "");
   const [animsetPath, setAnimsetPath] = React.useState(DEFAULT_ANIMSET);
@@ -268,11 +267,14 @@ export default function AnimationEditorPage() {
     selectedWorkloadName,
   });
 
-  const playbackStateRaw = selectedWorkloadName
-    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.playback_state`)
+  const playbackRateRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.playback_rate`)
     : null;
   const playheadTimeRaw = selectedWorkloadName
     ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.playhead_time_sec`)
+    : null;
+  const isRecordingRaw = selectedWorkloadName
+    ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.is_recording`)
     : null;
   const isLoopResetActiveRaw = selectedWorkloadName
     ? readFieldValue(`${selectedWorkloadName}.outputs.anim_state.is_loop_reset_active`)
@@ -464,7 +466,8 @@ export default function AnimationEditorPage() {
     syncClipChannelsRef.current = syncClipChannels;
   }, [syncClipChannels]);
   const [telemetryReceiveHz, setTelemetryReceiveHz] = React.useState(0);
-  const playbackState = typeof playbackStateRaw === "number" ? playbackStateRaw : null;
+  const playbackRate = normalizePlaybackRate(typeof playbackRateRaw === "number" ? playbackRateRaw : null);
+  const isRecording = Boolean(isRecordingRaw);
   const isLoopResetActive = Boolean(isLoopResetActiveRaw);
   const loopResetProgressNorm =
     typeof loopResetProgressRaw === "number"
@@ -511,11 +514,6 @@ export default function AnimationEditorPage() {
     setLocalScrubTimeSec,
     writeAnimControlFieldRaw,
   });
-
-  React.useEffect(() => {
-    if (playbackState === null) return;
-    setIsPlaying(isAnimPlaybackActive(playbackState));
-  }, [playbackState]);
 
   React.useEffect(() => {
     if (!telemetryBaseUrl) {
@@ -784,7 +782,8 @@ export default function AnimationEditorPage() {
         />
       </div>
       <TransportBar
-        isPlaying={isPlaying}
+        playbackRate={playbackRate}
+        isRecording={isRecording}
         loopEnabled={loopEnabled}
         loopResetDurationSec={clipData.loopResetDurationSec}
         durationSec={durationSec}
