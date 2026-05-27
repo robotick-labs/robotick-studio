@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   clipDataFromTelemetryMetadata,
   saveButtonPresentation,
-} from "../../../../../renderer/components/editors/animation-editor/AnimationEditorPage";
+} from "../../../../../renderer/components/editors/animation-editor/anim-editor-shared";
 
 describe("clipDataFromTelemetryMetadata", () => {
   it("accepts channel_names when channels is absent", () => {
