@@ -102,6 +102,14 @@ export type AnimLoadStatus = {
 };
 
 export type SaveUiState = "clean" | "dirty" | "saving" | "failed";
+export type SaveButtonTone = "neutral" | "dirty" | "failed";
+export type SaveButtonPresentation = {
+  label: string;
+  title: string;
+  disabled: boolean;
+  tone: SaveButtonTone;
+  showDirtyDot: boolean;
+};
 
 export const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
 
@@ -154,15 +162,13 @@ export function labelFromAssetPath(path: string, suffix: string): string {
   return filename.endsWith(suffix) ? filename.slice(0, -suffix.length) : filename;
 }
 
-export function saveButtonPresentation(dirty: boolean, saveStatus: SaveUiState) {
+export function saveButtonPresentation(dirty: boolean, saveStatus: SaveUiState): SaveButtonPresentation {
   const label =
     saveStatus === "saving"
       ? "Saving..."
       : saveStatus === "failed"
         ? "Save Failed"
-        : dirty
-          ? "Save*"
-          : "Save";
+        : "Save";
   const title =
     saveStatus === "saving"
       ? "Saving animation changes."
@@ -172,5 +178,7 @@ export function saveButtonPresentation(dirty: boolean, saveStatus: SaveUiState) 
           ? "Retry saving animation changes."
           : "No unsaved animation changes.";
   const disabled = saveStatus === "saving" || (!dirty && saveStatus !== "failed");
-  return { label, title, disabled };
+  const tone = saveStatus === "failed" ? "failed" : dirty ? "dirty" : "neutral";
+  const showDirtyDot = dirty && saveStatus !== "saving" && saveStatus !== "failed";
+  return { label, title, disabled, tone, showDirtyDot };
 }

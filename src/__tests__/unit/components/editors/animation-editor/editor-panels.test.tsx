@@ -34,7 +34,13 @@ describe("AnimationTargetPanel", () => {
         onRenameAnimset={vi.fn()}
         onRenameClip={vi.fn()}
         onSave={onSave}
-        saveButtonUi={{ label: "Save*", title: "Save dirty animation changes.", disabled: false }}
+        saveButtonUi={{
+          label: "Save",
+          title: "Save dirty animation changes.",
+          disabled: false,
+          tone: "dirty",
+          showDirtyDot: true,
+        }}
         selectedClipPath={"content/anim/animclips/idle.animclip.yaml"}
         selectedSourceId={"a"}
         setSelectedSourceId={setSelectedSourceId}
@@ -43,10 +49,11 @@ describe("AnimationTargetPanel", () => {
     );
 
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "b" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save*" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByRole("button", { name: "Auto-save" })).toBeDisabled();
     expect(screen.getByText("face.channelset.yaml (read-only)")).toBeInTheDocument();
+    expect(screen.getByTitle("Save dirty animation changes.").querySelector("span[aria-hidden='true']")).not.toBeNull();
     expect(setSelectedSourceId).toHaveBeenCalledWith("b");
     expect(onSave).toHaveBeenCalledTimes(1);
   });

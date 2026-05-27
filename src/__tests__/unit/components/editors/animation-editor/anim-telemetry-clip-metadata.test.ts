@@ -45,14 +45,18 @@ describe("clipDataFromTelemetryMetadata", () => {
 describe("saveButtonPresentation", () => {
   it("derives expected button state for dirty and failed saves", () => {
     expect(saveButtonPresentation(true, "dirty")).toEqual({
-      label: "Save*",
+      label: "Save",
       title: "Save dirty animation changes.",
       disabled: false,
+      tone: "dirty",
+      showDirtyDot: true,
     });
     expect(saveButtonPresentation(false, "failed")).toEqual({
       label: "Save Failed",
       title: "Retry saving animation changes.",
       disabled: false,
+      tone: "failed",
+      showDirtyDot: false,
     });
   });
 });

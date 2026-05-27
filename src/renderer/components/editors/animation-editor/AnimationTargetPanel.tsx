@@ -2,7 +2,7 @@ import React from "react";
 
 import { ActiveClipFieldMenu } from "./ActiveClipFieldMenu";
 import { AnimSetFieldMenu } from "./AnimSetFieldMenu";
-import type { AnimLoadStatus, ClipRef } from "./anim-editor-shared";
+import type { AnimLoadStatus, ClipRef, SaveButtonPresentation } from "./anim-editor-shared";
 import styles from "./AnimationEditorPage.module.css";
 
 type AnimationTargetPanelProps = {
@@ -24,7 +24,7 @@ type AnimationTargetPanelProps = {
   onRenameAnimset: () => void | Promise<void>;
   onRenameClip: () => void | Promise<void>;
   onSave: () => void | Promise<void>;
-  saveButtonUi: { label: string; title: string; disabled: boolean };
+  saveButtonUi: SaveButtonPresentation;
   selectedClipPath: string;
   selectedSourceId: string;
   setSelectedSourceId: (nextSourceId: string) => void;
@@ -63,13 +63,22 @@ export function AnimationTargetPanel({
           Auto-save
         </button>
         <button
-          className={styles.toolButton}
+          className={[
+            styles.toolButton,
+            saveButtonUi.tone === "dirty" ? styles.toolButtonDirty : "",
+            saveButtonUi.tone === "failed" ? styles.toolButtonFailed : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           type="button"
           title={saveButtonUi.title}
           onClick={() => void onSave()}
           disabled={saveButtonUi.disabled}
         >
-          {saveButtonUi.label}
+          <span className={styles.saveButtonContent}>
+            <span>{saveButtonUi.label}</span>
+            {saveButtonUi.showDirtyDot ? <span className={styles.saveDirtyDot} aria-hidden="true" /> : null}
+          </span>
         </button>
       </div>
       <div className={styles.sectionHeaderRow}>
