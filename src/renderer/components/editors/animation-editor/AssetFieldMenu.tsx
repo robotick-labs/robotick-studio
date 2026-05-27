@@ -128,6 +128,7 @@ export function AssetFieldMenu({
         className={styles.assetMenuButton}
         type="button"
         title={menuButtonTitle}
+        aria-label={menuButtonTitle}
         onClick={() => {
           onOpen?.();
           setMenuOpen((open) => {

@@ -52,6 +52,7 @@ type ClipData = {
   name: string;
   channels: Record<string, Float32Array>;
   durationSec: number;
+  loopResetDurationSec: number;
   sampleCount: number;
   liveSampleRateHz: number;
   clipRevision: string;
@@ -83,20 +84,27 @@ type AnimTelemetryAnimsetClip = {
   clip_name: string;
   animclip_path: string;
   channelset_id?: string;
+  loop_reset_duration_sec?: number;
   duration_sec?: number;
   channels?: string[];
 };
 type AnimTelemetryAnimsetResponse = {
   service_id: string;
+  anim_project_path?: string;
   animset_path: string;
   animset_options?: string[];
   channelset_path?: string;
   channelset_id?: string;
   animset_name?: string;
   animset_revision?: number;
+  dirty?: boolean;
   clips?: AnimTelemetryAnimsetClip[];
 };
 type AnimTelemetryClipIdentity = {
+  anim_project_path?: string;
+  channelset_path?: string;
+  channelset_id?: string;
+  animset_path?: string;
   clip_name?: string;
   animclip_path?: string;
 };
@@ -104,12 +112,34 @@ type AnimTelemetryClipResponse = {
   service_id: string;
   clip_identity?: AnimTelemetryClipIdentity;
   clip_revision?: string;
+  anim_project_path?: string;
+  animset_path?: string;
+  channelset_path?: string;
+  channelset_id?: string;
+  loop_reset_duration_sec?: number;
   duration_sec?: number;
   dirty?: boolean;
   live_sample_rate_hz?: number;
   sample_count?: number;
   channels?: string[];
   channel_names?: string[];
+};
+type AnimAuthoringActionResponse = {
+  action?: string;
+  service_id?: string;
+  anim_project_path?: string;
+  animset_path?: string;
+  clip_index?: number;
+  clip_identity?: {
+    clip_name?: string;
+    animclip_path?: string;
+  };
+};
+type AnimSaveResponse = {
+  service_id?: string;
+  saved_clip_count?: number;
+  saved_metadata_count?: number;
+  dirty?: boolean;
 };
 type PersistedAnimEditorState = {
   selectedSourceId?: string;
@@ -137,6 +167,7 @@ type PersistedAnimEditorState = {
   timelineViewportRangeNorm?: { startNorm: number; endNorm: number } | null;
 };
 type AnimLoadStatusLevel = "ok" | "warning" | "error";
+type SaveUiState = "clean" | "dirty" | "saving" | "failed";
 const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
 const DEFAULT_CHANNELSET = "content/anim/channelsets/barr_e_expression_mvp.channelset.yaml";
 const DEFAULT_EMPTY_CLIP_DURATION_SEC = 1;
@@ -240,6 +271,10 @@ export function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse
     name,
     channels,
     durationSec,
+    loopResetDurationSec:
+      typeof payload?.loop_reset_duration_sec === "number" && Number.isFinite(payload.loop_reset_duration_sec)
+        ? Math.max(0.01, payload.loop_reset_duration_sec)
+        : 1,
     sampleCount,
     liveSampleRateHz:
       typeof payload?.live_sample_rate_hz === "number" && Number.isFinite(payload.live_sample_rate_hz)
@@ -319,6 +354,32 @@ function normalizeTimeRange(durationSec: number, range: TimeSelectionRange | nul
     startNorm: Math.min(startNorm, endNorm),
     endNorm: Math.max(startNorm, endNorm),
   };
+}
+
+function labelFromAssetPath(path: string, suffix: string): string {
+  const filename = path.split("/").pop() || path;
+  return filename.endsWith(suffix) ? filename.slice(0, -suffix.length) : filename;
+}
+
+export function saveButtonPresentation(dirty: boolean, saveStatus: SaveUiState) {
+  const label =
+    saveStatus === "saving"
+      ? "Saving..."
+      : saveStatus === "failed"
+        ? "Save Failed"
+        : dirty
+          ? "Save*"
+          : "Save";
+  const title =
+    saveStatus === "saving"
+      ? "Saving animation changes."
+      : dirty
+        ? "Save dirty animation changes."
+        : saveStatus === "failed"
+          ? "Retry saving animation changes."
+          : "No unsaved animation changes.";
+  const disabled = saveStatus === "saving" || (!dirty && saveStatus !== "failed");
+  return { label, title, disabled };
 }
 
 function closestSamplePointToClientPoint(
@@ -432,6 +493,7 @@ export default function AnimationEditorPage() {
     level: "ok",
     message: "OK",
   });
+  const [saveStatus, setSaveStatus] = React.useState<SaveUiState>("clean");
   const [clipRefs, setClipRefs] = React.useState<ClipRef[]>([]);
   const [selectedClipPath, setSelectedClipPath] = React.useState(
     () => initialPersistedState?.selectedClipPath ?? ""
@@ -440,6 +502,7 @@ export default function AnimationEditorPage() {
     name: "clip",
     channels: {},
     durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
+    loopResetDurationSec: 1,
     sampleCount: 0,
     liveSampleRateHz: 0,
     clipRevision: "0",
@@ -602,6 +665,14 @@ export default function AnimationEditorPage() {
     clipDataRef.current = clipData;
   }, [clipData]);
 
+  React.useEffect(() => {
+    setSaveStatus((current) => {
+      if (current === "saving") return current;
+      if (current === "failed" && clipData.dirty) return current;
+      return clipData.dirty ? "dirty" : "clean";
+    });
+  }, [clipData.dirty]);
+
   const reportAnimLoadStatus = React.useCallback((level: AnimLoadStatusLevel, message: string) => {
     const rank: Record<AnimLoadStatusLevel, number> = { ok: 0, warning: 1, error: 2 };
     setAnimLoadStatus((prev) => (rank[level] >= rank[prev.level] ? { level, message } : prev));
@@ -712,6 +783,57 @@ export default function AnimationEditorPage() {
     },
     [animTelemetryServiceId, telemetryBaseUrl]
   );
+  const performAnimAuthoringAction = React.useCallback(
+    async (suffix: string, body: Record<string, unknown>) => {
+      const url = buildAnimServiceUrl(suffix);
+      if (!url) {
+        throw new Error("Missing animation authoring service URL");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        let errorText = `${suffix} failed: ${response.status}`;
+        try {
+          const payload = (await response.json()) as { error?: string };
+          if (payload?.error) {
+            errorText = payload.error;
+          }
+        } catch {
+          // Ignore malformed error payloads and keep the HTTP status-based message.
+        }
+        throw new Error(errorText);
+      }
+      return (await response.json()) as AnimAuthoringActionResponse;
+    },
+    [buildAnimServiceUrl]
+  );
+  const performAnimSave = React.useCallback(async () => {
+    const url = buildAnimServiceUrl("/save");
+    if (!url) {
+      throw new Error("Missing animation save service URL");
+    }
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      let errorText = `save failed: ${response.status}`;
+      try {
+        const payload = (await response.json()) as { error?: string };
+        if (payload?.error) {
+          errorText = payload.error;
+        }
+      } catch {
+        // Ignore malformed error payloads and keep the HTTP status-based message.
+      }
+      throw new Error(errorText);
+    }
+    return (await response.json()) as AnimSaveResponse;
+  }, [buildAnimServiceUrl]);
   const { model: telemetryModel } = useTelemetryStream(telemetryBaseUrl, ANIM_TELEMETRY_SAMPLE_RATE_HZ);
   const fallbackWorkloadNameFromServiceId = React.useMemo(() => {
     if (!animTelemetryServiceId) return "";
@@ -928,6 +1050,7 @@ export default function AnimationEditorPage() {
           name: "clip",
           channels: {},
           durationSec: DEFAULT_EMPTY_CLIP_DURATION_SEC,
+          loopResetDurationSec: 1,
           sampleCount: 0,
           liveSampleRateHz: 0,
           clipRevision: "0",
@@ -1432,6 +1555,197 @@ export default function AnimationEditorPage() {
     },
     [resolveAnimWritableField, telemetryBaseUrl, telemetryModel, telemetryService]
   );
+  const selectedClipIndex = React.useMemo(
+    () => clipRefs.findIndex((clip) => clip.animclipPath === selectedClipPath),
+    [clipRefs, selectedClipPath]
+  );
+  const selectedClipRef = selectedClipIndex >= 0 ? clipRefs[selectedClipIndex] : null;
+
+  const handleCreateAnimset = React.useCallback(async () => {
+    const proposed = window.prompt("New Anim Set name", "new_animset");
+    if (!proposed) return;
+    try {
+      const payload = await performAnimAuthoringAction("/animset-create", { animset_name: proposed });
+      await reloadAnimsetClipRefs();
+      if (payload.animset_path) {
+        applyAnimsetPath(payload.animset_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to create Anim Set.");
+    }
+  }, [applyAnimsetPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  const handleDuplicateAnimset = React.useCallback(async () => {
+    if (!animsetPath) return;
+    const proposed = window.prompt("Duplicate Anim Set as", `${labelFromAssetPath(animsetPath, ".animset.yaml")}_copy`);
+    if (!proposed) return;
+    try {
+      const payload = await performAnimAuthoringAction("/animset-duplicate", {
+        source_animset_path: animsetPath,
+        animset_name: proposed,
+      });
+      await reloadAnimsetClipRefs();
+      if (payload.animset_path) {
+        applyAnimsetPath(payload.animset_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to duplicate Anim Set.");
+    }
+  }, [animsetPath, applyAnimsetPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  const handleRenameAnimset = React.useCallback(async () => {
+    if (!animsetPath) return;
+    const currentName = labelFromAssetPath(animsetPath, ".animset.yaml");
+    const proposed = window.prompt("Rename Anim Set", currentName);
+    if (!proposed || proposed === currentName) return;
+    try {
+      await performAnimAuthoringAction("/animset-rename", {
+        source_animset_path: animsetPath,
+        animset_name: proposed,
+      });
+      await reloadAnimsetClipRefs();
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to rename Anim Set.");
+    }
+  }, [animsetPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  const handleDeleteAnimset = React.useCallback(async () => {
+    if (!animsetPath) return;
+    if (!window.confirm(`Remove Anim Set '${labelFromAssetPath(animsetPath, ".animset.yaml")}' from the anim project?`)) return;
+    try {
+      const payload = await performAnimAuthoringAction("/animset-delete", { source_animset_path: animsetPath });
+      await reloadAnimsetClipRefs();
+      if (payload.animset_path) {
+        applyAnimsetPath(payload.animset_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to remove Anim Set.");
+    }
+  }, [animsetPath, applyAnimsetPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  const handleCreateClip = React.useCallback(async () => {
+    const proposed = window.prompt("New Clip name", "new_clip");
+    if (!proposed) return;
+    try {
+      const payload = await performAnimAuthoringAction("/clip-create", { clip_name: proposed });
+      await reloadAnimsetClipRefs();
+      if (payload.clip_identity?.animclip_path) {
+        applyActiveClipPath(payload.clip_identity.animclip_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to create clip.");
+    }
+  }, [applyActiveClipPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus]);
+
+  const handleDuplicateClip = React.useCallback(async () => {
+    if (selectedClipIndex < 0 || !selectedClipRef) return;
+    const proposed = window.prompt("Duplicate Clip as", `${selectedClipRef.name}_copy`);
+    if (!proposed) return;
+    try {
+      const payload = await performAnimAuthoringAction("/clip-duplicate", {
+        clip_index: selectedClipIndex,
+        clip_name: proposed,
+      });
+      await reloadAnimsetClipRefs();
+      if (payload.clip_identity?.animclip_path) {
+        applyActiveClipPath(payload.clip_identity.animclip_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to duplicate clip.");
+    }
+  }, [applyActiveClipPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef]);
+
+  const handleRenameClip = React.useCallback(async () => {
+    if (selectedClipIndex < 0 || !selectedClipRef) return;
+    const proposed = window.prompt("Rename Clip", selectedClipRef.name);
+    if (!proposed || proposed === selectedClipRef.name) return;
+    try {
+      await performAnimAuthoringAction("/clip-rename", {
+        clip_index: selectedClipIndex,
+        clip_name: proposed,
+      });
+      await reloadAnimsetClipRefs();
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to rename clip.");
+    }
+  }, [performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef]);
+
+  const handleDeleteClip = React.useCallback(async () => {
+    if (selectedClipIndex < 0 || !selectedClipRef) return;
+    if (!window.confirm(`Remove clip '${selectedClipRef.name}' from the current Anim Set?`)) return;
+    try {
+      const payload = await performAnimAuthoringAction("/clip-delete", { clip_index: selectedClipIndex });
+      await reloadAnimsetClipRefs();
+      if (payload.clip_identity?.animclip_path) {
+        applyActiveClipPath(payload.clip_identity.animclip_path);
+      }
+    } catch (error) {
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to remove clip.");
+    }
+  }, [applyActiveClipPath, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef]);
+
+  const handleCommitDurationSec = React.useCallback(
+    async (nextDurationSec: number) => {
+      if (selectedClipIndex < 0) return;
+      const allowCrop =
+        nextDurationSec + 1e-6 < durationSec
+          ? window.confirm(`Shorten clip from ${durationSec.toFixed(2)}s to ${nextDurationSec.toFixed(2)}s and crop trailing samples?`)
+          : false;
+      if (nextDurationSec + 1e-6 < durationSec && !allowCrop) {
+        return;
+      }
+      try {
+        await performAnimAuthoringAction("/clip-duration", {
+          clip_index: selectedClipIndex,
+          duration_sec: nextDurationSec,
+          allow_crop: allowCrop,
+        });
+        await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+        await reloadAnimsetClipRefs();
+      } catch (error) {
+        reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to update clip duration.");
+      }
+    },
+    [durationSec, loadLiveClipData, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef?.name]
+  );
+
+  const handleCommitLoopResetDurationSec = React.useCallback(
+    async (nextLoopResetDurationSec: number) => {
+      if (selectedClipIndex < 0) return;
+      try {
+        await performAnimAuthoringAction("/clip-loop-reset-duration", {
+          clip_index: selectedClipIndex,
+          loop_reset_duration_sec: nextLoopResetDurationSec,
+        });
+        await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+        await reloadAnimsetClipRefs();
+      } catch (error) {
+        reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to update loop reset duration.");
+      }
+    },
+    [loadLiveClipData, performAnimAuthoringAction, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef?.name]
+  );
+  const handleSave = React.useCallback(async () => {
+    if (!clipDataRef.current.dirty) {
+      setSaveStatus("clean");
+      return;
+    }
+    setSaveStatus("saving");
+    try {
+      const payload = await performAnimSave();
+      if (selectedClipIndex >= 0) {
+        await loadLiveClipData(selectedClipIndex, selectedClipRef?.name);
+      }
+      await reloadAnimsetClipRefs();
+      setSaveStatus(payload.dirty ? "dirty" : "clean");
+      reportAnimLoadStatus("ok", payload.saved_clip_count && payload.saved_clip_count > 0 ? "Save complete." : "Nothing to save.");
+    } catch (error) {
+      setSaveStatus("failed");
+      reportAnimLoadStatus("error", error instanceof Error ? error.message : "Failed to save animation changes.");
+    }
+  }, [loadLiveClipData, performAnimSave, reloadAnimsetClipRefs, reportAnimLoadStatus, selectedClipIndex, selectedClipRef?.name]);
+
+  const saveButtonUi = saveButtonPresentation(clipData.dirty, saveStatus);
 
   const persistStateTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
@@ -1919,8 +2233,14 @@ export default function AnimationEditorPage() {
               <button className={styles.toolButton} type="button" title="Auto-save is not implemented yet." disabled>
                 Auto-save
               </button>
-              <button className={styles.toolButton} type="button" title="Save is not implemented yet." disabled>
-                Save
+              <button
+                className={styles.toolButton}
+                type="button"
+                title={saveButtonUi.title}
+                onClick={() => void handleSave()}
+                disabled={saveButtonUi.disabled}
+              >
+                {saveButtonUi.label}
               </button>
             </div>
             <div className={styles.sectionHeaderRow}>
@@ -1962,6 +2282,10 @@ export default function AnimationEditorPage() {
               animsetOptions={animsetOptions}
               animsetPath={animsetPath}
               onSelectAnimsetPath={applyAnimsetPath}
+              onCreate={handleCreateAnimset}
+              onDuplicate={handleDuplicateAnimset}
+              onRename={handleRenameAnimset}
+              onDelete={handleDeleteAnimset}
             />
             <h3>Active Clip</h3>
             <ActiveClipFieldMenu
@@ -1969,6 +2293,10 @@ export default function AnimationEditorPage() {
               selectedClipPath={selectedClipPath}
               onReload={() => void reloadAnimsetClipRefs()}
               onSelectClipPath={applyActiveClipPath}
+              onCreate={handleCreateClip}
+              onDuplicate={handleDuplicateClip}
+              onRename={handleRenameClip}
+              onDelete={handleDeleteClip}
             />
           </section>
           <section className={styles.panelCard}>
@@ -2151,6 +2479,7 @@ export default function AnimationEditorPage() {
       <TransportBar
         isPlaying={isPlaying}
         loopEnabled={loopEnabled}
+        loopResetDurationSec={clipData.loopResetDurationSec}
         durationSec={durationSec}
         playheadSec={playheadSec}
         playheadSampleStepSec={playheadSampleStepSec}
@@ -2158,6 +2487,8 @@ export default function AnimationEditorPage() {
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={setLoopEnabled}
         seekPlayheadToTimeSec={seekPlayheadToTimeSec}
+        onCommitDurationSec={handleCommitDurationSec}
+        onCommitLoopResetDurationSec={handleCommitLoopResetDurationSec}
       />
     </div>
   );

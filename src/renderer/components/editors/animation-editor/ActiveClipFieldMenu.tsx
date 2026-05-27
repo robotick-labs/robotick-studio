@@ -9,9 +9,22 @@ type Props = {
   selectedClipPath: string;
   onReload: () => void;
   onSelectClipPath: (nextPath: string) => void;
+  onCreate?: () => void;
+  onDuplicate?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
 };
 
-export function ActiveClipFieldMenu({ clipRefs, selectedClipPath, onReload, onSelectClipPath }: Props) {
+export function ActiveClipFieldMenu({
+  clipRefs,
+  selectedClipPath,
+  onReload,
+  onSelectClipPath,
+  onCreate,
+  onDuplicate,
+  onRename,
+  onDelete,
+}: Props) {
   const selectedClipName = React.useMemo(
     () => clipRefs.find((clip) => clip.animclipPath === selectedClipPath)?.name ?? "None",
     [clipRefs, selectedClipPath]
@@ -47,10 +60,10 @@ export function ActiveClipFieldMenu({ clipRefs, selectedClipPath, onReload, onSe
         );
       }}
       actions={[
-        { label: "New", disabled: true },
-        { label: "Duplicate", disabled: true },
-        { label: "Rename", disabled: true },
-        { label: "Delete", disabled: true },
+        { label: "New", disabled: !onCreate, onClick: onCreate },
+        { label: "Duplicate", disabled: !onDuplicate || !selectedClipPath, onClick: onDuplicate },
+        { label: "Rename", disabled: !onRename || !selectedClipPath, onClick: onRename },
+        { label: "Delete", disabled: !onDelete || !selectedClipPath, onClick: onDelete },
       ]}
     />
   );

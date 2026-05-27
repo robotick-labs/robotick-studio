@@ -5,6 +5,7 @@ type ClipData = {
   name: string;
   channels: Record<string, Float32Array>;
   durationSec: number;
+  loopResetDurationSec: number;
   sampleCount: number;
   liveSampleRateHz: number;
   clipRevision: string;

@@ -11,6 +11,7 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 type Props = {
   isPlaying: boolean;
   loopEnabled: boolean;
+  loopResetDurationSec: number;
   durationSec: number;
   playheadSec: number;
   playheadSampleStepSec: number;
@@ -18,11 +19,14 @@ type Props = {
   writeAnimControlField: (fieldName: string, value: unknown) => Promise<void>;
   setLoopEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   seekPlayheadToTimeSec: (nextTimeSec: number) => void;
+  onCommitDurationSec: (nextDurationSec: number) => void;
+  onCommitLoopResetDurationSec: (nextLoopResetDurationSec: number) => void;
 };
 
 export function TransportBar({
   isPlaying,
   loopEnabled,
+  loopResetDurationSec,
   durationSec,
   playheadSec,
   playheadSampleStepSec,
@@ -30,8 +34,19 @@ export function TransportBar({
   writeAnimControlField,
   setLoopEnabled,
   seekPlayheadToTimeSec,
+  onCommitDurationSec,
+  onCommitLoopResetDurationSec,
 }: Props) {
-  const loopDurationSecMock = 1.0;
+  const [loopResetDraft, setLoopResetDraft] = React.useState(() => loopResetDurationSec.toFixed(2));
+  const [durationDraft, setDurationDraft] = React.useState(() => durationSec.toFixed(2));
+
+  React.useEffect(() => {
+    setLoopResetDraft(loopResetDurationSec.toFixed(2));
+  }, [loopResetDurationSec]);
+
+  React.useEffect(() => {
+    setDurationDraft(durationSec.toFixed(2));
+  }, [durationSec]);
 
   const toggleLoopEnabled = React.useCallback(() => {
     const nextLoopEnabled = !loopEnabled;
@@ -81,7 +96,22 @@ export function TransportBar({
         <div className={styles.transportLauncherStrip}>
           <label className={`${styles.transportNumericField} ${styles.transportLoopDurationField}`}>
             <span className={styles.transportNumericLabel}>Reset Duration</span>
-            <input type="number" min={0.01} step={0.01} value={loopDurationSecMock.toFixed(2)} readOnly title="Time to blend from clip end back to clip start when looping (planned)." />
+            <input
+              type="number"
+              min={0.01}
+              step={0.01}
+              value={loopResetDraft}
+              title="Time to blend from clip end back to clip start when looping."
+              onChange={(event) => setLoopResetDraft(event.target.value)}
+              onBlur={() => {
+                const parsed = Number(loopResetDraft);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                  setLoopResetDraft(loopResetDurationSec.toFixed(2));
+                  return;
+                }
+                onCommitLoopResetDurationSec(parsed);
+              }}
+            />
           </label>
           <button className={styles.loopLauncherButton} type="button" title="Toggle loop playback. Shortcut: Numpad /." onClick={toggleLoopEnabled}>
             {loopEnabled ? "Loop" : "Once"}
@@ -133,7 +163,21 @@ export function TransportBar({
             </label>
             <label className={styles.transportNumericField}>
               <span className={styles.transportNumericLabel}>Duration</span>
-              <input type="number" min={0.01} step={0.01} value={durationSec.toFixed(2)} readOnly />
+              <input
+                type="number"
+                min={0.01}
+                step={0.01}
+                value={durationDraft}
+                onChange={(event) => setDurationDraft(event.target.value)}
+                onBlur={() => {
+                  const parsed = Number(durationDraft);
+                  if (!Number.isFinite(parsed) || parsed <= 0) {
+                    setDurationDraft(durationSec.toFixed(2));
+                    return;
+                  }
+                  onCommitDurationSec(parsed);
+                }}
+              />
             </label>
           </div>
         </div>

@@ -6,6 +6,10 @@ type Props = {
   animsetOptions: string[];
   animsetPath: string;
   onSelectAnimsetPath: (nextPath: string) => void;
+  onCreate?: () => void;
+  onDuplicate?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
 };
 
 function labelFromPath(path: string): string {
@@ -13,7 +17,7 @@ function labelFromPath(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export function AnimSetFieldMenu({ animsetOptions, animsetPath, onSelectAnimsetPath }: Props) {
+export function AnimSetFieldMenu({ animsetOptions, animsetPath, onSelectAnimsetPath, onCreate, onDuplicate, onRename, onDelete }: Props) {
   const selectedLabel = React.useMemo(() => labelFromPath(animsetPath), [animsetPath]);
 
   return (
@@ -45,10 +49,10 @@ export function AnimSetFieldMenu({ animsetOptions, animsetPath, onSelectAnimsetP
         );
       }}
       actions={[
-        { label: "New", disabled: true },
-        { label: "Duplicate", disabled: true },
-        { label: "Rename", disabled: true },
-        { label: "Delete", disabled: true },
+        { label: "New", disabled: !onCreate, onClick: onCreate },
+        { label: "Duplicate", disabled: !onDuplicate || !animsetPath, onClick: onDuplicate },
+        { label: "Rename", disabled: !onRename || !animsetPath, onClick: onRename },
+        { label: "Delete", disabled: !onDelete || !animsetPath, onClick: onDelete },
       ]}
     />
   );
