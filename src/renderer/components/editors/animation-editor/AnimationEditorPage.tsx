@@ -37,6 +37,7 @@ import { useAnimControlFields } from "./hooks/useAnimControlFields";
 import { useAnimTelemetryService } from "./hooks/useAnimTelemetryService";
 import { useAnimTimelineController } from "./hooks/useAnimTimelineController";
 import { useAnimToolSettings } from "./hooks/useAnimToolSettings";
+import { useQueuedPlayheadSeek } from "./hooks/useQueuedPlayheadSeek";
 import { isAnimPlaybackActive } from "./playback-state";
 import styles from "./AnimationEditorPage.module.css";
 const DEFAULT_ANIMSET = "content/anim/animsets/barr_e_expression_mvp.animset.yaml";
@@ -499,18 +500,12 @@ export default function AnimationEditorPage() {
     [animsetOptionsFromEngine, animsetPath]
   );
   const overlayWidth = playheadOverlayMetrics.width;
-
-  const seekPlayheadToTimeSec = React.useCallback(
-    (nextTimeSec: number) => {
-      const clamped = Math.min(durationSec, Math.max(0, nextTimeSec));
-      setLocalScrubTimeSec(clamped);
-      void (async () => {
-        await writeAnimControlField("time_override_sec", -1);
-        await writeAnimControlField("time_override_sec", clamped);
-      })();
-    },
-    [durationSec, writeAnimControlField]
-  );
+  const { seekPlayheadToTimeSec } = useQueuedPlayheadSeek({
+    durationSec,
+    setAnimControlConnectionState,
+    setLocalScrubTimeSec,
+    writeAnimControlFieldRaw,
+  });
 
   React.useEffect(() => {
     if (playbackState === null) return;
@@ -745,7 +740,6 @@ export default function AnimationEditorPage() {
         durationSec={durationSec}
         playheadSec={playheadSec}
         playheadSampleStepSec={playheadSampleStepSec}
-        setLocalScrubTimeSec={setLocalScrubTimeSec}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={setLoopEnabled}
         seekPlayheadToTimeSec={seekPlayheadToTimeSec}

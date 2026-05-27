@@ -15,7 +15,6 @@ type Props = {
   durationSec: number;
   playheadSec: number;
   playheadSampleStepSec: number;
-  setLocalScrubTimeSec: React.Dispatch<React.SetStateAction<number | null>>;
   writeAnimControlField: (fieldName: string, value: unknown) => Promise<void>;
   setLoopEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   seekPlayheadToTimeSec: (nextTimeSec: number) => void;
@@ -30,7 +29,6 @@ export function TransportBar({
   durationSec,
   playheadSec,
   playheadSampleStepSec,
-  setLocalScrubTimeSec,
   writeAnimControlField,
   setLoopEnabled,
   seekPlayheadToTimeSec,
@@ -156,8 +154,7 @@ export function TransportBar({
                   const value = Number(event.target.value);
                   if (!Number.isFinite(value)) return;
                   const clamped = Math.min(durationSec, Math.max(0, value));
-                  setLocalScrubTimeSec(clamped);
-                  void writeAnimControlField("time_override_sec", clamped);
+                  seekPlayheadToTimeSec(clamped);
                 }}
               />
             </label>

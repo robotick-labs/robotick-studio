@@ -23,7 +23,6 @@ describe("TransportBar", () => {
         durationSec={1}
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
-        setLocalScrubTimeSec={vi.fn()}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -43,7 +42,6 @@ describe("TransportBar", () => {
         durationSec={1}
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
-        setLocalScrubTimeSec={vi.fn()}
         writeAnimControlField={writeAnimControlField}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -68,7 +66,6 @@ describe("TransportBar", () => {
         durationSec={1.25}
         playheadSec={0.5}
         playheadSampleStepSec={1 / 30}
-        setLocalScrubTimeSec={vi.fn()}
         writeAnimControlField={vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue()}
         setLoopEnabled={vi.fn()}
         seekPlayheadToTimeSec={vi.fn()}
@@ -84,5 +81,33 @@ describe("TransportBar", () => {
 
     expect(onCommitLoopResetDurationSec).toHaveBeenCalledWith(0.5);
     expect(onCommitDurationSec).toHaveBeenCalledWith(2);
+  });
+
+  it("routes paused arrow-key scrubbing and current-field edits through seekPlayheadToTimeSec", () => {
+    const seekPlayheadToTimeSec = vi.fn();
+
+    render(
+      <TransportBar
+        isPlaying={false}
+        loopEnabled
+        loopResetDurationSec={0.75}
+        durationSec={1.25}
+        playheadSec={0.5}
+        playheadSampleStepSec={0.1}
+        writeAnimControlField={vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue()}
+        setLoopEnabled={vi.fn()}
+        seekPlayheadToTimeSec={seekPlayheadToTimeSec}
+        onCommitDurationSec={vi.fn()}
+        onCommitLoopResetDurationSec={vi.fn()}
+      />
+    );
+
+    fireEvent.keyDown(window, { code: "ArrowRight" });
+    fireEvent.keyDown(window, { code: "ArrowRight", shiftKey: true });
+    fireEvent.change(screen.getByLabelText("Current"), { target: { value: "0.85" } });
+
+    expect(seekPlayheadToTimeSec).toHaveBeenNthCalledWith(1, 0.6);
+    expect(seekPlayheadToTimeSec).toHaveBeenNthCalledWith(2, 1.5);
+    expect(seekPlayheadToTimeSec).toHaveBeenNthCalledWith(3, 0.85);
   });
 });
