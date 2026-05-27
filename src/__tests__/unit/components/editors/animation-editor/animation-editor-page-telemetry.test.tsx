@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AnimationEditorPage from "../../../../../renderer/components/editors/animation-editor/AnimationEditorPage";
 
 const targetPanelSpy = vi.fn();
+const toolbarSpy = vi.fn();
 const timelineControllerSpy = vi.fn();
 const loadLiveClipDataSpy = vi.fn();
 const performAnimHistoryActionSpy = vi.fn();
@@ -292,7 +293,24 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationCh
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationToolBar", () => ({
-  AnimationToolBar: () => <div data-testid="toolbar" />,
+  AnimationToolBar: (props: {
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void | Promise<void>;
+    onRedo: () => void | Promise<void>;
+  }) => {
+    toolbarSpy(props);
+    return (
+      <div data-testid="toolbar">
+        <button type="button" disabled={!props.canUndo} onClick={() => void props.onUndo()}>
+          Toolbar Undo
+        </button>
+        <button type="button" disabled={!props.canRedo} onClick={() => void props.onRedo()}>
+          Toolbar Redo
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("../../../../../renderer/components/editors/animation-editor/AnimationTimelineViewport", () => ({
@@ -312,6 +330,50 @@ vi.mock("../../../../../renderer/components/editors/animation-editor/TransportBa
 }));
 
 describe("AnimationEditorPage telemetry reflection", () => {
+  it("enables and wires the visible history toolbar buttons from loaded clip state", async () => {
+    loadLiveClipDataSpy.mockReset();
+    performAnimHistoryActionSpy.mockReset();
+    toolbarSpy.mockClear();
+    loadLiveClipDataSpy.mockResolvedValue({
+      animclipPath: "content/anim/clips/base.animclip.yaml",
+      name: "base_clip",
+      channels: {},
+      durationSec: 1,
+      loopResetDurationSec: 1,
+      sampleCount: 0,
+      liveSampleRateHz: 20,
+      clipRevision: "4",
+      dirty: true,
+      canUndo: true,
+      canRedo: false,
+    });
+    performAnimHistoryActionSpy.mockResolvedValue({
+      clip_revision: "5",
+      dirty: true,
+      can_undo: false,
+      can_redo: true,
+    });
+
+    render(<AnimationEditorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Toolbar Undo" })).toBeEnabled();
+    });
+    expect(screen.getByRole("button", { name: "Toolbar Redo" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toolbar Undo" }));
+
+    await waitFor(() => {
+      expect(performAnimHistoryActionSpy).toHaveBeenCalledWith("/undo-edit", 0);
+    });
+    expect(toolbarSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canUndo: true,
+        canRedo: false,
+      })
+    );
+  });
+
   it("submits undo and redo history actions for the selected clip", async () => {
     loadLiveClipDataSpy.mockReset();
     performAnimHistoryActionSpy.mockReset();

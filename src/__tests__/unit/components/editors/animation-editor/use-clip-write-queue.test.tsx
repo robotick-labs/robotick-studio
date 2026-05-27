@@ -52,6 +52,8 @@ describe("useClipWriteQueue", () => {
         liveSampleRateHz: 30,
         clipRevision: "7",
         dirty: false,
+        canUndo: false,
+        canRedo: false,
       },
     };
     const scheduleClipDataRender = vi.fn();
@@ -174,6 +176,8 @@ describe("useClipWriteQueue", () => {
         liveSampleRateHz: 30,
         clipRevision: "7",
         dirty: false,
+        canUndo: false,
+        canRedo: false,
       },
     };
     const scheduleClipDataRender = vi.fn();

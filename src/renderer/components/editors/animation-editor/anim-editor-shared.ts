@@ -10,6 +10,8 @@ export type ClipData = {
   liveSampleRateHz: number;
   clipRevision: string;
   dirty: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 };
 
 export type LaneRange = { min: number; max: number };
@@ -76,6 +78,8 @@ export type AnimTelemetryClipResponse = {
   sample_count?: number;
   channels?: string[];
   channel_names?: string[];
+  can_undo?: boolean;
+  can_redo?: boolean;
 };
 
 export type AnimAuthoringActionResponse = {
@@ -98,6 +102,14 @@ export type AnimSaveResponse = {
 };
 
 export type AnimHistoryActionResponse = {
+  clip_revision?: string;
+  dirty?: boolean;
+  can_undo?: boolean;
+  can_redo?: boolean;
+};
+
+export type AnimTransactionActionResponse = {
+  transaction_id?: string;
   clip_revision?: string;
   dirty?: boolean;
   can_undo?: boolean;
@@ -183,6 +195,8 @@ export function clipDataFromTelemetryMetadata(payload: AnimTelemetryClipResponse
         : 0,
     clipRevision: typeof payload?.clip_revision === "string" ? payload.clip_revision : "0",
     dirty: Boolean(payload?.dirty),
+    canUndo: Boolean(payload?.can_undo),
+    canRedo: Boolean(payload?.can_redo),
   };
 }
 

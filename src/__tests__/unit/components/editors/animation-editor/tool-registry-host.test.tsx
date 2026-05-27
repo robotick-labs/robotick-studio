@@ -79,17 +79,29 @@ describe("animation tool registry + host", () => {
 
   it("renders settings for active tool and handles toggle", () => {
     const onToggleTool = vi.fn();
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
     render(
       <ToolHost
         tools={listAnimationTools()}
         activeTool={"Line"}
         onToggleTool={onToggleTool}
         settingsContext={makeContext()}
+        canUndo={true}
+        canRedo={false}
+        onUndo={onUndo}
+        onRedo={onRedo}
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(screen.getByRole("button", { name: "Snap Start" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+    expect(screen.getByTitle("Undo last committed clip edit. Shortcut: Ctrl+Z / Cmd+Z.")).toBeInTheDocument();
+    expect(screen.getByTitle("Redo last undone clip edit. Shortcut: Ctrl+Y / Cmd+Shift+Z.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Range" }));
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onRedo).not.toHaveBeenCalled();
     expect(onToggleTool).toHaveBeenCalledWith("Range");
   });
 });

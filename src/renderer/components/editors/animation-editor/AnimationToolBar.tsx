@@ -13,6 +13,10 @@ type Props = {
   activeTool: AnimationToolId | null;
   setActiveTool: React.Dispatch<React.SetStateAction<AnimationToolId | null>>;
   settingsContext: AnimationToolSettingsContext;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void | Promise<void>;
+  onRedo: () => void | Promise<void>;
   durationSec: number;
   rangeFalloffFractionStep: number;
   rangeFalloffStepSec: number;
@@ -32,6 +36,10 @@ export function AnimationToolBar({
   activeTool,
   setActiveTool,
   settingsContext,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   durationSec,
   rangeFalloffFractionStep,
   rangeFalloffStepSec,
@@ -115,6 +123,10 @@ export function AnimationToolBar({
       activeTool={activeTool}
       onToggleTool={(toolId) => setActiveTool((current) => (current === toolId ? null : toolId))}
       settingsContext={settingsContext}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      onUndo={onUndo}
+      onRedo={onRedo}
     />
   );
 }

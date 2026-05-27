@@ -7,9 +7,13 @@ type ToolHostProps = {
   activeTool: AnimationToolId | null;
   onToggleTool: (toolId: AnimationToolId) => void;
   settingsContext: AnimationToolSettingsContext;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void | Promise<void>;
+  onRedo: () => void | Promise<void>;
 };
 
-export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: ToolHostProps) {
+export function ToolHost({ tools, activeTool, onToggleTool, settingsContext, canUndo, canRedo, onUndo, onRedo }: ToolHostProps) {
   const sections = React.useMemo(() => {
     const map = new Map<string, AnimationToolDefinition[]>();
     tools.forEach((tool) => {
@@ -27,10 +31,22 @@ export function ToolHost({ tools, activeTool, onToggleTool, settingsContext }: T
       <section className={styles.panelCard}>
         <h3>History</h3>
         <div className={styles.toolButtons}>
-          <button className={styles.toolButton} type="button" title="Undo is not implemented yet." disabled>
+          <button
+            className={[styles.toolButton, canUndo ? styles.toolButtonReady : ""].filter(Boolean).join(" ")}
+            type="button"
+            title="Undo last committed clip edit. Shortcut: Ctrl+Z / Cmd+Z."
+            onClick={() => void onUndo()}
+            disabled={!canUndo}
+          >
             Undo
           </button>
-          <button className={styles.toolButton} type="button" title="Redo is not implemented yet." disabled>
+          <button
+            className={[styles.toolButton, canRedo ? styles.toolButtonReady : ""].filter(Boolean).join(" ")}
+            type="button"
+            title="Redo last undone clip edit. Shortcut: Ctrl+Y / Cmd+Shift+Z."
+            onClick={() => void onRedo()}
+            disabled={!canRedo}
+          >
             Redo
           </button>
         </div>

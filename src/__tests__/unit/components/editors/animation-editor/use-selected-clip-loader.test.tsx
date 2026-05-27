@@ -14,6 +14,8 @@ function makeClipData(animclipPath: string, dirty = false) {
     liveSampleRateHz: 30,
     clipRevision: "7",
     dirty,
+    canUndo: false,
+    canRedo: false,
   };
 }
 

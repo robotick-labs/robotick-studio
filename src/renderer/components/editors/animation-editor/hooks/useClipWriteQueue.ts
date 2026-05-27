@@ -11,6 +11,8 @@ type ClipData = {
   liveSampleRateHz: number;
   clipRevision: string;
   dirty: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 };
 
 type DrawWriteState = {
@@ -361,7 +363,12 @@ export function useClipWriteQueue(args: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transaction_id: transactionId }),
       });
-      const payload = (await response.json()) as { clip_revision?: string; error?: string };
+      const payload = (await response.json()) as {
+        clip_revision?: string;
+        error?: string;
+        can_undo?: boolean;
+        can_redo?: boolean;
+      };
       if (!response.ok) {
         if (response.status === 409 && typeof payload.clip_revision === "string") {
           activeState.acceptedClipRevision = payload.clip_revision;
@@ -377,6 +384,8 @@ export function useClipWriteQueue(args: {
         ...clipDataRef.current,
         clipRevision: activeState.acceptedClipRevision,
         dirty: true,
+        canUndo: payload.can_undo ?? true,
+        canRedo: payload.can_redo ?? false,
       });
     })();
     state.finalizeInFlightPromise = finalizePromise;

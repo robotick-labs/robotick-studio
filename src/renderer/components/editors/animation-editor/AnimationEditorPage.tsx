@@ -99,6 +99,8 @@ export default function AnimationEditorPage() {
     liveSampleRateHz: 0,
     clipRevision: "0",
     dirty: false,
+    canUndo: false,
+    canRedo: false,
   });
   const clipDataRef = React.useRef(clipData);
   const animationTools = React.useMemo(() => listAnimationTools(), []);
@@ -208,6 +210,8 @@ export default function AnimationEditorPage() {
       liveSampleRateHz: 0,
       clipRevision: "0",
       dirty: false,
+      canUndo: false,
+      canRedo: false,
     });
   }, []);
 
@@ -574,6 +578,20 @@ export default function AnimationEditorPage() {
     }
   }, [applyLoadedClipData, loadLiveClipData, selectedClipIndex, selectedClipRef?.name]);
 
+  const performClipHistoryAction = React.useCallback(
+    async (suffix: "/undo-edit" | "/redo-edit") => {
+      if (selectedClipIndex < 0) return;
+      try {
+        await performAnimHistoryAction(suffix, selectedClipIndex);
+        await reloadSelectedClipData();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Anim history action failed.";
+        reportAnimLoadStatus("warning", message);
+      }
+    },
+    [performAnimHistoryAction, reloadSelectedClipData, reportAnimLoadStatus, selectedClipIndex]
+  );
+
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableKeyboardTarget(event.target)) return;
@@ -586,19 +604,11 @@ export default function AnimationEditorPage() {
       const undoRequested = key === "z" && !event.shiftKey;
       if (!undoRequested && !redoRequested) return;
       event.preventDefault();
-      void (async () => {
-        try {
-          await performAnimHistoryAction(redoRequested ? "/redo-edit" : "/undo-edit", selectedClipIndex);
-          await reloadSelectedClipData();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Anim history action failed.";
-          reportAnimLoadStatus("warning", message);
-        }
-      })();
+      void performClipHistoryAction(redoRequested ? "/redo-edit" : "/undo-edit");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [performAnimHistoryAction, reloadSelectedClipData, reportAnimLoadStatus, selectedClipIndex]);
+  }, [performClipHistoryAction, selectedClipIndex]);
 
   const {
     handleCommitDurationSec,
@@ -752,13 +762,17 @@ export default function AnimationEditorPage() {
 
         <AnimationToolBar
           tools={animationTools}
-        activeTool={activeTool}
-        setActiveTool={setActiveTool}
-        settingsContext={toolSettingsContext}
-        durationSec={durationSec}
-        rangeFalloffFractionStep={RANGE_FALLOFF_FRACTION_STEP}
-        rangeFalloffStepSec={rangeFalloffStepSec}
-        smoothRangeStepSec={smoothRangeStepSec}
+          activeTool={activeTool}
+          setActiveTool={setActiveTool}
+          settingsContext={toolSettingsContext}
+          canUndo={clipData.canUndo}
+          canRedo={clipData.canRedo}
+          onUndo={() => void performClipHistoryAction("/undo-edit")}
+          onRedo={() => void performClipHistoryAction("/redo-edit")}
+          durationSec={durationSec}
+          rangeFalloffFractionStep={RANGE_FALLOFF_FRACTION_STEP}
+          rangeFalloffStepSec={rangeFalloffStepSec}
+          smoothRangeStepSec={smoothRangeStepSec}
           rangeSizeSec={rangeSizeSec}
           setSelectedTimeRangeDurationSec={setSelectedTimeRangeDurationSec}
           setRangeFalloffSec={setRangeFalloffSec}
