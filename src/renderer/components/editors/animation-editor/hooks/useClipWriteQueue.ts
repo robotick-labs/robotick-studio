@@ -92,23 +92,34 @@ export function useClipWriteQueue(args: {
       ) {
         throw new Error("Invalid sample range");
       }
-      const url = buildAnimServiceUrl("/samples-write-range", {
+      const values = Array.from(
+        channelSamples.subarray(startSampleIndex, endSampleIndex + 1)
+      );
+      const url = buildAnimServiceUrl("/clip-edit", {
         clip_index: clipIndex >= 0 ? clipIndex : undefined,
       });
       if (!url) {
-        throw new Error("Missing samples-write-range URL");
+        throw new Error("Missing clip-edit URL");
       }
       const response = await fetch(url, {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clip_revision: drawWriteStateRef.current.acceptedClipRevision,
-          channel,
-          start_sample_index: startSampleIndex,
-          values: Array.from(
-            channelSamples.subarray(startSampleIndex, endSampleIndex + 1)
-          ),
+          operation: "replace_sample_range",
+          expected_clip_revision: drawWriteStateRef.current.acceptedClipRevision,
+          target: {
+            start_sample_index: startSampleIndex,
+            end_sample_index: endSampleIndex,
+          },
+          parameters: {
+            channel_values: [
+              {
+                channel,
+                values,
+              },
+            ],
+          },
         }),
       });
       const payload = (await response.json()) as {
