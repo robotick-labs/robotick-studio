@@ -3,21 +3,48 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 
+const registryState = vi.hoisted(() => ({
+  entries: [] as Array<{
+    id: string;
+    label: string;
+    module: string;
+    Component: React.ComponentType;
+    source: "builtin" | "plugin";
+  }>,
+  loading: false,
+}));
+
 vi.mock("../../../../renderer/services/EditorRegistry", () => {
   const MockEditor = () => <div data-testid="mock-editor">mock</div>;
-  const entry = {
+  const AnimationEditor = () => (
+    <div data-testid="animation-editor">animation</div>
+  );
+  const mockEntry = {
     id: "mock-editor",
     label: "Mock Editor",
     module: "mock-module",
     Component: MockEditor,
     source: "builtin" as const,
   };
+  const animationEntry = {
+    id: "animation-editor",
+    label: "Animation Editor",
+    module: "animation-module",
+    Component: AnimationEditor,
+    source: "plugin" as const,
+  };
+  registryState.entries = [mockEntry];
   return {
     useEditorRegistry: () => ({
-      listEditorEntries: () => [entry],
-      getEditorEntry: () => entry,
-      loading: false,
+      listEditorEntries: () => registryState.entries,
+      getEditorEntry: (editorId: string) =>
+        registryState.entries.find((entry) => entry.id === editorId),
+      loading: registryState.loading,
     }),
+    __mockEntries: {
+      mockEntry,
+      animationEntry,
+    },
   };
 });
 
@@ -40,14 +67,33 @@ vi.mock(
 
 import { PanelLayout } from "../../../../renderer/components/workspaces/PanelLayout";
 import { useContextMenu } from "../../../../renderer/components/context-menu/ContextMenuProvider";
+import { __mockEntries } from "../../../../renderer/services/EditorRegistry";
 
 const useContextMenuMock = useContextMenu as unknown as vi.Mock;
+const mockEntries = __mockEntries as {
+  mockEntry: {
+    id: string;
+    label: string;
+    module: string;
+    Component: React.ComponentType;
+    source: "builtin";
+  };
+  animationEntry: {
+    id: string;
+    label: string;
+    module: string;
+    Component: React.ComponentType;
+    source: "plugin";
+  };
+};
 
 describe("PanelLayout context menu", () => {
   let showPanelMenu: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     window.localStorage.clear();
+    registryState.entries = [mockEntries.mockEntry];
+    registryState.loading = false;
     showPanelMenu = vi.fn();
     useContextMenuMock.mockReturnValue({
       showPanelMenu,
@@ -430,6 +476,122 @@ describe("PanelLayout context menu", () => {
       "Mock Workspace | Default",
     ]);
     expect(tabs.activeTabId).toBe("default");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("updates editor selector options when plugin editors arrive after initial render", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    registryState.entries = [mockEntries.mockEntry];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const selectorButton = container.querySelector(
+      "button[aria-label='Open editor selector']"
+    );
+    expect(selectorButton).not.toBeNull();
+
+    await act(async () => {
+      selectorButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    let optionLabels = Array.from(container.querySelectorAll("option")).map(
+      (option) => option.textContent
+    );
+    expect(optionLabels).toEqual(["Mock Editor"]);
+
+    registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    optionLabels = Array.from(container.querySelectorAll("option")).map(
+      (option) => option.textContent
+    );
+    expect(optionLabels).toEqual(["Mock Editor", "Animation Editor"]);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not overwrite a saved plugin panel layout while editor discovery is still loading", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const savedPluginLayout = JSON.stringify({
+      id: "leaf-1",
+      kind: "leaf",
+      editorId: "animation-editor",
+    });
+
+    window.localStorage.setItem(
+      "panelLayout:main:workspace:default",
+      savedPluginLayout
+    );
+
+    registryState.entries = [mockEntries.mockEntry];
+    registryState.loading = true;
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
+    expect(
+      window.localStorage.getItem("panelLayout:main:workspace:default")
+    ).toBe(savedPluginLayout);
+
+    registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
+    registryState.loading = false;
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector("[data-testid='animation-editor']")
+    ).not.toBeNull();
 
     act(() => {
       root.unmount();

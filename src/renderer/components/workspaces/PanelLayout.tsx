@@ -457,7 +457,7 @@ export function PanelLayout({
   allowedEditors,
   windowScope = DEFAULT_WINDOW_SCOPE,
 }: PanelLayoutProps) {
-  const { listEditorEntries } = useEditorRegistry();
+  const { listEditorEntries, loading: registryLoading } = useEditorRegistry();
   const editorEntries = React.useMemo(() => {
     const entries = listEditorEntries();
     if (!allowedEditors || allowedEditors.length === 0) {
@@ -465,7 +465,7 @@ export function PanelLayout({
     }
     const allowed = new Set(allowedEditors);
     return entries.filter((entry) => allowed.has(entry.id));
-  }, [allowedEditors]);
+  }, [allowedEditors, listEditorEntries]);
 
   if (!editorEntries.length) {
     throw new Error("No editors are registered for the panel layout");
@@ -625,11 +625,11 @@ export function PanelLayout({
   }, [layoutTabsState, layoutTabsStorageKey]);
 
   React.useEffect(() => {
-    if (!layoutReady) {
+    if (!layoutReady || registryLoading) {
       return;
     }
     saveLayout(layoutState.storageKey, layoutState.node);
-  }, [layoutReady, layoutState]);
+  }, [layoutReady, layoutState, registryLoading]);
 
   React.useEffect(() => {
     if (maximizedPanelId && !nodeContains(layout, maximizedPanelId)) {

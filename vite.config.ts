@@ -60,13 +60,43 @@ export default defineConfig({
   },
 
   resolve: {
-    alias: {
-      "@": resolve(__dirname, "src/renderer"),
-      "@studio": resolve(__dirname, "src/renderer"),
-      "@animation-plugin": resolve(
-        __dirname,
-        "../robotick-animation/studio/plugins/animation-editor/src"
-      ),
+    alias: [
+      {
+        find: /^react\/jsx-dev-runtime$/,
+        replacement: resolve(__dirname, "node_modules/react/jsx-dev-runtime.js"),
+      },
+      {
+        find: /^react\/jsx-runtime$/,
+        replacement: resolve(__dirname, "node_modules/react/jsx-runtime.js"),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: resolve(__dirname, "node_modules/react-dom/index.js"),
+      },
+      {
+        find: /^react$/,
+        replacement: resolve(__dirname, "node_modules/react/index.js"),
+      },
+      {
+        find: /^@robotick\/studio-host$/,
+        replacement: resolve(
+          __dirname,
+          "src/renderer/services/plugins/animation-studio-host.ts"
+        ),
+      },
+      {
+        find: /^@\//,
+        replacement: `${resolve(__dirname, "src/renderer")}/`,
+      },
+    ],
+  },
+
+  server: {
+    fs: {
+      allow: [
+        resolve(__dirname),
+        resolve(__dirname, "../robotick-animation"),
+      ],
     },
   },
 

@@ -1,5 +1,10 @@
 import React from "react";
-import { ProjectData, type ProjectModelDescriptor, useLauncherService } from "../data-sources/launcher";
+import {
+  ProjectData,
+  type ProjectModelDescriptor,
+  type LauncherService,
+  useLauncherService,
+} from "../data-sources/launcher";
 import { useProjectContext } from "../data-sources/launcher/internal/ProjectContext";
 import type { EditorConfig } from "./AppConfigService";
 import { EditorsConfig } from "./AppConfigService";
@@ -53,6 +58,11 @@ type ProjectSettingsWithPlugins = {
   tooling?: {
     studio_plugins?: StudioPluginSourceEntry[];
   };
+};
+
+export type EditorRegistryBootstrapState = {
+  projectPath: string;
+  projectSettings: ProjectSettingsWithPlugins | null;
 };
 
 type ModelPluginIntent = {
@@ -152,6 +162,35 @@ function buildPluginCatalog(): StudioPluginCatalogEntry[] {
 }
 
 const pluginCatalog = buildPluginCatalog();
+
+export async function loadInitialEditorRegistryState(
+  launcherService: LauncherService
+): Promise<EditorRegistryBootstrapState | null> {
+  const projectPath = launcherService.getProjectPath().trim();
+  if (!projectPath) {
+    return null;
+  }
+
+  try {
+    const projectSettings =
+      await launcherService.fetchProjectSettingsData<ProjectSettingsWithPlugins>(
+        projectPath
+      );
+    return {
+      projectPath,
+      projectSettings,
+    };
+  } catch (error) {
+    console.warn(
+      `[EditorRegistry] Failed to pre-load project settings for plugin discovery: ${projectPath}`,
+      error
+    );
+    return {
+      projectPath,
+      projectSettings: null,
+    };
+  }
+}
 
 function buildBuiltinEditorEntries(): EditorEntry[] {
   return EditorsConfig.map((editor) => {
@@ -319,20 +358,40 @@ const EditorRegistryContext = React.createContext<EditorRegistryValue>({
 
 export function EditorRegistryProvider({
   children,
+  initialBootstrapState = null,
 }: {
   children: React.ReactNode;
+  initialBootstrapState?: EditorRegistryBootstrapState | null;
 }) {
   const launcherService = useLauncherService();
   const { projectPath } = useProjectContext();
   const { projectModels } = ProjectData.use();
-  const [projectSettings, setProjectSettings] =
-    React.useState<ProjectSettingsWithPlugins | null>(null);
-  const [loading, setLoading] = React.useState(false);
+  const bootstrapRef = React.useRef(initialBootstrapState);
+  const hasInitialBootstrap =
+    bootstrapRef.current?.projectPath === projectPath;
+  const [projectSettings, setProjectSettings] = React.useState<ProjectSettingsWithPlugins | null>(
+    () =>
+      hasInitialBootstrap
+        ? (bootstrapRef.current?.projectSettings ?? null)
+        : null
+  );
+  const [loading, setLoading] = React.useState(
+    () => Boolean(projectPath) && !hasInitialBootstrap
+  );
 
   React.useEffect(() => {
     if (!projectPath) {
+      bootstrapRef.current = null;
       setProjectSettings(null);
       setLoading(false);
+      return;
+    }
+
+    const bootstrap = bootstrapRef.current;
+    if (bootstrap?.projectPath === projectPath) {
+      setProjectSettings(bootstrap.projectSettings);
+      setLoading(false);
+      bootstrapRef.current = null;
       return;
     }
 

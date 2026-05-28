@@ -13,7 +13,10 @@ import {
   telemetryService,
 } from "./data-sources/telemetry";
 import { AppConfigProvider } from "./services/AppConfigService";
-import { EditorRegistryProvider } from "./services/EditorRegistry";
+import {
+  EditorRegistryProvider,
+  type EditorRegistryBootstrapState,
+} from "./services/EditorRegistry";
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
@@ -73,7 +76,11 @@ export function selectRouterComponent(
   return shouldUseHash ? HashRouter : BrowserRouter;
 }
 
-export function App() {
+export function App({
+  initialEditorRegistryState = null,
+}: {
+  initialEditorRegistryState?: EditorRegistryBootstrapState | null;
+}) {
   const RouterComponent = useMemo(() => selectRouterComponent(), []);
 
   useEffect(() => {
@@ -111,7 +118,9 @@ export function App() {
         <LauncherServiceProvider service={launcherService}>
           <Project.Context.Provider>
             <ProjectData.Provider>
-              <EditorRegistryProvider>
+              <EditorRegistryProvider
+                initialBootstrapState={initialEditorRegistryState}
+              >
                 <Launcher.Context.Provider>
                   <ContextMenuProvider>
                     <RouterComponent>
