@@ -10,10 +10,14 @@ vi.mock("../../../../renderer/services/EditorRegistry", () => {
     label: "Mock Editor",
     module: "mock-module",
     Component: MockEditor,
+    source: "builtin" as const,
   };
   return {
-    listEditorEntries: () => [entry],
-    getEditorEntry: () => entry,
+    useEditorRegistry: () => ({
+      listEditorEntries: () => [entry],
+      getEditorEntry: () => entry,
+      loading: false,
+    }),
   };
 });
 

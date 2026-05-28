@@ -62,6 +62,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "src/renderer"),
+      "@studio": resolve(__dirname, "src/renderer"),
+      "@animation-plugin": resolve(
+        __dirname,
+        "../robotick-animation/studio/plugins/animation-editor/src"
+      ),
     },
   },
 

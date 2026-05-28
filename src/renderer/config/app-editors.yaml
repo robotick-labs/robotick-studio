@@ -24,9 +24,6 @@ editors:
   - id: telemetry-scope
     label: Telemetry Scope
     module: ./components/editors/telemetry-scope/TelemetryScopePage.tsx
-  - id: animation-editor
-    label: Animation Editor
-    module: ./components/editors/animation-editor/AnimationEditorPage.tsx
   - id: terminal
     label: Terminal
     module: ./components/editors/terminal/TerminalPage.tsx

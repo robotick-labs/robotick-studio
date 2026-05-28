@@ -17,6 +17,22 @@
       ],
       "additionalProperties": false
     },
+    "studioPluginSource": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "repo": { "type": "string" },
+        "ref": { "type": "string" },
+        "local_path": { "type": "string" },
+        "root_path": { "type": "string" },
+        "package_manager": { "type": "string" }
+      },
+      "oneOf": [
+        { "required": ["local_path"], "not": { "anyOf": [ { "required": ["repo"] }, { "required": ["ref"] } ] } },
+        { "required": ["repo", "ref"], "not": { "required": ["local_path"] } }
+      ],
+      "additionalProperties": false
+    },
     "pythonRoot": {
       "type": "object",
       "properties": {
@@ -49,9 +65,12 @@
           "items": { "$ref": "#/$defs/repoOrLocal" },
           "minItems": 1
         },
+        "studio_plugins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/studioPluginSource" }
+        },
         "bootstrap": { "type": "string" }
       },
-      "required": ["tooling_sources"],
       "additionalProperties": false
     },
     "runtime": {

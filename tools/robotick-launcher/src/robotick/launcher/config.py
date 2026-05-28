@@ -176,6 +176,7 @@ class Config:
     def _validate_tooling_schema(self, tooling: DotDict) -> None:
         if not tooling:
             tooling["tooling_sources"] = []
+            tooling["studio_plugins"] = []
             return
 
         sources = tooling.get("tooling_sources") or []
@@ -187,6 +188,31 @@ class Config:
                 self._validate_repo_entry(entry, f"tooling.tooling_sources[{idx}]")
             )
         tooling["tooling_sources"] = normalized_sources
+
+        studio_plugins = tooling.get("studio_plugins") or []
+        if not isinstance(studio_plugins, list):
+            raise ValueError("'tooling.studio_plugins' must be a list when provided.")
+        normalized_plugins: List[Dict[str, Any]] = []
+        for idx, entry in enumerate(studio_plugins):
+            normalized_entry = self._validate_repo_entry(
+                entry, f"tooling.studio_plugins[{idx}]"
+            )
+            root_path = normalized_entry.get("root_path")
+            if root_path is not None and (
+                not isinstance(root_path, str) or not root_path
+            ):
+                raise ValueError(
+                    f"'tooling.studio_plugins[{idx}].root_path' must be a non-empty string when provided."
+                )
+            package_manager = normalized_entry.get("package_manager")
+            if package_manager is not None and (
+                not isinstance(package_manager, str) or not package_manager
+            ):
+                raise ValueError(
+                    f"'tooling.studio_plugins[{idx}].package_manager' must be a non-empty string when provided."
+                )
+            normalized_plugins.append(normalized_entry)
+        tooling["studio_plugins"] = normalized_plugins
 
     def _validate_runtime_schema(self, runtime: DotDict) -> None:
         if runtime is None:

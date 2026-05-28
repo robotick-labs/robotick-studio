@@ -1,7 +1,6 @@
 import React from "react";
 import {
-  getEditorEntry,
-  listEditorEntries,
+  useEditorRegistry,
 } from "../../services/EditorRegistry";
 import {
   FloatingPanelLayer,
@@ -458,6 +457,7 @@ export function PanelLayout({
   allowedEditors,
   windowScope = DEFAULT_WINDOW_SCOPE,
 }: PanelLayoutProps) {
+  const { listEditorEntries } = useEditorRegistry();
   const editorEntries = React.useMemo(() => {
     const entries = listEditorEntries();
     if (!allowedEditors || allowedEditors.length === 0) {
@@ -1377,6 +1377,7 @@ function PanelLeaf({
   isMaximized,
   workspaceId,
 }: PanelLeafProps) {
+  const { getEditorEntry } = useEditorRegistry();
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const rightMouseDownAtMsRef = React.useRef<number | null>(null);
   const rightMouseDownPosRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -1502,6 +1503,21 @@ function PanelLeaf({
   }, []);
 
   const entry = getEditorEntry(node.editorId);
+  if (!entry) {
+    return (
+      <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
+        <div className={styles.panelLeaf}>
+          <div className={styles.panelErrorState}>
+            <strong>Editor unavailable</strong>
+            <p>
+              The panel references <code>{node.editorId}</code>, but that editor
+              is not currently loaded for this project.
+            </p>
+          </div>
+        </div>
+      </PanelInstanceProvider>
+    );
+  }
   const Component = entry.Component;
 
   return (
