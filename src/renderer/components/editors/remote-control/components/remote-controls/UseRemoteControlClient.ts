@@ -418,7 +418,8 @@ class RemoteControlClient {
     const findConnectedGamepadIndex = () => {
       const pads = navigator.getGamepads();
       for (let i = 0; i < pads.length; i += 1) {
-        if (pads[i] && (pads[i].connected || pads[i].mapping === "standard")) {
+        const pad = pads[i];
+        if (pad && (pad.connected || pad.mapping === "standard")) {
           return i;
         }
       }
