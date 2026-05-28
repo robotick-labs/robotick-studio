@@ -1,7 +1,5 @@
 import React from "react";
 import {
-  ProjectData,
-  type ProjectModelDescriptor,
   type LauncherService,
   useLauncherService,
 } from "../data-sources/launcher";
@@ -63,11 +61,6 @@ type ProjectSettingsWithPlugins = {
 export type EditorRegistryBootstrapState = {
   projectPath: string;
   projectSettings: ProjectSettingsWithPlugins | null;
-};
-
-type ModelPluginIntent = {
-  id?: string;
-  editors?: string[];
 };
 
 type EditorRegistryValue = {
@@ -248,51 +241,14 @@ function collectAllowedPluginSourceKeys(
   return keys;
 }
 
-function collectRequestedEditorIdsBySource(
-  projectModels: ProjectModelDescriptor[]
-): Map<string, Set<string>> {
-  const requested = new Map<string, Set<string>>();
-  for (const model of projectModels) {
-    const modelData =
-      model.data && typeof model.data === "object"
-        ? (model.data as { studio?: { plugins?: ModelPluginIntent[] } })
-        : null;
-    const plugins = modelData?.studio?.plugins;
-    if (!Array.isArray(plugins)) {
-      continue;
-    }
-    for (const plugin of plugins) {
-      const sourceId = plugin?.id?.trim();
-      if (!sourceId) {
-        continue;
-      }
-      const editorIds = Array.isArray(plugin.editors)
-        ? plugin.editors
-            .filter((value): value is string => typeof value === "string")
-            .map((value) => value.trim())
-            .filter(Boolean)
-        : [];
-      if (!requested.has(sourceId)) {
-        requested.set(sourceId, new Set(editorIds));
-        continue;
-      }
-      const set = requested.get(sourceId)!;
-      editorIds.forEach((editorId) => set.add(editorId));
-    }
-  }
-  return requested;
-}
-
 function buildPluginEditorEntries(
-  settings: ProjectSettingsWithPlugins | null,
-  projectModels: ProjectModelDescriptor[]
+  settings: ProjectSettingsWithPlugins | null
 ): EditorEntry[] {
   const allowedSourceKeys = collectAllowedPluginSourceKeys(settings);
   if (!allowedSourceKeys.size) {
     return [];
   }
 
-  const requestedEditorIdsBySource = collectRequestedEditorIdsBySource(projectModels);
   const entries: EditorEntry[] = [];
 
   for (const plugin of pluginCatalog) {
@@ -303,16 +259,8 @@ function buildPluginEditorEntries(
       continue;
     }
 
-    const requestedEditorIds = requestedEditorIdsBySource.get(plugin.manifest.sourceId);
     const editors = plugin.manifest.contributes?.editors ?? [];
     for (const editor of editors) {
-      if (
-        requestedEditorIds &&
-        requestedEditorIds.size > 0 &&
-        !requestedEditorIds.has(editor.id)
-      ) {
-        continue;
-      }
       const entryLoader = plugin.entryLoader;
       if (!entryLoader) {
         continue;
@@ -365,7 +313,6 @@ export function EditorRegistryProvider({
 }) {
   const launcherService = useLauncherService();
   const { projectPath } = useProjectContext();
-  const { projectModels } = ProjectData.use();
   const bootstrapRef = React.useRef(initialBootstrapState);
   const hasInitialBootstrap =
     bootstrapRef.current?.projectPath === projectPath;
@@ -422,11 +369,8 @@ export function EditorRegistryProvider({
   }, [launcherService, projectPath]);
 
   const mergedEntries = React.useMemo(
-    () =>
-      mergeEditorEntries(
-        buildPluginEditorEntries(projectSettings, projectModels.data)
-      ),
-    [projectModels.data, projectSettings]
+    () => mergeEditorEntries(buildPluginEditorEntries(projectSettings)),
+    [projectSettings]
   );
 
   const editorMap = React.useMemo(
