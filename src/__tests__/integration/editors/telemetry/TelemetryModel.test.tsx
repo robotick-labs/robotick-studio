@@ -6,11 +6,15 @@ import { act } from "react";
 const { useTelemetryStream } = vi.hoisted(() => ({
   useTelemetryStream: vi.fn(),
 }));
+const { useTelemetryService } = vi.hoisted(() => ({
+  useTelemetryService: vi.fn(),
+}));
 
 vi.mock(
   "../../../../renderer/data-sources/telemetry",
   () => ({
     useTelemetryStream,
+    useTelemetryService,
   })
 );
 
@@ -48,6 +52,10 @@ describe("TelemetryModel", () => {
   beforeEach(() => {
     localStorage.clear();
     useTelemetryStream.mockReset();
+    useTelemetryService.mockReset();
+    useTelemetryService.mockReturnValue({
+      getIngressRateHz: vi.fn(() => 0),
+    });
   });
 
   afterEach(() => {

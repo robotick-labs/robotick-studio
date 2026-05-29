@@ -26,6 +26,7 @@
   "include": [
     "src/renderer/**/*",
     "src/electron/**/*",
+    "plugins/**/*",
     "../robotick-animation/studio/plugins/animation-editor/src/**/*"
   ]
 }

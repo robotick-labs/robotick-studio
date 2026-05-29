@@ -41,6 +41,7 @@ type StudioPluginCatalogEntry = {
   entryPath: string;
   sourceRootName: string;
   entryLoader: (() => Promise<unknown>) | null;
+  sourceKind: "native" | "external";
 };
 
 type StudioPluginSourceEntry = {
@@ -70,6 +71,16 @@ type EditorRegistryValue = {
 };
 
 const builtinModuleMap = import.meta.glob("../components/editors/**/*.tsx");
+const nativePluginManifestModuleMap = import.meta.glob(
+  "../../../plugins/*/plugin.json",
+  {
+    eager: true,
+    import: "default",
+  }
+) as Record<string, StudioPluginManifest>;
+const nativePluginEntryModuleMap = import.meta.glob(
+  "../../../plugins/*/src/index.ts"
+);
 const pluginManifestModuleMap = import.meta.glob(
   "../../../../*/studio/plugins/*/plugin.json",
   {
@@ -130,8 +141,12 @@ function resolveManifestRelativePath(
   return `${baseDir}${relativePath}`;
 }
 
-function buildPluginCatalog(): StudioPluginCatalogEntry[] {
-  return Object.entries(pluginManifestModuleMap)
+function buildPluginCatalog(
+  manifestModuleMap: Record<string, StudioPluginManifest>,
+  entryModuleMap: Record<string, () => Promise<unknown>>,
+  sourceKind: "native" | "external"
+): StudioPluginCatalogEntry[] {
+  return Object.entries(manifestModuleMap)
     .map(([manifestPath, manifest]) => {
       const entryPath = resolveManifestRelativePath(manifestPath, manifest.entry);
       return {
@@ -139,7 +154,10 @@ function buildPluginCatalog(): StudioPluginCatalogEntry[] {
         manifestPath,
         entryPath,
         sourceRootName: deriveSourceRootName(manifestPath),
-        entryLoader: (pluginEntryModuleMap[entryPath] as (() => Promise<unknown>) | undefined) ?? null,
+        entryLoader:
+          (entryModuleMap[entryPath] as (() => Promise<unknown>) | undefined) ??
+          null,
+        sourceKind,
       };
     })
     .filter((entry) => {
@@ -154,7 +172,18 @@ function buildPluginCatalog(): StudioPluginCatalogEntry[] {
     });
 }
 
-const pluginCatalog = buildPluginCatalog();
+const pluginCatalog = [
+  ...buildPluginCatalog(
+    nativePluginManifestModuleMap,
+    nativePluginEntryModuleMap,
+    "native"
+  ),
+  ...buildPluginCatalog(
+    pluginManifestModuleMap,
+    pluginEntryModuleMap,
+    "external"
+  ),
+];
 
 export async function loadInitialEditorRegistryState(
   launcherService: LauncherService
@@ -245,14 +274,12 @@ function buildPluginEditorEntries(
   settings: ProjectSettingsWithPlugins | null
 ): EditorEntry[] {
   const allowedSourceKeys = collectAllowedPluginSourceKeys(settings);
-  if (!allowedSourceKeys.size) {
-    return [];
-  }
 
   const entries: EditorEntry[] = [];
 
   for (const plugin of pluginCatalog) {
     const sourceAllowed =
+      plugin.sourceKind === "native" ||
       allowedSourceKeys.has(plugin.manifest.sourceId) ||
       allowedSourceKeys.has(plugin.sourceRootName);
     if (!sourceAllowed) {

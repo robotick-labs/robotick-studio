@@ -1,13 +1,13 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
-import { useTelemetryStream } from "../../../../data-sources/telemetry";
-import { ProjectData } from "../../../../data-sources/launcher";
 import {
   buildNamespacedKey,
+  ProjectData,
   readStorageValue,
   setStorageValue,
-} from "../../../../services/storage";
+  useTelemetryStream,
+} from "../studio-host";
 
 const SUBTITLES_SAMPLE_RATE_HZ = 5; // sample 5x per second (every 200ms)
 const DEFAULT_POSITION_X_NORM = 0.5;
@@ -178,7 +178,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       setVisible(Boolean(normalized));
       setAnimateKey((k) => (k + 1) % Number.MAX_SAFE_INTEGER);
     }
-  }, [effectiveFieldPath, model, telemetryBaseUrl]);
+  }, [effectiveFieldPath, model, revision, telemetryBaseUrl]);
 
   const safeSubtitle = useMemo(() => normalizeForDisplay(subtitle), [subtitle]);
 

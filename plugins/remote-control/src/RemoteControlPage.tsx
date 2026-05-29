@@ -1,12 +1,14 @@
-// src/renderer/components/editors/remote-control/RemoteControlPage.tsx
-
 import React, { useEffect, useMemo } from "react";
-import viewer from "../../viewer/viewer";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
-import { Project, ProjectData, Launcher } from "../../../data-sources/launcher";
-import type { RcModuleDescriptor } from "../../../data-sources/launcher";
-import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
+import {
+  Launcher,
+  Project,
+  ProjectData,
+  usePanelInstance,
+  viewer,
+} from "./studio-host";
+import type { RcModuleDescriptor } from "./studio-host";
 import styles from "./styles/RemoteControlPage.module.css";
 
 export default function RemoteControlPage() {

@@ -1,0 +1,16 @@
+{
+  "id": "remote-control",
+  "sourceId": "robotick-studio",
+  "displayName": "Remote Control",
+  "studioApiVersion": "1",
+  "entry": "./src/index.ts",
+  "contributes": {
+    "editors": [
+      {
+        "id": "remote-control",
+        "label": "Remote Control",
+        "componentExport": "RemoteControlPage"
+      }
+    ]
+  }
+}

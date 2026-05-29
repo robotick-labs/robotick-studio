@@ -15,18 +15,17 @@ import {
   type RemoteControlTargetBinding,
 } from "./remote-control-config";
 import styles from "../styles/RemoteControlsPanel.module.css";
-import { Project, ProjectData } from "../../../../../data-sources/launcher";
-import {
-  type ITelemetryModel,
-  type LayoutWritableInput,
-  useTelemetryService,
-} from "../../../../../data-sources/telemetry";
 import {
   buildNamespacedKey,
+  Project,
+  ProjectData,
+  type ITelemetryModel,
+  type LayoutWritableInput,
   readStorageValue,
   setStorageValue,
-} from "../../../../../services/storage";
-import { usePanelInstance } from "../../../../workspaces/PanelInstanceContext";
+  usePanelInstance,
+  useTelemetryService,
+} from "../../studio-host";
 
 type DesiredFieldState = {
   binding: ResolvedTargetBinding;

@@ -40,15 +40,10 @@ describe("EditorRegistry plugin discovery", () => {
     fetchProjectSettingsDataMock.mockReset();
   });
 
-  it("adds plugin-provided editors when the current project declares the plugin source", async () => {
+  it("adds native plugin-provided editors without requiring project plugin settings", async () => {
     fetchProjectSettingsDataMock.mockResolvedValue({
       tooling: {
-        studio_plugins: [
-          {
-            id: "robotick-animation",
-            local_path: "${PROJECT_DIR}/../../robotick/robotick-animation",
-          },
-        ],
+        studio_plugins: [],
       },
     });
 
@@ -60,20 +55,15 @@ describe("EditorRegistry plugin discovery", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("editor-ids").textContent).toContain(
-        "animation-editor"
+        "remote-control"
       )
     );
   });
 
-  it("exposes plugin-provided editors immediately when bootstrapped before render", async () => {
+  it("exposes native plugin-provided editors immediately when bootstrapped before render", async () => {
     const bootstrappedSettings = {
       tooling: {
-        studio_plugins: [
-          {
-            id: "robotick-animation",
-            local_path: "${PROJECT_DIR}/../../robotick/robotick-animation",
-          },
-        ],
+        studio_plugins: [],
       },
     };
     fetchProjectSettingsDataMock.mockImplementation(
@@ -92,12 +82,12 @@ describe("EditorRegistry plugin discovery", () => {
     );
 
     expect(screen.getByTestId("editor-ids").textContent).toContain(
-      "animation-editor"
+      "remote-control"
     );
     expect(fetchProjectSettingsDataMock).not.toHaveBeenCalled();
   });
 
-  it("does not expose animation-editor when the project does not declare the plugin source", async () => {
+  it("does not expose external plugin editors when the project does not declare them", async () => {
     fetchProjectSettingsDataMock.mockResolvedValue({
       tooling: {
         studio_plugins: [],
@@ -113,6 +103,7 @@ describe("EditorRegistry plugin discovery", () => {
     await waitFor(() =>
       expect(fetchProjectSettingsDataMock).toHaveBeenCalled()
     );
+    expect(screen.getByTestId("editor-ids").textContent).toContain("remote-control");
     expect(screen.getByTestId("editor-ids").textContent).not.toContain("animation-editor");
   });
 
