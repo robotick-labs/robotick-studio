@@ -535,7 +535,7 @@ describe("PanelLayout context menu", () => {
     optionLabels = Array.from(container.querySelectorAll("option")).map(
       (option) => option.textContent
     );
-    expect(optionLabels).toEqual(["Mock Editor", "Animation Editor"]);
+    expect(optionLabels).toEqual(["Animation Editor", "Mock Editor"]);
 
     act(() => {
       root.unmount();

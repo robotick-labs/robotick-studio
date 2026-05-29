@@ -473,10 +473,12 @@ export function PanelLayout({
 
   const editorOptions: EditorOption[] = React.useMemo(
     () =>
-      editorEntries.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-      })),
+      editorEntries
+        .map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
     [editorEntries]
   );
 

@@ -61,10 +61,12 @@ export function FloatingPanelLayer({
 
   const editorOptions = useMemo(
     () =>
-      editorEntries.map((item) => ({
-        id: item.id,
-        label: item.label,
-      })),
+      editorEntries
+        .map((item) => ({
+          id: item.id,
+          label: item.label,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
     [editorEntries]
   );
 
