@@ -292,11 +292,27 @@ function buildPluginEditorEntries(
       if (!entryLoader) {
         continue;
       }
+      if (
+        !editor ||
+        typeof editor.id !== "string" ||
+        !editor.id.trim() ||
+        (editor.label != null && typeof editor.label !== "string") ||
+        typeof editor.componentExport !== "string" ||
+        !editor.componentExport.trim()
+      ) {
+        console.warn(
+          "[EditorRegistry] Skipping malformed editor contribution",
+          plugin.manifest.id,
+          editor
+        );
+        continue;
+      }
+      const editorId = editor.id.trim();
       entries.push({
-        id: editor.id,
-        label: editor.label,
+        id: editorId,
+        label: editor.label?.trim() || editorId,
         module: plugin.entryPath,
-        Component: createLazyComponent(entryLoader, editor.componentExport),
+        Component: createLazyComponent(entryLoader, editor.componentExport.trim()),
         source: "plugin",
         pluginId: plugin.manifest.id,
         pluginSourceId: plugin.manifest.sourceId,

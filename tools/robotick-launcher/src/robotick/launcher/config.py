@@ -199,14 +199,15 @@ class Config:
             )
             root_path = normalized_entry.get("root_path")
             if root_path is not None and (
-                not isinstance(root_path, str) or not root_path
+                not isinstance(root_path, str) or not root_path.strip()
             ):
                 raise ValueError(
                     f"'tooling.studio_plugins[{idx}].root_path' must be a non-empty string when provided."
                 )
             package_manager = normalized_entry.get("package_manager")
             if package_manager is not None and (
-                not isinstance(package_manager, str) or not package_manager
+                not isinstance(package_manager, str)
+                or not package_manager.strip()
             ):
                 raise ValueError(
                     f"'tooling.studio_plugins[{idx}].package_manager' must be a non-empty string when provided."

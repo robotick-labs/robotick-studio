@@ -6,6 +6,7 @@ import {
   ITelemetryModel,
   useTelemetryService,
 } from "../../../../data-sources/telemetry";
+import { buildUrl } from "../../../../data-sources/launcher/internal/launcher-interface";
 import styles from "../Telemetry.module.css";
 import { formatBytesWithCommas } from "../utils/format-bytes";
 
@@ -178,14 +179,22 @@ export function TelemetryModel({
       return;
     }
     let cancelled = false;
+    let inFlight = false;
     const update = async () => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
       setStudioIngressRateHz(
         telemetryService.getIngressRateHz(model.instanceURL, 4000)
       );
       try {
-        const response = await fetch(`${model.instanceURL}/api/telemetry/push_stats`, {
-          cache: "no-store",
-        });
+        const response = await fetch(
+          buildUrl(model.instanceURL, "/api/telemetry/push_stats"),
+          {
+            cache: "no-store",
+          }
+        );
         if (!response.ok || cancelled) {
           return;
         }
@@ -214,6 +223,8 @@ export function TelemetryModel({
         });
       } catch {
         // Keep telemetry UI resilient if push stats endpoint is unavailable.
+      } finally {
+        inFlight = false;
       }
     };
     void update();

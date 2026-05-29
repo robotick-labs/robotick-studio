@@ -1505,22 +1505,7 @@ function PanelLeaf({
   }, []);
 
   const entry = getEditorEntry(node.editorId);
-  if (!entry) {
-    return (
-      <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
-        <div className={styles.panelLeaf}>
-          <div className={styles.panelErrorState}>
-            <strong>Editor unavailable</strong>
-            <p>
-              The panel references <code>{node.editorId}</code>, but that editor
-              is not currently loaded for this project.
-            </p>
-          </div>
-        </div>
-      </PanelInstanceProvider>
-    );
-  }
-  const Component = entry.Component;
+  const Component = entry?.Component ?? null;
 
   return (
     <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
@@ -1625,18 +1610,28 @@ function PanelLeaf({
         </div>
 
         <div className={styles.panelBody}>
-          <PanelErrorBoundary
-            editorId={entry.id}
-            onRetry={() => setSplitPreview(null)}
-          >
-            <React.Suspense
-              fallback={<div className={styles.panelLoading}>Loading…</div>}
+          {entry && Component ? (
+            <PanelErrorBoundary
+              editorId={entry.id}
+              onRetry={() => setSplitPreview(null)}
             >
-              <React.Fragment key={`${node.id}:${refreshVersion}`}>
-                <Component />
-              </React.Fragment>
-            </React.Suspense>
-          </PanelErrorBoundary>
+              <React.Suspense
+                fallback={<div className={styles.panelLoading}>Loading…</div>}
+              >
+                <React.Fragment key={`${node.id}:${refreshVersion}`}>
+                  <Component />
+                </React.Fragment>
+              </React.Suspense>
+            </PanelErrorBoundary>
+          ) : (
+            <div className={styles.panelErrorState}>
+              <strong>Editor unavailable</strong>
+              <p>
+                The panel references <code>{node.editorId}</code>, but that
+                editor is not currently loaded for this project.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </PanelInstanceProvider>

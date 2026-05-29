@@ -99,6 +99,26 @@ def test_runtime_schema_validates_workload_repos(tmp_path, make_test_config):
         make_test_config(base_dir, project="my-robot")
 
 
+def test_studio_plugins_reject_whitespace_only_package_manager(tmp_path, make_test_config):
+    project_yaml = {
+        "tooling": {
+            "studio_plugins": [
+                {
+                    "id": "robotick-animation",
+                    "local_path": "robotick-animation",
+                    "package_manager": "   ",
+                }
+            ]
+        },
+        "runtime": {
+            "engine": {"local_path": "engine"},
+        },
+    }
+    base_dir = _write_project(tmp_path, project_yaml)
+    with pytest.raises(ValueError, match="package_manager"):
+        make_test_config(base_dir, project="my-robot")
+
+
 def test_workload_sources_support_root_paths(tmp_path, make_test_config):
     project_yaml = {
         "tooling": {"tooling_sources": [{"id": "robotick-studio", "repo": "https://github.com/robotick-labs/studio.git", "ref": "main"}]},
@@ -126,7 +146,7 @@ def test_workload_sources_reject_invalid_root_paths(tmp_path, make_test_config):
         },
     }
     base_dir = _write_project(tmp_path, project_yaml)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="root_path"):
         make_test_config(base_dir, project="my-robot")
 
 

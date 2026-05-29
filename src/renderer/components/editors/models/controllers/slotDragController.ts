@@ -72,6 +72,7 @@ export class SlotDragController {
     this.pointerOffsetX = startPoint.x - n.x;
     this.pointerOffsetY = startPoint.y - n.y;
     this.didDrag = false;
+    this.suppressNextClick = false;
     this.dragging = true;
     e.preventDefault();
     window.addEventListener("mousemove", this.onMouseMove);

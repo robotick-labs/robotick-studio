@@ -252,8 +252,11 @@ def _close_log_subscribers():
     for subscriber in subscribers:
         try:
             subscriber.put_nowait(None)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(
+                f"[Launcher] Runtime health probe failed for '{model_id}'"
+                f" ({platform}, {project_path}): {exc}"
+            )
 
 
 def _status_consumer(loop: asyncio.AbstractEventLoop):
@@ -632,8 +635,11 @@ async def run_model(
                 "status": "already running",
                 "model": trimmed_model_id,
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        print(
+            f"[Launcher] Runtime preflight health probe failed for "
+            f"'{trimmed_model_id}' ({normalized_platform}, {project_path}): {exc}"
+        )
 
     worker = threading.Thread(
         target=_run_single_model_worker,

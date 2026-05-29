@@ -155,18 +155,22 @@ export function initNodeGraph(
   const refreshLayout = async (): Promise<void> => {
     const refreshId = ++refreshCounter;
     const nextDoc = new GraphDoc();
-    await buildGraphDocFromModel(store, nextDoc, {
-      collapsedModelIds: layoutOptions.collapsedModelIds,
-      modelSortKey: layoutOptions.modelSortKey,
-    });
-    if (refreshId !== refreshCounter) {
-      return;
+    try {
+      await buildGraphDocFromModel(store, nextDoc, {
+        collapsedModelIds: layoutOptions.collapsedModelIds,
+        modelSortKey: layoutOptions.modelSortKey,
+      });
+      if (refreshId !== refreshCounter) {
+        return;
+      }
+      replaceGraphDoc(doc, nextDoc);
+      if (dragPreviewState?.phase === "drop-pending") {
+        dragPreviewState = null;
+      }
+      render();
+    } catch (error) {
+      console.error("[Models] Failed to refresh node graph layout", error);
     }
-    replaceGraphDoc(doc, nextDoc);
-    if (dragPreviewState?.phase === "drop-pending") {
-      dragPreviewState = null;
-    }
-    render();
   };
 
   // ——— Store subscription (relayout + render on any store mutation) ———
@@ -186,6 +190,9 @@ export function initNodeGraph(
     }
     const { sectionIndex, laneIndex } = ce.detail;
     const section = doc.sections[sectionIndex];
+    if (!section) {
+      return;
+    }
     const modelId = section.modelId;
     const nextName = suggestName(store, modelId, "NewWorkload");
     store.insertAt(modelId, laneIndex, section.maxNodes, {

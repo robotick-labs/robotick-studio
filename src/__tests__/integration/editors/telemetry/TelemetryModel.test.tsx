@@ -51,15 +51,19 @@ function render(node: React.ReactElement) {
 describe("TelemetryModel", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.useRealTimers();
     useTelemetryStream.mockReset();
     useTelemetryService.mockReset();
     useTelemetryService.mockReturnValue({
       getIngressRateHz: vi.fn(() => 0),
     });
+    vi.stubGlobal("fetch", vi.fn());
   });
 
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("shows layout-derived subtitle stats while collapsed and avoids rendering the telemetry table", () => {
@@ -193,6 +197,88 @@ describe("TelemetryModel", () => {
     expect(
       reorderedRows.map((row) => row.getAttribute("data-workload-name")),
     ).toEqual(["alpha", "mike", "zeta"]);
+
+    tree.unmount();
+  });
+
+  it("uses routed push-stats URLs and avoids overlapping poll fetches", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(
+      "telemetry-expanded-http___launcher_test_api_telemetry-gateway_models_face",
+      "true"
+    );
+
+    useTelemetryStream.mockReturnValue({
+      model: {
+        workloads: [],
+        raw: null,
+        schemaSessionId: "sid",
+        workloads_buffer_size_used: 123,
+        process_memory_used: 456,
+      },
+      error: null,
+      revision: 0,
+    });
+
+    let resolveFetch: ((value: Response) => void) | null = null;
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const tree = render(
+      <TelemetryModel
+        model={{
+          modelName: "Face",
+          modelPath: "robots/example/face.model.yaml",
+          instanceURL: "http://launcher.test/api/telemetry-gateway/models/face",
+          telemetryPushRateHz: 10,
+          fieldConnectionHints: {},
+        }}
+        index={10}
+      />
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://launcher.test/api/telemetry-gateway/models/face/push_stats",
+      { cache: "no-store" }
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFetch?.(
+        new Response(
+          JSON.stringify({
+            configured_push_rate_hz: 20,
+            goal_push_rate_hz: 20,
+            source_tick_rate_hz: 60,
+            push_every_n_ticks: 3,
+            actual_push_rate_hz: 20,
+            last_push_duration_ms: 1,
+            last_push_period_ms: 50,
+            last_push_cost_pct_of_period: 2,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     tree.unmount();
   });

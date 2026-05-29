@@ -12,6 +12,7 @@ const registryState = vi.hoisted(() => ({
     source: "builtin" | "plugin";
   }>,
   loading: false,
+  missingEditorIds: new Set<string>(),
 }));
 
 vi.mock("../../../../renderer/services/EditorRegistry", () => {
@@ -38,7 +39,9 @@ vi.mock("../../../../renderer/services/EditorRegistry", () => {
     useEditorRegistry: () => ({
       listEditorEntries: () => registryState.entries,
       getEditorEntry: (editorId: string) =>
-        registryState.entries.find((entry) => entry.id === editorId),
+        registryState.missingEditorIds.has(editorId)
+          ? undefined
+          : registryState.entries.find((entry) => entry.id === editorId),
       loading: registryState.loading,
     }),
     __mockEntries: {
@@ -94,6 +97,7 @@ describe("PanelLayout context menu", () => {
     window.localStorage.clear();
     registryState.entries = [mockEntries.mockEntry];
     registryState.loading = false;
+    registryState.missingEditorIds = new Set();
     showPanelMenu = vi.fn();
     useContextMenuMock.mockReturnValue({
       showPanelMenu,
@@ -130,6 +134,71 @@ describe("PanelLayout context menu", () => {
     });
 
     expect(showPanelMenu).toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps missing-editor panels interactive so they can be reassigned", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="animation-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='animation-editor']")).not.toBeNull();
+
+    await act(async () => {
+      registryState.missingEditorIds = new Set(["animation-editor"]);
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="animation-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Editor unavailable");
+    const selectorButton = container.querySelector(
+      "button[aria-label='Open editor selector']"
+    );
+    expect(selectorButton).not.toBeNull();
+
+    await act(async () => {
+      selectorButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const selector = container.querySelector(
+      "select"
+    ) as HTMLSelectElement | null;
+    expect(selector).not.toBeNull();
+
+    await act(async () => {
+      if (!selector) return;
+      selector.value = "mock-editor";
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
 
     act(() => {
       root.unmount();
