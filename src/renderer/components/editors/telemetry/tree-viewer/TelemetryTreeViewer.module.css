@@ -57,10 +57,10 @@
 
 .node {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.85rem;
+  font-size: var(--telemetry-field-tree-font-size, 0.85rem);
   color: rgba(255, 255, 255, 0.9);
   min-width: 0;
-  width: 100%;
+  width: var(--telemetry-field-tree-width, 100%);
 }
 
 .nodeRow {
@@ -70,29 +70,35 @@
   gap: 4px;
 }
 
+.nodeChildren {
+  margin-left: var(--telemetry-field-tree-indent, 20px);
+}
+
 .nodeEntry {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: var(--telemetry-field-tree-entry-flex, 1 1 auto);
   padding: 2px 0;
 }
 
 .nodeText {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 100%;
+  gap: var(--telemetry-field-tree-node-gap, 4px);
+  max-width: var(--telemetry-field-tree-text-max-width, 100%);
   min-width: 0;
+  white-space: var(--telemetry-field-tree-white-space, normal);
+  flex-wrap: nowrap;
 }
 
 .nodeValue {
   color: #8fd7ff;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: var(--telemetry-field-tree-value-overflow, hidden);
+  text-overflow: var(--telemetry-field-tree-value-text-overflow, ellipsis);
+  white-space: var(--telemetry-field-tree-value-white-space, nowrap);
 }
 
 .nodeToggle {

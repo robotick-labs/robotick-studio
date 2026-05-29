@@ -36,7 +36,7 @@ export interface ModelData {
   comment?: string;
   telemetry?: {
     port?: number;
-    preferred_sample_rate_hz?: number;
+    telemetry_push_rate_hz?: number;
     [key: string]: unknown;
   };
   root: { workload_id: string };
@@ -73,6 +73,24 @@ function parseStrictModelData(raw: unknown, modelPath: string): ModelData {
   }
   if (model.comment != null && typeof model.comment !== "string") {
     throw new Error(`${modelPath}: optional 'comment' must be a string`);
+  }
+  if (model.telemetry != null) {
+    if (typeof model.telemetry !== "object" || Array.isArray(model.telemetry)) {
+      throw new Error(`${modelPath}: telemetry must be an object`);
+    }
+    const pushRate = (
+      model.telemetry as { telemetry_push_rate_hz?: unknown }
+    ).telemetry_push_rate_hz;
+    if (
+      pushRate != null &&
+      (typeof pushRate !== "number" ||
+        !Number.isFinite(pushRate) ||
+        pushRate < 0)
+    ) {
+      throw new Error(
+        `${modelPath}: telemetry.telemetry_push_rate_hz must be a non-negative finite number`,
+      );
+    }
   }
   if (!model.root || typeof model.root !== "object") {
     throw new Error(`${modelPath}: root must be an object with workload_id`);

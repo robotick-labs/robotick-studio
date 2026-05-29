@@ -401,7 +401,7 @@ remote_models:
     assert telemetry == {}
     assert telemetry_peers == []
     assert len(remote_models) == 1
-    assert remote_models[0]["name"] == "mind"
+    assert remote_models[0]["name"] == "mind_model_B1"
     assert remote_models[0]["mode"] == "IP"
     assert remote_models[0]["channel"] == ""
     assert remote_models[0]["connections"] == [
@@ -409,7 +409,7 @@ remote_models:
             "from": "prosody.outputs.prosody_state.is_voiced",
             "to_remote": "voice_presence.inputs.is_present",
             "var_name": (
-                "mind_conn_prosody_outputs_prosody_state_is_voiced__to__"
+                "mind_model_B1_conn_prosody_outputs_prosody_state_is_voiced__to__"
                 "voice_presence_inputs_is_present"
             ),
         }
@@ -450,8 +450,8 @@ remote_models:
     assert telemetry_peers == []
     assert remote_models == [
         {
-            "name": "simulator",
-            "name_safe": "simulator",
+            "name": "simulator_model_B1",
+            "name_safe": "simulator_model_B1",
             "mode": "IP",
             "channel": "10.42.0.77",
             "connections": [
@@ -459,7 +459,7 @@ remote_models:
                     "from": "steering.outputs.left_motor",
                     "to_remote": "simulator.inputs.left_motor_power",
                     "var_name": (
-                        "simulator_conn_steering_outputs_left_motor__to__"
+                        "simulator_model_B1_conn_steering_outputs_left_motor__to__"
                         "simulator_inputs_left_motor_power"
                     ),
                 }

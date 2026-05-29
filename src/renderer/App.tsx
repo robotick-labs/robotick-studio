@@ -13,6 +13,10 @@ import {
   telemetryService,
 } from "./data-sources/telemetry";
 import { AppConfigProvider } from "./services/AppConfigService";
+import {
+  EditorRegistryProvider,
+  type EditorRegistryBootstrapState,
+} from "./services/EditorRegistry";
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
@@ -72,7 +76,11 @@ export function selectRouterComponent(
   return shouldUseHash ? HashRouter : BrowserRouter;
 }
 
-export function App() {
+export function App({
+  initialEditorRegistryState = null,
+}: {
+  initialEditorRegistryState?: EditorRegistryBootstrapState | null;
+}) {
   const RouterComponent = useMemo(() => selectRouterComponent(), []);
 
   useEffect(() => {
@@ -110,18 +118,22 @@ export function App() {
         <LauncherServiceProvider service={launcherService}>
           <Project.Context.Provider>
             <ProjectData.Provider>
-              <Launcher.Context.Provider>
-                <ContextMenuProvider>
-                  <RouterComponent>
-                    <div className={styles.appShell}>
-                      <AppHeader />
-                      <main className={styles.pageContainer}>
-                        <AppRoutes />
-                      </main>
-                    </div>
-                  </RouterComponent>
-                </ContextMenuProvider>
-              </Launcher.Context.Provider>
+              <EditorRegistryProvider
+                initialBootstrapState={initialEditorRegistryState}
+              >
+                <Launcher.Context.Provider>
+                  <ContextMenuProvider>
+                    <RouterComponent>
+                      <div className={styles.appShell}>
+                        <AppHeader />
+                        <main className={styles.pageContainer}>
+                          <AppRoutes />
+                        </main>
+                      </div>
+                    </RouterComponent>
+                  </ContextMenuProvider>
+                </Launcher.Context.Provider>
+              </EditorRegistryProvider>
             </ProjectData.Provider>
           </Project.Context.Provider>
         </LauncherServiceProvider>

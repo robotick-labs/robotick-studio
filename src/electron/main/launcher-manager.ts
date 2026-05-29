@@ -12,10 +12,7 @@ function getWorkspaceMatchScore(dir: string) {
     if (
       fs
         .readdirSync(dir, { withFileTypes: true })
-        .some(
-          (entry) =>
-            entry.isFile() && entry.name.endsWith(".project.yaml")
-        )
+        .some((entry) => entry.isFile() && entry.name.endsWith(".project.yaml"))
     ) {
       score = Math.max(score, 2);
     }
@@ -43,7 +40,7 @@ function* walkAncestors(start: string) {
 export function resolveWorkspaceRoot(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
-  moduleDir = __dirname
+  moduleDir = __dirname,
 ) {
   const configuredRoot =
     env.ROBOTICK_PROJECT_DIR ?? env.ROBOTICK_WORKSPACE_ROOT;
@@ -89,7 +86,7 @@ const resolveLauncherDir = () => {
   }
   const workspaceCandidate = path.join(
     getWorkspaceRoot(),
-    DEFAULT_LAUNCHER_SUBDIR
+    DEFAULT_LAUNCHER_SUBDIR,
   );
   if (fs.existsSync(workspaceCandidate)) {
     return workspaceCandidate;
@@ -97,7 +94,7 @@ const resolveLauncherDir = () => {
   const localCandidate = path.join(
     __dirname,
     "../../../",
-    DEFAULT_LAUNCHER_SUBDIR
+    DEFAULT_LAUNCHER_SUBDIR,
   );
   if (fs.existsSync(localCandidate)) {
     return localCandidate;
@@ -145,7 +142,7 @@ function installLauncherDependencies() {
   spawnSync(
     python,
     ["-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-    { cwd: getWorkspaceRoot(), stdio: "inherit" }
+    { cwd: getWorkspaceRoot(), stdio: "inherit" },
   );
   const launcherDir = LAUNCHER_DIR();
   const launcherSpec = `robotick-launcher[dev] @ ${
@@ -176,7 +173,7 @@ async function waitForLauncher(timeoutMs = 20000) {
 
 async function isLauncherResponding() {
   try {
-    const response = await fetch(STATUS_URL);
+    const response = await fetch(STATUS_URL, { cache: "no-store" });
     return response.ok;
   } catch {
     return false;
@@ -189,7 +186,7 @@ async function stopLingeringLaunchers() {
       return;
     }
     try {
-      await fetch(STOP_URL, { method: "POST" });
+      await fetch(STOP_URL, { method: "POST", cache: "no-store" });
     } catch {
       // ignore
     }
@@ -197,7 +194,7 @@ async function stopLingeringLaunchers() {
   }
   if (await isLauncherResponding()) {
     console.warn(
-      "[Launcher] Existing listener still responding after stop attempts; continuing"
+      "[Launcher] Existing listener still responding after stop attempts; continuing",
     );
   }
 }
@@ -247,7 +244,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLin
     ["-NoProfile", "-Command", script],
     {
       encoding: "utf-8",
-    }
+    },
   );
   if (result.status !== 0 || !result.stdout) {
     return [];
@@ -291,7 +288,7 @@ function killExistingLauncherProcesses() {
     } catch (error) {
       console.warn(
         `[Launcher] Failed to terminate lingering launcher pid ${pid}`,
-        error
+        error,
       );
       if (process.platform === "win32") {
         spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
@@ -331,7 +328,7 @@ export async function ensureLauncherReady() {
   console.log(
     `[Launcher] Starting listener with cwd ${root}`,
     "project dir:",
-    env.ROBOTICK_PROJECT_DIR
+    env.ROBOTICK_PROJECT_DIR,
   );
   managedProcess = spawn(bin, ["listen"], {
     cwd: root,
@@ -353,7 +350,7 @@ export async function stopManagedLauncher() {
   }
 
   try {
-    await fetch(STOP_URL, { method: "POST" });
+    await fetch(STOP_URL, { method: "POST", cache: "no-store" });
   } catch {
     // ignore
   }

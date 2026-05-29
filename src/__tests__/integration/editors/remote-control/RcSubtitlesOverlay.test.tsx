@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RcSubtitlesOverlay } from "../../../../renderer/components/editors/remote-control/components/RcSubtitlesOverlay";
+import { RcSubtitlesOverlay } from "../../../../../plugins/remote-control/src/components/RcSubtitlesOverlay";
 import { TelemetryServiceProvider } from "../../../../renderer/data-sources/telemetry";
 import {
   resetLauncherDataTestState,

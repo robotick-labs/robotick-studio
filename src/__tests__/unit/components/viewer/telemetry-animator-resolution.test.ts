@@ -12,7 +12,7 @@ function createDescriptor(overrides: Partial<ProjectModelDescriptor>): ProjectMo
     modelShortName: "sample",
     telemetryPort: 7090,
     telemetryBaseUrl: "http://localhost:7090",
-    preferredTelemetrySampleRateHz: 20,
+    telemetryPushRateHz: 20,
     data: {},
     ...overrides,
   };

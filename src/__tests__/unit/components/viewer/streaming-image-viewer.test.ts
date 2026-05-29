@@ -5,22 +5,76 @@ const { subscribeTelemetry } = vi.hoisted(() => ({
   subscribeTelemetry: vi.fn(() => vi.fn()),
 }));
 
+const projectModelsState = {
+  data: [
+    {
+      modelShortName: "sample-robot-sensing-visual",
+      modelName: "sample-robot-sensing-visual",
+      data: {
+        workloads: [],
+      },
+    },
+    {
+      modelShortName: "demo-robot-simulator",
+      modelName: "demo-robot-simulator",
+      data: {
+        workloads: [
+          {
+            id: "image_ref_to_image_workload_3E14F044",
+            name: "head_rgb_png",
+          },
+          {
+            id: "image_ref_to_image_workload_5DB43335",
+            name: "chase_camera_jpeg",
+          },
+        ],
+      },
+    },
+    {
+      modelShortName: "demo-robot-perception-visual",
+      modelName: "demo-robot-perception-visual",
+      data: {
+        workloads: [
+          {
+            id: "object_detection_tracker_workload_52894206",
+            name: "object_detection_tracker",
+          },
+          {
+            id: "visual_field_of_view_filter_workload_406CD5A6",
+            name: "visual_field_of_view_filter",
+          },
+          {
+            id: "image_ref_to_image_workload_2B89C0A3",
+            name: "head_segmented_png",
+          },
+        ],
+      },
+    },
+  ],
+  error: null,
+  loading: false,
+};
+
 vi.mock("../../../../renderer/data-sources/telemetry", () => ({
   subscribeTelemetry,
 }));
 
 vi.mock("../../../../renderer/data-sources/launcher", () => ({
   ProjectData: {
-    waitForProjectModelsLoaded: vi.fn(async () => ({
-      data: [{ modelShortName: "sample-robot-sensing-visual" }],
-      error: null,
-    })),
+    waitForProjectModelsLoaded: vi.fn(async () => projectModelsState),
+    getProjectModelsStateSnapshot: vi.fn(() => projectModelsState),
     findModelDescriptorInState: vi.fn((_state, modelName: string) => ({
       modelName,
       telemetryBaseUrl:
         modelName === "sample-robot-sensing-visual"
           ? "http://example.test:7101"
-          : `http://example.test/${modelName}`,
+          : modelName === "demo-robot-simulator"
+            ? "http://example.test:7096"
+            : `http://example.test/${modelName}`,
+      data:
+        projectModelsState.data.find(
+          (descriptor) => descriptor.modelName === modelName,
+        )?.data ?? { workloads: [] },
     })),
   },
 }));
@@ -321,7 +375,7 @@ describe("viewer-streaming-image stream selection", () => {
     const subscribedUrls = subscribeTelemetry.mock.calls.map((call) => call[0]);
     expect(subscribedUrls).toEqual(
       expect.arrayContaining([
-        "http://example.test/demo-robot-simulator",
+        "http://example.test:7096",
         "http://example.test/demo-robot-perception-visual",
       ])
     );
@@ -387,6 +441,152 @@ describe("viewer-streaming-image stream selection", () => {
     callback({ getField });
 
     expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
+  });
+
+  it("resolves configured workload names to runtime workload ids without guessing by suffix", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Chase",
+      streams: {
+        "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+      },
+      frameRateHz: 30,
+    });
+
+    const callback = subscribeTelemetry.mock.calls[0][2].callback;
+    const getField = vi.fn((path: string) => {
+      if (path === "image_ref_to_image_workload_5DB43335.outputs.image") {
+        return {
+          mime_type: "image/jpeg",
+          getValue: () =>
+            new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+        };
+      }
+      return undefined;
+    });
+
+    callback({
+      workloads: [
+        { name: "image_ref_to_image_workload_3E14F044" },
+        { name: "image_ref_to_image_workload_5DB43335" },
+      ],
+      getField,
+    });
+
+    expect(getField).toHaveBeenCalledWith("chase_camera_jpeg.outputs.image");
+    expect(getField).toHaveBeenCalledWith(
+      "image_ref_to_image_workload_5DB43335.outputs.image",
+    );
+    expect(getField).not.toHaveBeenCalledWith(
+      "image_ref_to_image_workload_3E14F044.outputs.image",
+    );
+  });
+
+  it("resolves composite layer, detections, and field-of-view paths via declared workload ids", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Head-RGB Detected Objects",
+      streams: {
+        "Head-RGB Detected Objects": {
+          layers: [
+            {
+              source: "demo-robot-simulator.head_rgb_png.outputs.image",
+              detectionsSource:
+                "demo-robot-perception-visual.object_detection_tracker.outputs.tracked_detections",
+              fieldOfViewSource:
+                "demo-robot-perception-visual.visual_field_of_view_filter.outputs.field_of_view_rect",
+            },
+            {
+              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              transform: "mask-preview",
+              blendMode: "screen",
+              opacity: 0.65,
+            },
+          ],
+        },
+      },
+      frameRateHz: 30,
+    });
+
+    expect(subscribeTelemetry).toHaveBeenCalledTimes(4);
+
+    const segmentedLayerCallback = subscribeTelemetry.mock.calls[1][2].callback;
+    const detectionsCallback = subscribeTelemetry.mock.calls[2][2].callback;
+    const fieldOfViewCallback = subscribeTelemetry.mock.calls[3][2].callback;
+
+    const segmentedGetField = vi.fn((path: string) => {
+      if (path === "image_ref_to_image_workload_2B89C0A3.outputs.image") {
+        return {
+          mime_type: "image/png",
+          getValue: () =>
+            new Uint8Array([
+              0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+            ]) as Uint8Array,
+        };
+      }
+      return undefined;
+    });
+    segmentedLayerCallback({
+      workloads: [{ name: "image_ref_to_image_workload_2B89C0A3" }],
+      getField: segmentedGetField,
+    });
+
+    const detectionsGetField = vi.fn((path: string) => {
+      if (
+        path ===
+        "object_detection_tracker_workload_52894206.outputs.tracked_detections"
+      ) {
+        return { getValue: () => ({ items: [], count: 0 }) };
+      }
+      return undefined;
+    });
+    detectionsCallback({
+      workloads: [{ name: "object_detection_tracker_workload_52894206" }],
+      getField: detectionsGetField,
+    });
+
+    const fieldOfViewGetField = vi.fn((path: string) => {
+      if (
+        path ===
+        "visual_field_of_view_filter_workload_406CD5A6.outputs.field_of_view_rect"
+      ) {
+        return {
+          getValue: () => ({
+            min_x_norm: 0.1,
+            min_y_norm: 0.1,
+            max_x_norm: 0.9,
+            max_y_norm: 0.9,
+          }),
+        };
+      }
+      return undefined;
+    });
+    fieldOfViewCallback({
+      workloads: [{ name: "visual_field_of_view_filter_workload_406CD5A6" }],
+      getField: fieldOfViewGetField,
+    });
+
+    expect(segmentedGetField).toHaveBeenCalledWith(
+      "head_segmented_png.outputs.image",
+    );
+    expect(segmentedGetField).toHaveBeenCalledWith(
+      "image_ref_to_image_workload_2B89C0A3.outputs.image",
+    );
+    expect(detectionsGetField).toHaveBeenCalledWith(
+      "object_detection_tracker.outputs.tracked_detections",
+    );
+    expect(detectionsGetField).toHaveBeenCalledWith(
+      "object_detection_tracker_workload_52894206.outputs.tracked_detections",
+    );
+    expect(fieldOfViewGetField).toHaveBeenCalledWith(
+      "visual_field_of_view_filter.outputs.field_of_view_rect",
+    );
+    expect(fieldOfViewGetField).toHaveBeenCalledWith(
+      "visual_field_of_view_filter_workload_406CD5A6.outputs.field_of_view_rect",
+    );
   });
 
   it("creates layered canvases and subscribes to each layer in composite streams", async () => {

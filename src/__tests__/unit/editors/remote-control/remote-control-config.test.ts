@@ -5,7 +5,7 @@ import {
   applyStickModeTransform,
   normalizeRemoteControlsConfig,
   parseTargetBinding,
-} from "../../../../renderer/components/editors/remote-control/components/remote-controls/remote-control-config";
+} from "../../../../../plugins/remote-control/src/components/remote-controls/remote-control-config";
 
 describe("remote-control-config", () => {
   it("normalizes stick modes and direct field targets from Studio config", () => {

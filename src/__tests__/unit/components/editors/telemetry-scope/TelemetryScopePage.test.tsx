@@ -19,7 +19,7 @@ const projectModelsState = vi.hoisted(() => ({
       modelPath: string;
       modelName: string;
       telemetryBaseUrl: string;
-      preferredTelemetrySampleRateHz?: number;
+      telemetryPushRateHz?: number;
     }>,
     loading: true,
     error: null as unknown,
@@ -175,7 +175,7 @@ describe("TelemetryScopePage restore", () => {
             modelPath: "models/demo.model.yaml",
             modelName: "Demo Model",
             telemetryBaseUrl: "http://example.test",
-            preferredTelemetrySampleRateHz: 20,
+            telemetryPushRateHz: 20,
           },
         ],
         loading: false,
@@ -315,7 +315,7 @@ describe("TelemetryScopePage restore", () => {
           modelPath: "models/demo.model.yaml",
           modelName: "Demo Model",
           telemetryBaseUrl: "http://example.test",
-          preferredTelemetrySampleRateHz: 20,
+          telemetryPushRateHz: 20,
         },
       ],
       loading: false,

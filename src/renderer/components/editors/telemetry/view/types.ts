@@ -7,10 +7,11 @@ export interface FieldConnectionHint {
 }
 
 export interface EngineModel {
+  modelId?: string;
   modelName: string;
   modelPath: string;
   instanceURL: string;
-  preferredSampleRateHz?: number;
+  telemetryPushRateHz?: number;
   fieldConnectionHints: Record<string, FieldConnectionHint>;
-  expectedWorkloads?: Array<{ name: string; type: string }>;
+  expectedWorkloads?: Array<{ id?: string; name?: string; type: string }>;
 }

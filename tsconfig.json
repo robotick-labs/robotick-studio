@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
     "lib": ["DOM", "ES2022"],
     "strict": true,
     "noEmit": true, // Let Vite do the output
@@ -10,7 +11,22 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "react": ["node_modules/@types/react/index.d.ts"],
+      "react/*": ["node_modules/@types/react/*"],
+      "react-dom": ["node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/*": ["node_modules/@types/react-dom/*"],
+      "@robotick/studio-host": [
+        "src/renderer/services/plugins/animation-studio-host.ts"
+      ],
+      "@/*": ["src/renderer/*"]
+    }
   },
-  "include": ["src/renderer/**/*", "src/electron/**/*"]
+  "include": [
+    "src/renderer/**/*",
+    "src/electron/**/*",
+    "plugins/**/*",
+    "../robotick-animation/studio/plugins/animation-editor/src/**/*"
+  ]
 }

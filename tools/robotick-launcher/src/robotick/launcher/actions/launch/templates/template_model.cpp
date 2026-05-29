@@ -49,7 +49,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
 
     static const WorkloadSeed {{ w.var_name }} = {
         TypeId("{{ w.type }}"),
-        StringView("{{ w.name }}"),
+        StringView("{{ w.id }}"),
         {% if w.tick_rate_hz %}
         {{ w.tick_rate_hz }}f,
         {% else %}
@@ -166,7 +166,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
 
     // === Finalize model ===
 
-    model.set_model_name("{{config.model_name}}");
+    model.set_model_name("{{ config.model.id if config.model.id else config.model_name }}");
     {% if workloads %}
     model.use_workload_seeds(all_workloads);
     {% endif %}
@@ -184,6 +184,7 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
     {% if telemetry and telemetry.port %}
     model.set_telemetry_port({{telemetry.port}});
     {% endif %}
+    model.set_telemetry_push_rate_hz({% if telemetry and telemetry.telemetry_push_rate_hz %}{{telemetry.telemetry_push_rate_hz}}{% else %}20.0f{% endif %});
     {% if telemetry and telemetry.is_gateway %}
     model.set_telemetry_is_gateway(true);
     {% endif %}

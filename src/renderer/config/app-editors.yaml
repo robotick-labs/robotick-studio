@@ -9,9 +9,6 @@ editors:
   - id: models
     label: Models
     module: ./components/editors/models/ModelsPage.tsx
-  - id: remote-control
-    label: Remote Control
-    module: ./components/editors/remote-control/RemoteControlPage.tsx
   - id: telemetry
     label: Telemetry
     module: ./components/editors/telemetry/TelemetryPage.tsx

@@ -93,4 +93,33 @@ describe("modelData strict id-ref parsing", () => {
       "missing required top-level 'id'",
     );
   });
+
+  it("rejects invalid telemetry push rate values", async () => {
+    getProjectModelsMock.mockResolvedValue([
+      {
+        modelPath: "models/example.model.yaml",
+        data: {
+          id: "example_model_ABCD1234",
+          root: { workload_id: "root_workload_1234" },
+          telemetry: {
+            telemetry_push_rate_hz: -1,
+          },
+          workloads: [
+            {
+              id: "root_workload_1234",
+              name: "root",
+              type: "SequencedGroupWorkload",
+              tick_rate_hz: 60,
+              config: {},
+              inputs: {},
+            },
+          ],
+        },
+      },
+    ]);
+
+    await expect(loadAllModels("/tmp/project")).rejects.toThrow(
+      "telemetry.telemetry_push_rate_hz must be a non-negative finite number",
+    );
+  });
 });

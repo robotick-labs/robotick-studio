@@ -21,6 +21,14 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path, make_test_confi
             "tooling_sources": [
                 {"id": "robotick-studio", "repo": "https://github.com/robotick-labs/robotick-studio.git", "ref": "v0.9.1"}
             ],
+            "studio_plugins": [
+                {
+                    "id": "robotick-animation",
+                    "local_path": "${PROJECT_DIR}/../../robotick/robotick-animation",
+                    "root_path": "studio/plugins/animation-editor",
+                    "package_manager": "npm",
+                }
+            ],
         },
         "runtime": {
             "engine": {"local_path": "${PROJECT_DIR}/../engine"},
@@ -43,6 +51,9 @@ def test_config_accepts_new_tooling_and_runtime_schema(tmp_path, make_test_confi
     assert len(config.tooling.tooling_sources) == 1
     assert config.tooling.tooling_sources[0]["repo"] == "https://github.com/robotick-labs/robotick-studio.git"
     assert config.tooling.tooling_sources[0]["id"] == "robotick-studio"
+    assert len(config.tooling.studio_plugins) == 1
+    assert config.tooling.studio_plugins[0]["id"] == "robotick-animation"
+    assert config.tooling.studio_plugins[0]["root_path"] == "studio/plugins/animation-editor"
     assert config.tooling.bootstrap == "./my-robot.setup.sh"
     assert config.runtime.engine.local_path == "${PROJECT_DIR}/../engine"
     assert len(config.runtime.workload_sources) == 2
@@ -69,6 +80,7 @@ def test_tooling_section_optional(tmp_path, make_test_config):
     base_dir = _write_project(tmp_path, project_yaml)
     config = make_test_config(base_dir, project="my-robot")
     assert config.tooling.tooling_sources == []
+    assert config.tooling.studio_plugins == []
     assert config.tooling.bootstrap == "./my-robot.setup.sh"
 
 
@@ -84,6 +96,26 @@ def test_runtime_schema_validates_workload_repos(tmp_path, make_test_config):
     }
     base_dir = _write_project(tmp_path, project_yaml)
     with pytest.raises(ValueError):
+        make_test_config(base_dir, project="my-robot")
+
+
+def test_studio_plugins_reject_whitespace_only_package_manager(tmp_path, make_test_config):
+    project_yaml = {
+        "tooling": {
+            "studio_plugins": [
+                {
+                    "id": "robotick-animation",
+                    "local_path": "robotick-animation",
+                    "package_manager": "   ",
+                }
+            ]
+        },
+        "runtime": {
+            "engine": {"local_path": "engine"},
+        },
+    }
+    base_dir = _write_project(tmp_path, project_yaml)
+    with pytest.raises(ValueError, match="package_manager"):
         make_test_config(base_dir, project="my-robot")
 
 
@@ -111,6 +143,22 @@ def test_workload_sources_reject_invalid_root_paths(tmp_path, make_test_config):
             "workload_sources": [
                 {"id": "foo", "local_path": "workloads", "root_paths": "include"}
             ]
+        },
+    }
+    base_dir = _write_project(tmp_path, project_yaml)
+    with pytest.raises(ValueError, match="root_path"):
+        make_test_config(base_dir, project="my-robot")
+
+
+def test_studio_plugins_reject_invalid_root_path(tmp_path, make_test_config):
+    project_yaml = {
+        "tooling": {
+            "studio_plugins": [
+                {"id": "robotick-animation", "local_path": "robotick-animation", "root_path": 3}
+            ]
+        },
+        "runtime": {
+            "engine": {"local_path": "engine"},
         },
     }
     base_dir = _write_project(tmp_path, project_yaml)

@@ -99,7 +99,7 @@ export interface ProjectModelDescriptor<T = unknown> {
   modelName: string;
   telemetryPort: number;
   telemetryBaseUrl: string;
-  preferredTelemetrySampleRateHz?: number;
+  telemetryPushRateHz: number;
   data: T;
 }
 
@@ -388,14 +388,14 @@ function normalizePort(portValue: unknown): number {
   return DEFAULT_TELEMETRY_PORT;
 }
 
-function normalizePreferredTelemetrySampleRateHz(
+function normalizeTelemetryPushRateHz(
   sampleRateHzValue: unknown
-): number | undefined {
+): number {
   const next = Number(sampleRateHzValue);
   if (Number.isFinite(next) && next > 0) {
     return next;
   }
-  return undefined;
+  return 20;
 }
 
 function buildTelemetryBaseUrl(port: number) {
@@ -643,13 +643,13 @@ async function buildModelDescriptors(
       const telemetryPort = normalizePort(
         (data as { telemetry?: { port?: number } })?.telemetry?.port
       );
-      const preferredTelemetrySampleRateHz =
-        normalizePreferredTelemetrySampleRateHz(
+      const telemetryPushRateHz =
+        normalizeTelemetryPushRateHz(
           (
             data as {
-              telemetry?: { preferred_sample_rate_hz?: number };
+              telemetry?: { telemetry_push_rate_hz?: number };
             }
-          )?.telemetry?.preferred_sample_rate_hz
+          )?.telemetry?.telemetry_push_rate_hz
         );
 
       return {
@@ -660,7 +660,7 @@ async function buildModelDescriptors(
         telemetryBaseUrl: useLocalModelHosts
           ? buildTelemetryBaseUrl(telemetryPort)
           : buildDirectTelemetryBaseUrl(data, telemetryPort),
-        preferredTelemetrySampleRateHz,
+        telemetryPushRateHz,
         data,
       } as ProjectModelDescriptor;
     } catch (err) {

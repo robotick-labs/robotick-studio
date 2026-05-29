@@ -11,6 +11,7 @@ vi.mock(
 );
 
 import { TelemetryStructFields } from "../../../../renderer/components/editors/telemetry/view/TelemetryStructFields";
+import { spawnTelemetryImagePanel } from "../../../../renderer/components/editors/telemetry/panels";
 import type {
   ITelemetryField,
   ITelemetryModel,
@@ -46,32 +47,15 @@ function render(node: React.ReactElement) {
 }
 
 describe("TelemetryStructFields", () => {
-  const originalCreateObjectURL = URL.createObjectURL;
-  const originalRevokeObjectURL = URL.revokeObjectURL;
-
   beforeEach(() => {
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: vi.fn(() => "blob:test-image"),
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: vi.fn(),
-    });
+    vi.mocked(spawnTelemetryImagePanel).mockClear();
   });
 
   afterEach(() => {
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: originalCreateObjectURL,
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: originalRevokeObjectURL,
-    });
+    vi.mocked(spawnTelemetryImagePanel).mockClear();
   });
 
-  it("keeps image-field hook ordering stable when bytes become valid after expansion", async () => {
+  it("keeps image-like leaf rendering stable when the backing value changes", async () => {
     let currentValue: unknown = "not-image-bytes";
 
     const model: ITelemetryModel = {
@@ -83,7 +67,7 @@ describe("TelemetryStructFields", () => {
     };
 
     const field: ITelemetryField = {
-      name: "image",
+      name: "data_buffer",
       type: "DynamicStructStorageVector<uint8_t>",
       path: "outputs.image.data_buffer",
       offset: 0,
@@ -104,14 +88,14 @@ describe("TelemetryStructFields", () => {
     expect(() =>
       tree.render(<TelemetryStructFields struct={struct} />)
     ).not.toThrow();
-    expect(tree.container.textContent).toContain("invalid image data");
+    expect(tree.container.textContent).toContain("Open image panel");
 
     currentValue = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 
     await expect(
       tree.renderAsync(<TelemetryStructFields struct={struct} />)
     ).resolves.not.toThrow();
-    expect(tree.container.querySelector("img")).not.toBeNull();
+    expect(tree.container.textContent).toContain("Open image panel");
 
     tree.unmount();
   });
@@ -180,7 +164,72 @@ describe("TelemetryStructFields", () => {
     tree.unmount();
   });
 
-  it("renders encoded Image structs as image thumbnails", async () => {
+  it("opens image panels with stable model and workload ids", async () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+    };
+
+    const field: ITelemetryField = {
+      name: "data_buffer",
+      type: "DynamicStructStorageVector<uint8_t>",
+      path: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+      offset: 0,
+      elementCount: 1,
+      mime_type: "image/png",
+      model,
+      getValue: () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    };
+
+    const struct: ITelemetryStruct = {
+      typeName: "Outputs",
+      offset: 0,
+      fields: [field],
+    };
+
+    const tree = render(
+      <TelemetryStructFields
+        struct={struct}
+        telemetryBaseUrl="http://example.test:7092"
+        workloadId="image_ref_to_image_workload_2B89C0A3"
+        workloadName="head_segmented_png"
+        modelId="barr_e_perception_visual_model_C6D836F5"
+        modelName="demo-robot-perception-visual"
+        modelPath="robots/barr-e/models/barr-e-perception-visual.model.yaml"
+        panelScope="test-floating-panels"
+      />
+    );
+
+    const button = tree.container.querySelector("button");
+    expect(button?.textContent).toContain("Open image panel");
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(spawnTelemetryImagePanel).toHaveBeenCalledWith({
+      scope: "test-floating-panels",
+      settings: {
+        panelTitle: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+        telemetryBaseUrl: "http://example.test:7092",
+        modelId: "barr_e_perception_visual_model_C6D836F5",
+        modelName: "demo-robot-perception-visual",
+        modelPath: "robots/barr-e/models/barr-e-perception-visual.model.yaml",
+        workloadId: "image_ref_to_image_workload_2B89C0A3",
+        workloadName: "head_segmented_png",
+        fieldPath: "image_ref_to_image_workload_2B89C0A3.outputs.image.data_buffer",
+      },
+    });
+
+    tree.unmount();
+  });
+
+  it("shows top-level image structs collapsed by default and expands into the shared tree view", async () => {
     const model: ITelemetryModel = {
       workloads: [],
       raw: null,
@@ -242,8 +291,23 @@ describe("TelemetryStructFields", () => {
     await expect(
       tree.renderAsync(<TelemetryStructFields struct={struct} />)
     ).resolves.not.toThrow();
-    expect(tree.container.querySelector("img")).not.toBeNull();
-    expect(URL.createObjectURL).toHaveBeenCalled();
+
+    expect(tree.container.textContent).toContain("image: <image 4 bytes>");
+    expect(tree.container.textContent).not.toContain("metadata:");
+    expect(tree.container.textContent).not.toContain("Open image panel");
+
+    const imageToggle = tree.container.querySelector<HTMLButtonElement>("button");
+    expect(imageToggle).not.toBeNull();
+
+    await act(async () => {
+      imageToggle!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+    });
+
+    expect(tree.container.textContent).toContain("metadata:");
+    expect(tree.container.textContent).toContain("count:");
+    expect(tree.container.textContent).toContain("Open image panel");
 
     tree.unmount();
   });

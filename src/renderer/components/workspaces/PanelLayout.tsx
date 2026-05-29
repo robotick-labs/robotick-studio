@@ -1,7 +1,6 @@
 import React from "react";
 import {
-  getEditorEntry,
-  listEditorEntries,
+  useEditorRegistry,
 } from "../../services/EditorRegistry";
 import {
   FloatingPanelLayer,
@@ -46,6 +45,7 @@ const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.05;
 const MAX_RATIO = 0.85;
 const PANEL_CONTEXT_MENU_TAP_MAX_MS = 100;
+const PANEL_RMB_GESTURE_SUPPRESS_SELECTOR = "[data-suppress-panel-rmb-menu='active']";
 
 type PanelLayoutProps = {
   workspaceId: string;
@@ -457,6 +457,7 @@ export function PanelLayout({
   allowedEditors,
   windowScope = DEFAULT_WINDOW_SCOPE,
 }: PanelLayoutProps) {
+  const { listEditorEntries, loading: registryLoading } = useEditorRegistry();
   const editorEntries = React.useMemo(() => {
     const entries = listEditorEntries();
     if (!allowedEditors || allowedEditors.length === 0) {
@@ -464,7 +465,7 @@ export function PanelLayout({
     }
     const allowed = new Set(allowedEditors);
     return entries.filter((entry) => allowed.has(entry.id));
-  }, [allowedEditors]);
+  }, [allowedEditors, listEditorEntries]);
 
   if (!editorEntries.length) {
     throw new Error("No editors are registered for the panel layout");
@@ -472,10 +473,12 @@ export function PanelLayout({
 
   const editorOptions: EditorOption[] = React.useMemo(
     () =>
-      editorEntries.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-      })),
+      editorEntries
+        .map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
     [editorEntries]
   );
 
@@ -624,11 +627,11 @@ export function PanelLayout({
   }, [layoutTabsState, layoutTabsStorageKey]);
 
   React.useEffect(() => {
-    if (!layoutReady) {
+    if (!layoutReady || registryLoading) {
       return;
     }
     saveLayout(layoutState.storageKey, layoutState.node);
-  }, [layoutReady, layoutState]);
+  }, [layoutReady, layoutState, registryLoading]);
 
   React.useEffect(() => {
     if (maximizedPanelId && !nodeContains(layout, maximizedPanelId)) {
@@ -895,6 +898,7 @@ export function PanelLayout({
   );
 
   const { showPanelMenu } = useContextMenu();
+  const [refreshByPanelId, setRefreshByPanelId] = React.useState<Record<string, number>>({});
   const leafTotal = React.useMemo(() => countLeaves(layout), [layout]);
   const handleContextMenu = React.useCallback(
     (
@@ -928,6 +932,11 @@ export function PanelLayout({
         isMaximized: maximizedPanelId === panelId,
         onSplit,
         onAssign: (targetEditorId: string) => onAssign(panelId, targetEditorId),
+        onRefreshPanel: () =>
+          setRefreshByPanelId((prev) => ({
+            ...prev,
+            [panelId]: (prev[panelId] ?? 0) + 1,
+          })),
         onToggleMaximize: () => onToggleMaximize(panelId),
         onResetLayout: resetLayout,
         onClosePanel: () => onClosePanel(panelId),
@@ -943,6 +952,7 @@ export function PanelLayout({
       onClosePanel,
       onSplit,
       onToggleMaximize,
+      setRefreshByPanelId,
       resetLayout,
       showPanelMenu,
     ]
@@ -1075,6 +1085,7 @@ export function PanelLayout({
           <PanelNodeView
             node={layout}
             maximizedPanelId={maximizedPanelId}
+            refreshByPanelId={refreshByPanelId}
             editorOptions={editorOptions}
             onContextMenu={handleContextMenu}
             onAssign={onAssign}
@@ -1120,6 +1131,7 @@ export function PanelLayout({
 type PanelNodeViewProps = {
   node: PanelNode;
   maximizedPanelId: string | null;
+  refreshByPanelId: Record<string, number>;
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
@@ -1157,6 +1169,7 @@ type PanelNodeViewProps = {
 function PanelNodeView({
   node,
   maximizedPanelId,
+  refreshByPanelId,
   editorOptions,
   onContextMenu,
   onAssign,
@@ -1191,6 +1204,7 @@ function PanelNodeView({
             <PanelNodeView
               node={node.children[0]}
               maximizedPanelId={maximizedPanelId}
+              refreshByPanelId={refreshByPanelId}
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
@@ -1224,6 +1238,7 @@ function PanelNodeView({
             <PanelNodeView
               node={node.children[1]}
               maximizedPanelId={maximizedPanelId}
+              refreshByPanelId={refreshByPanelId}
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
@@ -1242,6 +1257,7 @@ function PanelNodeView({
     <PanelLeaf
       key={node.id}
       node={node}
+      refreshVersion={refreshByPanelId[node.id] ?? 0}
       editorOptions={editorOptions}
       onContextMenu={onContextMenu}
       onAssign={onAssign}
@@ -1320,6 +1336,7 @@ function SplitResizer({
 
 type PanelLeafProps = {
   node: PanelLeafNode;
+  refreshVersion: number;
   editorOptions: EditorOption[];
   onContextMenu: (
     panelId: string,
@@ -1353,6 +1370,7 @@ type PanelLeafProps = {
  */
 function PanelLeaf({
   node,
+  refreshVersion,
   editorOptions,
   onContextMenu,
   onAssign,
@@ -1361,6 +1379,7 @@ function PanelLeaf({
   isMaximized,
   workspaceId,
 }: PanelLeafProps) {
+  const { getEditorEntry } = useEditorRegistry();
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const rightMouseDownAtMsRef = React.useRef<number | null>(null);
   const rightMouseDownPosRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -1398,6 +1417,11 @@ function PanelLeaf({
   );
   const handlePanelContextMenu = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if ((event.target as Element | null)?.closest?.(PANEL_RMB_GESTURE_SUPPRESS_SELECTOR)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       // Chromium can dispatch `contextmenu` immediately on RMB down.
       // Always intercept native contextmenu here and decide tap-vs-hold on mouseup.
       if (rightMouseDownAtMsRef.current == null) {
@@ -1481,7 +1505,7 @@ function PanelLeaf({
   }, []);
 
   const entry = getEditorEntry(node.editorId);
-  const Component = entry.Component;
+  const Component = entry?.Component ?? null;
 
   return (
     <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
@@ -1496,6 +1520,11 @@ function PanelLeaf({
         }}
         onMouseUpCapture={(event) => {
           if (event.button !== 2) {
+            return;
+          }
+          if ((event.target as Element | null)?.closest?.(PANEL_RMB_GESTURE_SUPPRESS_SELECTOR)) {
+            rightMouseDownAtMsRef.current = null;
+            rightMouseDownPosRef.current = null;
             return;
           }
           const downAt = rightMouseDownAtMsRef.current;
@@ -1581,16 +1610,28 @@ function PanelLeaf({
         </div>
 
         <div className={styles.panelBody}>
-          <PanelErrorBoundary
-            editorId={entry.id}
-            onRetry={() => setSplitPreview(null)}
-          >
-            <React.Suspense
-              fallback={<div className={styles.panelLoading}>Loading…</div>}
+          {entry && Component ? (
+            <PanelErrorBoundary
+              editorId={entry.id}
+              onRetry={() => setSplitPreview(null)}
             >
-              <Component />
-            </React.Suspense>
-          </PanelErrorBoundary>
+              <React.Suspense
+                fallback={<div className={styles.panelLoading}>Loading…</div>}
+              >
+                <React.Fragment key={`${node.id}:${refreshVersion}`}>
+                  <Component />
+                </React.Fragment>
+              </React.Suspense>
+            </PanelErrorBoundary>
+          ) : (
+            <div className={styles.panelErrorState}>
+              <strong>Editor unavailable</strong>
+              <p>
+                The panel references <code>{node.editorId}</code>, but that
+                editor is not currently loaded for this project.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </PanelInstanceProvider>

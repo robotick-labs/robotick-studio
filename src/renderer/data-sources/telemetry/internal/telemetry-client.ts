@@ -189,9 +189,12 @@ export interface SetWorkloadInputConnectionStateOptions {
   maxRetryDelayMs?: number;
 }
 
-export async function fetchTelemetryLayout(base_url: string): Promise<LayoutModel> {
+export async function fetchTelemetryLayout(
+  base_url: string,
+): Promise<LayoutModel> {
   const response = await fetch(
     buildUrl(base_url, "/api/telemetry/workloads_buffer/layout"),
+    { cache: "no-store" },
   );
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -272,7 +275,8 @@ export async function setWorkloadInputFieldsData(
     }
 
     if (
-      (!RETRYABLE_WRITE_STATUS_CODES.has(result.status) && result.status !== 0) ||
+      (!RETRYABLE_WRITE_STATUS_CODES.has(result.status) &&
+        result.status !== 0) ||
       attempt >= maxAttempts
     ) {
       return { ok: false, status: result.status, body };
@@ -314,7 +318,10 @@ export async function setWorkloadInputConnectionState(
     let response: Response;
     try {
       response = await fetch(
-        buildUrl(base_url, "/api/telemetry/set_workload_input_connection_state"),
+        buildUrl(
+          base_url,
+          "/api/telemetry/set_workload_input_connection_state",
+        ),
         {
           method: "POST",
           headers: {
@@ -331,14 +338,21 @@ export async function setWorkloadInputConnectionState(
         return { ok: false, status: 0, body };
       }
       await delay(
-        computeRetryDelayMs(attempt, 503, body, baseRetryDelayMs, maxRetryDelayMs),
+        computeRetryDelayMs(
+          attempt,
+          503,
+          body,
+          baseRetryDelayMs,
+          maxRetryDelayMs,
+        ),
       );
       continue;
     }
 
     let body: SetWorkloadInputConnectionStateResponseBody | null = null;
     try {
-      body = (await response.json()) as SetWorkloadInputConnectionStateResponseBody;
+      body =
+        (await response.json()) as SetWorkloadInputConnectionStateResponseBody;
     } catch {
       body = null;
     }
@@ -717,7 +731,10 @@ namespace TelemetryFactory {
         continue;
       }
 
-      const rootTypeSize = Math.max(0, typeMap.get(root.struct.type)?.size ?? 0);
+      const rootTypeSize = Math.max(
+        0,
+        typeMap.get(root.struct.type)?.size ?? 0,
+      );
       if (rootTypeSize <= 0) {
         continue;
       }
@@ -737,7 +754,11 @@ namespace TelemetryFactory {
     }
 
     if (statsTypeSize > 0) {
-      pushRange(staticRanges, workload.stats_offset_within_container, statsTypeSize);
+      pushRange(
+        staticRanges,
+        workload.stats_offset_within_container,
+        statsTypeSize,
+      );
     }
 
     const staticBytes = measureUnion(staticRanges);
@@ -984,7 +1005,9 @@ namespace TelemetryFactory {
       }
       if (path.startsWith("engine.")) {
         const engineParts = path.split(".");
-        let fields = model.engine?.fields as ReadonlyArray<ITelemetryField> | undefined;
+        let fields = model.engine?.fields as
+          | ReadonlyArray<ITelemetryField>
+          | undefined;
         for (let i = 1; i < engineParts.length; i++) {
           if (!fields) return undefined;
           const next = fields.find((f) => f.name === engineParts[i]);

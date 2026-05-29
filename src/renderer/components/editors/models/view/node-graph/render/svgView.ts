@@ -1,73 +1,69 @@
 import type { GraphDoc, Node, Section } from "../layout/editorNodeGraph";
+import type { DragPreviewState } from "../dragPreviewState";
+import { getLaneSlotRows, getLaneWorkloadNodes } from "../dragSlotGeometry";
 import type { ConnectionRouter } from "../routing/connectionRouter";
+import { ConnectionTooltip } from "./connectionTooltip";
 import { createSvgLayers } from "./svgLayers";
+import { WorkloadTooltip } from "./workloadTooltip";
+import {
+  computeRelatedNodeIds,
+  computeVisibleEdgeKeys,
+  edgeKey,
+  getSelectedModelId,
+  type RenderDisplayOptions,
+} from "./graphDisplayState";
 
 export { createSvgLayers };
-
-const marginX = 20;
-const startX = 120;
-const spacing = 180;
 
 export interface Layers {
   swim: SVGGElement;
   group: SVGGElement;
   nodes: SVGGElement;
   edges: SVGGElement;
-}
-
-export interface CanvasSize {
-  width: number;
-  height: number;
-}
-
-type EdgeVisibilityMode =
-  | "none"
-  | "selected-node"
-  | "selected-model"
-  | "expanded-models"
-  | "all";
-
-export interface RenderDisplayOptions {
-  selectedNodeId: string | null;
-  edgeVisibilityMode: EdgeVisibilityMode;
-  focusDimming: boolean;
-  expandedModelIds: string[];
+  overlay: SVGGElement;
 }
 
 const DEFAULT_RENDER_DISPLAY_OPTIONS: RenderDisplayOptions = {
   selectedNodeId: null,
   edgeVisibilityMode: "selected-model",
+  remoteConnectionVisibility: "hidden",
   focusDimming: true,
   expandedModelIds: [],
 };
 
 export class SvgView {
+  private connectionTooltip: ConnectionTooltip;
+  private workloadTooltip: WorkloadTooltip;
+  private currentDragPreview: DragPreviewState | null = null;
+
   constructor(
     private svg: SVGSVGElement,
     private layers: Layers,
     private router: ConnectionRouter,
     private eventScope: string = "default",
-  ) {}
+  ) {
+    this.connectionTooltip = new ConnectionTooltip(svg);
+    this.workloadTooltip = new WorkloadTooltip(svg);
+  }
 
   render(
     doc: GraphDoc,
     displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
   ): void {
+    this.connectionTooltip.hide();
+    this.workloadTooltip.hide();
     const resolvedOptions = {
       ...DEFAULT_RENDER_DISPLAY_OPTIONS,
       ...displayOptions,
     };
     const selectedNodeId = resolvedOptions.selectedNodeId;
-    const selectedModelId =
-      selectedNodeId != null
-        ? (doc.getNode(selectedNodeId)?.meta?.modelId ?? null)
-        : null;
-    const visibleEdges = this.computeVisibleEdges(
+    const selectedModelId = getSelectedModelId(doc, selectedNodeId);
+    const visibleEdges = computeVisibleEdgeKeys(
       doc,
       resolvedOptions,
       selectedModelId,
     );
-    const relatedNodeIds = this.computeRelatedNodeIds(
+    const relatedNodeIds = computeRelatedNodeIds(
       doc,
       visibleEdges,
       selectedNodeId,
@@ -91,8 +87,9 @@ export class SvgView {
       resolvedOptions,
     );
     this.drawPlusButtons(doc);
+    this.renderSwimlanes(doc.sections);
+    this.renderDragPreview(doc, this.currentDragPreview);
 
-    // Step 2: measure actual bounding box
     const margin = 40;
     const bounds = this.svg.getBBox();
 
@@ -108,27 +105,71 @@ export class SvgView {
         `${viewX} ${viewY} ${viewWidth} ${viewHeight}`,
       );
     }
-
-    // Step 3: re-render swimlanes with final width
-    this.renderSwimlanes(doc.sections, viewWidth);
   }
 
-  private renderSwimlanes(sections: Section[], canvasWidth: number): void {
+  updateSelectionState(
+    doc: GraphDoc,
+    displayOptions: RenderDisplayOptions = DEFAULT_RENDER_DISPLAY_OPTIONS,
+  ): void {
+    this.connectionTooltip.hide();
+    this.workloadTooltip.hide();
+    const resolvedOptions = {
+      ...DEFAULT_RENDER_DISPLAY_OPTIONS,
+      ...displayOptions,
+    };
+    const selectedNodeId = resolvedOptions.selectedNodeId;
+    const selectedModelId = getSelectedModelId(doc, selectedNodeId);
+    const visibleEdges = computeVisibleEdgeKeys(
+      doc,
+      resolvedOptions,
+      selectedModelId,
+    );
+    const relatedNodeIds = computeRelatedNodeIds(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions.edgeVisibilityMode,
+    );
+
+    this.updateNodeSelectionClasses(
+      doc,
+      selectedNodeId,
+      relatedNodeIds,
+      resolvedOptions.focusDimming,
+    );
+    this.updateEdgeSelectionClasses(
+      doc,
+      visibleEdges,
+      selectedNodeId,
+      selectedModelId,
+      resolvedOptions,
+    );
+    this.renderDragPreview(doc, this.currentDragPreview);
+  }
+
+  setDragPreview(doc: GraphDoc, preview: DragPreviewState | null): void {
+    this.currentDragPreview = preview;
+    this.renderDragPreview(doc, preview);
+  }
+
+  private renderSwimlanes(sections: Section[]): void {
     this.layers.swim.replaceChildren();
     for (const section of sections) {
-      for (let i = 0; i < section.laneCount; i++) {
-        const y = section.yStart + i * section.laneHeight;
+      for (const lane of section.lanes ?? []) {
         const rect = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "rect",
         );
         rect.classList.add("swimlane");
-        rect.setAttribute("x", String(marginX));
-        rect.setAttribute("y", String(y));
+        rect.setAttribute("x", String(lane.frame.x));
+        rect.setAttribute("y", String(lane.frame.y));
         rect.setAttribute("rx", "6");
         rect.setAttribute("ry", "6");
-        rect.setAttribute("width", String(canvasWidth - marginX * 2));
-        rect.setAttribute("height", String(section.laneHeight + 1));
+        rect.setAttribute("width", String(lane.frame.width));
+        rect.setAttribute("height", String(lane.frame.height));
+        rect.setAttribute("data-section", String(section.index));
+        rect.setAttribute("data-lane", String(lane.laneIndex));
         if (section.collapsed) {
           rect.classList.add("collapsed-swimlane");
         }
@@ -139,12 +180,12 @@ export class SvgView {
           "text",
         );
         label.classList.add("label");
-        label.setAttribute("x", String(marginX + 10));
-        label.setAttribute("y", String(y + 20));
+        label.setAttribute("x", String(lane.frame.x + 10));
+        label.setAttribute("y", String(lane.frame.y + 20));
+        label.setAttribute("data-section", String(section.index));
+        label.setAttribute("data-lane", String(lane.laneIndex));
         if (!section.collapsed) {
-          label.textContent = section.hasSequencedGroup
-            ? `Thread ${i + 1} · Sequenced Group`
-            : `Thread ${i + 1}`;
+          label.textContent = lane.label;
           this.layers.swim.appendChild(label);
         }
       }
@@ -203,9 +244,12 @@ export class SvgView {
           text.setAttribute("x", "10");
           text.setAttribute("y", "25");
           g.append(text);
-          // Fit label to available width (account for left padding ~10 and a little right padding)
           const maxTextWidth = Math.max(0, n.w - 20);
           this.fitTextWithEllipsis(text, n.label, maxTextWidth);
+          if (n.kind === "workload") {
+            g.addEventListener("mousemove", this.onWorkloadMouseMove);
+            g.addEventListener("mouseleave", this.onWorkloadMouseLeave);
+          }
         }
       }
     } else if (n.kind === "model" || n.kind === "collapsed-model") {
@@ -217,7 +261,21 @@ export class SvgView {
     } else {
       g.removeAttribute("data-model-id");
     }
-    g.classList.remove("is-structural-group", "is-selected", "is-dimmed");
+    if (n.kind === "workload") {
+      g.setAttribute("data-workload-name", n.workload?.name ?? n.label);
+      g.setAttribute("data-workload-type", n.workload?.type ?? n.meta?.type ?? "Workload");
+      g.setAttribute("data-workload-id", n.workload?.id ?? n.id);
+    } else {
+      g.removeAttribute("data-workload-name");
+      g.removeAttribute("data-workload-type");
+      g.removeAttribute("data-workload-id");
+    }
+    g.classList.remove(
+      "is-structural-group",
+      "is-selected",
+      "is-dimmed",
+      "is-drag-source",
+    );
     if (
       n.workload?.type === "SyncedGroupWorkload" ||
       n.workload?.type === "SequencedGroupWorkload"
@@ -251,8 +309,8 @@ export class SvgView {
         toggleInset,
         toggleWidth - toggleInset,
         n.h - toggleInset * 2,
-        4
-      )
+        4,
+      ),
     );
     toggleRect.setAttribute(
       "aria-label",
@@ -362,6 +420,7 @@ export class SvgView {
         g.classList.add("is-dimmed");
       }
     }
+    this.renderDragPreview(doc, this.currentDragPreview);
   }
 
   private renderEdges(
@@ -396,10 +455,20 @@ export class SvgView {
       visiblePath.classList.add("connection", ...e.classList);
       const from = e.from;
       const to = e.to;
-      const edgeKey = this.edgeKey(from, to);
-      const isVisible = visibleEdgeKeys.has(edgeKey);
+      const currentEdgeKey = edgeKey(from, to);
+      const isVisible = visibleEdgeKeys.has(currentEdgeKey);
       const fromNode = doc.getNode(from);
       const toNode = doc.getNode(to);
+      const sourceLabel = this.formatConnectionEndpoint(
+        e.fromPath,
+        fromNode,
+        from,
+      );
+      const targetLabel = this.formatConnectionEndpoint(
+        e.toPath,
+        toNode,
+        to,
+      );
       const touchesSelectedNode =
         selectedNodeId != null &&
         (from === selectedNodeId || to === selectedNodeId);
@@ -422,108 +491,104 @@ export class SvgView {
         g.classList.add("is-dimmed");
       }
 
+      g.setAttribute("data-edge-from", from);
+      g.setAttribute("data-edge-to", to);
+      hoverPath.addEventListener("mousemove", (event) => {
+        this.connectionTooltip.show(event, sourceLabel, targetLabel);
+      });
+      hoverPath.addEventListener("mouseleave", () => {
+        this.connectionTooltip.hide();
+      });
       g.appendChild(hoverPath);
       g.appendChild(visiblePath);
       this.layers.edges.appendChild(g);
     }
   }
 
-  private computeVisibleEdges(
+  private updateNodeSelectionClasses(
     doc: GraphDoc,
-    displayOptions: RenderDisplayOptions,
-    selectedModelId: string | null,
-  ): Set<string> {
-    const visible = new Set<string>();
-    const selectedNodeId = displayOptions.selectedNodeId;
-    const expandedModels = new Set(displayOptions.expandedModelIds);
-
-    for (const edge of doc.edges) {
-      const key = this.edgeKey(edge.from, edge.to);
-
-      if (displayOptions.edgeVisibilityMode === "all") {
-        visible.add(key);
+    selectedNodeId: string | null,
+    relatedNodeIds: Set<string>,
+    focusDimming: boolean,
+  ): void {
+    for (const g of Array.from(
+      this.layers.nodes.querySelectorAll("g.workload-node"),
+    )) {
+      const node = doc.getNode((g as SVGGElement).id);
+      g.classList.remove("is-selected", "is-dimmed");
+      if (!node) {
         continue;
       }
-
-      if (displayOptions.edgeVisibilityMode === "none") {
-        continue;
+      if (selectedNodeId && node.id === selectedNodeId) {
+        g.classList.add("is-selected");
       }
-
-      if (displayOptions.edgeVisibilityMode === "expanded-models") {
-        if (expandedModels.size === 0) {
-          continue;
-        }
-        const fromNode = doc.getNode(edge.from);
-        const toNode = doc.getNode(edge.to);
-        if (
-          (fromNode?.meta?.modelId &&
-            expandedModels.has(fromNode.meta.modelId)) ||
-          (toNode?.meta?.modelId && expandedModels.has(toNode.meta.modelId))
-        ) {
-          visible.add(key);
-        }
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "selected-node") {
-        if (!selectedNodeId) {
-          continue;
-        }
-        if (edge.from === selectedNodeId || edge.to === selectedNodeId) {
-          visible.add(key);
-        }
-        continue;
-      }
-
-      if (displayOptions.edgeVisibilityMode === "selected-model") {
-        if (!selectedNodeId || !selectedModelId) {
-          continue;
-        }
-        const fromNode = doc.getNode(edge.from);
-        const toNode = doc.getNode(edge.to);
-        if (
-          fromNode?.meta?.modelId === selectedModelId ||
-          toNode?.meta?.modelId === selectedModelId
-        ) {
-          visible.add(key);
-        }
+      if (focusDimming && selectedNodeId && !relatedNodeIds.has(node.id)) {
+        g.classList.add("is-dimmed");
       }
     }
-
-    return visible;
+    this.renderDragPreview(doc, this.currentDragPreview);
   }
 
-  private computeRelatedNodeIds(
+  private updateEdgeSelectionClasses(
     doc: GraphDoc,
     visibleEdgeKeys: Set<string>,
     selectedNodeId: string | null,
     selectedModelId: string | null,
-    edgeVisibilityMode: EdgeVisibilityMode,
-  ): Set<string> {
-    const related = new Set<string>();
-    if (selectedNodeId) {
-      related.add(selectedNodeId);
-    }
+    displayOptions: RenderDisplayOptions,
+  ): void {
+    for (const g of Array.from(
+      this.layers.edges.querySelectorAll("g.connection-group"),
+    )) {
+      const from = g.getAttribute("data-edge-from");
+      const to = g.getAttribute("data-edge-to");
+      if (!from || !to) {
+        continue;
+      }
+      const isVisible = visibleEdgeKeys.has(edgeKey(from, to));
+      const fromNode = doc.getNode(from);
+      const toNode = doc.getNode(to);
+      const touchesSelectedNode =
+        selectedNodeId != null &&
+        (from === selectedNodeId || to === selectedNodeId);
+      const touchesSelectedModel =
+        selectedModelId != null &&
+        (fromNode?.meta?.modelId === selectedModelId ||
+          toNode?.meta?.modelId === selectedModelId);
+      const shouldDim =
+        displayOptions.focusDimming &&
+        selectedNodeId != null &&
+        !touchesSelectedNode &&
+        !(
+          displayOptions.edgeVisibilityMode === "selected-model" &&
+          touchesSelectedModel
+        );
 
-    for (const key of visibleEdgeKeys) {
-      const [from, to] = key.split("->", 2);
-      if (from) related.add(from);
-      if (to) related.add(to);
-    }
-
-    if (edgeVisibilityMode === "selected-model" && selectedModelId) {
-      for (const node of doc.nodes.values()) {
-        if (node.meta?.modelId === selectedModelId) {
-          related.add(node.id);
-        }
+      g.classList.remove("is-hidden", "is-dimmed");
+      if (!isVisible) {
+        g.classList.add("is-hidden");
+      } else if (shouldDim) {
+        g.classList.add("is-dimmed");
       }
     }
-
-    return related;
   }
 
-  private edgeKey(from: string, to: string): string {
-    return `${from}->${to}`;
+  private formatConnectionEndpoint(
+    path: string | undefined,
+    node: Node | undefined,
+    fallbackId: string,
+  ): string {
+    if (!path) {
+      return node?.label ?? fallbackId;
+    }
+    if (node?.kind !== "workload") {
+      return path;
+    }
+
+    const [owner, ...rest] = path.split(".");
+    if (!owner || rest.length === 0) {
+      return node.label;
+    }
+    return `${node.label}.${rest.join(".")}`;
   }
 
   private drawPlusButtons(doc: GraphDoc) {
@@ -532,8 +597,6 @@ export class SvgView {
       n.remove(),
     );
 
-    const sections = doc.sections;
-
     const ns = "http://www.w3.org/2000/svg";
     const W = 140,
       H = 40;
@@ -541,32 +604,19 @@ export class SvgView {
     const cx = W / 2,
       cy = H / 2;
 
-    for (const s of sections) {
+    for (const s of doc.sections) {
       if (s.collapsed) {
         continue;
       }
-      for (let lane = 0; lane < s.laneCount; lane++) {
-        const laneY = s.yStart + lane * s.laneHeight;
-
-        // ⬇️ Find the rightmost node *in this lane*
-        const nodesInLane = Array.from(doc.nodes.values()).filter(
-          (n) => n.meta?.section === s.index && n.lane === lane,
-        );
-
-        const maxX =
-          nodesInLane.length > 0
-            ? Math.max(...nodesInLane.map((n) => n.x))
-            : startX - spacing;
-
-        const x = maxX + spacing;
-
-        const y = laneY + (s.laneHeight - H) / 2;
-
+      for (const slot of s.addSlots ?? []) {
         const g = document.createElementNS(ns, "g");
         g.classList.add("plus-slot");
-        g.setAttribute("transform", `translate(${x},${y})`);
+        g.setAttribute(
+          "transform",
+          `translate(${slot.frame.x},${slot.frame.y})`,
+        );
         g.setAttribute("data-section", String(s.index));
-        g.setAttribute("data-lane", String(lane));
+        g.setAttribute("data-lane", String(slot.laneIndex));
         g.setAttribute("tabindex", "0");
 
         const rect = document.createElementNS(ns, "rect");
@@ -597,7 +647,7 @@ export class SvgView {
             new CustomEvent("models-graph:plus-click", {
               detail: {
                 sectionIndex: s.index,
-                laneIndex: lane,
+                laneIndex: slot.laneIndex,
                 scope: this.eventScope,
               },
               bubbles: true,
@@ -617,6 +667,159 @@ export class SvgView {
       }
     }
   }
+
+  private renderDragPreview(
+    doc: GraphDoc,
+    preview: DragPreviewState | null,
+  ): void {
+    this.layers.overlay.replaceChildren();
+    this.clearDragPreviewClasses(doc);
+    if (!preview) {
+      return;
+    }
+
+    const draggedNode = doc.getNode(preview.draggedNodeId);
+    if (!draggedNode || draggedNode.kind !== "workload") {
+      return;
+    }
+
+    const laneNodes = getLaneWorkloadNodes(
+      doc,
+      preview.sectionIndex,
+      preview.laneIndex,
+    );
+    const draggedIndex = laneNodes.findIndex((node) => node.id === draggedNode.id);
+    if (draggedIndex < 0) {
+      return;
+    }
+
+    const remainingNodes = laneNodes.filter((node) => node.id !== draggedNode.id);
+    const anchorYs = laneNodes.map((node) => node.y);
+    const rows = getLaneSlotRows(doc, preview.sectionIndex, preview.laneIndex);
+    const targetSlot = preview.targetSlot;
+    if (targetSlot != null) {
+      this.highlightLane(preview.sectionIndex, preview.laneIndex);
+      const finalIds = remainingNodes.map((node) => node.id);
+      finalIds.splice(targetSlot, 0, draggedNode.id);
+      for (const node of remainingNodes) {
+        const finalIndex = finalIds.indexOf(node.id);
+        if (finalIndex < 0) {
+          continue;
+        }
+        const desiredY = anchorYs[finalIndex];
+        this.setNodeTransform(node.id, node.x, desiredY);
+      }
+      this.renderSlotRows(rows, targetSlot);
+    }
+
+    const draggedGroup = this.layers.nodes.querySelector(
+      `g.workload-node[id="${cssEscape(draggedNode.id)}"]`,
+    ) as SVGGElement | null;
+    draggedGroup?.classList.add("is-drag-source");
+    this.renderDragGhost(draggedNode, preview);
+  }
+
+  private clearDragPreviewClasses(doc: GraphDoc): void {
+    for (const group of Array.from(
+      this.layers.nodes.querySelectorAll("g.workload-node"),
+    )) {
+      group.classList.remove("is-drag-source");
+      const nodeId = (group as SVGGElement).id;
+      const node = doc.getNode(nodeId);
+      if (!node) {
+        continue;
+      }
+      this.setNodeTransform(node.id, node.x, node.y);
+    }
+    for (const lane of Array.from(
+      this.layers.swim.querySelectorAll("rect.swimlane, text.label"),
+    )) {
+      lane.classList.remove("is-drag-target");
+    }
+  }
+
+  private highlightLane(sectionIndex: number, laneIndex: number): void {
+    const selector = `[data-section="${sectionIndex}"][data-lane="${laneIndex}"]`;
+    for (const element of Array.from(this.layers.swim.querySelectorAll(selector))) {
+      element.classList.add("is-drag-target");
+    }
+  }
+
+  private renderSlotRows(
+    rows: Array<{ slotIndex: number; frame: { x: number; y: number; width: number; height: number } }>,
+    targetSlot: number,
+  ): void {
+    const ns = "http://www.w3.org/2000/svg";
+    for (const row of rows) {
+      const rect = document.createElementNS(ns, "rect");
+      rect.classList.add("drag-slot-row");
+      if (row.slotIndex === targetSlot) {
+        rect.classList.add("is-active");
+      }
+      rect.setAttribute("x", String(row.frame.x));
+      rect.setAttribute("y", String(row.frame.y));
+      rect.setAttribute("width", String(row.frame.width));
+      rect.setAttribute("height", String(row.frame.height));
+      rect.setAttribute("rx", "8");
+      rect.setAttribute("ry", "8");
+      this.layers.overlay.appendChild(rect);
+    }
+  }
+
+  private renderDragGhost(draggedNode: Node, preview: DragPreviewState): void {
+    const ns = "http://www.w3.org/2000/svg";
+    const group = document.createElementNS(ns, "g");
+    group.classList.add("drag-ghost");
+    group.setAttribute(
+      "transform",
+      `translate(${preview.pointerX - preview.pointerOffsetX},${preview.pointerY - preview.pointerOffsetY})`,
+    );
+
+    const rect = document.createElementNS(ns, "rect");
+    rect.classList.add("workload");
+    if (
+      draggedNode.workload?.type === "SyncedGroupWorkload" ||
+      draggedNode.workload?.type === "SequencedGroupWorkload"
+    ) {
+      rect.classList.add("drag-ghost-structural");
+    }
+    rect.setAttribute("width", String(draggedNode.w));
+    rect.setAttribute("height", String(draggedNode.h));
+    rect.setAttribute("rx", "6");
+    rect.setAttribute("ry", "6");
+
+    const text = document.createElementNS(ns, "text");
+    text.classList.add("drag-ghost-label");
+    text.setAttribute("x", "10");
+    text.setAttribute("y", "25");
+    group.append(rect, text);
+    this.layers.overlay.appendChild(group);
+    this.fitTextWithEllipsis(text, draggedNode.label, Math.max(0, draggedNode.w - 20));
+  }
+
+  private setNodeTransform(nodeId: string, x: number, y: number): void {
+    const selector = `g.workload-node[id="${cssEscape(nodeId)}"]`;
+    const group = this.layers.nodes.querySelector(selector) as SVGGElement | null;
+    group?.setAttribute("transform", `translate(${x},${y})`);
+  }
+
+  private onWorkloadMouseMove = (event: MouseEvent): void => {
+    const group = (event.currentTarget as Element | null) as SVGGElement | null;
+    if (!group) {
+      return;
+    }
+    const workloadName = group.getAttribute("data-workload-name");
+    const workloadType = group.getAttribute("data-workload-type");
+    const workloadId = group.getAttribute("data-workload-id");
+    if (!workloadName || !workloadType || !workloadId) {
+      return;
+    }
+    this.workloadTooltip.show(event, workloadName, workloadType, workloadId);
+  };
+
+  private onWorkloadMouseLeave = (): void => {
+    this.workloadTooltip.hide();
+  };
 }
 
 function roundedLeftRectPath(
@@ -624,7 +827,7 @@ function roundedLeftRectPath(
   y: number,
   width: number,
   height: number,
-  radius: number
+  radius: number,
 ): string {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
   const right = x + width;
@@ -639,4 +842,10 @@ function roundedLeftRectPath(
     `Q ${x} ${y} ${x + r} ${y}`,
     "Z",
   ].join(" ");
+}
+
+function cssEscape(value: string): string {
+  return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+    ? CSS.escape(value)
+    : value.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
 }

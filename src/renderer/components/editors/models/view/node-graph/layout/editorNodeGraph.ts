@@ -28,6 +28,7 @@ export interface Node {
     collapsed?: boolean;
     subtitle?: string;
     stubDirection?: "incoming" | "outgoing";
+    slot?: number;
   };
 }
 
@@ -35,6 +36,28 @@ export interface Edge {
   from: NodeId;
   to: NodeId;
   isRemote?: boolean;
+  isInterThread?: boolean;
+  fromPath?: string;
+  toPath?: string;
+  routePoints?: Array<{ x: number; y: number }>;
+}
+
+export interface RectFrame {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface LaneLayout {
+  laneIndex: number;
+  frame: RectFrame;
+  label: string;
+}
+
+export interface AddSlotLayout {
+  laneIndex: number;
+  frame: RectFrame;
 }
 
 export interface Section {
@@ -48,6 +71,9 @@ export interface Section {
   rootType?: string;
   hasSequencedGroup?: boolean;
   collapsed?: boolean;
+  frame?: RectFrame;
+  lanes?: LaneLayout[];
+  addSlots?: AddSlotLayout[];
 }
 
 export class GraphDoc {

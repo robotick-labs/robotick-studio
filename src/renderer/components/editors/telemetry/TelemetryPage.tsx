@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { TelemetryApp } from "./view/TelemetryApp";
 import styles from "./Telemetry.module.css";
 import type { ModelSortKey } from "./view/TelemetryApp";
@@ -13,8 +13,16 @@ const MODEL_SORT_OPTIONS: ReadonlyArray<{
   { value: "memory_process", label: "Memory - Process" },
   { value: "memory_workloads", label: "Memory - Workloads" },
 ];
+const RMB_PAN_DRAG_THRESHOLD_PX = 4;
 
 export default function TelemetryPage() {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const panListenersRef = useRef<{
+    mousemove: (event: MouseEvent) => void;
+    mouseup: (event: MouseEvent) => void;
+    blur: () => void;
+    contextmenu: (event: MouseEvent) => void;
+  } | null>(null);
   const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() => {
     try {
       const saved = localStorage.getItem("telemetry-model-sort");
@@ -32,6 +40,17 @@ export default function TelemetryPage() {
     }
     return "telemetry_port";
   });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStateRef = useRef<{
+    scrollElement: HTMLElement;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+    isActive: boolean;
+    previousBodyUserSelect: string;
+    previousBodyCursor: string;
+  } | null>(null);
 
   useEffect(() => {
     try {
@@ -41,8 +60,137 @@ export default function TelemetryPage() {
     }
   }, [modelSortKey]);
 
+  const findScrollElement = (start: EventTarget | null): HTMLElement | null => {
+    let node = start instanceof HTMLElement ? start : containerRef.current;
+    while (node) {
+      const style = window.getComputedStyle(node);
+      const overflowX = style.overflowX;
+      const overflowY = style.overflowY;
+      const canScrollX =
+        (overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay") &&
+        node.scrollWidth > node.clientWidth;
+      const canScrollY =
+        (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+        node.scrollHeight > node.clientHeight;
+      if (canScrollX || canScrollY) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  };
+
+  const detachPanListeners = () => {
+    const listeners = panListenersRef.current;
+    if (!listeners) {
+      return;
+    }
+    window.removeEventListener("mousemove", listeners.mousemove);
+    window.removeEventListener("mouseup", listeners.mouseup);
+    window.removeEventListener("blur", listeners.blur);
+    window.removeEventListener("contextmenu", listeners.contextmenu);
+    panListenersRef.current = null;
+  };
+
+  const finishPan = (updateState = true) => {
+    detachPanListeners();
+    const panState = panStateRef.current;
+    if (panState?.isActive) {
+      containerRef.current?.removeAttribute("data-suppress-panel-rmb-menu");
+      document.body.style.userSelect = panState.previousBodyUserSelect;
+      document.body.style.cursor = panState.previousBodyCursor;
+    }
+    panStateRef.current = null;
+    if (updateState) {
+      setIsPanning(false);
+    }
+  };
+
+  useEffect(() => () => finishPan(false), []);
+
+  const handleMouseDownCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 2) {
+      return;
+    }
+    const scrollElement = findScrollElement(event.target);
+    if (!scrollElement) {
+      return;
+    }
+    event.preventDefault();
+    panStateRef.current = {
+      scrollElement,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: scrollElement.scrollLeft,
+      scrollTop: scrollElement.scrollTop,
+      isActive: false,
+      previousBodyUserSelect: document.body.style.userSelect,
+      previousBodyCursor: document.body.style.cursor,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const panState = panStateRef.current;
+      if (!panState) {
+        return;
+      }
+      const dx = moveEvent.clientX - panState.startX;
+      const dy = moveEvent.clientY - panState.startY;
+      if (!panState.isActive) {
+        if (Math.abs(dx) < RMB_PAN_DRAG_THRESHOLD_PX && Math.abs(dy) < RMB_PAN_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        panState.isActive = true;
+        containerRef.current?.setAttribute("data-suppress-panel-rmb-menu", "active");
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "grabbing";
+        setIsPanning(true);
+      }
+      moveEvent.preventDefault();
+      panState.scrollElement.scrollLeft =
+        panState.scrollLeft - dx;
+      panState.scrollElement.scrollTop =
+        panState.scrollTop - dy;
+    };
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      if (panStateRef.current?.isActive) {
+        upEvent.preventDefault();
+      }
+      finishPan();
+    };
+    const handleWindowBlur = () => {
+      finishPan();
+    };
+    const handleWindowContextMenu = (contextMenuEvent: MouseEvent) => {
+      if (panStateRef.current?.isActive) {
+        contextMenuEvent.preventDefault();
+      }
+    };
+
+    panListenersRef.current = {
+      mousemove: handleMouseMove,
+      mouseup: handleMouseUp,
+      blur: handleWindowBlur,
+      contextmenu: handleWindowContextMenu,
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("contextmenu", handleWindowContextMenu);
+  };
+
+  const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isPanning) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <div className={styles.container}>
+    <div
+      ref={containerRef}
+      className={isPanning ? `${styles.container} ${styles.containerPanning}` : styles.container}
+      onMouseDownCapture={handleMouseDownCapture}
+      onContextMenu={handleContextMenu}
+    >
       <div className={styles.panelHeaderRow}>
         <h2>Workload Telemetry</h2>
         <label className={styles.panelHeaderControlLabel}>

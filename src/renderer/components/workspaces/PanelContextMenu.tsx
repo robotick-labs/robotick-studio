@@ -26,6 +26,7 @@ export type PanelContextMenuProps = {
     ratio: number
   ) => void;
   onAssign: (editorId: string) => void;
+  onRefreshPanel: () => void;
   onToggleMaximize: () => void;
   onClosePanel: () => void;
   onResetLayout: () => void;
@@ -67,6 +68,7 @@ export function PanelContextMenu({
   isMaximized,
   onSplit,
   onAssign,
+  onRefreshPanel,
   onToggleMaximize,
   onClosePanel,
   onResetLayout,
@@ -242,6 +244,18 @@ export function PanelContextMenu({
           </div>
         )}
         <div className={styles.contextMenuDivider} />
+
+        <button
+          className={styles.contextMenuItem}
+          onClick={() => {
+            onRefreshPanel();
+            onClose();
+          }}
+        >
+          Refresh Panel
+        </button>
+
+        {showMaximize && <div className={styles.contextMenuDivider} />}
 
         {showMaximize && (
           <button

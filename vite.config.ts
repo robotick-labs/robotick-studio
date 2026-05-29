@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import cesium from "vite-plugin-cesium";
 import path, { resolve, relative } from "node:path";
 import { readdirSync, statSync, existsSync } from "node:fs";
@@ -37,7 +38,7 @@ export default defineConfig({
   envPrefix: ["VITE_", "CESIUM_"],
 
   publicDir: "../../public/renderer",
-  plugins: [cesium()],
+  plugins: [react(), cesium()],
 
   build: {
     outDir: "../../dist/renderer",
@@ -59,8 +60,43 @@ export default defineConfig({
   },
 
   resolve: {
-    alias: {
-      "@": resolve(__dirname, "src/renderer"),
+    alias: [
+      {
+        find: /^react\/jsx-dev-runtime$/,
+        replacement: resolve(__dirname, "node_modules/react/jsx-dev-runtime.js"),
+      },
+      {
+        find: /^react\/jsx-runtime$/,
+        replacement: resolve(__dirname, "node_modules/react/jsx-runtime.js"),
+      },
+      {
+        find: /^react-dom$/,
+        replacement: resolve(__dirname, "node_modules/react-dom/index.js"),
+      },
+      {
+        find: /^react$/,
+        replacement: resolve(__dirname, "node_modules/react/index.js"),
+      },
+      {
+        find: /^@robotick\/studio-host$/,
+        replacement: resolve(
+          __dirname,
+          "src/renderer/services/plugins/animation-studio-host.ts"
+        ),
+      },
+      {
+        find: /^@\//,
+        replacement: `${resolve(__dirname, "src/renderer")}/`,
+      },
+    ],
+  },
+
+  server: {
+    fs: {
+      allow: [
+        resolve(__dirname),
+        resolve(__dirname, "../robotick-animation"),
+      ],
     },
   },
 

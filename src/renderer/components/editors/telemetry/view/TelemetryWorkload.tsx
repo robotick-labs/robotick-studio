@@ -16,8 +16,12 @@ import { formatBytesWithCommas } from "../utils/format-bytes";
 
 interface TelemetryWorkloadProps {
   w: ITelemetryWorkload;
+  displayName?: string;
+  workloadId?: string;
   telemetryBaseUrl?: string;
+  modelId?: string;
   modelName?: string;
+  modelPath?: string;
   fieldConnectionHints?: ReadonlyMap<string, FieldConnectionHint>;
 }
 
@@ -33,8 +37,12 @@ interface TelemetryWorkloadProps {
  */
 export function TelemetryWorkload({
   w,
+  displayName,
+  workloadId,
   telemetryBaseUrl,
+  modelId,
   modelName,
+  modelPath,
   fieldConnectionHints,
 }: TelemetryWorkloadProps) {
   const stats = deriveWorkloadStats(w);
@@ -62,10 +70,17 @@ export function TelemetryWorkload({
       : styles.usageRed;
   const panelScope = useFloatingPanelsScope();
   const hasDynamicMemory = w.workloadsBufferDynamicBytes > 0;
+  const resolvedDisplayName = (displayName ?? "").trim() || w.name;
+  const resolvedWorkloadId = (workloadId ?? "").trim() || w.name;
 
   return (
     <tr>
-      <td>{w.name}</td>
+      <td>
+        <div className={styles.multiline}>
+          <span>{resolvedDisplayName}</span>
+          <span className={styles.memoryMeta}>({resolvedWorkloadId})</span>
+        </div>
+      </td>
       <td>
         <div className={styles.multiline}>
           <span>{w.type}</span>
@@ -85,8 +100,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.config}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />
@@ -95,8 +113,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.inputs}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />
@@ -105,8 +126,11 @@ export function TelemetryWorkload({
         <TelemetryStructFields
           struct={w.outputs}
           telemetryBaseUrl={telemetryBaseUrl}
+          workloadId={resolvedWorkloadId}
           workloadName={w.name}
+          modelId={modelId}
           modelName={modelName}
+          modelPath={modelPath}
           panelScope={panelScope}
           fieldConnectionHints={fieldConnectionHints}
         />

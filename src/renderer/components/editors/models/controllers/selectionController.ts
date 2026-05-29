@@ -1,9 +1,12 @@
-import { editorSelectionStore } from "../document/editorSelectionStore";
+type SelectionControllerHandlers = {
+  onSelectNode: (nodeId: string | null) => void;
+  onToggleCollapsedModel: (modelId: string) => void;
+};
 
 export class SelectionController {
   constructor(
     private svg: SVGSVGElement,
-    private selectionScope: string = "default"
+    private handlers: SelectionControllerHandlers,
   ) {}
 
   private onClick = (e: MouseEvent) => {
@@ -15,12 +18,7 @@ export class SelectionController {
       const modelId = g?.getAttribute("data-model-id");
       const toggleTarget = (e.target as Element).closest(".model-toggle-button");
       if (modelId && toggleTarget) {
-        this.svg.dispatchEvent(
-          new CustomEvent("models-graph:toggle-model-collapsed", {
-            detail: { modelId, scope: this.selectionScope },
-            bubbles: true,
-          })
-        );
+        this.handlers.onToggleCollapsedModel(modelId);
         return;
       }
     }
@@ -28,12 +26,7 @@ export class SelectionController {
       return;
     }
     const nodeId = g?.id ?? null;
-    editorSelectionStore.setSelection(nodeId, this.selectionScope);
-    window.dispatchEvent(
-      new CustomEvent("models-graph:selection-changed", {
-        detail: { nodeId, scope: this.selectionScope },
-      })
-    );
+    this.handlers.onSelectNode(nodeId);
   };
 
   attach(): void {

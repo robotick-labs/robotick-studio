@@ -5,8 +5,10 @@ import {
 
 export type TelemetryPanelSettings = {
   telemetryBaseUrl?: string;
+  modelId?: string;
   modelName?: string;
   modelPath?: string;
+  workloadId?: string;
   workloadName?: string;
   fieldPath?: string;
   dataKind?: "inputs" | "outputs" | "config";
