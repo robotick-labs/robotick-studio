@@ -22,8 +22,8 @@ describe("telemetry animator resolution", () => {
   it("resolves model by stable modelId before legacy modelName", () => {
     const descriptors: ProjectModelDescriptor[] = [
       createDescriptor({
-        modelName: "Animator",
-        modelShortName: "barr-e-animator",
+        modelName: "Expression",
+        modelShortName: "barr-e-expression",
         data: { id: "animator_model_7K3M9Q2T" },
       }),
     ];
@@ -33,23 +33,23 @@ describe("telemetry animator resolution", () => {
       descriptors
     );
 
-    expect(descriptor?.modelShortName).toBe("barr-e-animator");
+    expect(descriptor?.modelShortName).toBe("barr-e-expression");
   });
 
   it("falls back to model name matching when modelId is absent", () => {
     const descriptors: ProjectModelDescriptor[] = [
       createDescriptor({
-        modelName: "Barr.e Animator",
-        modelShortName: "barr-e-animator",
+        modelName: "Barr.e Expression",
+        modelShortName: "barr-e-expression",
       }),
     ];
 
     const descriptor = resolveAnimatorModelDescriptor(
-      { id: "a", modelName: "BARR.E ANIMATOR" },
+      { id: "a", modelName: "BARR.E EXPRESSION" },
       descriptors
     );
 
-    expect(descriptor?.modelShortName).toBe("barr-e-animator");
+    expect(descriptor?.modelShortName).toBe("barr-e-expression");
   });
 
   it("resolves workload by stable workloadId before workloadName", () => {
