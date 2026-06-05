@@ -104,15 +104,13 @@ robotick studio quit --instance <id> --wait
 Interactive mode should also be supported:
 
 ```text
-robotick studio> instances
-robotick studio> bind studio-123
-robotick studio[studio-123]> status
-robotick studio[studio-123]> project switch barr-e
-robotick studio[studio-123]> launcher launch --profile local:ALL
-robotick studio[studio-123]> launcher wait-ready --workspace remote-control
-robotick studio[studio-123]> capture panel --workspace remote-control --panel main --out artifacts/...
-robotick studio[studio-123]> launcher stop
-robotick studio[studio-123]> quit
+robotick> studio
+robotick:studio> projects
+robotick:studio> ls
+robotick:studio> open barr-e
+robotick:studio> clear
+robotick:studio> back
+robotick> exit
 ```
 
 Command style:
@@ -159,11 +157,14 @@ Humans should not need `AGENTS.md` to discover how to launch Studio.
 
 Recommended CLI implementation:
 
-- root user command: `./robotick`
-- source location: `tools/robotick-cli/`
+- Phase 0 workspace bootstrap shim: `./tools/robotick`
+- intended long-term command name: `robotick`
+- source location: `robotick/robotick-studio/tools/robotick-cli/`
 - language: TypeScript/Node
 - normal use should not expose `npm`, `node`, or package-manager details
-- an optional future global `robotick` shim can find the nearest workspace and delegate to its local tool
+- a literal root `./robotick` file is not possible in this repo because `robotick/` is already a top-level directory
+- an installed `robotick` shim should be able to find the nearest workspace and delegate to its local tool
+- the stable user-facing command should be `robotick`; the workspace shim exists only as bootstrap and local fallback
 
 Recommended Studio instance model:
 
@@ -260,17 +261,17 @@ Initial tools should map directly to the CLI/contract:
 
 Goal: validate naming, folder structure, manifest shape, docs, and launch delegation before deeper Studio control work begins.
 
-- [ ] Add root `robotick.yaml`
-  Deliverable: default Studio path/mode, registered projects, and per-project launch entrypoints.
+- [x] Added root `robotick.yaml`
+  Deliverable: default Studio path/mode, registered projects, and per-project launch entrypoints are now defined in the workspace manifest.
 
-- [ ] Make the normal launch path obvious
-  Deliverable: `README.md` documents the canonical human `robotick studio ...` flow; `AGENTS.md` provides a short bot/operator supplement.
+- [x] Made the normal launch path obvious
+  Deliverable: `README.md` now documents the canonical human `robotick studio ...` flow, and `AGENTS.md` provides a short bot/operator supplement.
 
-- [ ] Add initial CLI structure
-  Deliverable: `tools/robotick-cli/`, quiet root `./robotick`, TypeScript/Node implementation, no visible `npm`/`node` noise in normal use.
+- [x] Added initial CLI structure
+  Deliverable: `robotick/robotick-studio/tools/robotick-cli/`, a quiet `./tools/robotick` workspace shim, an installable `robotick` front-door shim, a simple `robotick>` immediate mode with one-level namespace context, and a TypeScript/Node implementation are now in place without visible `npm`/`node` noise in normal use.
 
-- [ ] Add first commands
-  Deliverable: `robotick studio projects` and `robotick studio open <project>` read `robotick.yaml`; `open` may initially dispatch to the registered launch script.
+- [x] Added first commands
+  Deliverable: `robotick studio projects` and `robotick studio open <project>` now read `robotick.yaml`; `open` currently dispatches to the registered launch script.
 
 ### MVP
 
