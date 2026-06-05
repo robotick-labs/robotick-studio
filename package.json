@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test:cli": "npm --prefix tools/robotick-cli test",
     "test": "npm run test:renderer && npm run test:electron",
     "typecheck": "tsc --noEmit",
     "test:launcher": "bash build-and-test-launcher.sh",

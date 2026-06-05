@@ -20,6 +20,29 @@ type Manifest = {
 
 class CliError extends Error {}
 type ShellNamespace = "studio" | null;
+type ShellState = {
+  namespace: ShellNamespace;
+  instanceName: string | null;
+};
+type CommandResult = {
+  exitCode: number;
+  openedInstanceName?: string;
+};
+type OpenLaunchTarget =
+  | {
+      kind: "empty";
+      label: string;
+      launchScript: string;
+      attach: boolean;
+      forwardedArgs: string[];
+    }
+  | {
+      kind: "project";
+      label: string;
+      launchScript: string;
+      attach: boolean;
+      forwardedArgs: string[];
+    };
 
 async function main(): Promise<void> {
   const workspaceRoot = getWorkspaceRoot();
@@ -35,8 +58,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const exitCode = await runCommand(workspaceRoot, args);
-  process.exit(exitCode);
+  const result = await runCommand(workspaceRoot, args);
+  process.exit(result.exitCode);
 }
 
 async function startInteractiveShell(workspaceRoot: string): Promise<void> {
@@ -54,26 +77,44 @@ async function startInteractiveShell(workspaceRoot: string): Promise<void> {
     terminal: Boolean(input.isTTY && output.isTTY),
   });
   try {
-    let currentNamespace: ShellNamespace = null;
+    const state: ShellState = { namespace: null, instanceName: null };
 
     while (true) {
-      const rawLine = await rl.question(getPrompt(currentNamespace));
+      const rawLine = await rl.question(getPrompt(state));
       const line = rawLine.trim();
       if (line === "") {
         continue;
       }
 
-      if (line === "exit" || line === "quit") {
+      if (line === "exit") {
         return;
       }
 
+      if (line === "quit") {
+        if (state.namespace === "studio" && state.instanceName !== null) {
+          if (quitBoundStudioInstance(state.instanceName)) {
+            process.stdout.write(`Quit requested for ${state.instanceName}.\n`);
+            state.instanceName = null;
+          } else {
+            process.stdout.write(
+              `Unable to quit ${state.instanceName}. It may already have exited.\n`,
+            );
+            state.instanceName = null;
+          }
+          continue;
+        }
+
+        process.stdout.write("No open Studio session is currently bound.\n");
+        continue;
+      }
+
       if (line === "help") {
-        printShellHelp(currentNamespace);
+        printShellHelp(state);
         continue;
       }
 
       if (line === "ls") {
-        listShellContext(currentNamespace);
+        listShellContext(state, workspaceRoot);
         continue;
       }
 
@@ -83,25 +124,46 @@ async function startInteractiveShell(workspaceRoot: string): Promise<void> {
       }
 
       if (line === "back") {
-        if (currentNamespace === null) {
+        if (state.instanceName === null && state.namespace === null) {
           process.stdout.write("Already at top level.\n");
         } else {
-          currentNamespace = null;
+          const nextState = stepBack(state);
+          state.namespace = nextState.namespace;
+          state.instanceName = nextState.instanceName;
         }
         continue;
       }
 
-      if (line === "studio" && currentNamespace === null) {
-        currentNamespace = "studio";
+      if (line === "studio" && state.namespace === null) {
+        state.namespace = "studio";
+        state.instanceName = null;
         continue;
       }
 
       try {
         const tokens = tokenize(line);
-        if (currentNamespace !== null) {
-          await runCommand(workspaceRoot, [currentNamespace, ...tokens]);
+        if (
+          state.namespace === "studio" &&
+          state.instanceName !== null &&
+          tokens[0] === "open"
+        ) {
+          process.stdout.write(
+            "Already bound to a Studio instance. Use 'back' before opening another one.\n",
+          );
+          continue;
+        }
+
+        if (state.namespace !== null) {
+          const result = await runCommand(workspaceRoot, [state.namespace, ...tokens]);
+          if (state.namespace === "studio" && result.openedInstanceName) {
+            state.instanceName = result.openedInstanceName;
+          }
         } else {
-          await runCommand(workspaceRoot, tokens);
+          const result = await runCommand(workspaceRoot, tokens);
+          if (tokens[0] === "studio" && result.openedInstanceName) {
+            state.namespace = "studio";
+            state.instanceName = result.openedInstanceName;
+          }
         }
       } catch (error) {
         reportError(error);
@@ -112,85 +174,131 @@ async function startInteractiveShell(workspaceRoot: string): Promise<void> {
   }
 }
 
-function getPrompt(currentNamespace: ShellNamespace): string {
-  if (currentNamespace === null) {
+function getPrompt(state: ShellState): string {
+  if (state.namespace === null) {
     return "robotick> ";
   }
 
-  return `robotick:${currentNamespace}> `;
-}
-
-function printShellHelp(currentNamespace: ShellNamespace): void {
-  if (currentNamespace === null) {
-    process.stdout.write(
-      [
-        "Top-level shell commands:",
-        "  ls       List available namespaces and shell commands",
-        "  studio   Enter the Studio command context",
-        "  clear    Clear the terminal",
-        "  help     Show this help",
-        "  exit     Leave Robotick",
-        "",
-      ].join("\n"),
-    );
-    return;
+  if (state.namespace === "studio" && state.instanceName) {
+    return `robotick:studio:open[${state.instanceName}]> `;
   }
 
-  process.stdout.write(
-    [
-      `Current context: ${currentNamespace}`,
-      "  ls       List commands in the current context",
+  return `robotick:${state.namespace}> `;
+}
+
+function printShellHelp(state: ShellState): void {
+  process.stdout.write(formatShellHelp(state));
+}
+
+function formatShellHelp(state: ShellState): string {
+  if (state.namespace === null) {
+    return [
+      "Top-level shell commands:",
+      "  ls       List available namespaces and shell commands",
+      "  studio   Enter the Studio command context",
       "  clear    Clear the terminal",
-      "  help     Show context help",
-      "  back     Return to the top-level shell",
+      "  help     Show this help",
       "  exit     Leave Robotick",
       "",
-    ].join("\n"),
-  );
-
-  if (currentNamespace === "studio") {
-    printStudioHelp();
+    ].join("\n");
   }
+
+  const currentContext =
+    state.namespace === "studio" && state.instanceName !== null
+      ? "studio/open"
+      : state.namespace;
+
+  return [
+    `Current context: ${currentContext}`,
+    "  ls       List commands in the current context",
+    "  clear    Clear the terminal",
+    "  help     Show context help",
+    "  back     Return to the parent shell context",
+    ...(state.namespace === "studio" && state.instanceName !== null
+      ? ["  quit     Close the current open Studio session"]
+      : []),
+    "  exit     Leave Robotick",
+    "",
+    ...(state.namespace === "studio" ? [getStudioHelpText()] : []),
+  ].join("\n");
 }
 
-function listShellContext(currentNamespace: ShellNamespace): void {
-  if (currentNamespace === null) {
-    process.stdout.write(
-      [
-        "Available here:",
-        "- studio",
-        "- ls",
-        "- clear",
-        "- help",
-        "- exit",
-        "",
-      ].join("\n"),
-    );
-    return;
+function listShellContext(state: ShellState, _workspaceRoot: string): void {
+  process.stdout.write(formatShellContext(state));
+}
+
+function formatShellContext(state: ShellState): string {
+  if (state.namespace === null) {
+    return [
+      "Available here:",
+      "Contexts:",
+      "- studio/",
+      "Actions:",
+      "- ls",
+      "- clear",
+      "- help",
+      "- exit",
+      "",
+    ].join("\n");
   }
 
-  if (currentNamespace === "studio") {
-    process.stdout.write(
-      [
-        "Available in studio:",
-        "- projects",
-        "- open <project>",
-        "- ls",
-        "- clear",
-        "- help",
-        "- back",
-        "- exit",
-        "",
-      ].join("\n"),
-    );
+  if (state.namespace === "studio" && state.instanceName !== null) {
+    return [
+      "Available in studio/open:",
+      "Contexts:",
+      "- none",
+      "Actions:",
+      "- projects",
+      "- ls",
+      "- clear",
+      "- help",
+      "- back",
+      "- quit",
+      "- exit",
+      "",
+    ].join("\n");
   }
+
+  if (state.namespace === "studio") {
+    return [
+      "Available in studio:",
+      "Contexts:",
+      "- open/",
+      "Actions:",
+      "- projects",
+      "- open [project]",
+      "- ls",
+      "- clear",
+      "- help",
+      "- back",
+      "- exit",
+      "",
+    ].join("\n");
+  }
+
+  return "";
+}
+
+function stepBack(state: ShellState): ShellState {
+  if (state.instanceName !== null) {
+    return { ...state, instanceName: null };
+  }
+
+  if (state.namespace !== null) {
+    return { namespace: null, instanceName: null };
+  }
+
+  return { ...state };
 }
 
 function clearScreen(): void {
   process.stdout.write("\x1bc");
 }
 
-async function runCommand(workspaceRoot: string, args: string[]): Promise<number> {
+async function runCommand(
+  workspaceRoot: string,
+  args: string[],
+): Promise<CommandResult> {
   const [namespace, ...rest] = args;
   if (namespace !== "studio") {
     throw new CliError(`Unknown namespace: ${namespace}`);
@@ -214,10 +322,13 @@ function stripQuotes(token: string): string {
   return token;
 }
 
-async function runStudioCommand(workspaceRoot: string, args: string[]): Promise<number> {
+async function runStudioCommand(
+  workspaceRoot: string,
+  args: string[],
+): Promise<CommandResult> {
   if (args.length === 0 || isHelpFlag(args[0])) {
     printStudioHelp();
-    return 0;
+    return { exitCode: 0 };
   }
 
   const manifest = loadManifest(workspaceRoot);
@@ -226,7 +337,7 @@ async function runStudioCommand(workspaceRoot: string, args: string[]): Promise<
   switch (command) {
     case "projects":
       handleProjectsCommand(manifest, rest);
-      return 0;
+      return { exitCode: 0 };
     case "open":
       return handleOpenCommand(workspaceRoot, manifest, rest);
     default:
@@ -267,13 +378,52 @@ function handleOpenCommand(
   workspaceRoot: string,
   manifest: Manifest,
   args: string[],
-): Promise<number> {
-  if (args.length === 0 || isHelpFlag(args[0])) {
+): Promise<CommandResult> {
+  if (args.some(isHelpFlag)) {
     printOpenHelp();
-    return Promise.resolve(0);
+    return Promise.resolve({ exitCode: 0 });
   }
 
-  const [projectName, ...forwardedArgs] = args;
+  const launchTarget = resolveOpenLaunchTarget(workspaceRoot, manifest, args);
+  return launchStudioTarget(workspaceRoot, manifest, launchTarget);
+}
+
+function resolveOpenLaunchTarget(
+  workspaceRoot: string,
+  manifest: Manifest,
+  args: string[],
+): OpenLaunchTarget {
+  let attach = false;
+  const forwardedArgs: string[] = [];
+  let projectName: string | null = null;
+
+  for (const arg of args) {
+    if (arg === "--attach") {
+      attach = true;
+      continue;
+    }
+
+    if (arg.startsWith("--") && arg !== "--") {
+      throw new CliError(`Unknown option for 'open': ${arg}`);
+    }
+
+    if (projectName === null) {
+      projectName = arg;
+    } else {
+      forwardedArgs.push(arg);
+    }
+  }
+
+  if (projectName === null) {
+    return {
+      kind: "empty",
+      label: "Robotick Studio",
+      launchScript: resolveStudioRunnerPath(workspaceRoot, manifest),
+      attach,
+      forwardedArgs,
+    };
+  }
+
   const project = manifest.projects[projectName];
   if (!project) {
     const names = Object.keys(manifest.projects).sort().join(", ");
@@ -285,18 +435,137 @@ function handleOpenCommand(
     throw new CliError(`Launch script not found: ${launchScript}`);
   }
 
-  return new Promise<number>((resolve, reject) => {
+  return {
+    kind: "project",
+    label: projectName,
+    launchScript,
+    attach,
+    forwardedArgs,
+  };
+}
+
+function launchStudioTarget(
+  workspaceRoot: string,
+  manifest: Manifest,
+  target: OpenLaunchTarget,
+): Promise<CommandResult> {
+  const env = createStudioLaunchEnv(workspaceRoot, manifest);
+
+  if (target.kind === "project") {
+    if (!target.attach) {
+      return launchQuietStudio(
+        workspaceRoot,
+        target.label,
+        manifest,
+        target.launchScript,
+        target.forwardedArgs,
+        env,
+        true,
+      );
+    }
+    return launchAttachedStudio(
+      workspaceRoot,
+      target.label,
+      manifest,
+      target.launchScript,
+      target.forwardedArgs,
+      env,
+      true,
+    );
+  }
+
+  if (!target.attach) {
+    return launchQuietStudio(
+      workspaceRoot,
+      target.label,
+      manifest,
+      target.launchScript,
+      target.forwardedArgs,
+      env,
+      false,
+    );
+  }
+
+  return launchAttachedStudio(
+    workspaceRoot,
+    target.label,
+    manifest,
+    target.launchScript,
+    target.forwardedArgs,
+    env,
+    false,
+  );
+}
+
+function launchQuietStudio(
+  workspaceRoot: string,
+  label: string,
+  manifest: Manifest,
+  launchScript: string,
+  forwardedArgs: string[],
+  env: NodeJS.ProcessEnv,
+  hasProject: boolean,
+): Promise<CommandResult> {
+  const logPath = createStudioLogPath(workspaceRoot, hasProject ? label : "empty");
+  const logFd = fs.openSync(logPath, "a");
+
+  process.stdout.write(
+    hasProject
+      ? `Opening Robotick Studio for ${label}...\n`
+      : "Opening Robotick Studio...\n",
+  );
+  process.stdout.write(`Starting Studio in ${manifest.studio.default_mode} mode...\n`);
+  process.stdout.write(`Logs: ${path.relative(workspaceRoot, logPath)}\n`);
+  return new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(launchScript, forwardedArgs, {
       cwd: workspaceRoot,
-      env: {
-        ...process.env,
-        ROBOTICK_WORKSPACE_ROOT: workspaceRoot,
-        ROBOTICK_STUDIO_MODE:
-          process.env.ROBOTICK_STUDIO_MODE ?? manifest.studio.default_mode,
-        ROBOTICK_STUDIO_DIR:
-          process.env.ROBOTICK_STUDIO_DIR ??
-          path.resolve(workspaceRoot, manifest.studio.default_path),
-      },
+      env,
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+    });
+
+    child.on("spawn", () => {
+      child.unref();
+      fs.closeSync(logFd);
+      process.stdout.write(
+        hasProject
+          ? `Studio launch started for ${label}.\n`
+          : "Studio launch started.\n",
+      );
+      resolve({
+        exitCode: 0,
+        openedInstanceName: createInstanceName(child.pid),
+      });
+    });
+
+    child.on("error", (error) => {
+      fs.closeSync(logFd);
+      reject(new CliError(`Failed to launch Studio: ${error.message}`));
+    });
+  });
+}
+
+function launchAttachedStudio(
+  workspaceRoot: string,
+  label: string,
+  _manifest: Manifest,
+  launchScript: string,
+  forwardedArgs: string[],
+  env: NodeJS.ProcessEnv,
+  hasProject: boolean,
+): Promise<CommandResult> {
+  process.stdout.write(
+    hasProject
+      ? `Opening Robotick Studio for ${label}...\n`
+      : "Opening Robotick Studio...\n",
+  );
+  process.stdout.write(
+    "Attaching to full Studio logs. Use this mode when you want raw dev/build output.\n",
+  );
+  return new Promise<CommandResult>((resolve, reject) => {
+    const child = spawn(launchScript, forwardedArgs, {
+      cwd: workspaceRoot,
+      env,
       stdio: "inherit",
     });
 
@@ -310,9 +579,82 @@ function handleOpenCommand(
         return;
       }
 
-      resolve(code ?? 0);
+      resolve({
+        exitCode: code ?? 0,
+        openedInstanceName: createInstanceName(child.pid),
+      });
     });
   });
+}
+
+function createStudioLaunchEnv(
+  workspaceRoot: string,
+  manifest: Manifest,
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ROBOTICK_WORKSPACE_ROOT: workspaceRoot,
+    ROBOTICK_STUDIO_MODE:
+      process.env.ROBOTICK_STUDIO_MODE ?? manifest.studio.default_mode,
+    ROBOTICK_STUDIO_DIR:
+      process.env.ROBOTICK_STUDIO_DIR ??
+      path.resolve(workspaceRoot, manifest.studio.default_path),
+  };
+}
+
+function resolveStudioRunnerPath(workspaceRoot: string, manifest: Manifest): string {
+  const studioDir =
+    process.env.ROBOTICK_STUDIO_DIR ??
+    path.resolve(workspaceRoot, manifest.studio.default_path);
+  const runnerName =
+    (process.env.ROBOTICK_STUDIO_MODE ?? manifest.studio.default_mode) ===
+    "production"
+      ? "run-studio-production.sh"
+      : "run-studio-dev.sh";
+  const runner = path.join(studioDir, runnerName);
+  if (!fs.existsSync(runner)) {
+    throw new CliError(`Expected Studio runner at ${runner}`);
+  }
+  return runner;
+}
+
+function createInstanceName(pid: number | undefined): string | undefined {
+  if (!pid) {
+    return undefined;
+  }
+
+  return `studio-${pid}`;
+}
+
+function parseInstancePid(instanceName: string): number | null {
+  const match = instanceName.match(/^studio-(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const pid = Number(match[1]);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+function quitBoundStudioInstance(instanceName: string): boolean {
+  const pid = parseInstancePid(instanceName);
+  if (pid === null) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function createStudioLogPath(workspaceRoot: string, projectName: string): string {
+  const logsDir = path.join(workspaceRoot, ".robotick", "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:]/g, "-");
+  return path.join(logsDir, `studio-open-${projectName}-${timestamp}.log`);
 }
 
 function loadManifest(workspaceRoot: string): Manifest {
@@ -504,18 +846,20 @@ function printTopLevelHelp(): void {
 }
 
 function printStudioHelp(): void {
-  process.stdout.write(
-    [
-      "Usage:",
-      "  robotick studio projects [--json]",
-      "  robotick studio open <project> [studio-args...]",
-      "",
-      "Commands:",
-      "  projects   List registered Studio projects from robotick.yaml",
-      "  open       Launch a registered project in Robotick Studio",
-      "",
-    ].join("\n"),
-  );
+  process.stdout.write(getStudioHelpText());
+}
+
+function getStudioHelpText(): string {
+  return [
+    "Usage:",
+    "  robotick studio projects [--json]",
+    "  robotick studio open [project] [--attach] [studio-args...]",
+    "",
+    "Commands:",
+    "  projects   List registered Studio projects from robotick.yaml",
+    "  open       Launch empty Studio, or a registered project when given",
+    "",
+  ].join("\n");
 }
 
 function printProjectsHelp(): void {
@@ -535,11 +879,13 @@ function printOpenHelp(): void {
   process.stdout.write(
     [
       "Usage:",
-      "  robotick studio open <project> [studio-args...]",
+      "  robotick studio open [project] [--attach] [studio-args...]",
       "",
       "Description:",
-      "  Launch a registered project using its workspace launch script.",
-      "  Any extra arguments are forwarded to that launch script.",
+      "  Launch empty Robotick Studio, or a registered project when given.",
+      "  By default the launch is quiet and writes logs to .robotick/logs/.",
+      "  Use --attach to inherit the full Studio log stream.",
+      "  Any extra arguments are forwarded to the project launch script when a project is given.",
       "",
     ].join("\n"),
   );
@@ -559,7 +905,18 @@ function reportError(error: unknown): void {
   process.stderr.write("Unknown error\n");
 }
 
-void main().catch((error) => {
-  reportError(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  void main().catch((error) => {
+    reportError(error);
+    process.exit(1);
+  });
+}
+
+export const __test__ = {
+  formatShellContext,
+  formatShellHelp,
+  getPrompt,
+  getStudioHelpText,
+  parseInstancePid,
+  stepBack,
+};
