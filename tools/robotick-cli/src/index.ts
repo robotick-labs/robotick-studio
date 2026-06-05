@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as path from "node:path";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -18,16 +19,17 @@ type Manifest = {
   projects: Record<string, ManifestProject>;
 };
 
-class CliError extends Error {}
 type ShellNamespace = "studio" | null;
 type ShellState = {
   namespace: ShellNamespace;
-  instanceName: string | null;
+  sessionName: string | null;
 };
+
 type CommandResult = {
   exitCode: number;
-  openedInstanceName?: string;
+  openedSessionName?: string;
 };
+
 type OpenLaunchTarget =
   | {
       kind: "empty";
@@ -43,6 +45,17 @@ type OpenLaunchTarget =
       attach: boolean;
       forwardedArgs: string[];
     };
+
+type SessionRecord = {
+  name: string;
+  pid: number;
+  mode: string;
+  logPath: string | null;
+  projectName: string | null;
+  startedAt: string;
+};
+
+class CliError extends Error {}
 
 async function main(): Promise<void> {
   const workspaceRoot = getWorkspaceRoot();
@@ -76,36 +89,22 @@ async function startInteractiveShell(workspaceRoot: string): Promise<void> {
     output,
     terminal: Boolean(input.isTTY && output.isTTY),
   });
+
   try {
-    const state: ShellState = { namespace: null, instanceName: null };
+    const state: ShellState = { namespace: null, sessionName: null };
 
     while (true) {
+      const staleMessage = reconcileBoundSession(workspaceRoot, state);
+      if (staleMessage) {
+        process.stdout.write(`${staleMessage}\n`);
+      }
+
       const rawLine = await rl.question(getPrompt(state));
       const line = rawLine.trim();
-      if (line === "") {
-        continue;
-      }
+      if (line === "") continue;
 
       if (line === "exit") {
         return;
-      }
-
-      if (line === "quit") {
-        if (state.namespace === "studio" && state.instanceName !== null) {
-          if (quitBoundStudioInstance(state.instanceName)) {
-            process.stdout.write(`Quit requested for ${state.instanceName}.\n`);
-            state.instanceName = null;
-          } else {
-            process.stdout.write(
-              `Unable to quit ${state.instanceName}. It may already have exited.\n`,
-            );
-            state.instanceName = null;
-          }
-          continue;
-        }
-
-        process.stdout.write("No open Studio session is currently bound.\n");
-        continue;
       }
 
       if (line === "help") {
@@ -124,46 +123,51 @@ async function startInteractiveShell(workspaceRoot: string): Promise<void> {
       }
 
       if (line === "back") {
-        if (state.instanceName === null && state.namespace === null) {
+        if (state.namespace === null && state.sessionName === null) {
           process.stdout.write("Already at top level.\n");
         } else {
           const nextState = stepBack(state);
           state.namespace = nextState.namespace;
-          state.instanceName = nextState.instanceName;
+          state.sessionName = nextState.sessionName;
+        }
+        continue;
+      }
+
+      if (line === "quit") {
+        if (state.namespace === "studio" && state.sessionName !== null) {
+          const result = await quitStudioSession(workspaceRoot, state.sessionName);
+          process.stdout.write(`${result.message}\n`);
+          if (result.accepted) {
+            state.sessionName = null;
+          }
+        } else {
+          process.stdout.write("No open Studio session is currently bound.\n");
         }
         continue;
       }
 
       if (line === "studio" && state.namespace === null) {
         state.namespace = "studio";
-        state.instanceName = null;
         continue;
       }
 
       try {
         const tokens = tokenize(line);
-        if (
-          state.namespace === "studio" &&
-          state.instanceName !== null &&
-          tokens[0] === "open"
-        ) {
-          process.stdout.write(
-            "Already bound to a Studio instance. Use 'back' before opening another one.\n",
-          );
+        if (tokens[0] === "cd") {
+          applyCd(workspaceRoot, state, tokens.slice(1));
+          continue;
+        }
+
+        if (state.namespace === "studio" && state.sessionName === null && tokens[0] === "open") {
+          const result = await runStudioCreateCommand(workspaceRoot, tokens.slice(1));
+          bindOpenedSessionToState(state, result);
           continue;
         }
 
         if (state.namespace !== null) {
-          const result = await runCommand(workspaceRoot, [state.namespace, ...tokens]);
-          if (state.namespace === "studio" && result.openedInstanceName) {
-            state.instanceName = result.openedInstanceName;
-          }
+          await runCommand(workspaceRoot, [state.namespace, ...tokens]);
         } else {
-          const result = await runCommand(workspaceRoot, tokens);
-          if (tokens[0] === "studio" && result.openedInstanceName) {
-            state.namespace = "studio";
-            state.instanceName = result.openedInstanceName;
-          }
+          await runCommand(workspaceRoot, tokens);
         }
       } catch (error) {
         reportError(error);
@@ -179,8 +183,8 @@ function getPrompt(state: ShellState): string {
     return "robotick> ";
   }
 
-  if (state.namespace === "studio" && state.instanceName) {
-    return `robotick:studio:open[${state.instanceName}]> `;
+  if (state.namespace === "studio" && state.sessionName !== null) {
+    return `robotick:studio:${state.sessionName}> `;
   }
 
   return `robotick:${state.namespace}> `;
@@ -196,6 +200,7 @@ function formatShellHelp(state: ShellState): string {
       "Top-level shell commands:",
       "  ls       List available namespaces and shell commands",
       "  studio   Enter the Studio command context",
+      "  cd       Enter a context",
       "  clear    Clear the terminal",
       "  help     Show this help",
       "  exit     Leave Robotick",
@@ -204,18 +209,19 @@ function formatShellHelp(state: ShellState): string {
   }
 
   const currentContext =
-    state.namespace === "studio" && state.instanceName !== null
-      ? "studio/open"
+    state.namespace === "studio" && state.sessionName !== null
+      ? `studio/${state.sessionName}`
       : state.namespace;
 
   return [
     `Current context: ${currentContext}`,
     "  ls       List commands in the current context",
+    "  cd       Enter a child context",
     "  clear    Clear the terminal",
     "  help     Show context help",
     "  back     Return to the parent shell context",
-    ...(state.namespace === "studio" && state.instanceName !== null
-      ? ["  quit     Close the current open Studio session"]
+    ...(state.namespace === "studio" && state.sessionName !== null
+      ? ["  quit     Close the current Studio session"]
       : []),
     "  exit     Leave Robotick",
     "",
@@ -223,11 +229,11 @@ function formatShellHelp(state: ShellState): string {
   ].join("\n");
 }
 
-function listShellContext(state: ShellState, _workspaceRoot: string): void {
-  process.stdout.write(formatShellContext(state));
+function listShellContext(state: ShellState, workspaceRoot: string): void {
+  process.stdout.write(formatShellContext(state, workspaceRoot));
 }
 
-function formatShellContext(state: ShellState): string {
+function formatShellContext(state: ShellState, workspaceRoot: string): string {
   if (state.namespace === null) {
     return [
       "Available here:",
@@ -235,6 +241,7 @@ function formatShellContext(state: ShellState): string {
       "- studio/",
       "Actions:",
       "- ls",
+      "- cd",
       "- clear",
       "- help",
       "- exit",
@@ -242,14 +249,15 @@ function formatShellContext(state: ShellState): string {
     ].join("\n");
   }
 
-  if (state.namespace === "studio" && state.instanceName !== null) {
+  if (state.namespace === "studio" && state.sessionName !== null) {
     return [
-      "Available in studio/open:",
+      `Available in studio/${state.sessionName}:`,
       "Contexts:",
       "- none",
       "Actions:",
       "- projects",
       "- ls",
+      "- cd",
       "- clear",
       "- help",
       "- back",
@@ -259,36 +267,78 @@ function formatShellContext(state: ShellState): string {
     ].join("\n");
   }
 
-  if (state.namespace === "studio") {
-    return [
-      "Available in studio:",
-      "Contexts:",
-      "- open/",
-      "Actions:",
-      "- projects",
-      "- open [project]",
-      "- ls",
-      "- clear",
-      "- help",
-      "- back",
-      "- exit",
-      "",
-    ].join("\n");
-  }
-
-  return "";
+  const sessions = listLiveSessions(workspaceRoot);
+  return [
+    "Available in studio:",
+    "Contexts:",
+    ...formatSessionContexts(sessions),
+    "Actions:",
+    "- projects",
+    "- instances",
+    "- create [project]",
+    "- open [project]",
+    "- ls",
+    "- cd",
+    "- clear",
+    "- help",
+    "- back",
+    "- exit",
+    "",
+  ].join("\n");
 }
 
 function stepBack(state: ShellState): ShellState {
-  if (state.instanceName !== null) {
-    return { ...state, instanceName: null };
+  if (state.sessionName !== null) {
+    return { ...state, sessionName: null };
   }
 
   if (state.namespace !== null) {
-    return { namespace: null, instanceName: null };
+    return { namespace: null, sessionName: null };
   }
 
   return { ...state };
+}
+
+function bindOpenedSessionToState(state: ShellState, result: CommandResult): void {
+  if (state.namespace === "studio" && state.sessionName === null && result.openedSessionName) {
+    state.sessionName = result.openedSessionName;
+  }
+}
+
+function applyCd(workspaceRoot: string, state: ShellState, args: string[]): void {
+  if (args.length === 0) {
+    throw new CliError("Usage: cd <context> or cd ..");
+  }
+
+  if (args.length === 1 && args[0] === "..") {
+    const nextState = stepBack(state);
+    state.namespace = nextState.namespace;
+    state.sessionName = nextState.sessionName;
+    return;
+  }
+
+  if (state.namespace === null) {
+    if (args.length === 1 && args[0] === "studio") {
+      state.namespace = "studio";
+      return;
+    }
+    throw new CliError(`Unknown top-level context: ${args.join(" ")}`);
+  }
+
+  if (state.namespace === "studio" && state.sessionName === null) {
+    if (args.length !== 1) {
+      throw new CliError("Use 'cd <session>' from the Studio context.");
+    }
+    const sessionName = normalizeSessionSpecifier(args[0]);
+    const session = getLiveSession(workspaceRoot, sessionName);
+    if (!session) {
+      throw new CliError(`Unknown Studio session: ${args[0]}`);
+    }
+    state.sessionName = session.name;
+    return;
+  }
+
+  throw new CliError(`No child contexts are currently available for ${getPrompt(state).trim()}`);
 }
 
 function clearScreen(): void {
@@ -338,10 +388,40 @@ async function runStudioCommand(
     case "projects":
       handleProjectsCommand(manifest, rest);
       return { exitCode: 0 };
+    case "instances":
+      handleInstancesCommand(workspaceRoot, rest);
+      return { exitCode: 0 };
+    case "create":
+      return runStudioCreateCommand(workspaceRoot, rest);
     case "open":
-      return handleOpenCommand(workspaceRoot, manifest, rest);
+      return handleOpenCommand(workspaceRoot, rest);
     default:
-      throw new CliError(`Unknown studio command: ${command}`);
+      return runStudioSessionCommand(workspaceRoot, command, rest);
+  }
+}
+
+function runStudioSessionCommand(
+  workspaceRoot: string,
+  sessionToken: string,
+  args: string[],
+): Promise<CommandResult> {
+  const sessionName = normalizeSessionSpecifier(sessionToken);
+  const session = getLiveSession(workspaceRoot, sessionName);
+  if (!session) {
+    throw new CliError(`Unknown studio command or session: ${sessionToken}`);
+  }
+
+  const [command, ...rest] = args;
+  if (!command || isHelpFlag(command)) {
+    printSessionHelp(session.name);
+    return Promise.resolve({ exitCode: 0 });
+  }
+
+  switch (command) {
+    case "quit":
+      return handleSessionQuit(workspaceRoot, session.name, rest);
+    default:
+      throw new CliError(`Unknown session command for ${session.name}: ${command}`);
   }
 }
 
@@ -374,24 +454,94 @@ function handleProjectsCommand(manifest: Manifest, args: string[]): void {
   }
 }
 
-function handleOpenCommand(
+function handleInstancesCommand(workspaceRoot: string, args: string[]): void {
+  if (args.some(isHelpFlag)) {
+    printInstancesHelp();
+    return;
+  }
+
+  const json = args.includes("--json");
+  const unknownArgs = args.filter((arg) => arg !== "--json");
+  if (unknownArgs.length > 0) {
+    throw new CliError(`Unknown argument for 'instances': ${unknownArgs[0]}`);
+  }
+
+  const sessions = listLiveSessions(workspaceRoot);
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ sessions }, null, 2)}\n`);
+    return;
+  }
+
+  process.stdout.write("Open Robotick Studio sessions:\n");
+  if (sessions.length === 0) {
+    process.stdout.write("- none\n");
+    return;
+  }
+
+  for (const session of sessions) {
+    const projectSuffix = session.projectName ? ` (${session.projectName})` : "";
+    process.stdout.write(`- ${session.name}${projectSuffix}\n`);
+  }
+}
+
+async function handleSessionQuit(
+  workspaceRoot: string,
+  sessionName: string,
+  args: string[],
+): Promise<CommandResult> {
+  if (args.some(isHelpFlag)) {
+    printSessionQuitHelp(sessionName);
+    return { exitCode: 0 };
+  }
+
+  if (args.length > 0) {
+    throw new CliError(`Unknown argument for '${sessionName} quit': ${args[0]}`);
+  }
+
+  const result = await quitStudioSession(workspaceRoot, sessionName);
+  process.stdout.write(`${result.message}\n`);
+  return { exitCode: result.accepted ? 0 : 1 };
+}
+
+async function runStudioCreateCommand(
+  workspaceRoot: string,
+  args: string[],
+): Promise<CommandResult> {
+  const manifest = loadManifest(workspaceRoot);
+  return handleCreateCommand(workspaceRoot, manifest, args);
+}
+
+async function handleCreateCommand(
   workspaceRoot: string,
   manifest: Manifest,
   args: string[],
 ): Promise<CommandResult> {
   if (args.some(isHelpFlag)) {
-    printOpenHelp();
-    return Promise.resolve({ exitCode: 0 });
+    printCreateHelp();
+    return { exitCode: 0 };
   }
 
-  const launchTarget = resolveOpenLaunchTarget(workspaceRoot, manifest, args);
-  return launchStudioTarget(workspaceRoot, manifest, launchTarget);
+  const launchTarget = resolveOpenLaunchTarget(workspaceRoot, manifest, args, "create");
+  return await launchStudioTarget(workspaceRoot, manifest, launchTarget);
+}
+
+async function handleOpenCommand(
+  workspaceRoot: string,
+  args: string[],
+): Promise<CommandResult> {
+  if (args.some(isHelpFlag)) {
+    printOpenHelp();
+    return { exitCode: 0 };
+  }
+
+  return runStudioCreateCommand(workspaceRoot, args);
 }
 
 function resolveOpenLaunchTarget(
   workspaceRoot: string,
   manifest: Manifest,
   args: string[],
+  commandName = "open",
 ): OpenLaunchTarget {
   let attach = false;
   const forwardedArgs: string[] = [];
@@ -404,7 +554,7 @@ function resolveOpenLaunchTarget(
     }
 
     if (arg.startsWith("--") && arg !== "--") {
-      throw new CliError(`Unknown option for 'open': ${arg}`);
+      throw new CliError(`Unknown option for '${commandName}': ${arg}`);
     }
 
     if (projectName === null) {
@@ -444,60 +594,37 @@ function resolveOpenLaunchTarget(
   };
 }
 
-function launchStudioTarget(
+async function launchStudioTarget(
   workspaceRoot: string,
   manifest: Manifest,
   target: OpenLaunchTarget,
 ): Promise<CommandResult> {
-  const env = createStudioLaunchEnv(workspaceRoot, manifest);
-
-  if (target.kind === "project") {
-    if (!target.attach) {
-      return launchQuietStudio(
-        workspaceRoot,
-        target.label,
-        manifest,
-        target.launchScript,
-        target.forwardedArgs,
-        env,
-        true,
-      );
-    }
-    return launchAttachedStudio(
-      workspaceRoot,
-      target.label,
-      manifest,
-      target.launchScript,
-      target.forwardedArgs,
-      env,
-      true,
-    );
-  }
+  const env = await createStudioLaunchEnv(workspaceRoot, manifest);
 
   if (!target.attach) {
-    return launchQuietStudio(
+    return await launchQuietStudio(
       workspaceRoot,
       target.label,
       manifest,
       target.launchScript,
       target.forwardedArgs,
       env,
-      false,
+      target.kind === "project",
     );
   }
 
-  return launchAttachedStudio(
+  return await launchAttachedStudio(
     workspaceRoot,
     target.label,
     manifest,
     target.launchScript,
     target.forwardedArgs,
     env,
-    false,
+    target.kind === "project",
   );
 }
 
-function launchQuietStudio(
+async function launchQuietStudio(
   workspaceRoot: string,
   label: string,
   manifest: Manifest,
@@ -516,7 +643,8 @@ function launchQuietStudio(
   );
   process.stdout.write(`Starting Studio in ${manifest.studio.default_mode} mode...\n`);
   process.stdout.write(`Logs: ${path.relative(workspaceRoot, logPath)}\n`);
-  return new Promise<CommandResult>((resolve, reject) => {
+
+  return await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(launchScript, forwardedArgs, {
       cwd: workspaceRoot,
       env,
@@ -527,14 +655,29 @@ function launchQuietStudio(
     child.on("spawn", () => {
       child.unref();
       fs.closeSync(logFd);
+      const pid = child.pid;
+      const sessionName = pid === undefined ? null : createSessionName(pid);
+      if (sessionName && pid !== undefined) {
+        writeSessionRecord(workspaceRoot, {
+          name: sessionName,
+          pid,
+          mode: manifest.studio.default_mode,
+          logPath,
+          projectName: hasProject ? label : null,
+          startedAt: new Date().toISOString(),
+        });
+      }
       process.stdout.write(
         hasProject
           ? `Studio launch started for ${label}.\n`
           : "Studio launch started.\n",
       );
+      if (sessionName) {
+        process.stdout.write(`Session: ${sessionName}/\n`);
+      }
       resolve({
         exitCode: 0,
-        openedInstanceName: createInstanceName(child.pid),
+        openedSessionName: sessionName ?? undefined,
       });
     });
 
@@ -545,7 +688,7 @@ function launchQuietStudio(
   });
 }
 
-function launchAttachedStudio(
+async function launchAttachedStudio(
   workspaceRoot: string,
   label: string,
   _manifest: Manifest,
@@ -562,11 +705,19 @@ function launchAttachedStudio(
   process.stdout.write(
     "Attaching to full Studio logs. Use this mode when you want raw dev/build output.\n",
   );
-  return new Promise<CommandResult>((resolve, reject) => {
+
+  return await new Promise<CommandResult>((resolve, reject) => {
     const child = spawn(launchScript, forwardedArgs, {
       cwd: workspaceRoot,
       env,
       stdio: "inherit",
+    });
+
+    child.on("spawn", () => {
+      const sessionName = createSessionName(child.pid);
+      if (sessionName) {
+        process.stdout.write(`Session: ${sessionName}/\n`);
+      }
     });
 
     child.on("error", (error) => {
@@ -581,16 +732,19 @@ function launchAttachedStudio(
 
       resolve({
         exitCode: code ?? 0,
-        openedInstanceName: createInstanceName(child.pid),
+        openedSessionName: createSessionName(child.pid),
       });
     });
   });
 }
 
-function createStudioLaunchEnv(
+async function createStudioLaunchEnv(
   workspaceRoot: string,
   manifest: Manifest,
-): NodeJS.ProcessEnv {
+): Promise<NodeJS.ProcessEnv> {
+  const remoteDebuggingPort =
+    process.env.ROBOTICK_REMOTE_DEBUGGING_PORT ?? `${await findAvailablePort()}`;
+
   return {
     ...process.env,
     ROBOTICK_WORKSPACE_ROOT: workspaceRoot,
@@ -599,6 +753,7 @@ function createStudioLaunchEnv(
     ROBOTICK_STUDIO_DIR:
       process.env.ROBOTICK_STUDIO_DIR ??
       path.resolve(workspaceRoot, manifest.studio.default_path),
+    ROBOTICK_REMOTE_DEBUGGING_PORT: remoteDebuggingPort,
   };
 }
 
@@ -618,36 +773,265 @@ function resolveStudioRunnerPath(workspaceRoot: string, manifest: Manifest): str
   return runner;
 }
 
-function createInstanceName(pid: number | undefined): string | undefined {
+function createSessionName(pid: number | undefined): string | undefined {
   if (!pid) {
     return undefined;
   }
-
   return `studio-${pid}`;
 }
 
-function parseInstancePid(instanceName: string): number | null {
-  const match = instanceName.match(/^studio-(\d+)$/);
-  if (!match) {
-    return null;
-  }
+async function findAvailablePort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Unable to allocate port")));
+        return;
+      }
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
 
+function parseSessionPid(sessionName: string): number | null {
+  const match = sessionName.match(/^studio-(\d+)$/);
+  if (!match) return null;
   const pid = Number(match[1]);
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
-function quitBoundStudioInstance(instanceName: string): boolean {
-  const pid = parseInstancePid(instanceName);
+async function quitStudioSession(
+  workspaceRoot: string,
+  sessionName: string,
+): Promise<{ accepted: boolean; message: string }> {
+  const session = getLiveSession(workspaceRoot, sessionName);
+  if (!session) {
+    removeSessionRecord(workspaceRoot, sessionName);
+    return {
+      accepted: false,
+      message: `Studio session ${sessionName} is no longer running.`,
+    };
+  }
+
+  const pid = parseSessionPid(session.name);
   if (pid === null) {
-    return false;
+    return {
+      accepted: false,
+      message: `Unable to quit ${session.name}. Invalid session pid.`,
+    };
   }
 
   try {
-    process.kill(pid, "SIGTERM");
+    signalSessionProcessTree(pid, "SIGTERM");
+    const exited = await waitForSessionExit(pid, 4000);
+    if (exited) {
+      removeSessionRecord(workspaceRoot, session.name);
+      return {
+        accepted: true,
+        message: `Studio session ${session.name} closed.`,
+      };
+    }
+
+    signalSessionProcessTree(pid, "SIGKILL");
+    const killed = await waitForSessionExit(pid, 1500);
+    if (killed) {
+      removeSessionRecord(workspaceRoot, session.name);
+      return {
+        accepted: true,
+        message: `Studio session ${session.name} force-closed after not exiting cleanly.`,
+      };
+    }
+
+    return {
+      accepted: false,
+      message: `Unable to close ${session.name}. It is still running after TERM and KILL attempts.`,
+    };
+  } catch {
+    return {
+      accepted: false,
+      message: `Unable to quit ${session.name}. It may already have exited.`,
+    };
+  }
+}
+
+function getInstancesDir(workspaceRoot: string): string {
+  return path.join(workspaceRoot, ".robotick", "instances");
+}
+
+function getSessionRecordPath(workspaceRoot: string, sessionName: string): string {
+  return path.join(getInstancesDir(workspaceRoot), `${sessionName}.json`);
+}
+
+function writeSessionRecord(workspaceRoot: string, record: SessionRecord): void {
+  fs.mkdirSync(getInstancesDir(workspaceRoot), { recursive: true });
+  fs.writeFileSync(
+    getSessionRecordPath(workspaceRoot, record.name),
+    `${JSON.stringify(record, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function removeSessionRecord(workspaceRoot: string, sessionName: string): void {
+  const recordPath = getSessionRecordPath(workspaceRoot, sessionName);
+  if (fs.existsSync(recordPath)) {
+    fs.unlinkSync(recordPath);
+  }
+}
+
+function listLiveSessions(workspaceRoot: string): SessionRecord[] {
+  const instancesDir = getInstancesDir(workspaceRoot);
+  if (!fs.existsSync(instancesDir)) {
+    return [];
+  }
+
+  const sessions: SessionRecord[] = [];
+  for (const entry of fs.readdirSync(instancesDir)) {
+    if (!entry.endsWith(".json")) continue;
+    const sessionName = entry.slice(0, -5);
+    const session = readSessionRecord(workspaceRoot, sessionName);
+    if (!session) continue;
+    if (!isSessionAlive(session)) {
+      removeSessionRecord(workspaceRoot, session.name);
+      continue;
+    }
+    sessions.push(session);
+  }
+
+  sessions.sort((left, right) => left.name.localeCompare(right.name));
+  return sessions;
+}
+
+function getLiveSession(workspaceRoot: string, sessionName: string): SessionRecord | null {
+  return listLiveSessions(workspaceRoot).find((session) => session.name === sessionName) ?? null;
+}
+
+function readSessionRecord(workspaceRoot: string, sessionName: string): SessionRecord | null {
+  const recordPath = getSessionRecordPath(workspaceRoot, sessionName);
+  if (!fs.existsSync(recordPath)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(recordPath, "utf8")) as SessionRecord;
+    if (
+      typeof parsed.name !== "string" ||
+      typeof parsed.pid !== "number" ||
+      typeof parsed.mode !== "string"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
     return true;
   } catch {
     return false;
   }
+}
+
+function isSessionAlive(session: SessionRecord): boolean {
+  if (process.platform === "win32") {
+    return isPidAlive(session.pid);
+  }
+
+  return listUnixProcessGroupMembers(session.pid).length > 0;
+}
+
+function signalSessionProcessTree(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    process.kill(pid, signal);
+    return;
+  }
+
+  process.kill(-pid, signal);
+}
+
+async function waitForSessionExit(sessionPid: number, timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!isSessionPidActive(sessionPid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isSessionPidActive(sessionPid);
+}
+
+function isSessionPidActive(sessionPid: number): boolean {
+  if (process.platform === "win32") {
+    return isPidAlive(sessionPid);
+  }
+
+  return listUnixProcessGroupMembers(sessionPid).length > 0;
+}
+
+function listUnixProcessGroupMembers(processGroupId: number): number[] {
+  const result = spawnSync("ps", ["-eo", "pid=,pgid="], {
+    encoding: "utf-8",
+  });
+  if (result.status !== 0 || !result.stdout) {
+    return isPidAlive(processGroupId) ? [processGroupId] : [];
+  }
+
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(\d+)$/);
+      if (!match) {
+        return null;
+      }
+      const pid = Number.parseInt(match[1], 10);
+      const pgid = Number.parseInt(match[2], 10);
+      if (Number.isNaN(pid) || Number.isNaN(pgid)) {
+        return null;
+      }
+      return pgid === processGroupId ? pid : null;
+    })
+    .filter((pid): pid is number => pid !== null);
+}
+
+function normalizeSessionSpecifier(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function reconcileBoundSession(workspaceRoot: string, state: ShellState): string | null {
+  if (state.namespace !== "studio" || state.sessionName === null) {
+    return null;
+  }
+
+  if (getLiveSession(workspaceRoot, state.sessionName)) {
+    return null;
+  }
+
+  const staleSessionName = state.sessionName;
+  state.sessionName = null;
+  return `Studio session ${staleSessionName} closed.`;
+}
+
+function formatSessionContexts(sessions: SessionRecord[]): string[] {
+  if (sessions.length === 0) {
+    return ["- none"];
+  }
+
+  return sessions.map((session) => `- ${session.name}/`);
 }
 
 function createStudioLogPath(workspaceRoot: string, projectName: string): string {
@@ -672,11 +1056,7 @@ function validateManifest(
   value: Record<string, unknown>,
   manifestPath: string,
 ): Manifest {
-  const schemaVersion = expectNumber(
-    value.schema_version,
-    "schema_version",
-    manifestPath,
-  );
+  const schemaVersion = expectNumber(value.schema_version, "schema_version", manifestPath);
   const studio = expectObject(value.studio, "studio", manifestPath);
   const projects = expectObject(value.projects, "projects", manifestPath);
 
@@ -684,11 +1064,7 @@ function validateManifest(
   for (const [name, projectValue] of Object.entries(projects)) {
     const project = expectObject(projectValue, `projects.${name}`, manifestPath);
     manifestProjects[name] = {
-      project_dir: expectString(
-        project.project_dir,
-        `projects.${name}.project_dir`,
-        manifestPath,
-      ),
+      project_dir: expectString(project.project_dir, `projects.${name}.project_dir`, manifestPath),
       launch_script: expectString(
         project.launch_script,
         `projects.${name}.launch_script`,
@@ -700,16 +1076,8 @@ function validateManifest(
   return {
     schema_version: schemaVersion,
     studio: {
-      default_path: expectString(
-        studio.default_path,
-        "studio.default_path",
-        manifestPath,
-      ),
-      default_mode: expectString(
-        studio.default_mode,
-        "studio.default_mode",
-        manifestPath,
-      ),
+      default_path: expectString(studio.default_path, "studio.default_path", manifestPath),
+      default_mode: expectString(studio.default_mode, "studio.default_mode", manifestPath),
     },
     projects: manifestProjects,
   };
@@ -723,19 +1091,14 @@ function parseSimpleYaml(text: string): unknown {
 
   for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
     const lineNumber = index + 1;
-    if (rawLine.trim() === "" || rawLine.trimStart().startsWith("#")) {
-      continue;
-    }
-
+    if (rawLine.trim() === "" || rawLine.trimStart().startsWith("#")) continue;
     if (rawLine.includes("\t")) {
       throw new CliError(`Tabs are not supported in robotick.yaml (line ${lineNumber})`);
     }
 
     const match = rawLine.match(/^(\s*)([^:#][^:]*):(.*)$/);
     if (!match) {
-      throw new CliError(
-        `Unsupported robotick.yaml syntax on line ${lineNumber}: ${rawLine}`,
-      );
+      throw new CliError(`Unsupported robotick.yaml syntax on line ${lineNumber}: ${rawLine}`);
     }
 
     const indent = match[1].length;
@@ -764,22 +1127,14 @@ function parseScalar(value: string): unknown {
   if (/^-?\d+$/.test(value)) {
     return Number(value);
   }
-
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))
   ) {
     return value.slice(1, -1);
   }
-
-  if (value === "true") {
-    return true;
-  }
-
-  if (value === "false") {
-    return false;
-  }
-
+  if (value === "true") return true;
+  if (value === "false") return false;
   return value;
 }
 
@@ -791,7 +1146,6 @@ function expectObject(
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new CliError(`Expected ${label} to be an object in ${manifestPath}`);
   }
-
   return value as Record<string, unknown>;
 }
 
@@ -799,7 +1153,6 @@ function expectString(value: unknown, label: string, manifestPath: string): stri
   if (typeof value !== "string" || value.length === 0) {
     throw new CliError(`Expected ${label} to be a non-empty string in ${manifestPath}`);
   }
-
   return value;
 }
 
@@ -807,17 +1160,12 @@ function expectNumber(value: unknown, label: string, manifestPath: string): numb
   if (typeof value !== "number" || Number.isNaN(value)) {
     throw new CliError(`Expected ${label} to be a number in ${manifestPath}`);
   }
-
   return value;
 }
 
 function getWorkspaceRoot(): string {
   const workspaceRoot = process.env.ROBOTICK_WORKSPACE_ROOT;
-  if (workspaceRoot && workspaceRoot.length > 0) {
-    return workspaceRoot;
-  }
-
-  return process.cwd();
+  return workspaceRoot && workspaceRoot.length > 0 ? workspaceRoot : process.cwd();
 }
 
 function isHelpFlag(value: string): boolean {
@@ -853,11 +1201,16 @@ function getStudioHelpText(): string {
   return [
     "Usage:",
     "  robotick studio projects [--json]",
+    "  robotick studio instances [--json]",
+    "  robotick studio create [project] [--attach] [studio-args...]",
     "  robotick studio open [project] [--attach] [studio-args...]",
+    "  robotick studio <session> quit",
     "",
     "Commands:",
     "  projects   List registered Studio projects from robotick.yaml",
-    "  open       Launch empty Studio, or a registered project when given",
+    "  instances  List live Studio sessions tracked in .robotick/instances",
+    "  create     Primitive session creation without changing shell context",
+    "  open       Convenience launch; in the immediate shell it creates then enters the session",
     "",
   ].join("\n");
 }
@@ -875,6 +1228,35 @@ function printProjectsHelp(): void {
   );
 }
 
+function printInstancesHelp(): void {
+  process.stdout.write(
+    [
+      "Usage:",
+      "  robotick studio instances [--json]",
+      "",
+      "Options:",
+      "  --json   Print the live Studio session list as JSON",
+      "",
+    ].join("\n"),
+  );
+}
+
+function printCreateHelp(): void {
+  process.stdout.write(
+    [
+      "Usage:",
+      "  robotick studio create [project] [--attach] [studio-args...]",
+      "",
+      "Description:",
+      "  Create a new Robotick Studio session without changing shell context.",
+      "  By default the launch is quiet and writes logs to .robotick/logs/.",
+      "  Use --attach to inherit the full Studio log stream.",
+      "  Any extra arguments are forwarded to the project launch script when a project is given.",
+      "",
+    ].join("\n"),
+  );
+}
+
 function printOpenHelp(): void {
   process.stdout.write(
     [
@@ -882,10 +1264,38 @@ function printOpenHelp(): void {
       "  robotick studio open [project] [--attach] [studio-args...]",
       "",
       "Description:",
-      "  Launch empty Robotick Studio, or a registered project when given.",
+      "  Convenience launch command. In the immediate shell it creates a new",
+      "  Robotick Studio session and enters it immediately.",
+      "  In one-shot CLI usage it behaves like the create primitive.",
       "  By default the launch is quiet and writes logs to .robotick/logs/.",
       "  Use --attach to inherit the full Studio log stream.",
       "  Any extra arguments are forwarded to the project launch script when a project is given.",
+      "",
+    ].join("\n"),
+  );
+}
+
+function printSessionHelp(sessionName: string): void {
+  process.stdout.write(
+    [
+      "Usage:",
+      `  robotick studio ${sessionName} quit`,
+      "",
+      "Commands:",
+      "  quit   Close this Studio session",
+      "",
+    ].join("\n"),
+  );
+}
+
+function printSessionQuitHelp(sessionName: string): void {
+  process.stdout.write(
+    [
+      "Usage:",
+      `  robotick studio ${sessionName} quit`,
+      "",
+      "Description:",
+      "  Request shutdown of the targeted Studio session.",
       "",
     ].join("\n"),
   );
@@ -896,12 +1306,10 @@ function reportError(error: unknown): void {
     process.stderr.write(`${error.message}\n`);
     return;
   }
-
   if (error instanceof Error) {
     process.stderr.write(`${error.message}\n`);
     return;
   }
-
   process.stderr.write("Unknown error\n");
 }
 
@@ -913,10 +1321,17 @@ if (require.main === module) {
 }
 
 export const __test__ = {
+  applyCd,
+  bindOpenedSessionToState,
+  createSessionName,
+  formatSessionContexts,
   formatShellContext,
   formatShellHelp,
   getPrompt,
   getStudioHelpText,
-  parseInstancePid,
+  listLiveSessions,
+  normalizeSessionSpecifier,
+  parseSessionPid,
+  reconcileBoundSession,
   stepBack,
 };

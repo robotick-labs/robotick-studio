@@ -20,7 +20,7 @@
     "pretest:electron": "npm run test:launcher",
     "build:electron": "tsc -p tsconfig.electron.json",
     "electron": "npm run build:electron && electron .",
-    "electron-dev": "npm run build:electron && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron . --remote-debugging-port=9222",
+    "electron-dev": "npm run build:electron && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron .",
     "dev:all": "concurrently -k -s command-electron -n vite,electron \"npm:dev\" \"npm:electron-dev\""
   },
   "repository": {
