@@ -25,6 +25,9 @@ class CapabilityList(BaseModel):
 class WorkspaceProject(BaseModel):
     name: str
     project_dir: str
+    project_path: str | None = None
+    display_name: str | None = None
+    description: str | None = None
 
 
 class WorkspaceProjectsResponse(BaseModel):

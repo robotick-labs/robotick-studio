@@ -204,6 +204,18 @@ function getWorkspaceRoot(): string {
   return typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
 }
 
+function getHubEndpoint(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const hubEndpoint = window.robotick?.environment?.hubEndpoint;
+  return typeof hubEndpoint === "string" ? hubEndpoint.trim() : "";
+}
+
+function getLauncherApiBase(): string {
+  return getHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
+}
+
 function looksAbsolutePath(path: string): boolean {
   return (
     path.startsWith("/") ||
@@ -460,7 +472,7 @@ function buildModelShortName(modelPath: string): string {
 }
 
 export async function fetchProjectPaths(): Promise<string[]> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-projects");
+  const url = buildUrl(getLauncherApiBase(), "/query/list-projects");
   const projects = await fetchJSON<string[]>(url);
   const sortedProjects = projects.sort();
   cacheProjectPaths(sortedProjects);
@@ -471,7 +483,7 @@ export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-project-settings", {
+  const url = buildUrl(getLauncherApiBase(), "/query/get-project-settings", {
     project_path: normalizedProjectPath,
   });
   return await fetchJSON<T>(url);
@@ -482,7 +494,7 @@ export async function fetchProjectRemoteControlSettings<
 >(projectPath: string, signal?: AbortSignal): Promise<T> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    LAUNCHER_LOCAL_API_BASE,
+    getLauncherApiBase(),
     "/query/get-project-rc-settings",
     {
       project_path: normalizedProjectPath,
@@ -501,7 +513,7 @@ export function buildProjectAssetUrl(
     : joinWorkspacePath(getWorkspaceRoot(), normalizedProjectPath);
   const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
   return buildUrl(
-    LAUNCHER_LOCAL_API_BASE,
+    getLauncherApiBase(),
     `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
     {
       project_path: absoluteProjectPath,
@@ -514,7 +526,7 @@ export async function requestLauncherRun(
   launcherProfile: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run", {
+  const url = buildUrl(getLauncherApiBase(), "/launcher/run", {
     project_path: normalizedProjectPath,
     profile: launcherProfile,
   });
@@ -527,7 +539,7 @@ export async function requestLauncherRunModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/run-model", {
+  const url = buildUrl(getLauncherApiBase(), "/launcher/run-model", {
     project_path: normalizedProjectPath,
     platform,
     model_id: modelId,
@@ -536,7 +548,7 @@ export async function requestLauncherRunModel(
 }
 
 export async function requestLauncherStop(): Promise<void> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop");
+  const url = buildUrl(getLauncherApiBase(), "/launcher/stop");
   await fetchJSON(url, { method: "POST" });
 }
 
@@ -546,7 +558,7 @@ export async function requestLauncherStopModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/stop-model", {
+  const url = buildUrl(getLauncherApiBase(), "/launcher/stop-model", {
     project_path: normalizedProjectPath,
     platform,
     model_id: modelId,
@@ -560,7 +572,7 @@ export async function fetchLauncherStatus(): Promise<{
   profile?: string | null;
   models?: Record<string, { stage?: string; status?: string }>;
 } | null> {
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/status");
+  const url = buildUrl(getLauncherApiBase(), "/launcher/status");
   return await tryFetchJSON<{
     status: string;
     phase?: string | null;
@@ -570,12 +582,12 @@ export async function fetchLauncherStatus(): Promise<{
 }
 
 export function getLauncherLogStreamUrl(): string {
-  return buildWebSocketUrl(LAUNCHER_LOCAL_API_BASE, "/launcher/ws/log");
+  return buildWebSocketUrl(getLauncherApiBase(), "/launcher/ws/log");
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/list-project-models", {
+  const url = buildUrl(getLauncherApiBase(), "/query/list-project-models", {
     project_path: normalizedProjectPath,
   });
   const models = await fetchJSON<string[]>(url);
@@ -587,7 +599,7 @@ async function fetchProjectModelData(
   modelPath: string
 ): Promise<unknown> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-model", {
+  const url = buildUrl(getLauncherApiBase(), "/query/get-model", {
     project_path: normalizedProjectPath,
     model_path: modelPath,
   });
@@ -600,7 +612,7 @@ export async function fetchProjectWorkloadsRegistry(
 ): Promise<WorkloadsRegistryResponse> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    LAUNCHER_LOCAL_API_BASE,
+    getLauncherApiBase(),
     "/query/get-workloads-registry",
     {
       project_path: normalizedProjectPath,
@@ -615,7 +627,7 @@ export async function fetchProjectCoreModelSchema(
   target = "linux"
 ): Promise<Record<string, unknown>> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(LAUNCHER_LOCAL_API_BASE, "/query/get-core-model-schema", {
+  const url = buildUrl(getLauncherApiBase(), "/query/get-core-model-schema", {
     project_path: normalizedProjectPath,
     target,
   });

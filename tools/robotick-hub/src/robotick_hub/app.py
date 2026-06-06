@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+import websockets
 
 from robotick_hub.contracts import (
     AppClosingRequest,
@@ -21,8 +24,12 @@ from robotick_hub.contracts import (
     WorkspaceProject,
     WorkspaceProjectsResponse,
 )
-from robotick_hub.launcher import ensure_launcher, get_launcher_status, stop_launcher
-from robotick_hub.manifest import load_manifest
+from robotick_hub.launcher import (
+    ensure_launcher,
+    get_launcher_status,
+    proxy_launcher_request,
+    stop_launcher,
+)
 from robotick_hub.runtime import remove_hub_record, write_hub_record
 from robotick_hub.studio import (
     get_instance,
@@ -31,10 +38,15 @@ from robotick_hub.studio import (
     open_studio,
     quit_instance,
 )
-
-
-def get_workspace_root() -> str:
-    return os.environ["ROBOTICK_WORKSPACE_ROOT"]
+from robotick_hub.workspace import (
+    build_workspace_projects,
+    get_project_model,
+    get_project_rc_settings,
+    get_project_settings,
+    list_project_model_paths,
+    list_workspace_project_paths,
+    resolve_project_asset_path,
+)
 
 
 def get_endpoint() -> str:
@@ -65,6 +77,42 @@ def build_capabilities() -> list[CapabilitySummary]:
     ]
 
 
+def get_workspace_root() -> str:
+    return os.environ["ROBOTICK_WORKSPACE_ROOT"]
+
+
+def _proxyable_headers(request: Request) -> dict[str, str]:
+    forwarded: dict[str, str] = {}
+    content_type = request.headers.get("content-type")
+    if content_type:
+        forwarded["content-type"] = content_type
+    accept = request.headers.get("accept")
+    if accept:
+        forwarded["accept"] = accept
+    return forwarded
+
+
+def _launcher_http_proxy(
+    request: Request,
+    path: str,
+    *,
+    method: str,
+    body: bytes | None = None,
+) -> Response:
+    record = ensure_launcher(get_workspace_root())
+    query_params = dict(request.query_params.multi_items())
+    status_code, payload, headers = proxy_launcher_request(
+        record,
+        method,
+        path,
+        params=query_params,
+        body=body,
+        headers=_proxyable_headers(request),
+    )
+    content_type = headers.get("Content-Type", "application/json")
+    return Response(content=payload, status_code=status_code, media_type=content_type)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     write_hub_record(
@@ -83,6 +131,14 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="robotick-hub", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["null"],
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/v1/health", response_model=HubHealth)
     def health() -> HubHealth:
@@ -100,26 +156,11 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/workspace/projects", response_model=WorkspaceProjectsResponse)
     def workspace_projects() -> WorkspaceProjectsResponse:
-        manifest = load_manifest(get_workspace_root())
-        projects = [
-            WorkspaceProject(
-                name=name,
-                project_dir=project.project_dir,
-            )
-            for name, project in manifest.projects.items()
-        ]
-        return WorkspaceProjectsResponse(projects=projects)
+        return WorkspaceProjectsResponse(projects=build_workspace_projects(get_workspace_root()))
 
     @app.get("/v1/studio/projects", response_model=StudioProjectsResponse)
     def studio_projects(instance_id: str | None = None) -> StudioProjectsResponse:
-        manifest = load_manifest(get_workspace_root())
-        projects = [
-            WorkspaceProject(
-                name=name,
-                project_dir=project.project_dir,
-            )
-            for name, project in manifest.projects.items()
-        ]
+        projects = build_workspace_projects(get_workspace_root())
         selected_target_project = None
         if instance_id:
             instance = get_instance(get_workspace_root(), instance_id)
@@ -129,6 +170,71 @@ def create_app() -> FastAPI:
             projects=projects,
             selected_target_project=selected_target_project,
         )
+
+    @app.get("/query/list-projects", response_model=list[str])
+    def query_list_projects() -> list[str]:
+        return list_workspace_project_paths(get_workspace_root())
+
+    @app.get("/query/get-project-settings", response_class=JSONResponse)
+    def query_get_project_settings(
+        project_path: str = Query(..., description="Absolute path to the project YAML file")
+    ) -> JSONResponse:
+        try:
+            return JSONResponse(get_project_settings(project_path))
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/query/get-project-rc-settings", response_class=JSONResponse)
+    def query_get_project_rc_settings(
+        project_path: str = Query(..., description="Absolute path to the project YAML file")
+    ) -> JSONResponse:
+        try:
+            return JSONResponse(get_project_rc_settings(project_path))
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/query/list-project-models", response_model=list[str])
+    def query_list_project_models(
+        project_path: str = Query(..., description="Absolute path to the project YAML file")
+    ) -> list[str]:
+        try:
+            return list_project_model_paths(project_path)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/query/get-model", response_class=JSONResponse)
+    def query_get_model(
+        project_path: str = Query(..., description="Absolute path to the project YAML file"),
+        model_path: str = Query(
+            ..., description="Relative path to the model YAML, from the project folder"
+        ),
+    ) -> JSONResponse:
+        try:
+            return JSONResponse(get_project_model(project_path, model_path))
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/query/project-assets/{asset_path:path}", response_class=FileResponse)
+    def query_project_asset(
+        asset_path: str,
+        project_path: str = Query(..., description="Absolute path to the project YAML file"),
+    ) -> FileResponse:
+        try:
+            return FileResponse(path=resolve_project_asset_path(project_path, asset_path))
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/query/get-workloads-registry")
+    async def query_get_workloads_registry(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/query/get-workloads-registry", method="GET")
+
+    @app.get("/query/get-core-model-schema")
+    async def query_get_core_model_schema(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/query/get-core-model-schema", method="GET")
 
     @app.get("/v1/studio/instances", response_model=StudioInstancesResponse)
     def studio_instances() -> StudioInstancesResponse:
@@ -185,6 +291,46 @@ def create_app() -> FastAPI:
     @app.post("/v1/launcher/stop", response_model=LauncherStatusResponse)
     def launcher_stop() -> LauncherStatusResponse:
         return LauncherStatusResponse.model_validate(stop_launcher(get_workspace_root()))
+
+    @app.post("/launcher/run")
+    async def launcher_run(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/launcher/run", method="POST")
+
+    @app.post("/launcher/run-model")
+    async def launcher_run_model(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/launcher/run-model", method="POST")
+
+    @app.post("/launcher/stop")
+    async def launcher_stop_proxy(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/launcher/stop", method="POST")
+
+    @app.post("/launcher/stop-model")
+    async def launcher_stop_model(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/launcher/stop-model", method="POST")
+
+    @app.get("/launcher/status")
+    async def launcher_status_proxy(request: Request) -> Response:
+        return _launcher_http_proxy(request, "/launcher/status", method="GET")
+
+    @app.websocket("/launcher/ws/log")
+    async def launcher_log_proxy(websocket: WebSocket) -> None:
+        await websocket.accept()
+        record = ensure_launcher(get_workspace_root())
+        launcher_ws_url = record.endpoint.replace("http://", "ws://").replace(
+            "https://", "wss://"
+        ) + "/launcher/ws/log"
+        try:
+            async with websockets.connect(launcher_ws_url) as upstream:
+                while True:
+                    message = await upstream.recv()
+                    if isinstance(message, bytes):
+                        await websocket.send_bytes(message)
+                    else:
+                        await websocket.send_text(message)
+        except WebSocketDisconnect:
+            return
+        except Exception as error:
+            await websocket.close(code=1011, reason=str(error)[:120])
 
     return app
 

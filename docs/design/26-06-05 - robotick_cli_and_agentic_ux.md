@@ -342,16 +342,19 @@ Recommended hub service policy:
 - commands that need hub-backed state call `ensure_hub()` before doing work
 - entering the immediate `robotick` shell should eagerly ensure `robotick-hub` so the operator immediately gets visible hub/tray presence in desktop environments
 - service-backed capabilities are workspace-scoped and can outlive a single `robotick` CLI process
+- one `robotick-hub` should exist per workspace at a time; the hub runtime should therefore own a workspace-scoped singleton lock rather than relying on a discovery record alone
+- hub reuse should require both liveness and compatibility; a healthy-but-old hub must be restarted if its declared hub contract version does not match what the current CLI expects
 - commands such as `--help` should not start the hub or other background services; shared workspace/project query paths should route through the hub once available
 - `robotick studio open` should ensure `robotick-hub`, ask it to ensure required capabilities, then open/register the Studio instance with the hub endpoint
 - launcher shutdown should be explicit through Robotick commands such as `robotick launcher stop` or future broader service commands
 - Studio quit should close Studio only; it should not stop or supervise launcher processes
 - in desktop environments, hub start should also establish tray presence so operators can see that Robotick is active and stop the hub intentionally when appropriate
+- the same compatibility rule should apply to managed capabilities such as launcher: hub should reuse only a healthy, contract-compatible launcher service, and should relaunch any stale or incompatible launcher automatically
 
 Initial hub contract:
 
 - `GET /v1/health`
-  report hub liveness and workspace identity
+  report hub liveness, workspace identity, and machine-checkable contract metadata such as `api_contract_version` and `build_id`
 - `GET /v1/capabilities`
   list embedded, managed, and discovered capabilities plus health/endpoint summaries
 - `GET /v1/workspace/projects`
@@ -376,6 +379,7 @@ Capability acquisition policy:
 - discovered capabilities are registered or observed by `robotick-hub`, for example already-open Studio instances
 - each capability should expose a small typed contract: id, kind, health, endpoint if any, and supported operations
 - Pydantic models define these contracts once so hub routes, CLI rendering, Studio clients, tests, and later MCP agree on the same shapes
+- long-running managed capabilities should also expose explicit compatibility metadata so the immediate supervisor can decide reuse versus restart without relying on accidental endpoint failures
 
 Recommended Studio instance model:
 
@@ -392,6 +396,7 @@ Recommended launcher capability model:
 
 - one `robotick-hub` exists per workspace
 - launcher is a workspace-scoped capability/service, not a singleton bound to one Studio instance or one project
+- launcher reuse should be compatibility-checked by hub, not by Studio; an old but still live launcher must be stopped and relaunched when its declared launcher contract no longer matches the hub expectation
 - launcher should support many runs beneath that service, each with its own run id, target project, profile, status, and optional owning Studio instance id
 - Studio target-project state and launcher run identity are separate concepts; switching Studio target project should not silently redefine launcher service identity
 - if concurrent runs need to stay constrained in early MVP, constrain them with explicit rules such as one active run per `(project, profile)` rather than a hidden global singleton
@@ -400,7 +405,7 @@ Recommended launcher capability model:
 Recommended launcher integration staging:
 
 - Pre-MVP: `robotick-hub` owns launcher lifecycle as a managed capability/worker. It may embed safe query-only behavior such as workspace/project/model discovery when that code is cleanly exposed, but build/run/stop execution should remain isolated behind a launcher process or worker contract.
-- MVP: hub, CLI, Studio, and launcher agree on typed Pydantic contracts for capability health, run creation, run status, readiness, stop, logs/events, and failure detail. Runtime state is keyed by explicit run ids, with early concurrency limits stated as policy rather than emerging from singleton globals.
+- MVP: hub, CLI, Studio, and launcher agree on typed Pydantic contracts for capability health, compatibility/version metadata, run creation, run status, readiness, stop, logs/events, and failure detail. Runtime state is keyed by explicit run ids, with early concurrency limits stated as policy rather than emerging from singleton globals.
 - Future work: after launcher routes are thin adapters over explicit service objects, decide capability-by-capability whether to embed more launcher logic in-process. Query and validation capabilities are good candidates; actual model/runtime execution may remain process-backed indefinitely for crash isolation and process-tree cleanup.
 
 Recommended transport:
@@ -612,16 +617,22 @@ Checklist housekeeping rule:
 
 #### How It Is Looking For Agentic UX
 
-The shape is now materially better for agentic use. The CLI exposes an explicit resource lifecycle: create a Studio instance, discover the reusable instance folder, bind to it, and close it. That is easier for an agent to reason about than the earlier auto-bound shell because creation, navigation, and action are now separate concepts with separate tests. Splitting `create` from composite `open` should improve that further by making the primitive contract scriptable while still giving humans a concise default workflow.
+The current Pre-MVP flow is now coherent enough for controlled agentic use. A fresh shell can discover contexts with `ls`, run `studio open barr-e` from the top level, land directly in `robotick:studio:studio-12345>`, inspect instance-scoped actions with `ls`, run `quit`, and confirm `instances` returns `none`. That gives agents a concrete lifecycle they can follow without rummaging through project scripts: discover workspace projects, open a Studio instance, bind to that instance, act within it, then close it.
 
-The lifecycle story is also starting to become bi-directional rather than purely inferred. Hub-owned process reconciliation remains the safety net, but Studio can now emit a tiny `I am closing` signal back to `robotick-hub`, which gives faster state convergence and establishes a reusable pattern for future Robotick apps without requiring constant polling.
+The context grammar is also becoming usefully predictable. `studio`, `studio open ...`, `cd studio-12345`, direct `studio-12345`, `back`, `cd ../...`, tab completion, and `Ctrl-C` handling now mostly behave like a small path-oriented shell rather than a pile of ad hoc commands. The simplified project wrappers help too: root and per-robot `run-studio*.sh` scripts remain available for humans, but they are now thin shims over `robotick studio open <project>` rather than a separate launch architecture.
+
+The main agentic risk is no longer command discovery; it is lifecycle truth. Hub-owned reconciliation and explicit `quit` work well, and Studio has a best-effort `I am closing` signal, but manual window-manager close is still not proven reliable enough. We also now know the hub/service singleton story is not finished: multiple `robotick-hub` processes can accumulate for one workspace, and a newer CLI/Studio can bind to an older still-running hub unless compatibility/version ownership becomes formal. Agents should therefore still prefer CLI-owned `quit`, and MVP needs to formalize singleton locking plus compatibility-checked reuse for hub and launcher. The other missing pieces are expected MVP work: readiness state, project switching inside a bound instance, launcher run ids, capture contracts, and richer machine-readable failure details.
 
 ### MVP
 
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
 - [ ] Define MVP Robotick capability/state contract
-      Deliverable: documented Studio app, project, launcher capability, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity, the explicit run-id model, and any early concurrency limits such as one active run per `(project, profile)`.
+      Deliverable: documented Studio app, project, hub capability, launcher capability, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity, the explicit run-id model, any early concurrency limits such as one active run per `(project, profile)`, and explicit compatibility/version metadata such as `api_contract_version` and `build_id` for long-running managed services.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Enforce workspace-scoped hub singleton and compatibility reuse
+      Deliverable: one `robotick-hub` exists per workspace at a time via an explicit runtime lock; CLI `ensure_hub` reuses only a healthy, compatible, lock-owning hub; stale, duplicate, or incompatible hub processes are rejected or restarted deterministically; and `hub status` surfaces enough metadata to explain the active owner.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement instance discovery and targeting
@@ -642,6 +653,10 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
 
 - [ ] Implement launcher commands
       Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability, address explicit run ids where needed, and work consistently in one-shot and immediate-mode forms.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Enforce launcher compatibility under hub supervision
+      Deliverable: launcher exposes explicit compatibility/version metadata through its managed contract; hub reuses only a healthy, compatible launcher for the current workspace; stale, duplicate, or incompatible launcher processes are stopped and relaunched automatically; and version mismatch becomes a first-class supervised state rather than an accidental endpoint failure path.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement readiness state

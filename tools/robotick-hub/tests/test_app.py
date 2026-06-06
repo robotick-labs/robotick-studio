@@ -91,6 +91,16 @@ def test_capabilities_reflect_launcher_provider_state(
 
 def test_workspace_and_studio_projects_endpoints() -> None:
     workspace = create_fake_workspace()
+    (workspace / "robots" / "barr-e").mkdir(parents=True)
+    (workspace / "robots" / "pip-e").mkdir(parents=True)
+    (workspace / "robots" / "barr-e" / "barr-e.project.yaml").write_text(
+        'name: "Barr.e"\ndescription: "Barr project."\n',
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "pip-e" / "pip-e.project.yaml").write_text(
+        'name: "Pip.e"\n',
+        encoding="utf-8",
+    )
     with build_client(workspace) as client:
         workspace_response = client.get("/v1/workspace/projects")
         studio_response = client.get("/v1/studio/projects")
@@ -100,7 +110,109 @@ def test_workspace_and_studio_projects_endpoints() -> None:
         studio_names = [item["name"] for item in studio_response.json()["projects"]]
         assert workspace_names == ["barr-e", "pip-e"]
         assert studio_names == ["barr-e", "pip-e"]
+        assert workspace_response.json()["projects"][0]["project_path"].endswith(
+            "/robots/barr-e/barr-e.project.yaml"
+        )
+        assert workspace_response.json()["projects"][0]["display_name"] == "Barr.e"
+        assert workspace_response.json()["projects"][0]["description"] == "Barr project."
         assert studio_response.json()["selected_target_project"] is None
+
+
+def test_workspace_query_endpoints_without_launcher() -> None:
+    workspace = create_fake_workspace()
+    (workspace / "robots" / "barr-e").mkdir(parents=True)
+    (workspace / "robots" / "barr-e" / "assets").mkdir(parents=True)
+    (workspace / "robots" / "barr-e" / "barr-e.project.yaml").write_text(
+        'name: "Barr.e"\ndescription: "Barr project."\n',
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "barr-e" / "barr-e.rc.yaml").write_text(
+        "camera:\n  enabled: true\n",
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "barr-e" / "brain.model.yaml").write_text(
+        'name: "Barr Brain"\n',
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "barr-e" / "assets" / "demo.txt").write_text(
+        "hello",
+        encoding="utf-8",
+    )
+    project_path = str(workspace / "robots" / "barr-e" / "barr-e.project.yaml")
+    with build_client(workspace) as client:
+        assert client.get("/query/list-projects").json() == [project_path]
+        assert client.get("/query/get-project-settings", params={"project_path": project_path}).json()[
+            "name"
+        ] == "Barr.e"
+        assert client.get(
+            "/query/get-project-rc-settings", params={"project_path": project_path}
+        ).json()["camera"]["enabled"] is True
+        assert client.get("/query/list-project-models", params={"project_path": project_path}).json() == [
+            "brain.model.yaml"
+        ]
+        assert client.get(
+            "/query/get-model",
+            params={"project_path": project_path, "model_path": "brain.model.yaml"},
+        ).json()["name"] == "Barr Brain"
+        asset_response = client.get(
+            "/query/project-assets/assets/demo.txt",
+            params={"project_path": project_path},
+        )
+        assert asset_response.status_code == 200
+        assert asset_response.text == "hello"
+
+
+def test_launcher_proxy_routes_delegate_to_launcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_hub.app.ensure_launcher",
+        lambda _: LauncherRecord(
+            endpoint="http://127.0.0.1:7081",
+            pid=4321,
+            workspace_root=str(workspace),
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick_hub.app.proxy_launcher_request",
+        lambda _record, _method, _path, **_kwargs: (
+            200,
+            b'{"status":"ok"}',
+            {"Content-Type": "application/json"},
+        ),
+    )
+    with build_client(workspace) as client:
+        status_response = client.get("/launcher/status")
+        run_response = client.post(
+            "/launcher/run",
+            params={"project_path": "/tmp/demo.project.yaml", "profile": "local:ALL"},
+        )
+        workloads_response = client.get(
+            "/query/get-workloads-registry",
+            params={"project_path": "/tmp/demo.project.yaml", "target": "linux"},
+        )
+        assert status_response.status_code == 200
+        assert status_response.json()["status"] == "ok"
+        assert run_response.status_code == 200
+        assert run_response.json()["status"] == "ok"
+        assert workloads_response.status_code == 200
+        assert workloads_response.json()["status"] == "ok"
+
+
+def test_hub_allows_localhost_and_null_cors_origins() -> None:
+    workspace = create_fake_workspace()
+    with build_client(workspace) as client:
+        localhost_response = client.get(
+            "/v1/health",
+            headers={"Origin": "http://localhost:5173"},
+        )
+        null_response = client.get(
+            "/v1/health",
+            headers={"Origin": "null"},
+        )
+        assert localhost_response.headers["access-control-allow-origin"] == "http://localhost:5173"
+        assert null_response.headers["access-control-allow-origin"] == "null"
 
 
 def test_studio_projects_can_reflect_selected_target_project(

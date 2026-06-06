@@ -9,6 +9,7 @@ import sys
 import time
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
@@ -97,6 +98,33 @@ def post_launcher_json(record: LauncherRecord, path: str) -> dict[str, Any]:
     try:
         with urlopen(request, timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
+    except URLError as error:
+        raise RuntimeError(f"Unable to reach robotick-launcher at {record.endpoint}") from error
+
+
+def proxy_launcher_request(
+    record: LauncherRecord,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, bytes, dict[str, str]]:
+    query = f"?{urlencode(params, doseq=True)}" if params else ""
+    request = Request(
+        f"{record.endpoint}{path}{query}",
+        data=body,
+        method=method.upper(),
+        headers=headers or {},
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            return (
+                response.status,
+                response.read(),
+                dict(response.headers.items()),
+            )
     except URLError as error:
         raise RuntimeError(f"Unable to reach robotick-launcher at {record.endpoint}") from error
 
