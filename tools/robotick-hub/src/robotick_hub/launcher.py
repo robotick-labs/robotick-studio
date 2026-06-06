@@ -155,6 +155,26 @@ def stop_launcher_process(pid: int | None) -> None:
         return
 
 
+def ensure_launcher_runtime_available(python_executable: str, env: dict[str, str]) -> None:
+    result = subprocess.run(
+        [python_executable, "-c", "import robotick.launcher.cli"],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+    details = (result.stderr or result.stdout).strip()
+    suffix = f" Import failed with: {details}" if details else ""
+    raise RuntimeError(
+        "robotick-launcher cannot start because its Python runtime dependencies "
+        f"are not available to {python_executable}.{suffix}"
+    )
+
+
 def start_launcher(workspace_root: str | Path) -> LauncherRecord:
     workspace_root = Path(workspace_root).resolve()
     launcher_dir = get_launcher_dir()
@@ -166,6 +186,7 @@ def start_launcher(workspace_root: str | Path) -> LauncherRecord:
         pythonpath_entries.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
     python_executable = env.get("ROBOTICK_HUB_PYTHON_EXECUTABLE") or sys.executable
+    ensure_launcher_runtime_available(python_executable, env)
     log_dir = workspace_root / ".robotick" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "robotick-launcher.log"

@@ -114,6 +114,15 @@ def stop_hub_process(pid: int | None) -> None:
         os.kill(pid, 15)
     except OSError:
         return
+    started_at = time.time()
+    while time.time() - started_at < 3:
+        if not is_pid_alive(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, 9)
+    except OSError:
+        return
 
 
 def restart_hub(workspace_root: str | Path) -> HubRecord:
@@ -135,15 +144,6 @@ def restart_hub(workspace_root: str | Path) -> HubRecord:
                 return record
         time.sleep(0.1)
     raise HubUnavailableError("robotick-hub did not become ready after restart.")
-    started_at = time.time()
-    while time.time() - started_at < 3:
-        if not is_pid_alive(pid):
-            return
-        time.sleep(0.05)
-    try:
-        os.kill(pid, 9)
-    except OSError:
-        return
 
 
 def start_hub(workspace_root: str | Path) -> None:

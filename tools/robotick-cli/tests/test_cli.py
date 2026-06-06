@@ -71,7 +71,7 @@ def create_fake_workspace() -> Path:
         encoding="utf-8",
     )
     write_executable(
-        studio_root / "run-studio-dev.sh",
+        studio_root / "run-studio-dev-direct.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\nsleep 30\n",
     )
     write_executable(

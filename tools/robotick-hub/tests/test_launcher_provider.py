@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -67,6 +68,35 @@ def test_get_launcher_status_reports_stopped_without_record(monkeypatch: pytest.
     status = get_launcher_status(workspace)
     assert status["capability_status"] == "stopped"
     assert status["endpoint"] is None
+
+
+def test_start_launcher_fails_fast_when_launcher_dependencies_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_workspace()
+    launcher_dir = workspace / "tools" / "robotick-launcher"
+    (launcher_dir / "src").mkdir(parents=True)
+    monkeypatch.setattr("robotick_hub.launcher.get_launcher_dir", lambda: launcher_dir)
+    monkeypatch.setattr("robotick_hub.launcher.find_available_port", lambda: 7099)
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stdout="",
+            stderr="ModuleNotFoundError: No module named 'rich'",
+        )
+
+    monkeypatch.setattr("robotick_hub.launcher.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "robotick_hub.launcher.subprocess.Popen",
+        lambda *args, **kwargs: pytest.fail("launcher process should not be spawned"),
+    )
+
+    from robotick_hub.launcher import start_launcher
+
+    with pytest.raises(RuntimeError, match="runtime dependencies"):
+        start_launcher(workspace)
 
 
 def test_get_launcher_status_reports_listener_state(monkeypatch: pytest.MonkeyPatch) -> None:

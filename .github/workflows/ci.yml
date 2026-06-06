@@ -45,6 +45,28 @@ jobs:
       - name: Run launcher tests
         run: npm run test:launcher
 
+  hub-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run hub tests
+        env:
+          ROBOTICK_HUB_FORCE_HEADLESS: "1"
+        run: |
+          python -m venv .studio/.venv
+          . .studio/.venv/bin/activate
+          pip install --upgrade pip >/dev/null
+          pip install -e "tools/robotick-hub[dev]" >/dev/null
+          PYTHONPATH=tools/robotick-hub/src pytest -q tools/robotick-hub/tests
+
   launcher-integration-builds:
     name: launcher-integration-builds (${{ matrix.label }})
     runs-on: ubuntu-latest

@@ -9,6 +9,24 @@ const useProjectSettingsList = Project.Hooks.useSettingsList;
 const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
 import styles from "./styles/HomePage.module.css";
 
+function getRequestedProjectName(): string | undefined {
+  const selectedProject = window.robotick?.environment?.selectedProject;
+  return typeof selectedProject === "string" && selectedProject.trim().length > 0
+    ? selectedProject.trim()
+    : undefined;
+}
+
+function projectMatchesRequestedName(
+  project: { path: string; name: string },
+  requestedName: string,
+): boolean {
+  return (
+    project.name === requestedName ||
+    project.path.includes(`/${requestedName}/`) ||
+    project.path.endsWith(`/${requestedName}.project.yaml`)
+  );
+}
+
 export default function HomePage() {
   const { projectPath, setProjectPath } = useProjectContext();
   const { projects, error } = useProjectSettingsList(5000);
@@ -21,6 +39,21 @@ export default function HomePage() {
   useEffect(() => {
     setSelectedPath(projectPath);
   }, [projectPath]);
+
+  useEffect(() => {
+    const requestedProjectName = getRequestedProjectName();
+    if (!requestedProjectName || projects.length === 0) {
+      return;
+    }
+    const requestedProject = projects.find((project) =>
+      projectMatchesRequestedName(project, requestedProjectName)
+    );
+    if (!requestedProject || projectPath === requestedProject.path) {
+      return;
+    }
+    setProjectPath(requestedProject.path);
+    autoSelectRef.current = true;
+  }, [projectPath, projects, setProjectPath]);
 
   useEffect(() => {
     if (!autoSelectRef.current && !projectPath && projects.length > 0) {

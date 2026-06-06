@@ -72,4 +72,58 @@ describe("projects-api hub-backed discovery", () => {
       },
     ]);
   });
+
+  it("orders the CLI-selected hub project first for Studio auto-selection", async () => {
+    globalThis.window = {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:44493",
+          selectedProject: "pip-e",
+        },
+      },
+    } as Window & typeof globalThis;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          projects: [
+            {
+              name: "barr-e",
+              project_dir: "robots/barr-e",
+              project_path: "/workspace/robots/barr-e/barr-e.project.yaml",
+              display_name: "Barr.e",
+            },
+            {
+              name: "pip-e",
+              project_dir: "robots/pip-e",
+              project_path: "/workspace/robots/pip-e/pip-e.project.yaml",
+              display_name: "Pip.e",
+            },
+          ],
+        }),
+        text: async () => "",
+      })),
+    );
+
+    const projectsApi = await import(
+      "../../../../renderer/data-sources/launcher/internal/projects-api"
+    );
+
+    await expect(projectsApi.fetchProjectSettingsList()).resolves.toEqual([
+      {
+        path: "/workspace/robots/pip-e/pip-e.project.yaml",
+        name: "Pip.e",
+        description: undefined,
+      },
+      {
+        path: "/workspace/robots/barr-e/barr-e.project.yaml",
+        name: "Barr.e",
+        description: undefined,
+      },
+    ]);
+  });
 });

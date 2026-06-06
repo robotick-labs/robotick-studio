@@ -38,7 +38,7 @@ def create_workspace() -> Path:
         ),
         encoding="utf-8",
     )
-    runner = studio_root / "run-studio-dev.sh"
+    runner = studio_root / "run-studio-dev-direct.sh"
     runner.write_text("#!/usr/bin/env bash\nsleep 30\n", encoding="utf-8")
     runner.chmod(0o755)
     project_runner = root / "robots" / "barr-e" / "run-studio.sh"
@@ -88,7 +88,7 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
     summary = open_studio(workspace, project_name="barr-e")
 
     assert summary["name"] == "studio-5678"
-    assert str(launched["args"][0]).endswith("robotick/robotick-studio/run-studio-dev.sh")
+    assert str(launched["args"][0]).endswith("robotick/robotick-studio/run-studio-dev-direct.sh")
     assert launched["env"]["ROBOTICK_PROJECT_DIR"].endswith("robots/barr-e")
     assert launched["env"]["ROBOTICK_STUDIO_SELECTED_PROJECT"] == "barr-e"
 

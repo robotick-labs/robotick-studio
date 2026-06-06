@@ -231,7 +231,8 @@ def launch_studio_via_hub(
         writeln(f"Opening Robotick Studio for {project_name}...")
     else:
         writeln("Opening Robotick Studio...")
-    writeln(f"Starting Studio in {manifest.studio.default_mode} mode...")
+    studio_mode = os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode)
+    writeln(f"Starting Studio in {studio_mode} mode...")
     if instance.get("log_path"):
         writeln(f"Logs: {os.path.relpath(str(instance['log_path']), ctx.workspace_root)}")
     if project_name is not None:

@@ -109,7 +109,7 @@ def parse_started_at(value: str) -> datetime | None:
 def instance_started_recently(
     instance: StudioInstanceRecord,
     *,
-    grace_seconds: float = 10.0,
+    grace_seconds: float = 30.0,
 ) -> bool:
     started_at = parse_started_at(instance.started_at)
     if started_at is None:
@@ -160,6 +160,8 @@ def is_studio_ui_process_command(command: str) -> bool:
         marker in normalized
         for marker in (
             "Robotick Studio",
+            "run-studio-dev-direct.sh",
+            "run-studio-production-direct.sh",
             "electron .",
             "/electron .",
             "node_modules/.bin/electron",
@@ -316,7 +318,11 @@ def resolve_studio_runner_path(workspace_root: str | Path, manifest: Manifest) -
         )
     )
     mode = os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode)
-    runner_name = "run-studio-production.sh" if mode == "production" else "run-studio-dev.sh"
+    runner_name = (
+        "run-studio-production-direct.sh"
+        if mode == "production"
+        else "run-studio-dev-direct.sh"
+    )
     runner = studio_dir / runner_name
     if not runner.exists():
         raise FileNotFoundError(f"Expected Studio runner at {runner}")
@@ -426,7 +432,7 @@ def open_studio(
     record = StudioInstanceRecord(
         name=instance_name,
         pid=child.pid,
-        mode=manifest.studio.default_mode,
+        mode=env["ROBOTICK_STUDIO_MODE"],
         log_path=str(log_path),
         project_name=selected_project,
         started_at=datetime.now(timezone.utc).isoformat(),

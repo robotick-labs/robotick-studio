@@ -2,12 +2,12 @@
 
 set -euo pipefail
 
-unset ELECTRON_RUN_AS_NODE
-unset ELECTRON_NO_ATTACH_CONSOLE
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKING_DIR="$(dirname "$SCRIPT_DIR")"
-STUDIO_DIR="$SCRIPT_DIR"
 
-cd "$WORKING_DIR"
-ROBOTICK_WORKSPACE_ROOT="$WORKING_DIR" npm --prefix "$STUDIO_DIR" run dev:all
+if [[ "${ROBOTICK_STUDIO_MANAGED_BY_HUB:-}" != "1" ]]; then
+  echo "[run-studio-dev] Robotick Studio must be launched via robotick-hub/CLI." >&2
+  echo "[run-studio-dev] Use: robotick studio open [project]" >&2
+  exit 1
+fi
+
+exec "$SCRIPT_DIR/run-studio-dev-direct.sh" "$@"
