@@ -7,7 +7,9 @@ from robotick_cli.language.registry import (
     TOP_LEVEL_NAMESPACES,
     TOP_LEVEL_SHELL_BUILTINS,
     bound_instance_action_names,
+    get_hub_command_spec,
     get_studio_command_spec,
+    hub_action_names,
     studio_root_action_names,
 )
 
@@ -31,6 +33,23 @@ def get_studio_help_text() -> str:
             "",
             "Commands:",
             *[f"  {spec.name:<10}{spec.summary}" for spec in root_specs],
+            "",
+        ]
+    )
+
+
+def get_hub_help_text() -> str:
+    status_spec = get_hub_command_spec("status")
+    projects_spec = get_hub_command_spec("projects")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {status_spec.usage}",
+            f"  {projects_spec.usage}",
+            "",
+            "Commands:",
+            f"  {status_spec.name:<10}{status_spec.summary}",
+            f"  {projects_spec.name:<10}{projects_spec.summary}",
             "",
         ]
     )
@@ -61,6 +80,8 @@ def format_shell_help(state: ShellState) -> str:
     lines.append("")
     if state.namespace == "studio":
         lines.append(get_studio_help_text())
+    if state.namespace == "hub":
+        lines.append(get_hub_help_text())
     return "\n".join(lines)
 
 
@@ -70,6 +91,7 @@ def format_shell_context(state: ShellState, workspace_root: str) -> str:
             [
                 "Available here:",
                 "Contexts:",
+                "- hub/",
                 "- studio/",
                 "Actions:",
                 "- ls",
@@ -101,6 +123,19 @@ def format_shell_context(state: ShellState, workspace_root: str) -> str:
             ]
         )
 
+    if state.namespace == "hub":
+        return "\n".join(
+            [
+                "Available in hub:",
+                "Contexts:",
+                "- none",
+                "Actions:",
+                *[f"- {get_hub_command_spec(name).shell_label or name}" for name in hub_action_names()],
+                *[f"- {spec.name}" for spec in CONTEXT_SHELL_BUILTINS],
+                "",
+            ]
+        )
+
     instances = list_live_instances(workspace_root)
     root_actions = studio_root_action_names()
     return "\n".join(
@@ -124,6 +159,7 @@ def top_level_help_text() -> str:
         [
             "Usage:",
             "  robotick",
+            "  robotick hub <command>",
             "  robotick studio <command>",
             "",
             "Interactive mode:",
@@ -134,6 +170,7 @@ def top_level_help_text() -> str:
             "Namespaces:",
             *[f"  {spec.name:<8} {spec.summary}" for spec in TOP_LEVEL_NAMESPACES],
             "",
+            "Run 'robotick hub --help' for hub commands.",
             "Run 'robotick studio --help' for Studio commands.",
             "",
         ]
@@ -219,6 +256,34 @@ def instance_quit_help_text(instance_name: str) -> str:
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],
+            "",
+        ]
+    )
+
+
+def hub_status_help_text() -> str:
+    spec = get_hub_command_spec("status")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {spec.usage}",
+            "",
+            "Options:",
+            "  --json   Print hub health and capability status as JSON",
+            "",
+        ]
+    )
+
+
+def hub_projects_help_text() -> str:
+    spec = get_hub_command_spec("projects")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {spec.usage}",
+            "",
+            "Options:",
+            "  --json   Print the hub-backed project list as JSON",
             "",
         ]
     )

@@ -32,8 +32,10 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
         state.instance_name = next_state.instance_name
         return
     if state.namespace is None:
-        if len(args) == 1 and args[0] == "studio":
+        if len(args) == 1 and args[0] in {"studio", "hub"}:
             state.namespace = "studio"
+            if args[0] == "hub":
+                state.namespace = "hub"
             return
         raise CliError(f"Unknown top-level context: {' '.join(args)}")
     if state.namespace == "studio" and state.instance_name is None:
@@ -96,6 +98,9 @@ def start_interactive_shell(ctx: AppContext) -> int:
         if line == "studio" and state.namespace is None:
             state.namespace = "studio"
             continue
+        if line == "hub" and state.namespace is None:
+            state.namespace = "hub"
+            continue
 
         try:
             tokens = tokenize(line)
@@ -112,4 +117,3 @@ def start_interactive_shell(ctx: AppContext) -> int:
                 run_command(ctx, tokens)
         except CliError as error:
             writeln(str(error), stream=__import__("sys").stderr)
-

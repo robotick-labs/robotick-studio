@@ -332,6 +332,8 @@ Recommended hub ownership model:
 - `robotick-hub` may embed simple capabilities such as workspace/project query behavior directly at first
 - `robotick-hub` may provision managed services, such as launcher runtime service, and discover external services, such as already-open Studio instances
 - one-shot commands and immediate-mode commands should both use the same hub-backed service provisioning rules
+- when `robotick-hub` is running in a desktop session, it should present a system tray presence as part of the same tool/process rather than acting like a purely hidden background service
+- headless environments are the exception: `robotick-hub` may run without tray presence when no desktop session is available
 
 Recommended hub service policy:
 
@@ -341,6 +343,7 @@ Recommended hub service policy:
 - `robotick studio open` should ensure `robotick-hub`, ask it to ensure required capabilities, then open/register the Studio instance with the hub endpoint
 - launcher shutdown should be explicit through Robotick commands such as `robotick launcher stop` or future broader service commands
 - Studio quit should close Studio only; it should not stop or supervise launcher processes
+- in desktop environments, hub start should also establish tray presence so operators can see that Robotick is active and stop the hub intentionally when appropriate
 
 Initial hub contract:
 
@@ -517,6 +520,10 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
 - [x] Started presenting context like a path
       Deliverable: the shell now treats context-forming entries more like directories, especially in `ls`, so namespace/scope changes are easier to distinguish from executable actions.
 
+Checklist housekeeping rule:
+
+- when a checklist item is completed, tick it, rewrite the deliverable/test-scope wording into past tense or completed wording, and add a brief summary of the work now in place
+
 - [x] Clarified strict `studio` context semantics
       Deliverable: the design now says plain `studio` exposes `open` as an action rather than a context; project context is deferred until it is genuinely bound inside an already open Studio instance.
 
@@ -545,10 +552,16 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
       Deliverable: the hello-world TypeScript CLI has been replaced with a Python Robotick operations CLI, one-shot argv mode and immediate shell mode now use the same Robotick language/routing layer, hub-backed commands go through a small `hub_client` that can ensure/discover `robotick-hub`, and command/help/shell-discovery output now comes from a shared command registry rather than hand-maintained strings.
       Test scope: parse/route tests, command-registry/help generation tests, argv vs immediate-mode equivalence tests, and tests proving help/project-listing paths do not start hub-backed services now pass.
 
-- [ ] Add the hello-world `robotick-hub` slice
-      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service registry basics, workspace project listing, Studio-facing project-list metadata, and a first CLI command path that calls the hub API end-to-end.
-      Test scope: FastAPI contract tests for health/capabilities/workspace identity/project-list endpoints, service-registry unit tests, and CLI tests using a real or fake hub endpoint.
+- [x] Added the hello-world `robotick-hub` slice
+      Deliverable: `tools/robotick-hub/` now exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service-registry-backed hub record management, workspace project listing, Studio-facing project-list metadata, and a first end-to-end CLI command path through `robotick hub status` and `robotick hub projects`.
+      Test scope: FastAPI contract tests for health/capabilities/workspace identity/project-list endpoints, service-registry record tests, real CLI-to-hub startup/status/projects tests, and workspace-shim smoke checks now pass.
+      Summary of work done: added the new `tools/robotick-hub/` package, taught `robotick-cli` to bootstrap and query the hub, exposed a minimal `hub/` namespace in one-shot and immediate modes, and kept the slice proportional by limiting it to health/capabilities/projects rather than prematurely routing launcher or Studio control through the hub.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Add desktop tray presence to `robotick-hub`
+      Deliverable: when `robotick-hub` runs in a desktop session it also exposes a Robotick tray icon within the same tool/process, surfaces lightweight hub state, and provides safe actions such as opening Studio, viewing status, and stopping the hub; headless environments continue without tray presence.
+      Test scope: desktop-session detection tests, tray bootstrap/fallback tests, and hub lifecycle tests proving tray failure handling does not break headless service operation.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if desktop integration details become the main challenge
 
 - [ ] Route launcher capability through hub
       Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, endpoint discovery, and run-oriented state; `robotick-hub` uses those contracts without importing arbitrary deep launcher internals; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path operate through the hub.

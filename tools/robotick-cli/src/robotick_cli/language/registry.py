@@ -28,6 +28,7 @@ class CommandSpec:
 
 
 TOP_LEVEL_NAMESPACES: tuple[NamespaceSpec, ...] = (
+    NamespaceSpec("hub", "Inspect the local Robotick hub for this workspace"),
     NamespaceSpec("studio", "Open and inspect Robotick Studio projects in this workspace"),
 )
 
@@ -98,9 +99,31 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
 )
 
+HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
+    CommandSpec(
+        name="status",
+        usage="robotick hub status [--json]",
+        summary="Ensure the local Robotick hub and show hub health/capability status",
+        shell_label="status",
+    ),
+    CommandSpec(
+        name="projects",
+        usage="robotick hub projects [--json]",
+        summary="List workspace projects through the hub API",
+        shell_label="projects",
+    ),
+)
+
 
 def get_studio_command_spec(name: str) -> CommandSpec:
     for spec in STUDIO_COMMAND_SPECS:
+        if spec.name == name:
+            return spec
+    raise KeyError(name)
+
+
+def get_hub_command_spec(name: str) -> CommandSpec:
+    for spec in HUB_COMMAND_SPECS:
         if spec.name == name:
             return spec
     raise KeyError(name)
@@ -112,3 +135,7 @@ def studio_root_action_names() -> list[str]:
 
 def bound_instance_action_names() -> list[str]:
     return [spec.name for spec in STUDIO_COMMAND_SPECS if spec.visible_in_bound_instance]
+
+
+def hub_action_names() -> list[str]:
+    return [spec.name for spec in HUB_COMMAND_SPECS]

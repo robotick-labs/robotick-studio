@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robotick-hub"
+version = "0.1.0"
+description = "Local Robotick workspace hub"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.116",
+  "pydantic>=2.7",
+  "PyYAML>=6.0.1",
+  "uvicorn>=0.35",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28",
+  "pytest>=8",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

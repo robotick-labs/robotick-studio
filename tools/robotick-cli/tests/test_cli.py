@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ from robotick_cli.studio import CommandResult
 
 CLI_DIR = Path(__file__).resolve().parents[1]
 CLI_SRC = CLI_DIR / "src"
+HUB_DIR = CLI_DIR.parent / "robotick-hub"
 
 
 def write_executable(file_path: Path, contents: str) -> None:
@@ -30,7 +32,8 @@ def write_executable(file_path: Path, contents: str) -> None:
 
 def create_fake_workspace() -> Path:
     root = Path(tempfile.mkdtemp(prefix="robotick-cli-test-"))
-    (root / "robotick" / "robotick-studio").mkdir(parents=True, exist_ok=True)
+    studio_root = root / "robotick" / "robotick-studio"
+    (studio_root / "tools").mkdir(parents=True, exist_ok=True)
     (root / "robotick.yaml").write_text(
         "\n".join(
             [
@@ -50,14 +53,35 @@ def create_fake_workspace() -> Path:
         encoding="utf-8",
     )
     write_executable(
-        root / "robotick" / "robotick-studio" / "run-studio-dev.sh",
+        studio_root / "run-studio-dev.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\nsleep 30\n",
     )
     write_executable(
         root / "robots" / "barr-e" / "run-studio.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\nsleep 30\n",
     )
+    (studio_root / "tools" / "robotick-hub").symlink_to(HUB_DIR, target_is_directory=True)
     return root
+
+
+def terminate_pid(pid: int | None) -> None:
+    if not pid:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    started_at = time.time()
+    while time.time() - started_at < 2:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return
 
 
 def run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -99,7 +123,7 @@ def wait_for(condition, timeout_ms: int = 3000) -> None:
 def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
     text = format_shell_context(ShellState(), str(create_fake_workspace()))
     assert "Available here:" in text
-    assert "Contexts:\n- studio/" in text
+    assert "Contexts:\n- hub/\n- studio/" in text
     assert "Actions:\n- ls\n- cd\n- clear\n- help\n- exit" in text
 
 
@@ -117,6 +141,29 @@ def test_studio_help_is_generated_from_command_registry() -> None:
     help_text = get_studio_help_text()
     assert f"  {open_spec.usage}" in help_text
     assert open_spec.summary in help_text
+
+
+def test_hub_status_starts_hub_and_reports_capabilities() -> None:
+    workspace = create_fake_workspace()
+    result = run_cli(["hub", "status"], workspace)
+    assert result.returncode == 0
+    assert "Robotick hub is ready." in result.stdout
+    assert "Capabilities:" in result.stdout
+
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
+
+
+def test_hub_projects_reads_workspace_projects_through_hub_json() -> None:
+    workspace = create_fake_workspace()
+    result = run_cli(["hub", "projects", "--json"], workspace)
+    assert result.returncode == 0
+    assert '"name": "barr-e"' in result.stdout
+
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
 
 
 def test_bound_instance_ls_advertises_quit_as_action() -> None:

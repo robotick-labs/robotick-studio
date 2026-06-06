@@ -4,3 +4,7 @@ class CliError(Exception):
 
 class HubUnavailableError(CliError):
     pass
+
+
+class HubRequestError(CliError):
+    pass
