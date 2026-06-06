@@ -3,6 +3,20 @@
 Date: 2026-06-05
 Baseline project: `robots/barr-e`
 
+## Why This Matters
+
+The near-term goal is a better Robotick CLI and a cleaner Studio operational contract. The longer-term payoff is much bigger: once Robotick exposes stable, typed operational truth for Studio instances, launcher runs, readiness, capture, and shutdown, external agents can stop acting like brittle shell macro recorders and start acting more like real robot operators.
+
+That future is worth designing for even though MCP is out of scope for MVP. A good agent-facing layer over the same hub contract could eventually:
+
+- launch a robot, wait for the right readiness class, capture evidence, detect degraded models, retry intelligently, and hand back a trustworthy report
+- compare multiple runs as first-class objects rather than scraping logs and filenames
+- help author new robots by creating project skeletons, validating model graphs, running bring-up flows, and surfacing missing telemetry or wiring problems
+- iterate on expressive behavior by editing code or YAML, running the system, inspecting telemetry and captures, and deciding whether the behavior actually reads better
+- perform ongoing engineering support work such as regression sweeps, nightly bring-up checks, automatic failure capture, and historical runtime comparison
+
+CLI is still the right place to define the operational contract. But if that contract is shaped well, Robotick can later support agents that help create, operate, inspect, and improve robots in a much more capable way than shell scripting alone.
+
 ## Problem Statement
 
 Robotick Studio is usable by a human who already knows the repo and UI, but it is not yet operationally self-describing. A cold operator, script, or external agent has to infer too much from shell scripts, UI state, logs, and visual changes.
@@ -72,16 +86,16 @@ The current workflow has six concrete UX problems:
 
 ## Proposal
 
-Build a small, explicit local control plane for Robotick capabilities, then expose it through a human/script CLI, Studio, and later MCP. `robotick-hub` is the local workspace service/API aggregator in that model; Studio and launcher are first-party capabilities exposed through it.
+Build a small, explicit local control plane for Robotick capabilities, then expose it through a human/script CLI and Studio. `robotick-hub` is the local workspace service/API aggregator in that model; Studio and launcher are first-party capabilities exposed through it.
 
 The layers should be:
 
 1. `robotick-hub` local service and capability contract
 2. `robotick ...` umbrella CLI as the human/script client
 3. workspace project registration and docs
-4. Studio and later MCP clients over the same hub contract
+4. Studio over the same hub contract
 
-Additional scripting clients are out of scope for this phase. They can be added later as other clients of the same operational contract.
+Additional scripting clients, including MCP, are out of scope for this phase. They can be added later as other clients of the same operational contract.
 
 Testing should be part of implementation throughout, not deferred to the end. Each supported command/state permutation should be locked down as soon as it is introduced, even if that means catch-up tests while the CLI grammar is still being shaped.
 
@@ -275,7 +289,7 @@ Recommended tool shape:
 - `robotick-launcher` remains a focused launcher capability provider; it should expose stable APIs for hub integration while keeping `robotick-launcher` as a compatibility command
 - launcher runtime execution should not be pulled fully in-process into `robotick-hub` during Pre-MVP; the current launcher listener owns process handles, queues, threads, websocket log fan-out, and singleton runtime status, so hub should initially own it as a managed capability/worker rather than importing arbitrary route internals
 - Studio is a UI client of `robotick-hub`; it should not start, stop, supervise, or directly own launcher services
-- MCP should later speak to `robotick-hub` or the same hub-backed command contracts, not to a separate privileged model
+- future non-CLI clients should speak to `robotick-hub` or the same hub-backed command contracts, not to separate privileged control paths
 
 The first proportional shape should be closer to:
 
@@ -331,7 +345,7 @@ Where:
 - `robotick_cli/interfaces/` contains ways of using that language, such as argv one-shot mode and the immediate shell
 - `robotick_cli/hub_client.py` ensures/discovers `robotick-hub` when a command needs hub-backed state, then calls the hub API
 - `robotick_hub/app.py` creates the FastAPI app and composes routers/capabilities
-- `robotick_hub/contracts/` owns Pydantic request/response models shared by hub routes, tests, CLI rendering, and later MCP
+- `robotick_hub/contracts/` owns Pydantic request/response models shared by hub routes, tests, CLI rendering, and later future clients
 - `robotick_hub/api/` owns HTTP routes and should stay thin
 - `robotick_hub/capabilities/` owns orchestration of first-party capabilities such as launcher, Studio, and workspace
 - `robotick_hub/runtime/` owns local service/process mechanics such as `.robotick/instances`, workspace service registration, process-tree shutdown, and port allocation
@@ -396,7 +410,7 @@ Capability acquisition policy:
 - managed capabilities are started/stopped by `robotick-hub`, for example launcher runtime execution when a command needs it
 - discovered capabilities are registered or observed by `robotick-hub`, for example already-open Studio instances
 - each capability should expose a small typed contract: id, kind, health, endpoint if any, and supported operations
-- Pydantic models define these contracts once so hub routes, CLI rendering, Studio clients, tests, and later MCP agree on the same shapes
+- Pydantic models define these contracts once so hub routes, CLI rendering, Studio clients, tests, and later future clients agree on the same shapes
 - long-running managed capabilities should also expose explicit compatibility metadata so the immediate supervisor can decide reuse versus restart without relying on accidental endpoint failures
 
 Recommended Studio instance model:
@@ -435,7 +449,7 @@ Recommended transport:
 - launcher capability API owns model/runtime launch, stop, status, and readiness
 - Studio capability API owns instance, project switching, workspace, viewer readiness, capture, focus, and quit
 
-MCP should wrap this same surface. It should not have stronger powers or a separate privileged model.
+Future clients should wrap this same surface. They should not have stronger powers or separate privileged behavior.
 
 ### Readiness Model
 
@@ -496,33 +510,17 @@ Launcher shutdown is a separate Robotick lifecycle operation, not part of Studio
 
 The hub and CLI should expose shutdown blockers rather than leaving the user at `CTRL+C to force quit`.
 
-### MCP Role
+### Out Of Scope
 
-MCP is valuable after the hub and operational contract exist.
+MVP does not design or implement an MCP surface.
 
-It gives agents:
+The requirement for MVP is narrower:
 
-- typed tool discovery
-- structured arguments
-- structured results
-- less shell quoting/parsing fragility
-- cleaner multi-step workflows
+- define a stable local operational contract in `robotick-hub`
+- make CLI and Studio speak that contract consistently
+- keep the contract typed and machine-usable enough that future clients can wrap it cleanly
 
-Initial tools should map directly to the hub contract:
-
-- `studio_open`
-- `studio_status`
-- `studio_list_projects`
-- `studio_project_switch`
-- `launcher_launch`
-- `launcher_wait_ready`
-- `studio_workspace_state`
-- `studio_viewer_options`
-- `studio_viewer_select`
-- `studio_capture_panel`
-- `studio_get_diagnostics`
-- `launcher_stop`
-- `studio_quit`
+MCP is future work. When it arrives, it should wrap the same hub-backed operational truth rather than introducing privileged behavior, parallel state semantics, or a second control plane.
 
 ## Implementation Plan
 
@@ -746,7 +744,7 @@ launcher stop run-67890
 quit
 ```
 
-The equivalent MCP workflow should complete without repo rummaging, script-path discovery, UI selector discovery, visual-state guessing, or log scraping for basic operational truth.
+Future clients should eventually be able to complete the same flow without repo rummaging, script-path discovery, UI selector discovery, visual-state guessing, or log scraping for basic operational truth.
 
 ### Future Work
 
@@ -764,6 +762,7 @@ The equivalent MCP workflow should complete without repo rummaging, script-path 
 - [ ] Richer `workspace`, `viewer`, `diagnostics`, `capture`, and child-window coverage
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 - [ ] MCP adapter over the same operational contract
+      Deliverable: an MCP layer exposes selected hub-backed operations as typed tools for agents after the hub, CLI, Studio, launcher, readiness, capture, and shutdown contracts have settled. It must wrap existing operational truth rather than creating privileged behavior or parallel state semantics.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` if the cross-contract design work becomes the main challenge
 - [ ] Broader telemetry/model inspection commands
       Recommended Codex model/effort: `gpt-5.4` / `medium`
