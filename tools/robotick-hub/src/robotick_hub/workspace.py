@@ -20,7 +20,7 @@ def _read_yaml_file(path: Path) -> dict[str, Any]:
 
 def _relative_matches(base_dir: Path, wildcard: str) -> list[str]:
     matches: list[str] = []
-    for root, dirs, files in os.walk(base_dir, followlinks=True):
+    for root, dirs, files in os.walk(base_dir, followlinks=False):
         dirs[:] = [entry for entry in dirs if entry != ".launcher"]
         for file_name in files:
             if fnmatch.fnmatch(file_name, wildcard):

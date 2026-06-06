@@ -58,6 +58,8 @@ def remove_instance_record(workspace_root: str | Path, instance_name: str) -> No
 
 
 def register_studio_child_process(child: subprocess.Popen[object]) -> None:
+    if child.pid is None:
+        return
     with ACTIVE_STUDIO_CHILDREN_LOCK:
         ACTIVE_STUDIO_CHILDREN[child.pid] = child
 
@@ -422,8 +424,7 @@ def open_studio(
         )
     finally:
         log_handle.close()
-    if hasattr(child, "wait"):
-        register_studio_child_process(child)
+    register_studio_child_process(child)
 
     instance_name = create_instance_name(child.pid)
     if instance_name is None:

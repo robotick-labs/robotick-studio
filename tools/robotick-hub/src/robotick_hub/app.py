@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -79,6 +80,19 @@ def build_capabilities() -> list[CapabilitySummary]:
 
 def get_workspace_root() -> str:
     return os.environ["ROBOTICK_WORKSPACE_ROOT"]
+
+
+def _resolve_registered_project_path(project_path: str) -> str:
+    resolved_project_path = str(Path(project_path).resolve())
+    registered_paths = {
+        str(Path(candidate).resolve())
+        for candidate in list_workspace_project_paths(get_workspace_root())
+    }
+    if resolved_project_path not in registered_paths:
+        raise FileNotFoundError(
+            f"Project file is not registered in this workspace: {resolved_project_path}"
+        )
+    return resolved_project_path
 
 
 def _proxyable_headers(request: Request) -> dict[str, str]:
@@ -180,7 +194,7 @@ def create_app() -> FastAPI:
         project_path: str = Query(..., description="Absolute path to the project YAML file")
     ) -> JSONResponse:
         try:
-            return JSONResponse(get_project_settings(project_path))
+            return JSONResponse(get_project_settings(_resolve_registered_project_path(project_path)))
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -189,7 +203,7 @@ def create_app() -> FastAPI:
         project_path: str = Query(..., description="Absolute path to the project YAML file")
     ) -> JSONResponse:
         try:
-            return JSONResponse(get_project_rc_settings(project_path))
+            return JSONResponse(get_project_rc_settings(_resolve_registered_project_path(project_path)))
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -198,7 +212,7 @@ def create_app() -> FastAPI:
         project_path: str = Query(..., description="Absolute path to the project YAML file")
     ) -> list[str]:
         try:
-            return list_project_model_paths(project_path)
+            return list_project_model_paths(_resolve_registered_project_path(project_path))
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -210,7 +224,9 @@ def create_app() -> FastAPI:
         ),
     ) -> JSONResponse:
         try:
-            return JSONResponse(get_project_model(project_path, model_path))
+            return JSONResponse(
+                get_project_model(_resolve_registered_project_path(project_path), model_path)
+            )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -222,7 +238,11 @@ def create_app() -> FastAPI:
         project_path: str = Query(..., description="Absolute path to the project YAML file"),
     ) -> FileResponse:
         try:
-            return FileResponse(path=resolve_project_asset_path(project_path, asset_path))
+            return FileResponse(
+                path=resolve_project_asset_path(
+                    _resolve_registered_project_path(project_path), asset_path
+                )
+            )
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:

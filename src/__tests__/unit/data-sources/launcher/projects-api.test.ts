@@ -12,13 +12,13 @@ describe("projects-api hub-backed discovery", () => {
   });
 
   it("prefers robotick-hub project summaries when the hub endpoint is present", async () => {
-    globalThis.window = {
+    vi.stubGlobal("window", {
       robotick: {
         environment: {
           hubEndpoint: "http://127.0.0.1:44493",
         },
       },
-    } as Window & typeof globalThis;
+    } as Window & typeof globalThis);
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -74,14 +74,14 @@ describe("projects-api hub-backed discovery", () => {
   });
 
   it("orders the CLI-selected hub project first for Studio auto-selection", async () => {
-    globalThis.window = {
+    vi.stubGlobal("window", {
       robotick: {
         environment: {
           hubEndpoint: "http://127.0.0.1:44493",
           selectedProject: "pip-e",
         },
       },
-    } as Window & typeof globalThis;
+    } as Window & typeof globalThis);
 
     vi.stubGlobal(
       "fetch",

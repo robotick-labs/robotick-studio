@@ -20,10 +20,14 @@ function projectMatchesRequestedName(
   project: { path: string; name: string },
   requestedName: string,
 ): boolean {
+  const normalizedRequested = requestedName.trim().replace(/\\/g, "/");
+  const normalizedPath = project.path.replace(/\\/g, "/");
   return (
     project.name === requestedName ||
-    project.path.includes(`/${requestedName}/`) ||
-    project.path.endsWith(`/${requestedName}.project.yaml`)
+    normalizedPath === normalizedRequested ||
+    normalizedPath.includes(`/${normalizedRequested}/`) ||
+    normalizedPath.endsWith(`/${normalizedRequested}`) ||
+    normalizedPath.endsWith(`/${normalizedRequested}.project.yaml`)
   );
 }
 
@@ -95,8 +99,8 @@ export default function HomePage() {
       <section>
         <h2 className={styles.projectsSectionTitle}>Select a Project</h2>
         <p>
-          TODO - add simple info on how to open Robotick through the CLI and
-          create your first project.
+          Launch Studio from the workspace CLI with <code>robotick studio open</code>,
+          or create a clean empty session with <code>robotick studio create</code>.
         </p>
 
         <div className={styles.projectList}>

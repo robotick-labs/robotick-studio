@@ -24,7 +24,7 @@ def run_headless() -> None:
 
 
 def run_with_tray() -> None:
-    from robotick_hub.tray import should_use_tray, start_tray
+    from robotick_hub.tray import start_tray
 
     os.environ["ROBOTICK_HUB_EXPECT_TRAY"] = "1"
     server = build_server()
@@ -38,6 +38,8 @@ def run_with_tray() -> None:
         if not server_thread.is_alive():
             raise RuntimeError("robotick-hub server exited before tray startup completed.")
         time.sleep(0.05)
+    if not server.started:
+        raise RuntimeError("robotick-hub server did not become ready before tray startup.")
 
     def stop_hub() -> None:
         server.should_exit = True

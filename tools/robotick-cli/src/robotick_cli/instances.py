@@ -147,27 +147,29 @@ def list_hub_instances(workspace_root: str | Path) -> list[InstanceRecord] | Non
 
 
 def list_live_instances(workspace_root: str | Path) -> list[InstanceRecord]:
-    hub_instances = list_hub_instances(workspace_root)
-    if hub_instances is not None:
-        return hub_instances
-
     instances_dir = get_instances_dir(workspace_root)
-    if not instances_dir.exists():
-        return []
+    local_instances: dict[str, InstanceRecord] = {}
+    if instances_dir.exists():
+        for entry in instances_dir.iterdir():
+            if entry.suffix != ".json":
+                continue
+            instance_name = entry.stem
+            instance = read_instance_record(workspace_root, instance_name)
+            if instance is None:
+                continue
+            if not is_instance_alive(instance):
+                remove_instance_record(workspace_root, instance.name)
+                continue
+            local_instances[instance.name] = instance
 
-    instances: list[InstanceRecord] = []
-    for entry in instances_dir.iterdir():
-        if entry.suffix != ".json":
-            continue
-        instance_name = entry.stem
-        instance = read_instance_record(workspace_root, instance_name)
-        if instance is None:
-            continue
-        if not is_instance_alive(instance):
-            remove_instance_record(workspace_root, instance.name)
-            continue
-        instances.append(instance)
-    return sorted(instances, key=lambda item: item.name)
+    hub_instances = list_hub_instances(workspace_root)
+    if hub_instances is None:
+        return sorted(local_instances.values(), key=lambda item: item.name)
+
+    merged_instances = {instance.name: instance for instance in hub_instances}
+    for instance_name, instance in local_instances.items():
+        merged_instances.setdefault(instance_name, instance)
+    return sorted(merged_instances.values(), key=lambda item: item.name)
 
 
 def get_live_instance(workspace_root: str | Path, instance_name: str) -> InstanceRecord | None:

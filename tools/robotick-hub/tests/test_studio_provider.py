@@ -120,14 +120,17 @@ def test_quit_instance_prefers_signal_fallback_when_no_control_endpoint(
         started_at="2026-06-06T12:00:00+00:00",
     )
     write_instance_record(workspace, record)
-    signals: list[int] = []
-    monkeypatch.setattr("robotick_hub.studio.signal_instance_process_tree", lambda pid, sig: signals.append(pid))
+    signals: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(
+        "robotick_hub.studio.signal_instance_process_tree",
+        lambda pid, sig: signals.append((pid, sig)),
+    )
     monkeypatch.setattr("robotick_hub.studio.wait_for_instance_exit", lambda pid, timeout_ms: True)
     accepted, message, instance = quit_instance(workspace, "studio-3333")
     assert accepted is True
     assert "closed" in message
     assert instance is not None
-    assert signals == [3333]
+    assert signals == [(3333, signal.SIGTERM)]
 
 
 def test_list_instances_reaps_stale_dev_stack_without_ui(

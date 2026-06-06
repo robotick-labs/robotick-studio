@@ -1435,12 +1435,6 @@ export async function bootstrapElectron({
     }
 
     win.setMenuBarVisibility(false);
-    win.on("close", () => {
-      if (isPrimary && isHubManaged && !closingNotificationSent) {
-        closingNotificationSent = true;
-        void notifyHubAppClosing(env, "studio");
-      }
-    });
     win.on("closed", () => {
       clearAlwaysOnTopTimer();
       if (isPrimary && platform !== "darwin" && isHubManaged) {

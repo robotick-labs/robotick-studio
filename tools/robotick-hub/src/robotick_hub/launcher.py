@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Any
 from urllib.error import URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
@@ -84,7 +84,14 @@ def get_launcher_dir() -> Path:
     return Path(__file__).resolve().parents[2].parent / "robotick-launcher"
 
 
+def validate_launcher_endpoint(endpoint: str) -> None:
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(f"Invalid robotick-launcher endpoint: {endpoint}")
+
+
 def fetch_launcher_json(record: LauncherRecord, path: str) -> dict[str, Any]:
+    validate_launcher_endpoint(record.endpoint)
     url = f"{record.endpoint}{path}"
     try:
         with urlopen(url, timeout=2) as response:
@@ -94,6 +101,7 @@ def fetch_launcher_json(record: LauncherRecord, path: str) -> dict[str, Any]:
 
 
 def post_launcher_json(record: LauncherRecord, path: str) -> dict[str, Any]:
+    validate_launcher_endpoint(record.endpoint)
     request = Request(f"{record.endpoint}{path}", method="POST")
     try:
         with urlopen(request, timeout=2) as response:
@@ -111,6 +119,7 @@ def proxy_launcher_request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes, dict[str, str]]:
+    validate_launcher_endpoint(record.endpoint)
     query = f"?{urlencode(params, doseq=True)}" if params else ""
     request = Request(
         f"{record.endpoint}{path}{query}",
@@ -216,12 +225,12 @@ def ensure_launcher(workspace_root: str | Path) -> LauncherRecord:
         stop_launcher_process(record.pid)
         remove_launcher_record(workspace_root)
 
-    start_launcher(workspace_root)
+    record = start_launcher(workspace_root)
     started_at = time.time()
     while time.time() - started_at < 8:
-        record = discover_launcher(workspace_root)
         if record is not None and is_pid_alive(record.pid) and is_launcher_healthy(record):
             return record
+        record = discover_launcher(workspace_root)
         time.sleep(0.1)
     raise RuntimeError("robotick-launcher did not become ready.")
 

@@ -83,14 +83,21 @@ def start_tray(stop_hub: Callable[[], None]) -> int:
 
     def open_studio() -> None:
         robotick_cmd = workspace_root / "tools" / "robotick"
-        subprocess.Popen(
-            [str(robotick_cmd), "studio", "open"],
-            cwd=workspace_root,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            subprocess.Popen(
+                [str(robotick_cmd), "studio", "open"],
+                cwd=workspace_root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as error:
+            QMessageBox.warning(
+                None,
+                "Robotick Hub",
+                f"Failed to launch Studio: {error}",
+            )
 
     open_studio_action.triggered.connect(open_studio)
     menu.addAction(open_studio_action)

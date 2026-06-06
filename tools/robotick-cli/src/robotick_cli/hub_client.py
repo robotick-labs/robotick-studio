@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import socket as socket_module
 import socket
 import subprocess
 import sys
@@ -211,7 +210,7 @@ def fetch_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
             f"robotick-hub request failed: {error.code} {error.reason}",
             status_code=error.code,
         ) from error
-    except (URLError, TimeoutError, socket_module.timeout) as error:
+    except (URLError, TimeoutError, socket.timeout) as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
 
 
@@ -234,5 +233,5 @@ def post_hub_json(
             f"robotick-hub request failed: {error.code} {error.reason}",
             status_code=error.code,
         ) from error
-    except (URLError, TimeoutError, socket_module.timeout) as error:
+    except (URLError, TimeoutError, socket.timeout) as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error

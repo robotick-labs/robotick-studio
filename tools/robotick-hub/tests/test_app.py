@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 import tempfile
 from pathlib import Path
@@ -36,11 +37,25 @@ def create_fake_workspace() -> Path:
     return root
 
 
-def build_client(workspace: Path) -> TestClient:
+@contextmanager
+def build_client(workspace: Path):
+    previous = {
+        "ROBOTICK_WORKSPACE_ROOT": os.environ.get("ROBOTICK_WORKSPACE_ROOT"),
+        "ROBOTICK_HUB_HOST": os.environ.get("ROBOTICK_HUB_HOST"),
+        "ROBOTICK_HUB_PORT": os.environ.get("ROBOTICK_HUB_PORT"),
+    }
     os.environ["ROBOTICK_WORKSPACE_ROOT"] = str(workspace)
     os.environ["ROBOTICK_HUB_HOST"] = "127.0.0.1"
     os.environ["ROBOTICK_HUB_PORT"] = "7099"
-    return TestClient(create_app())
+    try:
+        with TestClient(create_app()) as client:
+            yield client
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_health_and_registry_record() -> None:
@@ -160,6 +175,31 @@ def test_workspace_query_endpoints_without_launcher() -> None:
         )
         assert asset_response.status_code == 200
         assert asset_response.text == "hello"
+
+
+def test_workspace_query_endpoints_reject_unregistered_project_paths() -> None:
+    workspace = create_fake_workspace()
+    (workspace / "robots" / "barr-e").mkdir(parents=True)
+    (workspace / "robots" / "barr-e" / "barr-e.project.yaml").write_text(
+        'name: "Barr.e"\n',
+        encoding="utf-8",
+    )
+    rogue_project = workspace / "tmp" / "rogue.project.yaml"
+    rogue_project.parent.mkdir(parents=True)
+    rogue_project.write_text('name: "Rogue"\n', encoding="utf-8")
+
+    with build_client(workspace) as client:
+        settings_response = client.get(
+            "/query/get-project-settings",
+            params={"project_path": str(rogue_project)},
+        )
+        models_response = client.get(
+            "/query/list-project-models",
+            params={"project_path": str(rogue_project)},
+        )
+        assert settings_response.status_code == 404
+        assert models_response.status_code == 404
+        assert "not registered in this workspace" in settings_response.json()["detail"]
 
 
 def test_launcher_proxy_routes_delegate_to_launcher(
