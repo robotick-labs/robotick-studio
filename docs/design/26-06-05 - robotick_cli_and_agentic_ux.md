@@ -527,38 +527,25 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
 - [x] Split create from open and make open the first composite command
       Deliverable: `create` is now the primitive instance-creation command that reports the new `studio-12345/` folder without changing context, while `open` is now the convenience composite that creates an instance and immediately binds to it in the immediate shell.
 
-- [ ] Move `robotick-cli` to the Python Robotick operations stack before more command surface lands
-      Deliverable: the hello-world TypeScript CLI is replaced or ported before deeper lifecycle work, using Typer/Pydantic-style command contracts and the same Python ecosystem as `robotick-launcher`, while keeping the normal `robotick` command surface unchanged.
+- [ ] Establish the Python CLI language and hub client slice
+      Deliverable: the hello-world TypeScript CLI is replaced or ported to the Python Robotick operations stack before deeper lifecycle work, one-shot argv mode and immediate shell mode use the same Robotick language/routing layer, and hub-backed commands go through a small `hub_client` that can ensure/discover `robotick-hub`.
+      Test scope: parse/route tests, help text tests, argv vs immediate-mode equivalence tests, and tests proving help/project-listing paths do not start hub-backed services.
 
-- [ ] Add `robotick-hub` as the hello-world local control service
-      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with at least health, capability listing, workspace identity, and service registry basics, establishing the hub pattern before deeper launcher/Studio control work lands.
+- [ ] Add the hello-world `robotick-hub` slice
+      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service registry basics, and a first CLI command path that calls the hub API end-to-end.
+      Test scope: FastAPI contract tests for health/capabilities/workspace identity, service-registry unit tests, and CLI tests using a real or fake hub endpoint.
 
-- [ ] Refactor `robotick-cli` around command language plus hub client
-      Deliverable: one-shot argv mode and immediate shell mode both use the same Robotick language/routing layer, while hub-backed behavior goes through a small `hub_client` that ensures/discovers `robotick-hub` and calls its API.
+- [ ] Route launcher capability through hub
+      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, and endpoint discovery; `robotick-hub` uses those contracts without importing arbitrary deep launcher internals; `robotick launcher status` and the launcher ensure path operate through the hub.
+      Test scope: fake launcher provider tests, idempotent ensure tests, status mapping tests, and checks that hub code depends only on the stable launcher capability API.
 
-- [ ] Keep the first Python/hub split deliberately small and proportional
-      Deliverable: the initial split introduces shallow folders such as `language/`, `interfaces/`, `hub_client.py`, `contracts/`, `api/`, `capabilities/`, and `runtime/`, with only the files needed by current behavior; deeper folders appear only when a command family has enough behavior and tests to justify them.
+- [ ] Open Studio through hub and remove Studio-owned launcher lifecycle
+      Deliverable: `robotick studio open` ensures `robotick-hub`, asks hub to ensure required capabilities, opens/registers Studio with the hub endpoint, and Studio no longer starts, stops, supervises, or force-kills launcher processes.
+      Test scope: CLI-to-hub open tests, hub Studio registration tests, Studio launch environment/config tests proving the hub endpoint is passed, and Studio-side tests proving launcher spawn/stop paths are gone.
 
-- [ ] Lock CLI and Studio onto the hub contract from the outset
-      Deliverable: commands that need live state call `ensure_hub()` and use `robotick-hub`; Studio receives the hub endpoint when opened and talks to the hub rather than directly to launcher or `robotick-cli`.
-
-- [ ] Promote launcher integration to a stable hub capability API
-      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, and endpoint discovery; `robotick-hub` uses those contracts rather than importing arbitrary deep launcher internals.
-
-- [ ] Provision launcher capability on demand from `robotick-hub`
-      Deliverable: hub commands that need launcher availability, including the `robotick studio open` flow, ensure the workspace launcher capability is running and registered; help, project listing, and manifest-only commands do not start background services.
-
-- [ ] Remove Studio-owned launcher process lifecycle
-      Deliverable: Studio no longer starts, stops, supervises, or force-kills launcher processes; when opened by `robotick`, Studio receives the hub endpoint as its external service dependency and shows service-unavailable state if the hub or launcher capability disappears.
-
-- [ ] Add graceful Studio-API-backed quit when available
-      Deliverable: once a local Studio control endpoint exists, `quit` prefers a real in-app close request before falling back to process signalling, so shutdown state can be reported more accurately than pid polling alone.
-
-- [ ] Make Studio itself exit cleanly under normal quit paths
-      Deliverable: closing a Studio instance no longer routinely stalls on launcher/websocket/background-task shutdown because Studio is not supervising launcher processes; normal `quit` paths should complete without leaving lingering Studio-owned `concurrently`, `vite`, or UI helper processes behind, and remaining shutdown blockers should be understood and fixed in Studio rather than only papered over in the CLI.
-
-- [ ] Add instance metadata/status polish
-      Deliverable: `ls` and `instances` show lightweight metadata such as current project, mode, and launch age so the new instance-folder model remains discoverable once more than one Studio instance exists.
+- [ ] Finish Studio quit and instance polish on the hub path
+      Deliverable: `quit` prefers the Studio control API when available, falls back clearly when needed, updates hub/instance registry state, `ls` and `instances` show lightweight metadata such as current project/mode/launch age, and normal Studio quit no longer stalls on launcher ownership because launcher is outside Studio's process lifecycle.
+      Test scope: graceful quit tests, stale-instance cleanup tests, metadata rendering tests, and shutdown tests proving Studio quit does not stop launcher capability state.
 
 #### How It Is Looking For Agentic UX
 
