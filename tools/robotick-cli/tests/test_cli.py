@@ -87,6 +87,7 @@ def terminate_pid(pid: int | None) -> None:
 def run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{CLI_SRC}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    env["ROBOTICK_HUB_FORCE_HEADLESS"] = "1"
     return subprocess.run(
         [sys.executable, "-m", "robotick_cli", *args],
         cwd=cwd,
@@ -100,6 +101,7 @@ def run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 def run_shell(inputs: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{CLI_SRC}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    env["ROBOTICK_HUB_FORCE_HEADLESS"] = "1"
     return subprocess.run(
         [sys.executable, "-m", "robotick_cli"],
         cwd=cwd,

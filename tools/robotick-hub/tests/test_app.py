@@ -5,9 +5,11 @@ import tempfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from robotick_hub.app import create_app
 from robotick_hub.runtime import get_hub_record_path
+from robotick_hub.tray import get_bundled_icon_path, should_use_tray
 
 
 def create_fake_workspace() -> Path:
@@ -73,3 +75,26 @@ def test_workspace_and_studio_projects_endpoints() -> None:
         assert workspace_names == ["barr-e", "pip-e"]
         assert studio_names == ["barr-e", "pip-e"]
         assert studio_response.json()["selected_target_project"] is None
+
+
+def test_should_use_tray_defaults_to_headless_without_desktop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_HEADLESS", raising=False)
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_TRAY", raising=False)
+    assert should_use_tray() is False
+
+
+def test_should_use_tray_honors_force_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("ROBOTICK_HUB_FORCE_HEADLESS", "1")
+    assert should_use_tray() is False
+    monkeypatch.setenv("ROBOTICK_HUB_FORCE_HEADLESS", "0")
+    monkeypatch.setenv("ROBOTICK_HUB_FORCE_TRAY", "1")
+    assert should_use_tray() is True
+
+
+def test_bundled_icon_path_exists() -> None:
+    icon_path = get_bundled_icon_path()
+    assert icon_path.name == "robotick-icon.png"
+    assert icon_path.exists()

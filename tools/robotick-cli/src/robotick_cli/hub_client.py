@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -72,6 +73,31 @@ def get_hub_dir(workspace_root: str | Path) -> Path:
     ).resolve()
 
 
+def python_supports_module(executable: str, module_name: str) -> bool:
+    result = subprocess.run(
+        [executable, "-c", f"import {module_name}"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def select_hub_python_executable() -> str:
+    wants_tray = (
+        os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS") != "1"
+        and bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    )
+    if not wants_tray or python_supports_module(sys.executable, "PyQt5"):
+        return sys.executable
+
+    system_python = shutil.which("python3")
+    if system_python and python_supports_module(system_python, "PyQt5"):
+        return system_python
+    return sys.executable
+
+
 def start_hub(workspace_root: str | Path) -> None:
     workspace_root = Path(workspace_root).resolve()
     hub_dir = get_hub_dir(workspace_root)
@@ -90,7 +116,7 @@ def start_hub(workspace_root: str | Path) -> None:
     log_path = log_dir / "robotick-hub.log"
     with open(log_path, "a", encoding="utf-8") as log_handle:
         subprocess.Popen(
-            [sys.executable, "-m", "robotick_hub"],
+            [select_hub_python_executable(), "-m", "robotick_hub"],
             cwd=workspace_root,
             env=env,
             stdin=subprocess.DEVNULL,
@@ -122,4 +148,3 @@ def fetch_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
             return json.loads(response.read().decode("utf-8"))
     except URLError as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
-
