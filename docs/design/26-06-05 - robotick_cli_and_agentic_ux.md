@@ -72,22 +72,22 @@ The current workflow has six concrete UX problems:
 
 ## Proposal
 
-Build a small, explicit operating layer for Robotick Studio, then expose it through a human/script CLI and later MCP.
+Build a small, explicit local control plane for Robotick capabilities, then expose it through a human/script CLI, Studio, and later MCP. `robotick-hub` is the local workspace service/API aggregator in that model; Studio and launcher are first-party capabilities exposed through it.
 
 The layers should be:
 
-1. Studio operational contract
-2. `robotick studio ...` CLI
+1. `robotick-hub` local service and capability contract
+2. `robotick ...` umbrella CLI as the human/script client
 3. workspace project registration and docs
-4. MCP adapter over the same contract
+4. Studio and later MCP clients over the same hub contract
 
-Python scripting is out of scope for this phase. It can be added later as another client of the same operational contract.
+Additional scripting clients are out of scope for this phase. They can be added later as other clients of the same operational contract.
 
 Testing should be part of implementation throughout, not deferred to the end. Each supported command/state permutation should be locked down as soon as it is introduced, even if that means catch-up tests while the CLI grammar is still being shaped.
 
 ### CLI Shape
 
-Use `robotick` as the umbrella command and `studio` as the Studio namespace.
+Use `robotick` as the umbrella command. `studio` is the Studio namespace; `launcher` is the robot/model lifecycle namespace.
 
 The CLI should follow a path-oriented grammar:
 
@@ -101,10 +101,10 @@ The CLI should follow a path-oriented grammar:
 That metaphor should inform the whole interface:
 
 - `studio` is a context
-- `create` is the primitive action that materializes a Studio session without changing context
+- `create` is the primitive action that materializes a Studio instance without changing context
 - `open` is a composite action over the primitives, initially `create` + `cd`
-- session folders such as `studio-12345/` are the persistent contexts representing open Studio sessions
-- later contexts such as `project[...]`, `workspace[...]`, and `viewer[...]` should only appear once they are genuinely bound inside a specific session folder
+- instance folders such as `studio-12345/` are the persistent contexts representing open Studio instances
+- later contexts such as `project[...]`, `workspace[...]`, and `viewer[...]` should only appear once they are genuinely bound inside a specific instance folder
 - actions such as `launch`, `stop`, `status`, `capture`, and `quit` run within the current bound context rather than pretending to be peers of it
 
 The command hierarchy should therefore be explicit and path-like:
@@ -113,24 +113,26 @@ The command hierarchy should therefore be explicit and path-like:
   top-level entrypoint and shell root
 - `robotick studio`
   Studio namespace
+- `robotick launcher`
+  launcher namespace for robot/model runtime lifecycle
 - `robotick studio create`
-  create/materialize a new Studio session without changing context
+  create/materialize a new Studio instance without changing context
 - `robotick studio open`
-  composite convenience command that creates a new Studio session and enters it
-- `robotick studio <session>`
-  enter or target an existing Studio session context
-- `robotick studio <session> project ...`
-  bind or operate on project state within that session
-- `robotick studio <session> launcher ...`
-  operate on launcher/model lifecycle within that session
-- `robotick studio <session> workspace ...`
-  bind or operate on workspace state within that session
-- `robotick studio <session> viewer ...`
-  bind or operate on viewer state within that session
-- `robotick studio <session> capture ...`
-  capture panels or views from that session
-- `robotick studio <session> quit`
-  close the targeted Studio session
+  composite convenience command that creates a new Studio instance and enters it
+- `robotick studio <instance>`
+  enter or target an existing Studio instance context
+- `robotick studio <instance> project ...`
+  bind or operate on project state within that instance
+- `robotick studio <instance> workspace ...`
+  bind or operate on workspace state within that instance
+- `robotick studio <instance> viewer ...`
+  bind or operate on viewer state within that instance
+- `robotick studio <instance> capture ...`
+  capture panels or views from that instance
+- `robotick studio <instance> quit`
+  close the targeted Studio instance
+- `robotick launcher launch|stop|status|wait-ready ...`
+  operate on robot/model lifecycle through the launcher capability
 
 The interactive shell should mirror that hierarchy rather than inventing different semantics:
 
@@ -139,11 +141,11 @@ The interactive shell should mirror that hierarchy rather than inventing differe
 - `robotick:studio>`
   Studio namespace shell
 - `robotick:studio:studio-12345>`
-  shell bound to a specific open Studio session
+  shell bound to a specific open Studio instance
 
-Within that bound prompt, everything should be understood as operating on the currently open Studio session. In other words, `studio-12345/` is the user-facing hierarchy for “the Studio session I currently have open”, and the shell should behave as though the user has `cd`'d into that session.
+Within that bound prompt, everything should be understood as operating on the currently open Studio instance. In other words, `studio-12345/` is the user-facing hierarchy for “the Studio instance I currently have open”, and the shell should behave as though the user has `cd`'d into that instance.
 
-`back` should always unwind one shell level. The bound-session prompt is a path/state indicator. Once bound to a Studio session, the commands available there are the operations and deeper context bindings on that session, while `open` remains the action used back at `robotick:studio>` to create another session.
+`back` should always unwind one shell level. The bound-instance prompt is a path/state indicator. Once bound to a Studio instance, the commands available there are the operations and deeper context bindings on that instance, while `open` remains the action used back at `robotick:studio>` to create another instance.
 
 Shell-control commands should stay distinct:
 
@@ -152,13 +154,13 @@ Shell-control commands should stay distinct:
 - `exit`
   leave the Robotick CLI itself
 - `quit`
-  close the currently bound Studio session, then return to the parent Studio shell context
+  close the currently bound Studio instance, then return to the parent Studio shell context
 
 That also means `ls` should be visually biased toward the path metaphor:
 
 - show context-forming entries separately from actions where useful
 - render contexts in a directory-like style, such as `studio/` and `studio-12345/`
-- surface concrete enterable contexts only where they are genuinely bound, such as discovered Studio instances and, later, project/workspace/viewer context within an already open Studio session
+- surface concrete enterable contexts only where they are genuinely bound, such as discovered Studio instances and, later, project/workspace/viewer context within an already open Studio instance
 - avoid flattening contexts and actions into one undifferentiated list
 
 Examples:
@@ -168,10 +170,10 @@ robotick studio projects
 robotick studio open
 robotick studio instances
 robotick studio studio-12345 project barr-e
-robotick studio studio-12345 launcher launch --profile local:ALL
-robotick studio studio-12345 launcher wait-ready --workspace remote-control
+robotick launcher launch --project barr-e --profile local:ALL
+robotick launcher wait-ready --project barr-e --workspace remote-control
 robotick studio studio-12345 capture panel --workspace remote-control --panel main --out artifacts/...
-robotick studio studio-12345 launcher stop
+robotick launcher stop --project barr-e
 robotick studio studio-12345 quit --wait
 ```
 
@@ -184,7 +186,7 @@ robotick:studio> ls
 robotick:studio> open
 robotick:studio> cd studio-12345
 robotick:studio:studio-12345> project barr-e
-robotick:studio:studio-12345> launcher launch
+robotick:studio:studio-12345> launcher launch --project barr-e
 robotick:studio:studio-12345> clear
 robotick:studio:studio-12345> quit
 robotick:studio> back
@@ -193,8 +195,9 @@ robotick> exit
 
 Command style:
 
-- use path-forming nouns/contexts for scope: `studio`, session folders such as `studio-12345`, and later `project`, `workspace`, `viewer`
+- use path-forming nouns/contexts for scope: `studio`, instance folders such as `studio-12345`, and later `project`, `workspace`, `viewer`
 - use action commands within the current scope for work: `launch`, `stop`, `status`, `capture`, `quit`
+- keep top-level capability namespaces such as `launcher` available in immediate mode even when the prompt is bound to a Studio instance
 - use positional arguments for direct objects: project, workspace, viewer option, panel id
 - use flags for context and modifiers: `--instance`, `--profile`, `--workspace`, `--panel`, `--out`, `--timeout`, `--json`
 
@@ -234,16 +237,137 @@ Humans should not need `AGENTS.md` to discover how to launch Studio.
 
 ### Implementation Architecture
 
-Recommended CLI implementation:
+Recommended implementation:
 
 - Phase 0 workspace bootstrap shim: `./tools/robotick`
 - intended long-term command name: `robotick`
-- source location: `robotick/robotick-studio/tools/robotick-cli/`
-- language: TypeScript/Node
-- normal use should not expose `npm`, `node`, or package-manager details
+- CLI source location: `robotick/robotick-studio/tools/robotick-cli/`
+- hub source location: `robotick/robotick-studio/tools/robotick-hub/`
+- target implementation stack: Python, using Typer/Pydantic for the CLI command language and FastAPI/Pydantic for the hub API contract
+- current TypeScript/Node CLI implementation is a hello-world slice and should be ported before the CLI grows much more command surface
+- normal use should not expose `npm`, `node`, `python`, `pip`, or package-manager details
 - a literal root `./robotick` file is not possible in this repo because `robotick/` is already a top-level directory
 - an installed `robotick` shim should be able to find the nearest workspace and delegate to its local tool
 - the stable user-facing command should be `robotick`; the workspace shim exists only as bootstrap and local fallback
+
+Recommended tool shape:
+
+- `robotick-cli` owns the command language, one-shot argv mode, immediate shell mode, output rendering, and hub client behavior
+- `robotick-hub` owns the long-running local workspace API, capability registry, capability orchestration, and service lifecycle policy
+- `robotick-launcher` remains a focused launcher capability provider; it should expose stable APIs for hub integration while keeping `robotick-launcher` as a compatibility command
+- Studio is a UI client of `robotick-hub`; it should not start, stop, supervise, or directly own launcher services
+- MCP should later speak to `robotick-hub` or the same hub-backed command contracts, not to a separate privileged model
+
+The first proportional shape should be closer to:
+
+```text
+tools/
+  robotick-cli/
+    src/
+      robotick_cli/
+        __main__.py
+        app/
+          context.py
+          errors.py
+        language/
+          parse.py
+          route.py
+          help.py
+        interfaces/
+          argv.py
+          repl.py
+        hub_client.py
+        output.py
+
+  robotick-hub/
+    src/
+      robotick_hub/
+        app.py
+        contracts/
+          health.py
+          capabilities.py
+          launcher.py
+          studio.py
+          workspace.py
+        api/
+          health.py
+          capabilities.py
+          launcher.py
+          studio.py
+          workspace.py
+        capabilities/
+          launcher.py
+          studio.py
+          workspace.py
+        runtime/
+          service_registry.py
+          process_tree.py
+          ports.py
+```
+
+Where:
+
+- `robotick_cli/__main__.py` wires the CLI together and stays small
+- `robotick_cli/language/` owns the Robotick command language: parsing, routing, context rules, and help shape
+- `robotick_cli/interfaces/` contains ways of using that language, such as argv one-shot mode and the immediate shell
+- `robotick_cli/hub_client.py` ensures/discovers `robotick-hub` when a command needs hub-backed state, then calls the hub API
+- `robotick_hub/app.py` creates the FastAPI app and composes routers/capabilities
+- `robotick_hub/contracts/` owns Pydantic request/response models shared by hub routes, tests, CLI rendering, and later MCP
+- `robotick_hub/api/` owns HTTP routes and should stay thin
+- `robotick_hub/capabilities/` owns orchestration of first-party capabilities such as launcher, Studio, and workspace
+- `robotick_hub/runtime/` owns local service/process mechanics such as `.robotick/instances`, workspace service registration, process-tree shutdown, and port allocation
+
+This creates visible architectural boundaries without pretending the tools are already large frameworks. The folders are allowed to start with one or two files each. Further subdivision should be demand-led: for example, `robotick_hub/capabilities/studio/capture/` should appear only once capture has enough behavior and tests to justify its own folder.
+
+Recommended hub ownership model:
+
+- `robotick-hub` is the only long-running local Robotick control service
+- `robotick-cli` provisions or discovers `robotick-hub`, then uses the hub API
+- Studio receives the hub endpoint and talks to `robotick-hub`, not to `robotick-cli`
+- `robotick-hub` composes first-party capabilities through explicit service/library contracts
+- `robotick-hub` owns provisioning and lifecycle policy for local workspace services
+- capabilities own their domain behavior and expose small stable APIs to the hub
+- launcher is a first-party capability, not a special case because it is Python
+- `robotick-launcher` should expose stable library/service functions such as ensure, status, stop, and endpoint discovery; `robotick-hub` should not import arbitrary deep launcher internals
+- `robotick-hub` may embed simple capabilities such as workspace/project query behavior directly at first
+- `robotick-hub` may provision managed services, such as launcher runtime service, and discover external services, such as already-open Studio instances
+- one-shot commands and immediate-mode commands should both use the same hub-backed service provisioning rules
+
+Recommended hub service policy:
+
+- commands that need hub-backed state call `ensure_hub()` before doing work
+- service-backed capabilities are workspace-scoped and can outlive a single `robotick` CLI process
+- commands such as `--help`, `projects`, and simple manifest discovery should not start the hub or other background services
+- `robotick studio open` should ensure `robotick-hub`, ask it to ensure required capabilities, then open/register the Studio instance with the hub endpoint
+- launcher shutdown should be explicit through Robotick commands such as `robotick launcher stop` or future broader service commands
+- Studio quit should close Studio only; it should not stop or supervise launcher processes
+
+Initial hub contract:
+
+- `GET /v1/health`
+  report hub liveness and workspace identity
+- `GET /v1/capabilities`
+  list embedded, managed, and discovered capabilities plus health/endpoint summaries
+- `GET /v1/workspace/projects`
+  list registered workspace projects without requiring launcher runtime state
+- `POST /v1/capabilities/launcher/ensure`
+  ensure the launcher capability is available when a command needs it
+- `GET /v1/launcher/status`
+  report launcher runtime state through the launcher capability
+- `POST /v1/studio/open`
+  open/register a Studio instance with the hub endpoint configured
+- `GET /v1/studio/instances`
+  list known Studio instances
+- `POST /v1/studio/instances/{id}/quit`
+  request graceful Studio quit for a known instance
+
+Capability acquisition policy:
+
+- embedded capabilities live inside `robotick-hub`, for example simple workspace/project queries at first
+- managed capabilities are started/stopped by `robotick-hub`, for example launcher runtime service when a command needs it
+- discovered capabilities are registered or observed by `robotick-hub`, for example already-open Studio instances
+- each capability should expose a small typed contract: id, kind, health, endpoint if any, and supported operations
+- Pydantic models define these contracts once so hub routes, CLI rendering, Studio clients, tests, and later MCP agree on the same shapes
 
 Recommended Studio instance model:
 
@@ -254,11 +378,12 @@ Recommended Studio instance model:
 
 Recommended transport:
 
-- use explicit local IPC for Studio control
-- prefer localhost HTTP/JSON for MVP request/response commands
+- use `robotick-hub` as the explicit local control-plane endpoint
+- prefer localhost HTTP/JSON for MVP request/response commands, backed by FastAPI/Pydantic contracts
 - add WebSocket later for event streams if needed
-- launcher API owns model/runtime launch, stop, status, and readiness
-- Studio control API owns instance, project switching, workspace, viewer, capture, focus, and quit
+- hub API owns capability discovery, health, workspace status, service provisioning, and cross-capability status
+- launcher capability API owns model/runtime launch, stop, status, and readiness
+- Studio capability API owns instance, project switching, workspace, viewer, capture, focus, and quit
 
 MCP should wrap this same surface. It should not have stronger powers or a separate privileged model.
 
@@ -300,15 +425,16 @@ Shutdown should be staged:
 
 1. renderer enters `quitting`
 2. reconnecting clients stop reconnecting
-3. launcher stop begins
-4. websocket/log tasks drain or are cancelled
-5. app reports `quit_complete`
+3. websocket/log tasks drain or are cancelled
+4. app reports `quit_complete`
 
-The CLI should expose shutdown blockers rather than leaving the user at `CTRL+C to force quit`.
+Launcher shutdown is a separate Robotick lifecycle operation, not part of Studio quit.
+
+The hub and CLI should expose shutdown blockers rather than leaving the user at `CTRL+C to force quit`.
 
 ### MCP Role
 
-MCP is valuable after the CLI and operational contract exist.
+MCP is valuable after the hub and operational contract exist.
 
 It gives agents:
 
@@ -318,20 +444,20 @@ It gives agents:
 - less shell quoting/parsing fragility
 - cleaner multi-step workflows
 
-Initial tools should map directly to the CLI/contract:
+Initial tools should map directly to the hub contract:
 
 - `studio_open`
 - `studio_status`
 - `studio_list_projects`
 - `studio_project_switch`
-- `studio_launcher_launch`
-- `studio_launcher_wait_ready`
+- `launcher_launch`
+- `launcher_wait_ready`
 - `studio_workspace_state`
 - `studio_viewer_options`
 - `studio_viewer_select`
 - `studio_capture_panel`
 - `studio_get_diagnostics`
-- `studio_launcher_stop`
+- `launcher_stop`
 - `studio_quit`
 
 ## Implementation Plan
@@ -350,10 +476,10 @@ Goal: validate naming, folder structure, manifest shape, docs, and launch delega
       Deliverable: `robotick/robotick-studio/tools/robotick-cli/`, a quiet `./tools/robotick` workspace shim, an installable `robotick` front-door shim, a simple `robotick>` immediate mode with one-level namespace context, and a TypeScript/Node implementation are now in place without visible `npm`/`node` noise in normal use.
 
 - [x] Added first commands
-      Deliverable: `robotick studio projects`, `robotick studio create`, `robotick studio open`, and the current compatibility shortcut `robotick studio open <project>` now read `robotick.yaml`; empty Studio opens through the shared Studio runner, while project opens dispatch to the registered launch script until project binding moves under session folders.
+      Deliverable: `robotick studio projects`, `robotick studio create`, `robotick studio open`, and the current compatibility shortcut `robotick studio open <project>` now read `robotick.yaml`; empty Studio opens through the shared Studio runner, while project opens dispatch to the registered launch script until project binding moves under instance folders.
 
 - [x] Added immediate-mode Studio open path
-      Deliverable: inside `robotick:studio>`, `create` now launches empty Studio without binding, `open` creates and immediately binds to the new session, and the current compatibility shortcut `open <project>` creates and enters a registered project directly.
+      Deliverable: inside `robotick:studio>`, `create` now launches empty Studio without binding, `open` creates and immediately binds to the new instance, and the current compatibility shortcut `open <project>` creates and enters a registered project directly.
 
 ### Pre-MVP: Open/Close UX
 
@@ -369,7 +495,7 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
       Deliverable: `open` now reports a Robotick-level result including Studio launch start, log location, and a provisional instance identity instead of only inheriting child-process lifetime.
 
 - [x] Keep `open` action-like rather than auto-binding
-      Deliverable: after a successful quiet launch from immediate mode, the shell now stays at `robotick:studio>`, reports a session folder such as `studio-12345/`, and leaves navigation to `cd studio-12345`.
+      Deliverable: after a successful quiet launch from immediate mode, the shell now stays at `robotick:studio>`, reports an instance folder such as `studio-12345/`, and leaves navigation to `cd studio-12345`.
 
 - [x] Made `back` follow shell pathing
       Deliverable: `back` now unwinds one level at a time, so an instance-bound prompt returns to `robotick:studio>`, then `robotick>`.
@@ -378,63 +504,87 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
       Deliverable: the shell now treats context-forming entries more like directories, especially in `ls`, so namespace/scope changes are easier to distinguish from executable actions.
 
 - [x] Clarified strict `studio` context semantics
-      Deliverable: the design now says plain `studio` exposes `open` as an action rather than a context; project context is deferred until it is genuinely bound inside an already open Studio session.
+      Deliverable: the design now says plain `studio` exposes `open` as an action rather than a context; project context is deferred until it is genuinely bound inside an already open Studio instance.
 
-- [x] Migrated shell implementation to session folders
-      Deliverable: after `open` succeeds, the shell stays at `robotick:studio>`, reports the new session folder such as `studio-12345/`, `ls` presents that folder as an enterable context, and tests cover the new folder/file contract.
+- [x] Migrated shell implementation to instance folders
+      Deliverable: after `open` succeeds, the shell stays at `robotick:studio>`, reports the new instance folder such as `studio-12345/`, `ls` presents that folder as an enterable context, and tests cover the new folder/file contract.
 
 - [x] Separated shell exit from Studio quit
-      Deliverable: the design now treats `exit` as leaving the Robotick CLI, `back` as moving to the parent shell context, and `quit` as closing the currently bound Studio session.
+      Deliverable: the design now treats `exit` as leaving the Robotick CLI, `back` as moving to the parent shell context, and `quit` as closing the currently bound Studio instance.
 
 - [x] Started catch-up CLI contract tests
-      Deliverable: automated CLI tests now cover current shell/path behavior, including `ls` context/action presentation, quiet empty/project open flows, `instances`, `cd` into discovered session folders, `back` unwinding, clean `quit`, and stale-session cleanup.
+      Deliverable: automated CLI tests now cover current shell/path behavior, including `ls` context/action presentation, quiet empty/project open flows, `instances`, `cd` into discovered instance folders, `back` unwinding, clean `quit`, and stale-instance cleanup.
 
-- [x] Clear stale session context after Studio closes
-      Deliverable: when a bound Studio session exits, the shell drops from `robotick:studio:studio-12345>` back to `robotick:studio>`, removes the stale `studio-12345/` context from `ls`, prints a short notice, and does not leave stale bound context behind.
+- [x] Clear stale instance context after Studio closes
+      Deliverable: when a bound Studio instance exits, the shell drops from `robotick:studio:studio-12345>` back to `robotick:studio>`, removes the stale `studio-12345/` context from `ls`, prints a short notice, and does not leave stale bound context behind.
 
 - [x] Remove fixed-port footguns from repeated dev launches
       Deliverable: repeated `open` calls no longer collide on a hard-coded Electron devtools port, and the dev-mode launch path now allocates a per-launch remote-debugging port.
 
 - [x] Improve close/shutdown ergonomics before full lifecycle work
-  Deliverable: `quit` now targets the detached Studio process group rather than only the wrapper pid, gives a concise Robotick-level close result, waits briefly for clean process-group exit, clears the session folder on success, and surfaces incomplete shutdown as a quiet, explicit message instead of raw child-process spam.
+      Deliverable: `quit` now targets the detached Studio process group rather than only the wrapper pid, gives a concise Robotick-level close result, waits briefly for clean process-group exit, clears the instance folder on success, and surfaces incomplete shutdown as a quiet, explicit message instead of raw child-process spam.
 
 - [x] Split create from open and make open the first composite command
-      Deliverable: `create` is now the primitive session-creation command that reports the new `studio-12345/` folder without changing context, while `open` is now the convenience composite that creates a session and immediately binds to it in the immediate shell.
+      Deliverable: `create` is now the primitive instance-creation command that reports the new `studio-12345/` folder without changing context, while `open` is now the convenience composite that creates an instance and immediately binds to it in the immediate shell.
 
-- [ ] Make Studio itself exit cleanly under normal quit paths
-      Deliverable: closing a Studio session no longer routinely stalls on launcher/websocket/background-task shutdown; normal `quit` paths should complete without leaving lingering `concurrently`, `vite`, or launcher processes behind, and the root shutdown blockers should be understood and fixed in Studio rather than only papered over in the CLI.
+- [ ] Move `robotick-cli` to the Python Robotick operations stack before more command surface lands
+      Deliverable: the hello-world TypeScript CLI is replaced or ported before deeper lifecycle work, using Typer/Pydantic-style command contracts and the same Python ecosystem as `robotick-launcher`, while keeping the normal `robotick` command surface unchanged.
 
-- [ ] Add session metadata/status polish
-      Deliverable: `ls` and `instances` show lightweight metadata such as current project, mode, and launch age so the new session-folder model remains discoverable once more than one Studio session exists.
+- [ ] Add `robotick-hub` as the hello-world local control service
+      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with at least health, capability listing, workspace identity, and service registry basics, establishing the hub pattern before deeper launcher/Studio control work lands.
+
+- [ ] Refactor `robotick-cli` around command language plus hub client
+      Deliverable: one-shot argv mode and immediate shell mode both use the same Robotick language/routing layer, while hub-backed behavior goes through a small `hub_client` that ensures/discovers `robotick-hub` and calls its API.
+
+- [ ] Keep the first Python/hub split deliberately small and proportional
+      Deliverable: the initial split introduces shallow folders such as `language/`, `interfaces/`, `hub_client.py`, `contracts/`, `api/`, `capabilities/`, and `runtime/`, with only the files needed by current behavior; deeper folders appear only when a command family has enough behavior and tests to justify them.
+
+- [ ] Lock CLI and Studio onto the hub contract from the outset
+      Deliverable: commands that need live state call `ensure_hub()` and use `robotick-hub`; Studio receives the hub endpoint when opened and talks to the hub rather than directly to launcher or `robotick-cli`.
+
+- [ ] Promote launcher integration to a stable hub capability API
+      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, and endpoint discovery; `robotick-hub` uses those contracts rather than importing arbitrary deep launcher internals.
+
+- [ ] Provision launcher capability on demand from `robotick-hub`
+      Deliverable: hub commands that need launcher availability, including the `robotick studio open` flow, ensure the workspace launcher capability is running and registered; help, project listing, and manifest-only commands do not start background services.
+
+- [ ] Remove Studio-owned launcher process lifecycle
+      Deliverable: Studio no longer starts, stops, supervises, or force-kills launcher processes; when opened by `robotick`, Studio receives the hub endpoint as its external service dependency and shows service-unavailable state if the hub or launcher capability disappears.
 
 - [ ] Add graceful Studio-API-backed quit when available
       Deliverable: once a local Studio control endpoint exists, `quit` prefers a real in-app close request before falling back to process signalling, so shutdown state can be reported more accurately than pid polling alone.
 
+- [ ] Make Studio itself exit cleanly under normal quit paths
+      Deliverable: closing a Studio instance no longer routinely stalls on launcher/websocket/background-task shutdown because Studio is not supervising launcher processes; normal `quit` paths should complete without leaving lingering Studio-owned `concurrently`, `vite`, or UI helper processes behind, and remaining shutdown blockers should be understood and fixed in Studio rather than only papered over in the CLI.
+
+- [ ] Add instance metadata/status polish
+      Deliverable: `ls` and `instances` show lightweight metadata such as current project, mode, and launch age so the new instance-folder model remains discoverable once more than one Studio instance exists.
+
 #### How It Is Looking For Agentic UX
 
-The shape is now materially better for agentic use. The CLI exposes an explicit resource lifecycle: create a Studio session, discover the reusable session folder, bind to it, and close it. That is easier for an agent to reason about than the earlier auto-bound shell because creation, navigation, and action are now separate concepts with separate tests. Splitting `create` from composite `open` should improve that further by making the primitive contract scriptable while still giving humans a concise default workflow. The remaining weakness is not the shell grammar; it is the lack of a richer Studio control API behind `quit`, project binding, and readiness, which is why the next work should stay focused on lifecycle/control contracts rather than more prompt polish.
+The shape is now materially better for agentic use. The CLI exposes an explicit resource lifecycle: create a Studio instance, discover the reusable instance folder, bind to it, and close it. That is easier for an agent to reason about than the earlier auto-bound shell because creation, navigation, and action are now separate concepts with separate tests. Splitting `create` from composite `open` should improve that further by making the primitive contract scriptable while still giving humans a concise default workflow. The remaining weakness is not the shell grammar; it is the lack of a richer Studio control API behind `quit`, project binding, and readiness, which is why the next work should stay focused on lifecycle/control contracts rather than more prompt polish.
 
 ### MVP
 
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
-- [ ] Define MVP Studio command/state contract
-      Deliverable: documented app, project, launcher, readiness, capture, and shutdown state.
+- [ ] Define MVP Robotick capability/state contract
+      Deliverable: documented Studio app, project, launcher, readiness, capture, and shutdown state.
 
 - [ ] Implement instance discovery and targeting
-      Deliverable: `robotick studio instances`, stable session folder names, optional targeting flags where still useful, and `ls` support for presenting discovered Studio sessions as enterable contexts.
+      Deliverable: `robotick studio instances`, stable instance folder names, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts.
 
 - [ ] Implement bound interactive mode
       Deliverable: `robotick studio` opens a REPL that can bind to an instance and run repeated commands without `--instance`.
 
 - [ ] Implement project switching
-      Deliverable: `robotick studio <session> project <project>` and bound-session `project ...` flows can bind/switch project state explicitly with clear success/failure reporting.
+      Deliverable: `robotick studio <instance> project <project>` and bound-instance `project ...` flows can bind/switch project state explicitly with clear success/failure reporting.
 
 - [ ] Continue expanding CLI shell/unit/integration test coverage
       Deliverable: every new command/state permutation is added test-first or test-alongside, including one-shot vs immediate-mode equivalence, quiet vs attached open flows, close/quit lifecycle behavior, future instance discovery/binding, and invalid context/action combinations.
 
 - [ ] Implement launcher commands
-      Deliverable: `robotick studio <session> launcher launch`, `stop`, `status --json`, and `wait-ready` work consistently in one-shot and bound-session forms.
+      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the launcher capability and work consistently in one-shot and immediate-mode forms.
 
 - [ ] Implement readiness state
       Deliverable: machine-readable state distinguishing launch requested, launching, running, healthy, degraded, and failed.
@@ -443,10 +593,10 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
       Deliverable: active workspace, selected viewer option, receive/present metrics where relevant, and degraded/not-trustworthy state.
 
 - [ ] Implement first-class capture
-      Deliverable: `robotick studio <session> capture panel ...` writes predictable output plus metadata.
+      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata.
 
 - [ ] Fix shutdown sequencing
-      Deliverable: `robotick studio <session> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
+      Deliverable: `robotick studio <instance> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
 
 - [ ] Make the flow self-describing
       Deliverable: a cold operator or bot can discover the canonical flow from `README.md`, `AGENTS.md`, `robotick.yaml`, and `robotick studio --help`.
@@ -458,10 +608,10 @@ The Barr.e baseline should become:
 ```bash
 robotick studio open
 robotick studio studio-12345 project barr-e
-robotick studio studio-12345 launcher launch --profile local:ALL
-robotick studio studio-12345 launcher wait-ready --workspace remote-control
+robotick launcher launch --project barr-e --profile local:ALL
+robotick launcher wait-ready --project barr-e --workspace remote-control
 robotick studio studio-12345 capture panel --workspace remote-control --panel main --out artifacts/...
-robotick studio studio-12345 launcher stop
+robotick launcher stop --project barr-e
 robotick studio studio-12345 quit --wait
 ```
 
@@ -474,10 +624,10 @@ ls
 cd studio-12345
 robotick:studio:studio-12345>
 project barr-e
-launcher launch --profile local:ALL
-launcher wait-ready --workspace remote-control
+launcher launch --project barr-e --profile local:ALL
+launcher wait-ready --project barr-e --workspace remote-control
 capture panel --workspace remote-control --panel main --out artifacts/...
-launcher stop
+launcher stop --project barr-e
 quit
 ```
 
