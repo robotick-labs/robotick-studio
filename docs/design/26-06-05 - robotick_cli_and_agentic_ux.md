@@ -150,12 +150,12 @@ The command hierarchy should therefore be explicit and path-like:
   enter or target an existing Studio instance context
 - `robotick studio <instance> project ...`
   bind or operate on project state within that instance
-- `robotick studio <instance> workspace ...`
-  bind or operate on Studio workspace state within that instance
+- `robotick studio <instance> workbench ...`
+  bind or operate on Studio workbench state within that instance
 - `robotick studio <instance> viewer ...`
   bind or operate on viewer state within that instance
 - `robotick studio <instance> wait-ready viewer ...`
-  wait for Studio workspace/viewer readiness within that instance
+  wait for Studio workbench/viewer readiness within that instance
 - `robotick studio <instance> capture ...`
   capture panels or views from that instance
 - `robotick studio <instance> quit`
@@ -191,7 +191,7 @@ That also means `ls` should be visually biased toward the path metaphor:
 
 - show context-forming entries separately from actions where useful
 - render contexts in a directory-like style, such as `studio/` and `studio-12345/`
-- surface concrete enterable contexts only where they are genuinely bound, such as discovered Studio instances and, later, project/Studio-workspace/viewer context within an already open Studio instance
+- surface concrete enterable contexts only where they are genuinely bound, such as discovered Studio instances and, later, project/Studio-workbench/viewer context within an already open Studio instance
 - avoid flattening contexts and actions into one undifferentiated list
 
 Examples:
@@ -203,8 +203,8 @@ robotick studio instances
 robotick studio studio-12345 project barr-e
 robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
 robotick launcher wait-ready run-67890 --readiness launcher-run
-robotick studio studio-12345 wait-ready viewer --workspace remote-control --panel main --run run-67890
-robotick studio studio-12345 capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run run-67890
+robotick studio studio-12345 capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
 robotick launcher stop run-67890
 robotick studio studio-12345 quit --wait
 ```
@@ -219,7 +219,7 @@ robotick:studio> open
 robotick:studio:studio-12345> project barr-e
 robotick:studio:studio-12345> launcher launch --project barr-e --profile local:ALL
 robotick:studio:studio-12345> launcher wait-ready run-67890 --readiness launcher-run
-robotick:studio:studio-12345> wait-ready viewer --workspace remote-control --panel main --run run-67890
+robotick:studio:studio-12345> wait-ready viewer --workbench remote-control --panel main --run run-67890
 robotick:studio:studio-12345> clear
 robotick:studio:studio-12345> quit
 robotick:studio> back
@@ -228,13 +228,13 @@ robotick> exit
 
 Command style:
 
-- use path-forming nouns/contexts for scope: `studio`, instance folders such as `studio-12345`, and later `project`, `workspace`, `viewer`
+- use path-forming nouns/contexts for scope: `studio`, instance folders such as `studio-12345`, and later `project`, `workbench`, `viewer`
 - use action commands within the current scope for work: `launch`, `stop`, `status`, `capture`, `quit`
 - keep top-level capability namespaces such as `launcher` available in immediate mode even when the prompt is bound to a Studio instance
-- use positional arguments for direct objects: project, Studio workspace, viewer option, panel id
-- use flags for context and modifiers: `--instance`, `--profile`, `--workspace`, `--panel`, `--out`, `--timeout`, `--json`
+- use positional arguments for direct objects: project, Studio workbench, viewer option, panel id
+- use flags for context and modifiers: `--instance`, `--profile`, `--workbench`, `--panel`, `--out`, `--timeout`, `--json`
 
-In CLI examples, `--workspace remote-control` means a Studio workspace id, not the repository/workspace checkout. The contract should keep those concepts separate even if the CLI uses the shorter flag name for ergonomics.
+In CLI examples, `--workbench remote-control` means a Studio workbench id, not the repository/workspace checkout.
 
 CLI output should be human-readable by default, provide `--json` for status/diagnostics, keep normal output quiet, and use explicit exit codes for invalid args, launch failure, readiness timeout, degraded state, and shutdown timeout.
 
@@ -243,12 +243,12 @@ State ownership should stay explicit:
 - Robotick workspace identity belongs to `robotick-hub`
 - Studio instance identity belongs to the Studio capability and is rendered as folders such as `studio-12345/`
 - Studio window identity belongs to a Studio instance
-- Studio workspace, layout-tab, panel, floating-panel, and editor state belongs to a specific Studio window
+- Studio workbench, layout-tab, panel, floating-panel, and editor state belongs to a specific Studio window
 - Studio target-project selection belongs to a Studio instance
 - launcher service identity belongs to the Robotick workspace
 - launcher run identity belongs to the launcher service and should be represented by explicit run ids
-- viewer state may be panel-derived, viewer-engine-derived, or data-source-derived, but should still identify the Studio instance/window/workspace/layout/panel context when one exists
-- capture output belongs to the capture operation and should include enough metadata to prove which instance, window, project, run, Studio workspace, layout tab, panel/editor, data source, viewer, and readiness states produced it
+- viewer state may be panel-derived, viewer-engine-derived, or data-source-derived, but should still identify the Studio instance/window/workbench/layout/panel context when one exists
+- capture output belongs to the capture operation and should include enough metadata to prove which instance, window, project, run, Studio workbench, layout tab, panel/editor, data source, viewer, and readiness states produced it
 
 ### Robotick Workspace Contract
 
@@ -271,7 +271,7 @@ projects:
     project_dir: robots/pip-e
 ```
 
-Do not put readiness policy or artifact policy in this file. `robotick.yaml` registers Robotick workspace shape; it should not decide whether a runtime, Studio workspace, viewer, or capture is ready. Readiness is product state reported through the hub, launcher, and Studio contracts.
+Do not put readiness policy or artifact policy in this file. `robotick.yaml` registers Robotick workspace shape; it should not decide whether a runtime, Studio workbench, viewer, or capture is ready. Readiness is product state reported through the hub, launcher, and Studio contracts.
 
 Docs should be split clearly:
 
@@ -462,7 +462,7 @@ Recommended transport:
 - add WebSocket later for event streams if needed
 - hub API owns capability discovery, health, workspace status, service provisioning, and cross-capability status
 - launcher capability API owns model/runtime launch, stop, status, and readiness
-- Studio capability API owns instance, window, Studio workspace, layout tab, panel/editor, viewer readiness, capture, focus, and quit state
+- Studio capability API owns instance, window, Studio workbench, layout tab, panel/editor, viewer readiness, capture, focus, and quit state
 
 Future clients should wrap this same surface. They should not have stronger powers or separate privileged behavior.
 
@@ -474,12 +474,12 @@ Terminology:
 
 - `robotick_workspace`
   the repository/workspace checkout containing `robotick.yaml`
-- `studio_workspace`
-  Studio's own route/workbench concept, such as `remote-control`, `telemetry`, `models`, or a future per-window custom workspace
+- `studio_workbench`
+  Studio's own route/workbench concept, such as `remote-control`, `telemetry`, `models`, or a future per-window custom workbench
 - `workspace_id`
-  should be avoided in contracts unless the surrounding resource makes the namespace unambiguous; prefer `robotick_workspace_id` or `studio_workspace_id`
+  should be avoided in contracts unless the surrounding resource makes the namespace unambiguous; prefer `robotick_workspace_id` or `studio_workbench_id`
 
-MVP does not need to expose every Studio workbench operation. It does need to avoid a shape that only works for one route, one panel, and one primary window. It is acceptable for early commands to target the active primary window, active Studio workspace, active layout tab, or a named panel; the resource model should still make room for secondary windows, per-window custom Studio workspaces, multiple layout tabs, docked panels, floating panels, and direct data-source queries.
+MVP does not need to expose every Studio workbench operation. It does need to avoid a shape that only works for one route, one panel, and one primary window. It is acceptable for early commands to target the active primary window, active Studio workbench, active layout tab, or a named panel; the resource model should still make room for secondary windows, per-window custom Studio workbenches, multiple layout tabs, docked panels, floating panels, and direct data-source queries.
 
 Canonical resource types:
 
@@ -493,10 +493,10 @@ Canonical resource types:
   one Electron window within a Studio instance
 - `studio_project_binding`
   the current target-project selection for a specific Studio instance
-- `studio_workspace`
+- `studio_workbench`
   one Studio workbench surface available in a specific window or window template
 - `studio_layout_tab`
-  one saved layout tab inside a Studio workspace for a specific window
+  one saved layout tab inside a Studio workbench for a specific window
 - `studio_panel`
   one docked or floating panel instance hosting an editor
 - `studio_editor`
@@ -522,9 +522,9 @@ Canonical id rules:
 - `robotick_workspace_id` is stable for the workspace checkout and should include a machine-usable root path plus a stable workspace id
 - `studio_instance_id` is Robotick-workspace-scoped and remains stable until that Studio instance is gone
 - `studio_window_id` is scoped to a Studio instance and maps to the Electron `windowScope`
-- `studio_workspace_id` is scoped to a Studio window; built-in ids such as `remote-control` remain stable, and future custom per-window workspace ids must be opaque
-- `layout_tab_id` is scoped to `(studio_window_id, studio_workspace_id)`
-- `panel_id` is scoped to `(studio_window_id, studio_workspace_id, layout_tab_id, surface_kind)`
+- `studio_workbench_id` is scoped to a Studio window; built-in ids such as `remote-control` remain stable, and future custom per-window workbench ids must be opaque
+- `layout_tab_id` is scoped to `(studio_window_id, studio_workbench_id)`
+- `panel_id` is scoped to `(studio_window_id, studio_workbench_id, layout_tab_id, surface_kind)`
 - `editor_id` is a registered editor id, not a panel id
 - `launcher_service_id` is Robotick-workspace-scoped and stable across launcher restarts only if the same logical launcher service is being supervised
 - `launcher_run_id` is unique within a Robotick workspace and never reused
@@ -538,7 +538,7 @@ Required common fields:
 - every machine-generated timestamp should be RFC 3339 UTC
 - every resource may include `display_name` for human rendering, but callers must not key logic on it
 - every degraded or failed state must carry machine-readable reason data rather than prose-only explanation
-- Studio context fields such as `studio_window_id`, `studio_workspace_id`, `layout_tab_id`, and `panel_id` may be `null` when an operation intentionally targets a direct data source rather than visible Studio UI
+- Studio context fields such as `studio_window_id`, `studio_workbench_id`, `layout_tab_id`, and `panel_id` may be `null` when an operation intentionally targets a direct data source rather than visible Studio UI
 
 Capability contract shape:
 
@@ -567,24 +567,24 @@ Studio contract shape:
 - `registration_source`
   enum: `hub_open`, `self_register`, `discovered`
 - `studio_window`
-  fields: `id`, `studio_instance_id`, `scope`, `is_primary`, `state`, `current_studio_workspace_id`, `available_studio_workspaces`, `active_child_window_scopes`, `bounds`, `is_visible`, `is_focused`, `last_seen_at`
+  fields: `id`, `studio_instance_id`, `scope`, `is_primary`, `state`, `current_studio_workbench_id`, `available_studio_workbenches`, `active_child_window_scopes`, `bounds`, `is_visible`, `is_focused`, `last_seen_at`
 - `state`
   enum: `opening`, `visible`, `hidden`, `focused`, `unfocused`, `closing`, `closed`, `stale`, `failed`
 - `studio_project_binding`
   fields: `studio_instance_id`, `project_id`, `bound_at`
   `project_id` may be `null`
-- `studio_workspace`
+- `studio_workbench`
   fields: `id`, `studio_window_id`, `path`, `label`, `group`, `default_editor_id`, `allowed_editor_ids`, `source`, `state`
 - `source`
   enum: `builtin`, `project`, `user`, `session`
 - `state`
   enum: `available`, `active`, `hidden`, `removed`, `failed`
 - `studio_layout_tab`
-  fields: `id`, `studio_window_id`, `studio_workspace_id`, `name`, `state`, `panel_tree_root_id`, `panel_ids`, `floating_panel_ids`
+  fields: `id`, `studio_window_id`, `studio_workbench_id`, `name`, `state`, `panel_tree_root_id`, `panel_ids`, `floating_panel_ids`
 - `state`
   enum: `available`, `active`, `closing`, `closed`, `stale`
 - `studio_panel`
-  fields: `id`, `studio_window_id`, `studio_workspace_id`, `layout_tab_id`, `surface_kind`, `editor_id`, `title`, `state`, `settings`, `bounds`, `parent_panel_id`
+  fields: `id`, `studio_window_id`, `studio_workbench_id`, `layout_tab_id`, `surface_kind`, `editor_id`, `title`, `state`, `settings`, `bounds`, `parent_panel_id`
 - `surface_kind`
   enum: `docked`, `floating`
 - `state`
@@ -599,7 +599,7 @@ Launcher contract shape:
 - `state`
   enum: `unavailable`, `starting`, `ready`, `degraded`, `stopping`, `stopped`, `failed`, `stale`
 - `launcher_run`
-  fields: `id`, `state`, `project_id`, `profile_id`, `owner_studio_instance_id`, `created_at`, `started_at`, `stopped_at`, `exit_code`, `failure`, `runtime_readiness`, `active_studio_workspace_id`, `active_viewer_id`
+  fields: `id`, `state`, `project_id`, `profile_id`, `owner_studio_instance_id`, `created_at`, `started_at`, `stopped_at`, `exit_code`, `failure`, `runtime_readiness`, `active_studio_workbench_id`, `active_viewer_id`
 - `state`
   enum: `launch_requested`, `launching`, `running`, `healthy`, `degraded`, `failed`, `stopping`, `stopped`
 - `owner_studio_instance_id`
@@ -615,13 +615,13 @@ Data-source, viewer, and capture contract shape:
   enum: `unknown`, `available`, `streaming`, `degraded`, `failed`, `stale`
 
 - `viewer_state`
-  fields: `id`, `studio_instance_id`, `studio_window_id`, `studio_workspace_id`, `layout_tab_id`, `panel_id`, `surface_kind`, `editor_id`, `viewer_id`, `observation_source`, `data_source_target_id`, `state`, `view_readiness`, `latest_metrics`, `last_frame_at`, `degraded_reasons`
+  fields: `id`, `studio_instance_id`, `studio_window_id`, `studio_workbench_id`, `layout_tab_id`, `panel_id`, `surface_kind`, `editor_id`, `viewer_id`, `observation_source`, `data_source_target_id`, `state`, `view_readiness`, `latest_metrics`, `last_frame_at`, `degraded_reasons`
 - `observation_source`
   enum: `panel`, `viewer_engine`, `telemetry_data_source`, `launcher_service`
 - `state`
   enum: `unknown`, `inactive`, `selected`, `streaming`, `degraded`, `failed`, `stale`
 - `capture_result`
-  fields: `id`, `studio_instance_id`, `studio_window_id`, `project_id`, `launcher_run_id`, `studio_workspace_id`, `layout_tab_id`, `panel_id`, `surface_kind`, `editor_id`, `viewer_id`, `data_source_target_id`, `capture_target_kind`, `captured_at`, `output_path`, `state`, `capture_readiness`, `runtime_readiness_summary`, `viewer_readiness_summary`, `failure`
+  fields: `id`, `studio_instance_id`, `studio_window_id`, `project_id`, `launcher_run_id`, `studio_workbench_id`, `layout_tab_id`, `panel_id`, `surface_kind`, `editor_id`, `viewer_id`, `data_source_target_id`, `capture_target_kind`, `captured_at`, `output_path`, `state`, `capture_readiness`, `runtime_readiness_summary`, `viewer_readiness_summary`, `failure`
 - `capture_target_kind`
   enum: `panel`, `viewer`, `telemetry_snapshot`, `launcher_status`, `diagnostics`
 - `state`
@@ -639,22 +639,22 @@ Readiness contract shape:
 - readiness payloads are not bare booleans
 - readiness payloads must include `readiness_class`, `status`, `checked_at`, `reasons`, `evidence`
 - `readiness_class`
-  enum: `launcher_capability`, `launcher_run`, `studio_workspace`, `studio_panel`, `data_source`, `viewer`, `capture`
+  enum: `launcher_capability`, `launcher_run`, `studio_workbench`, `studio_panel`, `data_source`, `viewer`, `capture`
 - `status`
   enum: `unknown`, `not_ready`, `ready`, `degraded`, `failed`
 - `reasons`
   array of machine-readable reason objects
 - reason object fields: `code`, `scope`, `message`, `retryable`, `details`
 - `scope`
-  enum: `robotick_workspace`, `studio_instance`, `studio_window`, `studio_workspace`, `studio_layout_tab`, `studio_panel`, `launcher_service`, `launcher_run`, `data_source`, `viewer`, `capture`, `shutdown`
+  enum: `robotick_workspace`, `studio_instance`, `studio_window`, `studio_workbench`, `studio_layout_tab`, `studio_panel`, `launcher_service`, `launcher_run`, `data_source`, `viewer`, `capture`, `shutdown`
 
 Minimum readiness evidence:
 
 - launcher capability readiness evidence should include compatibility status and endpoint liveness
 - launcher run readiness evidence should include required-model health, telemetry read/write availability, and critical runtime failures
-- Studio workspace readiness evidence should include the Studio instance, window scope, available workspace ids, active workspace id, and whether the requested workspace exists, is active, hidden, removed, or failed
-- Studio panel readiness evidence should include window/workspace/layout-tab identity, docked or floating surface kind, panel id, editor id, and panel loading/degraded/stale state
-- viewer readiness evidence should include selected Studio window/workspace/layout/panel identity when panel-derived, plus receive/present or equivalent freshness signals
+- Studio workbench readiness evidence should include the Studio instance, window scope, available workbench ids, active workbench id, and whether the requested workbench exists, is active, hidden, removed, or failed
+- Studio panel readiness evidence should include window/workbench/layout-tab identity, docked or floating surface kind, panel id, editor id, and panel loading/degraded/stale state
+- viewer readiness evidence should include selected Studio window/workbench/layout/panel identity when panel-derived, plus receive/present or equivalent freshness signals
 - direct data-source readiness evidence should include endpoint liveness, schema/session freshness, and latest sample or status freshness without requiring a panel to exist
 - capture readiness evidence should include placeholder/non-placeholder truth and whether the panel, viewer, or data-source target has produced enough recent trustworthy data to capture
 
@@ -680,7 +680,7 @@ Concurrency policy for MVP:
 - one launcher service per Robotick workspace
 - multiple Studio instances may exist per Robotick workspace
 - multiple Studio windows may exist per Studio instance
-- Studio workspaces may become per-window and user/custom configurable before or during MVP hardening; contracts must therefore discover them from the Studio instance/window rather than assuming a fixed global list
+- Studio workbenches may become per-window and user/custom configurable before or during MVP hardening; contracts must therefore discover them from the Studio instance/window rather than assuming a fixed global list
 - early launcher concurrency may be constrained to one active run per `(project_id, profile_id)`
 - any MVP concurrency constraint must be enforced as explicit policy with a stable failure code, not as accidental singleton behavior
 
@@ -692,7 +692,7 @@ Operation semantics:
 - wait commands do not create new resources; they poll or subscribe to state changes on an existing target id
 - stop and quit commands transition existing resources toward `stopping`, `quitting`, or `shutdown_requested`; they do not silently target unrelated global state
 - `--wait` behavior may block at the CLI layer, but the underlying contract must still expose the intermediate resource state
-- panel-oriented operations target Studio resources such as `studio_window_id`, `studio_workspace_id`, `layout_tab_id`, and `panel_id`
+- panel-oriented operations target Studio resources such as `studio_window_id`, `studio_workbench_id`, `layout_tab_id`, and `panel_id`
 - direct operations may target `data_source_target_id`, `launcher_run_id`, or model/telemetry ids without requiring any visible panel
 
 Normative state transitions:
@@ -755,11 +755,11 @@ Launcher run readiness answers:
 - is telemetry read/write available?
 - are there critical runtime failures?
 
-Studio workspace/viewer readiness answers:
+Studio workbench/viewer readiness answers:
 
 - is the requested Studio instance alive and bound to the intended project?
 - is the requested Studio window available?
-- is the requested Studio workspace active in that window?
+- is the requested Studio workbench active in that window?
 - is the requested layout tab active when panel state matters?
 - is the requested panel/editor present when panel state matters?
 - is the selected viewer option known?
@@ -773,7 +773,7 @@ Capture readiness answers:
 - does the capture metadata include runtime and viewer readiness summaries?
 - should capture proceed, wait, or fail with a machine-readable reason?
 
-Remote Control readiness is a Studio workspace/viewer readiness projection over launcher-run truth plus view-specific receive/present signals. It is not a separate definition of robot readiness, and launcher-run readiness alone is not enough to prove an RC screenshot or panel capture will be meaningful.
+Remote Control readiness is a Studio workbench/viewer readiness projection over launcher-run truth plus view-specific receive/present signals. It is not a separate definition of robot readiness, and launcher-run readiness alone is not enough to prove an RC screenshot or panel capture will be meaningful.
 
 ### Capture And Shutdown
 
@@ -785,13 +785,13 @@ Minimum capture metadata:
 - project
 - Studio instance
 - Studio window
-- Studio workspace
+- Studio workbench
 - layout tab when panel-derived
 - panel/editor when panel-derived
 - data-source target when direct
 - selected viewer option when relevant
 - model/runtime readiness summary
-- Studio workspace/viewer readiness summary
+- Studio workbench/viewer readiness summary
 - capture target kind
 
 Shutdown should be staged:
@@ -953,7 +953,7 @@ The main agentic risk is no longer command discovery; it is lifecycle truth. Hub
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
 - [x] Defined the MVP Robotick capability/state contract in the design note
-      Deliverable: the design now defines canonical MVP resource types, id rules, required fields, state enums, readiness payload shape, failure object shape, compatibility policy, concurrency policy, operation semantics, and normative state transitions for Robotick workspace, hub capability, Studio instance, Studio window, Studio workspace, layout tab, panel/editor, data-source target, launcher service, launcher run, viewer state, capture result, and shutdown state.
+      Deliverable: the design now defines canonical MVP resource types, id rules, required fields, state enums, readiness payload shape, failure object shape, compatibility policy, concurrency policy, operation semantics, and normative state transitions for Robotick workspace, hub capability, Studio instance, Studio window, Studio workbench, layout tab, panel/editor, data-source target, launcher service, launcher run, viewer state, capture result, and shutdown state.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Freeze MVP command/result grammar before adding new surface
@@ -992,12 +992,16 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
       Deliverable: machine-readable launcher capability readiness and launcher-run readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs. Run state distinguishes launch requested, launching, running, healthy, degraded, failed, stopping, and stopped; readiness detail includes model health, telemetry read/write availability, critical failures, and stable reasons for timeout/degraded/failure outcomes.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
-- [ ] Implement Studio workspace/viewer and capture readiness
-      Deliverable: Studio reports active window, active/custom Studio workspace, active layout tab, relevant panel/editor identity, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Direct telemetry or launcher-derived readiness paths can bypass panels when the requested truth is not panel-specific. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
+- [ ] Align implementation and CLI naming on `studio_workbench` / `workbench`
+      Deliverable: hub contracts, Studio state/resource names, implementation-facing docs, CLI command grammar, and CLI flags all use `studio_workbench`, `studio_workbench_id`, `workbench`, and `--workbench` for the Studio route/workbench concept, while `robotick_workspace` remains the checkout/runtime-registration concept.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `small`
+
+- [ ] Implement Studio workbench/viewer and capture readiness
+      Deliverable: Studio reports active window, active/custom Studio workbench, active layout tab, relevant panel/editor identity, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Direct telemetry or launcher-derived readiness paths can bypass panels when the requested truth is not panel-specific. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement first-class capture
-      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, Studio window id, selected project, launcher run id if relevant, Studio workspace id, layout tab id when panel-derived, panel/editor id when panel-derived, data-source target id when direct, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
+      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, Studio window id, selected project, launcher run id if relevant, Studio workbench id, layout tab id when panel-derived, panel/editor id when panel-derived, data-source target id when direct, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Fix shutdown sequencing
@@ -1017,8 +1021,8 @@ robotick studio open --json
 robotick studio studio-12345 project barr-e
 robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345 --json
 robotick launcher wait-ready run-67890 --readiness launcher-run
-robotick studio studio-12345 wait-ready viewer --workspace remote-control --panel main --run run-67890
-robotick studio studio-12345 capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run run-67890
+robotick studio studio-12345 capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
 robotick launcher stop run-67890
 robotick studio studio-12345 quit --wait
 ```
@@ -1033,8 +1037,8 @@ ls
 project barr-e
 launcher launch --project barr-e --profile local:ALL
 launcher wait-ready run-67890 --readiness launcher-run
-wait-ready viewer --workspace remote-control --panel main --run run-67890
-capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+wait-ready viewer --workbench remote-control --panel main --run run-67890
+capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
 launcher stop run-67890
 quit
 ```
@@ -1054,7 +1058,7 @@ Future clients should eventually be able to complete the same flow without repo 
 - [ ] Richer log inspection and tailing commands
       Deliverable: explicit log viewing/tailing commands beyond the current `--attach` launch mode
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
-- [ ] Richer Studio workspace, viewer, diagnostics, capture, and child-window coverage
+- [ ] Richer Studio workbench, viewer, diagnostics, capture, and child-window coverage
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 - [ ] MCP adapter over the same operational contract
       Deliverable: an MCP layer exposes selected hub-backed operations as typed tools for agents after the hub, CLI, Studio, launcher, readiness, capture, and shutdown contracts have settled. It must wrap existing operational truth rather than creating privileged behavior or parallel state semantics.
