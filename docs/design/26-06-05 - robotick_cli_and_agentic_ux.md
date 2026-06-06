@@ -257,6 +257,7 @@ Recommended tool shape:
 - `robotick-hub` owns the long-running local workspace API, capability registry, capability orchestration, and service lifecycle policy
 - `robotick-hub` remains a Python service first; desktop tray presence should be a thin PyQt5 layer over that same process rather than a second app or an Electron rewrite
 - `robotick-launcher` remains a focused launcher capability provider; it should expose stable APIs for hub integration while keeping `robotick-launcher` as a compatibility command
+- launcher runtime execution should not be pulled fully in-process into `robotick-hub` during Pre-MVP; the current launcher listener owns process handles, queues, threads, websocket log fan-out, and singleton runtime status, so hub should initially own it as a managed capability/worker rather than importing arbitrary route internals
 - Studio is a UI client of `robotick-hub`; it should not start, stop, supervise, or directly own launcher services
 - MCP should later speak to `robotick-hub` or the same hub-backed command contracts, not to a separate privileged model
 
@@ -330,9 +331,9 @@ Recommended hub ownership model:
 - `robotick-hub` owns provisioning and lifecycle policy for local workspace services
 - capabilities own their domain behavior and expose small stable APIs to the hub
 - launcher is a first-party capability, not a special case because it is Python
-- `robotick-launcher` should expose stable library/service functions such as ensure, status, stop, and endpoint discovery; `robotick-hub` should not import arbitrary deep launcher internals
+- `robotick-launcher` should expose stable library/service functions such as ensure, status, stop, endpoint discovery, and run-state mapping; `robotick-hub` should not import arbitrary deep launcher internals
 - `robotick-hub` may embed simple capabilities such as workspace/project query behavior directly at first
-- `robotick-hub` may provision managed services, such as launcher runtime service, and discover external services, such as already-open Studio instances
+- `robotick-hub` may provision managed services, such as a launcher runtime worker/service, and discover external services, such as already-open Studio instances
 - one-shot commands and immediate-mode commands should both use the same hub-backed service provisioning rules
 - shared query truth such as workspace project listing should live at hub/workspace scope rather than only under the Studio namespace; Studio may expose convenience aliases, but it should not be the sole route to those answers
 - when `robotick-hub` is running in a desktop session, it should present a system tray presence as part of the same tool/process rather than acting like a purely hidden background service
@@ -373,7 +374,7 @@ Initial hub contract:
 Capability acquisition policy:
 
 - embedded capabilities live inside `robotick-hub`, for example simple workspace/project queries at first
-- managed capabilities are started/stopped by `robotick-hub`, for example launcher runtime service when a command needs it
+- managed capabilities are started/stopped by `robotick-hub`, for example launcher runtime execution when a command needs it
 - discovered capabilities are registered or observed by `robotick-hub`, for example already-open Studio instances
 - each capability should expose a small typed contract: id, kind, health, endpoint if any, and supported operations
 - Pydantic models define these contracts once so hub routes, CLI rendering, Studio clients, tests, and later MCP agree on the same shapes
@@ -396,6 +397,13 @@ Recommended launcher capability model:
 - launcher should support many runs beneath that service, each with its own run id, target project, profile, status, and optional owning Studio instance id
 - Studio target-project state and launcher run identity are separate concepts; switching Studio target project should not silently redefine launcher service identity
 - if concurrent runs need to stay constrained in early MVP, constrain them with explicit rules such as one active run per `(project, profile)` rather than a hidden global singleton
+- the current launcher listener shape should be treated as a compatibility/service adapter, not the desired internal architecture: route modules should become thin wrappers over explicit launcher services, and runtime state should move into a run registry rather than module globals
+
+Recommended launcher integration staging:
+
+- Pre-MVP: `robotick-hub` owns launcher lifecycle as a managed capability/worker. It may embed safe query-only behavior such as workspace/project/model discovery when that code is cleanly exposed, but build/run/stop execution should remain isolated behind a launcher process or worker contract.
+- MVP: hub, CLI, Studio, and launcher agree on typed Pydantic contracts for capability health, run creation, run status, readiness, stop, logs/events, and failure detail. Runtime state is keyed by explicit run ids, with early concurrency limits stated as policy rather than emerging from singleton globals.
+- Future work: after launcher routes are thin adapters over explicit service objects, decide capability-by-capability whether to embed more launcher logic in-process. Query and validation capabilities are good candidates; actual model/runtime execution may remain process-backed indefinitely for crash isolation and process-tree cleanup.
 
 Recommended transport:
 
@@ -569,8 +577,8 @@ Checklist housekeeping rule:
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if desktop integration details become the main challenge
 
 - [ ] Route launcher capability through hub
-      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, endpoint discovery, and run-oriented state; `robotick-hub` uses those contracts without importing arbitrary deep launcher internals; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path operate through the hub.
-      Test scope: fake launcher provider tests, idempotent ensure tests, run/status mapping tests, and checks that hub code depends only on the stable launcher capability API.
+      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, endpoint discovery, and run-oriented state; `robotick-hub` owns launcher lifecycle as a managed capability/worker rather than importing launcher route modules directly; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path operate through the hub.
+      Test scope: fake launcher provider tests, idempotent ensure tests, managed-worker lifecycle tests, run/status mapping tests, and checks that hub code depends only on the stable launcher capability API.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if the integration seam gets tangled
 
 - [x] Moved shared workspace/project queries onto hub-backed paths
@@ -598,7 +606,7 @@ The shape is now materially better for agentic use. The CLI exposes an explicit 
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
 - [ ] Define MVP Robotick capability/state contract
-      Deliverable: documented Studio app, project, launcher, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity.
+      Deliverable: documented Studio app, project, launcher capability, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity, the explicit run-id model, and any early concurrency limits such as one active run per `(project, profile)`.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement instance discovery and targeting
@@ -618,11 +626,11 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Implement launcher commands
-      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the launcher capability and work consistently in one-shot and immediate-mode forms.
+      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability, address explicit run ids where needed, and work consistently in one-shot and immediate-mode forms.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement readiness state
-      Deliverable: machine-readable state distinguishing launch requested, launching, running, healthy, degraded, and failed.
+      Deliverable: machine-readable launcher-run state distinguishing launch requested, launching, running, healthy, degraded, failed, stopping, and stopped, with readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement workspace/viewer readiness for capture workflows
@@ -678,6 +686,9 @@ The equivalent MCP workflow should complete without repo rummaging, script-path 
 - [ ] Optional OS/session startup for `robotick-hub`
       Deliverable: desktop environments may optionally start `robotick-hub` on login/startup so hub/tray presence exists before the first CLI command, but this remains outside MVP and should not obscure the normal explicit `robotick` bootstrap contract.
       Recommended Codex model/effort: `gpt-5.4-mini` / `low`
+- [ ] Refactor launcher internals toward embeddable capability services
+      Deliverable: launcher route modules become thin adapters over explicit service objects, runtime state moves out of module globals into a run registry, query/validation services can be imported safely by hub where useful, and runtime execution remains process-backed unless in-process execution becomes clearly justified.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` only if broad launcher architecture and concurrency policy dominate the work
 - [ ] Artifact/output conventions once capture workflows settle
       Recommended Codex model/effort: `gpt-5.4-mini` / `low`
 - [ ] Richer log inspection and tailing commands
