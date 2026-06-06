@@ -5,17 +5,28 @@ Baseline project: `robots/barr-e`
 
 ## Why This Matters
 
-The near-term goal is a better Robotick CLI and a cleaner Studio operational contract. The longer-term payoff is much bigger: once Robotick exposes stable, typed operational truth for Studio instances, launcher runs, readiness, capture, and shutdown, external agents can stop acting like brittle shell macro recorders and start acting more like real robot operators.
+Robotick is not just gaining a nicer command line. It is learning how to explain its own workshop.
 
-That future is worth designing for even though MCP is out of scope for MVP. A good agent-facing layer over the same hub contract could eventually:
+Today, Studio is a powerful human tool. It can launch robots, inspect models, show telemetry, drive viewports, and help shape expressive behaviour. But much of that knowledge still lives in a human operator's head: which script to run, which window matters, which log line is bad, whether a blank viewport means "not ready yet" or "broken", and when it is safe to capture evidence or shut everything down.
 
-- launch a robot, wait for the right readiness class, capture evidence, detect degraded models, retry intelligently, and hand back a trustworthy report
-- compare multiple runs as first-class objects rather than scraping logs and filenames
-- help author new robots by creating project skeletons, validating model graphs, running bring-up flows, and surfacing missing telemetry or wiring problems
-- iterate on expressive behavior by editing code or YAML, running the system, inspecting telemetry and captures, and deciding whether the behavior actually reads better
-- perform ongoing engineering support work such as regression sweeps, nightly bring-up checks, automatic failure capture, and historical runtime comparison
+The immediate goal is to make those truths explicit. Studio instances, launcher services, robot runs, readiness classes, viewer state, capture results, and shutdown blockers should all become named, typed, inspectable things.
 
-CLI is still the right place to define the operational contract. But if that contract is shaped well, Robotick can later support agents that help create, operate, inspect, and improve robots in a much more capable way than shell scripting alone.
+That is useful in ordinary ways first. A CLI can make daily bring-up less fiddly. A hub can stop stale services and duplicate launchers becoming mysterious. Tests can open Barr.e, wait for real readiness, capture the Remote Control view, save useful metadata, and close cleanly. A cold engineer, hobbyist, or future contributor can ask the system what exists instead of rummaging through scripts and guessing from UI state.
+
+The larger payoff is more interesting. Once Robotick exposes its workbench as a stable operational world, agents can begin to participate in the creative robotics loop. Not as magic robot brains, and not as a replacement for Robotick's runtime, but as tireless workshop assistants that can operate the tools, observe the results, and help improve the system.
+
+That opens up several genuinely valuable workflows:
+
+- an agent can bring up Barr.e overnight, notice that the face model crashed, capture the exact degraded state, compare it with yesterday's run, and leave a concise report with the real failure boundary rather than a pile of logs
+- an agent can generate a new robot project skeleton, wire the declared workloads, run validation, open Studio, inspect missing telemetry, and point to the precise contract or connection that failed
+- an agent can try three versions of a curious head-turn, capture each one, compare timing curves and viewer output, and help decide which behaviour reads most alive
+- an agent can run expressive regression sweeps across many saved scenarios and tell you not only that motion changed, but that it now looks hesitant, abrupt, flat, or emotionally incoherent compared with previous runs
+- an agent can search for personality bugs: places where Barr.e's face, posture, attention, and memory cues stop feeling like one being and start feeling like disconnected subsystems
+- an agent can build small simulation scenes or scripted provocations to elicit surprise, caution, curiosity, frustration, or recovery, then compare how different robot versions respond
+- an agent can help turn puppeteered discoveries into reusable behaviour by capturing what worked in a live session, tracing the relevant telemetry and state transitions, and proposing the procedural logic needed to reproduce it
+- an agent can maintain a historical memory of runs, asking questions like "when did Barr.e stop recovering cleanly from this state?" or "which change made this hesitation start reading as intentional instead of broken?"
+
+That is why the CLI matters. It is not a side quest into shell tooling. It is the first step toward making Robotick's creative-technical workshop legible: commandable by humans, inspectable by tests, usable by Studio, and eventually shareable with agents through the same operational truth.
 
 ## Problem Statement
 
