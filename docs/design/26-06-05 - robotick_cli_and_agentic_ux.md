@@ -202,10 +202,10 @@ robotick studio open
 robotick studio instances
 robotick studio studio-12345 project barr-e
 robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
-robotick launcher wait-ready run-67890 --readiness launcher-run
-robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run run-67890
-robotick studio studio-12345 capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
-robotick launcher stop run-67890
+robotick launcher wait-ready launcher-full-67890 --readiness launcher-run
+robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
+robotick studio studio-12345 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
+robotick launcher stop launcher-full-67890
 robotick studio studio-12345 quit --wait
 ```
 
@@ -218,8 +218,8 @@ robotick:studio> ls
 robotick:studio> open
 robotick:studio:studio-12345> project barr-e
 robotick:studio:studio-12345> launcher launch --project barr-e --profile local:ALL
-robotick:studio:studio-12345> launcher wait-ready run-67890 --readiness launcher-run
-robotick:studio:studio-12345> wait-ready viewer --workbench remote-control --panel main --run run-67890
+robotick:studio:studio-12345> launcher wait-ready launcher-full-67890 --readiness launcher-run
+robotick:studio:studio-12345> wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
 robotick:studio:studio-12345> clear
 robotick:studio:studio-12345> quit
 robotick:studio> back
@@ -237,6 +237,34 @@ Command style:
 In CLI examples, `--workbench remote-control` means a Studio workbench id, not the repository/workspace checkout.
 
 CLI output should be human-readable by default, provide `--json` for status/diagnostics, keep normal output quiet, and use explicit exit codes for invalid args, launch failure, readiness timeout, degraded state, and shutdown timeout.
+
+Command/result grammar for MVP should now be treated as fixed enough to build against:
+
+- `create`
+  one-shot: materializes a Studio instance and returns its instance identity; it does not change caller context
+  immediate mode: materializes a Studio instance and keeps the shell in the current context unless a later command explicitly binds it
+- `open`
+  one-shot: launches or registers a Studio instance and returns a targetable `studio_instance`; it does not pretend to leave the caller inside that instance
+  immediate mode: launches or registers a Studio instance and may bind the prompt to that instance immediately
+- instance targeting
+  one-shot: target the instance explicitly, for example `robotick studio studio-12345 ...`
+  immediate mode: once bound, unqualified Studio-scoped commands operate on the current instance
+- `launcher launch`
+  always returns a machine-targetable `launcher_run` identity such as `launcher-full-67890`
+  launch subtype must also be explicit in fields such as `launch_kind`, `profile_id`, `requested_stages`, and optional `target_models`; callers must not rely on parsing the id to recover that meaning
+  when invoked from a bound Studio prompt, the command may attach `owner-instance` metadata for diagnostics and UX, but launcher service identity remains Robotick-workspace-scoped
+- `launcher wait-ready` and `launcher stop`
+  always target an explicit run id; they do not silently operate on ambient singleton runtime state
+- `wait-ready viewer`
+  never creates a viewer; it waits against an existing Studio instance/window/workbench/panel/viewer target and, when relevant, a referenced launcher run id
+- `capture`
+  always writes or returns a `capture_result` tied to explicit Studio and runtime context; it is not an implicit side effect of `wait-ready`
+- `quit` and `stop`
+  `quit` targets a Studio instance
+  `stop` targets a launcher run
+  `--wait` changes blocking behavior, not resource identity or ownership
+- JSON output
+  `--json` should serialize the underlying resource or operation result with minimal presentation wrapping rather than inventing shell-specific hidden state
 
 State ownership should stay explicit:
 
@@ -527,7 +555,7 @@ Canonical id rules:
 - `panel_id` is scoped to `(studio_window_id, studio_workbench_id, layout_tab_id, surface_kind)`
 - `editor_id` is a registered editor id, not a panel id
 - `launcher_service_id` is Robotick-workspace-scoped and stable across launcher restarts only if the same logical launcher service is being supervised
-- `launcher_run_id` is unique within a Robotick workspace and never reused
+- `launcher_run_id` is unique within a Robotick workspace and never reused; MVP examples should use a typed id shape such as `launcher-full-67890`
 - project names such as `barr-e` are canonical project ids for MVP
 
 Required common fields:
@@ -599,7 +627,11 @@ Launcher contract shape:
 - `state`
   enum: `unavailable`, `starting`, `ready`, `degraded`, `stopping`, `stopped`, `failed`, `stale`
 - `launcher_run`
-  fields: `id`, `state`, `project_id`, `profile_id`, `owner_studio_instance_id`, `created_at`, `started_at`, `stopped_at`, `exit_code`, `failure`, `runtime_readiness`, `active_studio_workbench_id`, `active_viewer_id`
+  fields: `id`, `state`, `operation_kind`, `launch_kind`, `project_id`, `profile_id`, `requested_stages`, `target_models`, `owner_studio_instance_id`, `created_at`, `started_at`, `stopped_at`, `exit_code`, `failure`, `runtime_readiness`, `active_studio_workbench_id`, `active_viewer_id`
+- `operation_kind`
+  enum: `launch`
+- `launch_kind`
+  enum: `full`, `build-only`, `profile-subset`, `model-subset`, future launch kinds later
 - `state`
   enum: `launch_requested`, `launching`, `running`, `healthy`, `degraded`, `failed`, `stopping`, `stopped`
 - `owner_studio_instance_id`
@@ -972,8 +1004,8 @@ Current workflow reality, tested against today's CLI and a real Barr.e Studio la
 
 #### Prove The Loop
 
-- [ ] Freeze MVP command/result grammar before adding new surface
-      Deliverable: one-shot and immediate-mode semantics are documented for `create`, `open`, instance binding, launcher launch results, readiness waits, capture, and stop/quit. In particular, one-shot `studio open` returns a targetable instance identity rather than pretending to change shell context; immediate-mode `open` may bind the prompt to that instance; `launcher launch` returns a run id; `launcher wait-ready` and `launcher stop` accept run ids; and launcher commands invoked from a bound Studio prompt may attach owner-instance metadata without making the launcher service instance-owned.
+- [x] Froze the MVP command/result grammar in the design note
+      Deliverable: one-shot and immediate-mode semantics are now documented for `create`, `open`, instance binding, launcher launch results, readiness waits, capture, and stop/quit. One-shot `studio open` returns a targetable instance identity rather than pretending to change shell context; immediate-mode `open` may bind the prompt to that instance; `launcher launch` returns a typed launcher run id plus explicit launch-kind metadata; `launcher wait-ready` and `launcher stop` accept launcher run ids; and launcher commands invoked from a bound Studio prompt may attach owner-instance metadata without making the launcher service instance-owned.
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Align implementation and CLI naming on `studio_workbench` / `workbench`
@@ -989,7 +1021,7 @@ Current workflow reality, tested against today's CLI and a real Barr.e Studio la
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement launcher commands
-      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability and work consistently in one-shot and immediate-mode forms. `launch` returns a machine-readable run id, `status --json` reports service state plus run state, `wait-ready` can wait on a specific run id and readiness class, and `stop` can stop a specific run without relying on hidden global singleton state.
+      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability and work consistently in one-shot and immediate-mode forms. `launch` returns a machine-readable typed launcher run id plus explicit launch-kind metadata, `status --json` reports service state plus run state, `wait-ready` can wait on a specific launcher run id and readiness class, and `stop` can stop a specific run without relying on hidden global singleton state.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Debug RC viewer bootstrap flakiness and expose viewer recovery commands
@@ -1056,10 +1088,10 @@ The exact flag names can change during contract review, but the Barr.e baseline 
 robotick studio open --json
 robotick studio studio-12345 project barr-e
 robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345 --json
-robotick launcher wait-ready run-67890 --readiness launcher-run
-robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run run-67890
-robotick studio studio-12345 capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
-robotick launcher stop run-67890
+robotick launcher wait-ready launcher-full-67890 --readiness launcher-run
+robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
+robotick studio studio-12345 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
+robotick launcher stop launcher-full-67890
 robotick studio studio-12345 quit --wait
 ```
 
@@ -1072,10 +1104,10 @@ robotick:studio:studio-12345>
 ls
 project barr-e
 launcher launch --project barr-e --profile local:ALL
-launcher wait-ready run-67890 --readiness launcher-run
-wait-ready viewer --workbench remote-control --panel main --run run-67890
-capture panel --workbench remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
-launcher stop run-67890
+launcher wait-ready launcher-full-67890 --readiness launcher-run
+wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
+capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
+launcher stop launcher-full-67890
 quit
 ```
 
