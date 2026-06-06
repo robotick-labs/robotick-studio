@@ -952,6 +952,20 @@ The main agentic risk is no longer command discovery; it is lifecycle truth. Hub
 
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
+#### Initial State
+
+Current workflow reality, tested against today's CLI and a real Barr.e Studio launch:
+
+- `robotick studio` currently exposes only `projects`, `instances`, `create`, `open`, and instance `quit`; `robotick launcher` currently exposes only `status`
+- `robotick studio open barr-e` does give a usable instance id such as `studio-3792890`, and `studio instances --json` reports reconciled runtime state, but the tracked Studio instance still has `control_endpoint: null`
+- the hub knows launcher health and Studio presence, but Studio remains a `hello-world` discovered capability with no typed workbench/panel/viewer inspection surface
+- a screenshot is possible today, but only by scraping the Studio launch log for Electron's dev-mode remote-debugging port, querying the DevTools target list manually, and sending raw `Page.captureScreenshot` over CDP/WebSocket
+- that screenshot path is dev-mode-only and out-of-band: it is not discoverable from the CLI, not exposed through hub/Studio contracts, and does not produce Robotick-level metadata or readiness decisions
+- the resulting screenshot is also not trustworthy by itself: in the tested Barr.e run, launcher status reported a healthy ambient `local:ALL` runtime, but the captured Remote Control workbench image still had large blank/placeholder regions and no machine-readable way to tell whether that meant loading, wrong tab/panel selection, stale viewer state, or genuine failure
+- Remote Control viewer bootstrap is also flaky in a specifically agent-hostile way: the viewport may recover after a manual UI refresh, which strongly suggests missing viewer/subscription state reporting plus a real initialization/rebind bug rather than a simple operator mistake
+- current launcher truth is still ambient rather than explicit for capture workflows: there is no run id tying the visible Studio state to the runtime state the agent should trust
+- the tested Studio launch also logged a bootstrap-side error while probing renderer window controls; that is not the main workflow blocker, but it is avoidable launch noise in an already fragile automation path
+
 - [x] Defined the MVP Robotick capability/state contract in the design note
       Deliverable: the design now defines canonical MVP resource types, id rules, required fields, state enums, readiness payload shape, failure object shape, compatibility policy, concurrency policy, operation semantics, and normative state transitions for Robotick workspace, hub capability, Studio instance, Studio window, Studio workbench, layout tab, panel/editor, data-source target, launcher service, launcher run, viewer state, capture result, and shutdown state.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
@@ -967,6 +981,10 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
 - [ ] Implement instance discovery and targeting
       Deliverable: `robotick studio instances`, stable instance folder names, one-shot targeting by instance identity, bound-prompt targeting by current instance, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts with reconciled state such as `running`, `degraded`, `stale`, or `gone`.
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
+
+- [ ] Implement Studio instance inspection and workbench discovery
+      Deliverable: `robotick studio <instance> status --json` or equivalent surfaces the active Studio window, available and active workbenches, layout tabs, visible/floating panels, selected editor/viewer context, and any control endpoint needed by the hub/provider layer. Agents should not have to scrape launch logs, inspect Electron DevTools targets, or infer workbench state from screenshots alone.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement bound interactive mode
       Deliverable: `robotick studio` opens a REPL that can bind to an instance and run repeated commands without `--instance`.
@@ -1000,9 +1018,21 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
       Deliverable: Studio reports active window, active/custom Studio workbench, active layout tab, relevant panel/editor identity, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Direct telemetry or launcher-derived readiness paths can bypass panels when the requested truth is not panel-specific. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
+- [ ] Debug RC viewer bootstrap flakiness and expose viewer recovery commands
+      Deliverable: the Remote Control viewer no longer depends on manual refresh to begin receiving/presenting frames when upstream runtime state is healthy; Robotick exposes explicit viewer status and recovery operations such as `viewer status`, `viewer refresh`, or `viewer rebind` against a specific workbench/panel target; and status output makes subscribed vs receiving vs presenting vs placeholder vs degraded states machine-readable so agents can distinguish retryable viewer failure from upstream runtime failure.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Replace ad hoc DevTools screenshotting with a first-class Studio capture path
+      Deliverable: agents can request full-window and targeted workbench/panel/viewer captures through Robotick commands and hub/Studio contracts in both dev and packaged modes, without scraping log files for remote-debugging ports or speaking raw CDP. Capture results must include canonical Robotick metadata and route through the same readiness/capture contract as normal CLI capture.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
 - [ ] Implement first-class capture
       Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, Studio window id, selected project, launcher run id if relevant, Studio workbench id, layout tab id when panel-derived, panel/editor id when panel-derived, data-source target id when direct, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Fix Studio launch-time window-control probe noise
+      Deliverable: Studio no longer logs the current renderer window-controls probe failure during normal launch, and startup diagnostics cleanly distinguish benign capability absence from actual launch failure.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `small`
 
 - [ ] Fix shutdown sequencing
       Deliverable: `robotick studio <instance> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
