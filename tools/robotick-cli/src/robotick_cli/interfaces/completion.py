@@ -74,7 +74,7 @@ def _studio_subcommand_tokens(ctx: AppContext, prior_tokens: list[str]) -> list[
     instance_name = normalize_instance_specifier(prior_tokens[1])
     if instance_name in _studio_instance_names(str(ctx.workspace_root)):
         if len(prior_tokens) == 2:
-            return ["quit"]
+            return sorted(bound_instance_action_names())
     return []
 
 
@@ -126,7 +126,11 @@ def get_completion_matches(
         instance_name = normalize_instance_specifier(prior_tokens[0])
         if instance_name in _studio_instance_names(str(ctx.workspace_root)):
             if len(prior_tokens) == 1:
-                return [candidate for candidate in ["quit"] if candidate.startswith(prefix)]
+                return [
+                    candidate
+                    for candidate in sorted(bound_instance_action_names())
+                    if candidate.startswith(prefix)
+                ]
 
     return []
 

@@ -20,6 +20,7 @@ from robotick_cli.language.help import (
     create_help_text,
     instance_help_text,
     instance_quit_help_text,
+    instance_workbench_help_text,
     instances_help_text,
     open_help_text,
     projects_help_text,
@@ -145,6 +146,14 @@ def run_studio_instance_command(
     command, *rest = args
     if command == "quit":
         return handle_instance_quit(ctx, instance.name, rest)
+    if command == "workbench":
+        if not rest or any(is_help_flag(arg) for arg in rest):
+            writeln(instance_workbench_help_text(instance.name))
+            return CommandResult(exit_code=0)
+        raise CliError(
+            "Studio workbench subcommands are not implemented yet. "
+            "Use 'robotick studio <instance> workbench --help' for the current grammar."
+        )
     raise CliError(f"Unknown instance command for {instance.name}: {command}")
 
 

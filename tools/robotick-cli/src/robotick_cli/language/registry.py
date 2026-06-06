@@ -96,6 +96,19 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_studio_root=False,
         visible_in_bound_instance=True,
     ),
+    CommandSpec(
+        name="workbench",
+        usage="robotick studio <instance> workbench [--help]",
+        summary="Inspect Studio workbench commands",
+        shell_label="workbench",
+        description_lines=(
+            "Inspect or act on Studio workbench state for the targeted instance.",
+            "The workbench command surface is being aligned now; richer operations",
+            "such as status, readiness, and capture targeting are not yet implemented.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
 )
 
 HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (

@@ -27,11 +27,13 @@ def get_prompt(state: ShellState) -> str:
 def get_studio_help_text() -> str:
     root_specs = [get_studio_command_spec(name) for name in studio_root_action_names()]
     quit_spec = get_studio_command_spec("quit")
+    workbench_spec = get_studio_command_spec("workbench")
     return "\n".join(
         [
             "Usage:",
             *[f"  {spec.usage}" for spec in root_specs],
             f"  {quit_spec.usage}",
+            f"  {workbench_spec.usage}",
             "",
             "Commands:",
             *[f"  {spec.name:<10}{spec.summary}" for spec in root_specs],
@@ -272,13 +274,16 @@ def open_help_text() -> str:
 
 def instance_help_text(instance_name: str) -> str:
     spec = get_studio_command_spec("quit")
+    workbench_spec = get_studio_command_spec("workbench")
     return "\n".join(
         [
             "Usage:",
             f"  robotick studio {instance_name} quit",
+            f"  robotick studio {instance_name} workbench [--help]",
             "",
             "Commands:",
             f"  {spec.name:<6} {spec.summary}",
+            f"  {workbench_spec.name:<6} {workbench_spec.summary}",
             "",
         ]
     )
@@ -290,6 +295,20 @@ def instance_quit_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} quit",
+            "",
+            "Description:",
+            *[f"  {line}" for line in spec.description_lines],
+            "",
+        ]
+    )
+
+
+def instance_workbench_help_text(instance_name: str) -> str:
+    spec = get_studio_command_spec("workbench")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  robotick studio {instance_name} workbench [--help]",
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],

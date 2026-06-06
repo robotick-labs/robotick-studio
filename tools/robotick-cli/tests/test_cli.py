@@ -28,7 +28,12 @@ from robotick_cli.interfaces.repl import (
     try_handle_top_level_studio_open,
     try_enter_context_directly,
 )
-from robotick_cli.language.help import format_shell_context, get_prompt, get_studio_help_text
+from robotick_cli.language.help import (
+    format_shell_context,
+    get_prompt,
+    get_studio_help_text,
+    instance_workbench_help_text,
+)
 from robotick_cli.language.registry import get_studio_command_spec
 from robotick_cli.studio import CommandResult
 
@@ -159,9 +164,11 @@ def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> 
 
 def test_studio_help_is_generated_from_command_registry() -> None:
     open_spec = get_studio_command_spec("open")
+    workbench_spec = get_studio_command_spec("workbench")
     help_text = get_studio_help_text()
     assert f"  {open_spec.usage}" in help_text
     assert open_spec.summary in help_text
+    assert f"  {workbench_spec.usage}" in help_text
 
 
 def test_hub_status_starts_hub_and_reports_capabilities() -> None:
@@ -242,13 +249,57 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
         terminate_pid(launcher_payload.get("pid"))
 
 
-def test_bound_instance_ls_advertises_quit_as_action() -> None:
+def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     text = format_shell_context(
         ShellState(namespace="studio", instance_name="studio-12345"),
         str(create_fake_workspace()),
     )
     assert "Available in studio/studio-12345:" in text
-    assert "Actions:\n- projects\n- ls\n- cd\n- clear\n- help\n- back\n- quit\n- exit" in text
+    assert (
+        "Actions:\n- projects\n- ls\n- cd\n- clear\n- help\n- back\n- quit\n- workbench\n- exit"
+        in text
+    )
+
+
+def test_instance_help_lists_workbench_command() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    result = run_cli(["studio", instance_name], workspace)
+
+    assert result.returncode == 0
+    assert f"robotick studio {instance_name} workbench [--help]" in result.stdout
+    assert "workbench Inspect Studio workbench commands" in result.stdout
+
+
+def test_instance_workbench_help_is_available() -> None:
+    help_text = instance_workbench_help_text("studio-12345")
+    assert "robotick studio studio-12345 workbench [--help]" in help_text
+    assert "Inspect or act on Studio workbench state for the targeted instance." in help_text
+
+
+def test_instance_workbench_subcommands_fail_clearly_until_implemented() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    result = run_cli(["studio", instance_name, "workbench", "status"], workspace)
+
+    assert result.returncode == 1
+    assert (
+        "Studio workbench subcommands are not implemented yet. "
+        "Use 'robotick studio <instance> workbench --help' for the current grammar."
+        in result.stderr
+    )
 
 
 def test_open_without_project_launches_empty_studio_quietly() -> None:
@@ -694,6 +745,26 @@ def test_completion_suggests_instance_quit_in_studio_context() -> None:
     )
 
     assert "quit" in matches
+
+
+def test_completion_suggests_instance_workbench_in_studio_context() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    matches = get_completion_matches(
+        AppContext(workspace_root=workspace),
+        ShellState(namespace="studio"),
+        f"{instance_name} w",
+        len(instance_name) + 1,
+        len(instance_name) + 2,
+    )
+
+    assert "workbench" in matches
 
 
 def test_discover_hub_reads_registry_record() -> None:
