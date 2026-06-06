@@ -8,8 +8,10 @@ from robotick_cli.language.registry import (
     TOP_LEVEL_SHELL_BUILTINS,
     bound_instance_action_names,
     get_hub_command_spec,
+    get_launcher_command_spec,
     get_studio_command_spec,
     hub_action_names,
+    launcher_action_names,
     studio_root_action_names,
 )
 
@@ -55,6 +57,20 @@ def get_hub_help_text() -> str:
     )
 
 
+def get_launcher_help_text() -> str:
+    status_spec = get_launcher_command_spec("status")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {status_spec.usage}",
+            "",
+            "Commands:",
+            f"  {status_spec.name:<10}{status_spec.summary}",
+            "",
+        ]
+    )
+
+
 def format_shell_help(state: ShellState) -> str:
     if state.namespace is None:
         return "\n".join(
@@ -82,6 +98,8 @@ def format_shell_help(state: ShellState) -> str:
         lines.append(get_studio_help_text())
     if state.namespace == "hub":
         lines.append(get_hub_help_text())
+    if state.namespace == "launcher":
+        lines.append(get_launcher_help_text())
     return "\n".join(lines)
 
 
@@ -92,6 +110,7 @@ def format_shell_context(state: ShellState, workspace_root: str) -> str:
                 "Available here:",
                 "Contexts:",
                 "- hub/",
+                "- launcher/",
                 "- studio/",
                 "Actions:",
                 "- ls",
@@ -136,6 +155,22 @@ def format_shell_context(state: ShellState, workspace_root: str) -> str:
             ]
         )
 
+    if state.namespace == "launcher":
+        return "\n".join(
+            [
+                "Available in launcher:",
+                "Contexts:",
+                "- none",
+                "Actions:",
+                *[
+                    f"- {get_launcher_command_spec(name).shell_label or name}"
+                    for name in launcher_action_names()
+                ],
+                *[f"- {spec.name}" for spec in CONTEXT_SHELL_BUILTINS],
+                "",
+            ]
+        )
+
     instances = list_live_instances(workspace_root)
     root_actions = studio_root_action_names()
     return "\n".join(
@@ -160,6 +195,7 @@ def top_level_help_text() -> str:
             "Usage:",
             "  robotick",
             "  robotick hub <command>",
+            "  robotick launcher <command>",
             "  robotick studio <command>",
             "",
             "Interactive mode:",
@@ -171,6 +207,7 @@ def top_level_help_text() -> str:
             *[f"  {spec.name:<8} {spec.summary}" for spec in TOP_LEVEL_NAMESPACES],
             "",
             "Run 'robotick hub --help' for hub commands.",
+            "Run 'robotick launcher --help' for launcher commands.",
             "Run 'robotick studio --help' for Studio commands.",
             "",
         ]
@@ -256,6 +293,20 @@ def instance_quit_help_text(instance_name: str) -> str:
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],
+            "",
+        ]
+    )
+
+
+def launcher_status_help_text() -> str:
+    spec = get_launcher_command_spec("status")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {spec.usage}",
+            "",
+            "Options:",
+            "  --json   Print launcher capability status as JSON",
             "",
         ]
     )

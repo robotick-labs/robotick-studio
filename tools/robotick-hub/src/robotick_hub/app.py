@@ -9,10 +9,13 @@ from robotick_hub.contracts import (
     CapabilityList,
     CapabilitySummary,
     HubHealth,
+    LauncherEnsureResponse,
+    LauncherStatusResponse,
     StudioProjectsResponse,
     WorkspaceProject,
     WorkspaceProjectsResponse,
 )
+from robotick_hub.launcher import ensure_launcher, get_launcher_status, stop_launcher
 from robotick_hub.manifest import load_manifest
 from robotick_hub.runtime import remove_hub_record, write_hub_record
 
@@ -36,10 +39,16 @@ def tray_active() -> bool:
 
 
 def build_capabilities() -> list[CapabilitySummary]:
+    launcher_status = get_launcher_status(get_workspace_root())
     return [
         CapabilitySummary(name="workspace", kind="embedded", status="healthy"),
         CapabilitySummary(name="studio", kind="discovered", status="hello-world"),
-        CapabilitySummary(name="launcher", kind="managed", status="not-yet-routed"),
+        CapabilitySummary(
+            name="launcher",
+            kind="managed",
+            status=launcher_status["capability_status"],
+            endpoint=launcher_status["endpoint"],
+        ),
     ]
 
 
@@ -101,6 +110,23 @@ def create_app() -> FastAPI:
             for name, project in manifest.projects.items()
         ]
         return StudioProjectsResponse(projects=projects, selected_target_project=None)
+
+    @app.post("/v1/capabilities/launcher/ensure", response_model=LauncherEnsureResponse)
+    def launcher_ensure() -> LauncherEnsureResponse:
+        record = ensure_launcher(get_workspace_root())
+        return LauncherEnsureResponse(
+            capability_status="healthy",
+            endpoint=record.endpoint,
+            pid=record.pid,
+        )
+
+    @app.get("/v1/launcher/status", response_model=LauncherStatusResponse)
+    def launcher_status() -> LauncherStatusResponse:
+        return LauncherStatusResponse.model_validate(get_launcher_status(get_workspace_root()))
+
+    @app.post("/v1/launcher/stop", response_model=LauncherStatusResponse)
+    def launcher_stop() -> LauncherStatusResponse:
+        return LauncherStatusResponse.model_validate(stop_launcher(get_workspace_root()))
 
     return app
 

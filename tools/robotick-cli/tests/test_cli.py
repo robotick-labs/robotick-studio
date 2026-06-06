@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import json
 
 import pytest
 
@@ -126,8 +127,14 @@ def wait_for(condition, timeout_ms: int = 3000) -> None:
 def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
     text = format_shell_context(ShellState(), str(create_fake_workspace()))
     assert "Available here:" in text
-    assert "Contexts:\n- hub/\n- studio/" in text
+    assert "Contexts:\n- hub/\n- launcher/\n- studio/" in text
     assert "Actions:\n- ls\n- cd\n- clear\n- help\n- exit" in text
+
+
+def test_launcher_ls_exposes_launcher_actions() -> None:
+    text = format_shell_context(ShellState(namespace="launcher"), str(create_fake_workspace()))
+    assert "Available in launcher:" in text
+    assert "Actions:\n- status\n- ls\n- cd\n- clear\n- help\n- back\n- exit" in text
 
 
 def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> None:
@@ -169,6 +176,24 @@ def test_hub_projects_reads_workspace_projects_through_hub_json() -> None:
     terminate_pid(record.pid)
 
 
+def test_launcher_status_uses_hub_managed_launcher_path() -> None:
+    workspace = create_fake_workspace()
+    result = run_cli(["launcher", "status", "--json"], workspace)
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["capability_status"] == "healthy"
+    assert payload["endpoint"].startswith("http://127.0.0.1:")
+    assert payload["listener_status"]["status"] == "stopped"
+
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
+    launcher_record_path = workspace / ".robotick" / "launcher.json"
+    if launcher_record_path.exists():
+        launcher_payload = json.loads(launcher_record_path.read_text(encoding="utf-8"))
+        terminate_pid(launcher_payload.get("pid"))
+
+
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
     workspace = create_fake_workspace()
     hub_result = run_cli(["hub", "projects", "--json"], workspace)
@@ -189,6 +214,21 @@ def test_interactive_shell_start_eagerly_ensures_hub() -> None:
     record = discover_hub(workspace)
     assert record is not None
     terminate_pid(record.pid)
+
+
+def test_top_level_launcher_command_remains_available_inside_studio_shell_context() -> None:
+    workspace = create_fake_workspace()
+    result = run_shell(["studio", "launcher status", "exit"], workspace)
+    assert result.returncode == 0
+    assert "Robotick launcher is available through robotick-hub." in result.stdout
+
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
+    launcher_record_path = workspace / ".robotick" / "launcher.json"
+    if launcher_record_path.exists():
+        launcher_payload = json.loads(launcher_record_path.read_text(encoding="utf-8"))
+        terminate_pid(launcher_payload.get("pid"))
 
 
 def test_bound_instance_ls_advertises_quit_as_action() -> None:

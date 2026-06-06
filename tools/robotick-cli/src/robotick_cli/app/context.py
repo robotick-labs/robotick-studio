@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 
-ShellNamespace = Literal["studio", "hub"] | None
+ShellNamespace = Literal["studio", "hub", "launcher"] | None
 
 
 @dataclass

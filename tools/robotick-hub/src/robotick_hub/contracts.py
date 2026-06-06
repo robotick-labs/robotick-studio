@@ -35,3 +35,16 @@ class WorkspaceProjectsResponse(BaseModel):
 class StudioProjectsResponse(BaseModel):
     projects: list[WorkspaceProject]
     selected_target_project: str | None = None
+
+
+class LauncherEnsureResponse(BaseModel):
+    capability_status: str
+    endpoint: str
+    pid: int | None = None
+
+
+class LauncherStatusResponse(BaseModel):
+    capability_status: str
+    endpoint: str | None = None
+    pid: int | None = None
+    listener_status: dict[str, object] | None = None

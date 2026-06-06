@@ -576,9 +576,10 @@ Checklist housekeeping rule:
       Summary of work done: kept `robotick-hub` in Python, added a small PyQt5 tray layer inside the same process, taught hub bootstrap to fall back to a Python interpreter with Qt support when needed, vendored the Robotick icon into the hub source tree for local use, and preserved headless service behavior as the non-desktop fallback.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if desktop integration details become the main challenge
 
-- [ ] Route launcher capability through hub
-      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, endpoint discovery, and run-oriented state; `robotick-hub` owns launcher lifecycle as a managed capability/worker rather than importing launcher route modules directly; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path operate through the hub.
-      Test scope: fake launcher provider tests, idempotent ensure tests, managed-worker lifecycle tests, run/status mapping tests, and checks that hub code depends only on the stable launcher capability API.
+- [x] Routed launcher capability through hub
+      Deliverable: `robotick-launcher` now sits behind a small hub-owned provider contract for ensure, status, stop, endpoint discovery, and run-oriented listener state; `robotick-hub` owns launcher lifecycle as a managed capability/worker rather than importing launcher route modules directly; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path now operate through the hub.
+      Test scope: fake launcher provider tests, idempotent ensure tests, managed-worker lifecycle tests, run/status mapping tests, hub route tests, and real CLI-to-hub-to-launcher status smoke tests now pass.
+      Summary of work done: added a dedicated `robotick_hub.launcher` provider that starts and tracks the launcher listener as a managed subprocess, records its endpoint/PID under `.robotick/launcher.json`, exposes `POST /v1/capabilities/launcher/ensure`, `GET /v1/launcher/status`, and `POST /v1/launcher/stop`, makes launcher capability state visible in `hub status`, and adds the first routed `robotick launcher status` CLI slice including immediate-shell access from other contexts.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if the integration seam gets tangled
 
 - [x] Moved shared workspace/project queries onto hub-backed paths

@@ -7,6 +7,7 @@ from robotick_cli.hub_client import ensure_hub
 from robotick_cli.instances import get_live_instance, normalize_instance_specifier, reconcile_bound_instance
 from robotick_cli.language.help import format_shell_context, format_shell_help, get_prompt
 from robotick_cli.language.parse import tokenize
+from robotick_cli.language.registry import TOP_LEVEL_NAMESPACES
 from robotick_cli.language.route import run_command
 from robotick_cli.output import write, writeln
 from robotick_cli.studio import run_studio_command
@@ -34,10 +35,8 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
         state.instance_name = next_state.instance_name
         return
     if state.namespace is None:
-        if len(args) == 1 and args[0] in {"studio", "hub"}:
-            state.namespace = "studio"
-            if args[0] == "hub":
-                state.namespace = "hub"
+        if len(args) == 1 and args[0] in {spec.name for spec in TOP_LEVEL_NAMESPACES}:
+            state.namespace = args[0]  # type: ignore[assignment]
             return
         raise CliError(f"Unknown top-level context: {' '.join(args)}")
     if state.namespace == "studio" and state.instance_name is None:
@@ -98,17 +97,17 @@ def start_interactive_shell(ctx: AppContext) -> int:
             else:
                 writeln("No open Studio instance is currently bound.")
             continue
-        if line == "studio" and state.namespace is None:
-            state.namespace = "studio"
-            continue
-        if line == "hub" and state.namespace is None:
-            state.namespace = "hub"
+        if line in {spec.name for spec in TOP_LEVEL_NAMESPACES} and state.namespace is None:
+            state.namespace = line  # type: ignore[assignment]
             continue
 
         try:
             tokens = tokenize(line)
             if tokens and tokens[0] == "cd":
                 apply_cd(ctx, state, tokens[1:])
+                continue
+            if tokens and tokens[0] in {spec.name for spec in TOP_LEVEL_NAMESPACES}:
+                run_command(ctx, tokens)
                 continue
             if state.namespace == "studio" and state.instance_name is None and tokens and tokens[0] == "open":
                 result = run_studio_command(ctx, tokens)

@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Any
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
 
@@ -183,6 +183,15 @@ def fetch_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
     url = f"{record.endpoint}{path}"
     try:
         with urlopen(url, timeout=2) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except URLError as error:
+        raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
+
+
+def post_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
+    request = Request(f"{record.endpoint}{path}", method="POST")
+    try:
+        with urlopen(request, timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
     except URLError as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
