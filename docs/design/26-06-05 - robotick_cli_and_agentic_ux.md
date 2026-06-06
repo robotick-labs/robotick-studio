@@ -503,7 +503,7 @@ Goal: validate naming, folder structure, manifest shape, docs, and launch delega
       Deliverable: `robotick/robotick-studio/tools/robotick-cli/`, a quiet `./tools/robotick` workspace shim, an installable `robotick` front-door shim, a simple `robotick>` immediate mode with one-level namespace context, and a TypeScript/Node implementation are now in place without visible `npm`/`node` noise in normal use.
 
 - [x] Added first commands
-      Deliverable: `robotick studio projects`, `robotick studio create`, `robotick studio open`, and the current compatibility shortcut `robotick studio open <project>` now read `robotick.yaml`; empty Studio opens through the shared Studio runner, while project opens dispatch to the registered launch script until project binding moves under instance folders.
+      Deliverable: `robotick studio projects`, `robotick studio create`, `robotick studio open`, and the current compatibility shortcut `robotick studio open <project>` now read `robotick.yaml`; empty and project-targeted Studio opens both go through the shared Studio runner, with project selection carried as Robotick context rather than via separate per-project launch stacks.
 
 - [x] Added immediate-mode Studio open path
       Deliverable: inside `robotick:studio>`, `create` now launches empty Studio without binding, `open` creates and immediately binds to the new instance, and the current compatibility shortcut `open <project>` creates and enters a registered project directly.

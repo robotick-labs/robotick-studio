@@ -65,6 +65,34 @@ def test_open_studio_registers_instance(monkeypatch: pytest.MonkeyPatch) -> None
     assert get_instance(workspace, "studio-1234") is not None
 
 
+def test_open_studio_project_uses_shared_runner_with_project_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_workspace()
+    monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
+    monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
+    monkeypatch.setattr("robotick_hub.studio.ensure_launcher", lambda _: None)
+    launched: dict[str, object] = {}
+
+    class FakeChild:
+        pid = 5678
+
+    def fake_popen(args, **kwargs):
+        launched["args"] = args
+        launched["env"] = kwargs["env"]
+        return FakeChild()
+
+    monkeypatch.setattr("robotick_hub.studio.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: instance.pid == 5678)
+
+    summary = open_studio(workspace, project_name="barr-e")
+
+    assert summary["name"] == "studio-5678"
+    assert str(launched["args"][0]).endswith("robotick/robotick-studio/run-studio-dev.sh")
+    assert launched["env"]["ROBOTICK_PROJECT_DIR"].endswith("robots/barr-e")
+    assert launched["env"]["ROBOTICK_STUDIO_SELECTED_PROJECT"] == "barr-e"
+
+
 def test_list_instances_cleans_stale_records(monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = create_workspace()
     record = StudioInstanceRecord(
