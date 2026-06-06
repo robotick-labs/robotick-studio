@@ -34,7 +34,6 @@ def create_workspace() -> Path:
                 "projects:",
                 "  barr-e:",
                 "    project_dir: robots/barr-e",
-                "    launch_script: robots/barr-e/run-studio.sh",
             ]
         ),
         encoding="utf-8",

@@ -335,6 +335,7 @@ def create_studio_launch_env(
     manifest: Manifest,
     *,
     project_name: str | None,
+    project_dir: str | None,
 ) -> dict[str, str]:
     remote_debugging_port = os.environ.get("ROBOTICK_REMOTE_DEBUGGING_PORT") or str(
         find_available_port()
@@ -358,25 +359,27 @@ def create_studio_launch_env(
     }
     if project_name is not None:
         env["ROBOTICK_STUDIO_SELECTED_PROJECT"] = project_name
+    if project_dir is not None:
+        env["ROBOTICK_PROJECT_DIR"] = str((Path(workspace_root) / project_dir).resolve())
     return env
 
 
-def resolve_launch_script(
+def resolve_project_selection(
     workspace_root: str | Path,
     manifest: Manifest,
     project_name: str | None,
-) -> tuple[str, str | None]:
+) -> tuple[str | None, str | None]:
     if project_name is None:
-        return resolve_studio_runner_path(workspace_root, manifest), None
+        return None, None
 
     project = manifest.projects.get(project_name)
     if project is None:
         names = ", ".join(sorted(manifest.projects))
         raise ValueError(f"Unknown project: {project_name}. Registered projects: {names}")
-    launch_script = str((Path(workspace_root) / project.launch_script).resolve())
-    if not Path(launch_script).exists():
-        raise FileNotFoundError(f"Launch script not found: {launch_script}")
-    return launch_script, project_name
+    project_dir = str((Path(workspace_root) / project.project_dir).resolve())
+    if not Path(project_dir).exists():
+        raise FileNotFoundError(f"Project directory not found: {project_dir}")
+    return project.project_dir, project_name
 
 
 def open_studio(
@@ -387,11 +390,15 @@ def open_studio(
     workspace_root = Path(workspace_root).resolve()
     manifest = load_manifest(workspace_root)
     ensure_launcher(workspace_root)
-    launch_script, selected_project = resolve_launch_script(
+    selected_project_dir, selected_project = resolve_project_selection(
         workspace_root, manifest, project_name
     )
+    launch_script = resolve_studio_runner_path(workspace_root, manifest)
     env = create_studio_launch_env(
-        workspace_root, manifest, project_name=selected_project
+        workspace_root,
+        manifest,
+        project_name=selected_project,
+        project_dir=selected_project_dir,
     )
     log_path = create_studio_log_path(
         workspace_root, selected_project if selected_project is not None else "empty"

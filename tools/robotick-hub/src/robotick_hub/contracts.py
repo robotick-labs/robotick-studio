@@ -25,7 +25,6 @@ class CapabilityList(BaseModel):
 class WorkspaceProject(BaseModel):
     name: str
     project_dir: str
-    launch_script: str
 
 
 class WorkspaceProjectsResponse(BaseModel):

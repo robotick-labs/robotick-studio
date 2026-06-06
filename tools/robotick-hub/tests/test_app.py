@@ -27,10 +27,8 @@ def create_fake_workspace() -> Path:
                 "projects:",
                 "  barr-e:",
                 "    project_dir: robots/barr-e",
-                "    launch_script: robots/barr-e/run-studio.sh",
                 "  pip-e:",
                 "    project_dir: robots/pip-e",
-                "    launch_script: robots/pip-e/run-studio.sh",
             ]
         ),
         encoding="utf-8",

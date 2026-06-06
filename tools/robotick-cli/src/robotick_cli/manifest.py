@@ -10,7 +10,6 @@ from robotick_cli.app.errors import CliError
 
 class ManifestProject(BaseModel):
     project_dir: str
-    launch_script: str
 
 
 class ManifestStudio(BaseModel):

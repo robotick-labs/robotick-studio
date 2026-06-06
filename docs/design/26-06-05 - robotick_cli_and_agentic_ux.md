@@ -219,11 +219,9 @@ studio:
 projects:
   barr-e:
     project_dir: robots/barr-e
-    launch_script: robots/barr-e/run-studio.sh
 
   pip-e:
     project_dir: robots/pip-e
-    launch_script: robots/pip-e/run-studio.sh
 ```
 
 Do not put readiness policy or artifact policy in this file. A robot/model is ready when the launcher/runtime reports it is alive and ready to read/write telemetry. That is product behavior, not workspace configuration.

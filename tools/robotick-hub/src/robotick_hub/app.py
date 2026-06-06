@@ -105,7 +105,6 @@ def create_app() -> FastAPI:
             WorkspaceProject(
                 name=name,
                 project_dir=project.project_dir,
-                launch_script=project.launch_script,
             )
             for name, project in manifest.projects.items()
         ]
@@ -118,7 +117,6 @@ def create_app() -> FastAPI:
             WorkspaceProject(
                 name=name,
                 project_dir=project.project_dir,
-                launch_script=project.launch_script,
             )
             for name, project in manifest.projects.items()
         ]

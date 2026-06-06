@@ -60,7 +60,6 @@ def create_fake_workspace() -> Path:
                 "projects:",
                 "  barr-e:",
                 "    project_dir: robots/barr-e",
-                "    launch_script: robots/barr-e/run-studio.sh",
                 "",
             ]
         ),
