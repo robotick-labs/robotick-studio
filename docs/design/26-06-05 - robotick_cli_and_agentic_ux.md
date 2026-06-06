@@ -231,7 +231,7 @@ Command style:
 - use path-forming nouns/contexts for scope: `studio`, instance folders such as `studio-12345`, and later `project`, `workspace`, `viewer`
 - use action commands within the current scope for work: `launch`, `stop`, `status`, `capture`, `quit`
 - keep top-level capability namespaces such as `launcher` available in immediate mode even when the prompt is bound to a Studio instance
-- use positional arguments for direct objects: project, workspace, viewer option, panel id
+- use positional arguments for direct objects: project, Studio workspace, viewer option, panel id
 - use flags for context and modifiers: `--instance`, `--profile`, `--workspace`, `--panel`, `--out`, `--timeout`, `--json`
 
 In CLI examples, `--workspace remote-control` means a Studio workspace id, not the repository/workspace checkout. The contract should keep those concepts separate even if the CLI uses the shorter flag name for ergonomics.
@@ -250,7 +250,7 @@ State ownership should stay explicit:
 - viewer state may be panel-derived, viewer-engine-derived, or data-source-derived, but should still identify the Studio instance/window/workspace/layout/panel context when one exists
 - capture output belongs to the capture operation and should include enough metadata to prove which instance, window, project, run, Studio workspace, layout tab, panel/editor, data source, viewer, and readiness states produced it
 
-### Workspace Contract
+### Robotick Workspace Contract
 
 Add a minimal root `robotick.yaml` for static project registration only.
 
@@ -639,7 +639,7 @@ Readiness contract shape:
 - readiness payloads are not bare booleans
 - readiness payloads must include `readiness_class`, `status`, `checked_at`, `reasons`, `evidence`
 - `readiness_class`
-  enum: `launcher_capability`, `launcher_run`, `viewer`, `capture`
+  enum: `launcher_capability`, `launcher_run`, `studio_workspace`, `studio_panel`, `data_source`, `viewer`, `capture`
 - `status`
   enum: `unknown`, `not_ready`, `ready`, `degraded`, `failed`
 - `reasons`
@@ -652,6 +652,8 @@ Minimum readiness evidence:
 
 - launcher capability readiness evidence should include compatibility status and endpoint liveness
 - launcher run readiness evidence should include required-model health, telemetry read/write availability, and critical runtime failures
+- Studio workspace readiness evidence should include the Studio instance, window scope, available workspace ids, active workspace id, and whether the requested workspace exists, is active, hidden, removed, or failed
+- Studio panel readiness evidence should include window/workspace/layout-tab identity, docked or floating surface kind, panel id, editor id, and panel loading/degraded/stale state
 - viewer readiness evidence should include selected Studio window/workspace/layout/panel identity when panel-derived, plus receive/present or equivalent freshness signals
 - direct data-source readiness evidence should include endpoint liveness, schema/session freshness, and latest sample or status freshness without requiring a panel to exist
 - capture readiness evidence should include placeholder/non-placeholder truth and whether the panel, viewer, or data-source target has produced enough recent trustworthy data to capture
@@ -891,8 +893,8 @@ Checklist housekeeping rule:
       Test scope: parse/route tests, command-registry/help generation tests, argv vs immediate-mode equivalence tests, and tests proving help/project-listing paths do not start hub-backed services now pass.
 
 - [x] Added the hello-world `robotick-hub` slice
-      Deliverable: `tools/robotick-hub/` now exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service-registry-backed hub record management, workspace project listing, Studio-facing project-list metadata, and a first end-to-end CLI command path through `robotick hub status` and `robotick hub projects`.
-      Test scope: FastAPI contract tests for health/capabilities/workspace identity/project-list endpoints, service-registry record tests, real CLI-to-hub startup/status/projects tests, and workspace-shim smoke checks now pass.
+      Deliverable: `tools/robotick-hub/` now exists as a Python/FastAPI/Pydantic service with health, capability listing, Robotick workspace identity, service-registry-backed hub record management, workspace project listing, Studio-facing project-list metadata, and a first end-to-end CLI command path through `robotick hub status` and `robotick hub projects`.
+      Test scope: FastAPI contract tests for health/capabilities/Robotick workspace identity/project-list endpoints, service-registry record tests, real CLI-to-hub startup/status/projects tests, and workspace-shim smoke checks now pass.
       Summary of work done: added the new `tools/robotick-hub/` package, taught `robotick-cli` to bootstrap and query the hub, exposed a minimal `hub/` namespace in one-shot and immediate modes, and kept the slice proportional by limiting it to health/capabilities/projects rather than prematurely routing launcher or Studio control through the hub.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
