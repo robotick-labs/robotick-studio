@@ -970,13 +970,15 @@ Current workflow reality, tested against today's CLI and a real Barr.e Studio la
       Deliverable: the design now defines canonical MVP resource types, id rules, required fields, state enums, readiness payload shape, failure object shape, compatibility policy, concurrency policy, operation semantics, and normative state transitions for Robotick workspace, hub capability, Studio instance, Studio window, Studio workbench, layout tab, panel/editor, data-source target, launcher service, launcher run, viewer state, capture result, and shutdown state.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
+#### Prove The Loop
+
 - [ ] Freeze MVP command/result grammar before adding new surface
       Deliverable: one-shot and immediate-mode semantics are documented for `create`, `open`, instance binding, launcher launch results, readiness waits, capture, and stop/quit. In particular, one-shot `studio open` returns a targetable instance identity rather than pretending to change shell context; immediate-mode `open` may bind the prompt to that instance; `launcher launch` returns a run id; `launcher wait-ready` and `launcher stop` accept run ids; and launcher commands invoked from a bound Studio prompt may attach owner-instance metadata without making the launcher service instance-owned.
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
-- [ ] Enforce Robotick-workspace-scoped hub singleton and compatibility reuse
-      Deliverable: one `robotick-hub` exists per Robotick workspace at a time via an explicit runtime lock; CLI `ensure_hub` reuses only a healthy, compatible, lock-owning hub; stale, duplicate, or incompatible hub processes are rejected or restarted deterministically; and `hub status` surfaces enough metadata to explain the active owner.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
+- [ ] Align implementation and CLI naming on `studio_workbench` / `workbench`
+      Deliverable: hub contracts, Studio state/resource names, implementation-facing docs, CLI command grammar, and CLI flags all use `studio_workbench`, `studio_workbench_id`, `workbench`, and `--workbench` for the Studio route/workbench concept, while `robotick_workspace` remains the checkout/runtime-registration concept.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `small`
 
 - [ ] Implement instance discovery and targeting
       Deliverable: `robotick studio instances`, stable instance folder names, one-shot targeting by instance identity, bound-prompt targeting by current instance, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts with reconciled state such as `running`, `degraded`, `stale`, or `gone`.
@@ -984,6 +986,50 @@ Current workflow reality, tested against today's CLI and a real Barr.e Studio la
 
 - [ ] Implement Studio instance inspection and workbench discovery
       Deliverable: `robotick studio <instance> status --json` or equivalent surfaces the active Studio window, available and active workbenches, layout tabs, visible/floating panels, selected editor/viewer context, and any control endpoint needed by the hub/provider layer. Agents should not have to scrape launch logs, inspect Electron DevTools targets, or infer workbench state from screenshots alone.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Implement launcher commands
+      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability and work consistently in one-shot and immediate-mode forms. `launch` returns a machine-readable run id, `status --json` reports service state plus run state, `wait-ready` can wait on a specific run id and readiness class, and `stop` can stop a specific run without relying on hidden global singleton state.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Debug RC viewer bootstrap flakiness and expose viewer recovery commands
+      Deliverable: the Remote Control viewer no longer depends on manual refresh to begin receiving/presenting frames when upstream runtime state is healthy; Robotick exposes explicit viewer status and recovery operations such as `viewer status`, `viewer refresh`, or `viewer rebind` against a specific workbench/panel target; and status output makes subscribed vs receiving vs presenting vs placeholder vs degraded states machine-readable so agents can distinguish retryable viewer failure from upstream runtime failure.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Implement Studio workbench/viewer and capture readiness
+      Deliverable: Studio reports active window, active/custom Studio workbench, active layout tab, relevant panel/editor identity, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Direct telemetry or launcher-derived readiness paths can bypass panels when the requested truth is not panel-specific. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Implement first-class capture
+      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, Studio window id, selected project, launcher run id if relevant, Studio workbench id, layout tab id when panel-derived, panel/editor id when panel-derived, data-source target id when direct, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+#### Make It Trustworthy
+
+- [ ] Implement launcher capability and launcher-run readiness
+      Deliverable: machine-readable launcher capability readiness and launcher-run readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs. Run state distinguishes launch requested, launching, running, healthy, degraded, failed, stopping, and stopped; readiness detail includes model health, telemetry read/write availability, critical failures, and stable reasons for timeout/degraded/failure outcomes.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Replace ad hoc DevTools screenshotting with a first-class Studio capture path
+      Deliverable: agents can request full-window and targeted workbench/panel/viewer captures through Robotick commands and hub/Studio contracts in both dev and packaged modes, without scraping log files for remote-debugging ports or speaking raw CDP. Capture results must include canonical Robotick metadata and route through the same readiness/capture contract as normal CLI capture.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Fix shutdown sequencing
+      Deliverable: `robotick studio <instance> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` if the sequencing/debugging problem proves genuinely hard
+
+- [ ] Continue expanding CLI shell/unit/integration test coverage
+      Deliverable: every new command/state permutation is added test-first or test-alongside, including one-shot vs immediate-mode equivalence, quiet vs attached open flows, close/quit lifecycle behavior, future instance discovery/binding, and invalid context/action combinations.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
+
+#### Harden And Polish
+
+- [ ] Enforce Robotick-workspace-scoped hub singleton and compatibility reuse
+      Deliverable: one `robotick-hub` exists per Robotick workspace at a time via an explicit runtime lock; CLI `ensure_hub` reuses only a healthy, compatible, lock-owning hub; stale, duplicate, or incompatible hub processes are rejected or restarted deterministically; and `hub status` surfaces enough metadata to explain the active owner.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Enforce launcher compatibility under hub supervision
+      Deliverable: launcher exposes explicit compatibility/version metadata through its managed contract; hub reuses only a healthy, compatible launcher for the current workspace; stale, duplicate, or incompatible launcher processes are stopped and relaunched automatically; and version mismatch becomes a first-class supervised state rather than an accidental endpoint failure path.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement bound interactive mode
@@ -994,49 +1040,9 @@ Current workflow reality, tested against today's CLI and a real Barr.e Studio la
       Deliverable: `robotick studio <instance> project <project>` and bound-instance `project ...` flows can bind/switch project state explicitly with clear success/failure reporting; Studio always exposes the full workspace project list from `robotick-hub`; blank-open Studio starts with no selected target project; and preselected-open Studio starts with the same list plus the requested current target.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
-- [ ] Continue expanding CLI shell/unit/integration test coverage
-      Deliverable: every new command/state permutation is added test-first or test-alongside, including one-shot vs immediate-mode equivalence, quiet vs attached open flows, close/quit lifecycle behavior, future instance discovery/binding, and invalid context/action combinations.
-      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
-
-- [ ] Implement launcher commands
-      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability and work consistently in one-shot and immediate-mode forms. `launch` returns a machine-readable run id, `status --json` reports service state plus run state, `wait-ready` can wait on a specific run id and readiness class, and `stop` can stop a specific run without relying on hidden global singleton state.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Enforce launcher compatibility under hub supervision
-      Deliverable: launcher exposes explicit compatibility/version metadata through its managed contract; hub reuses only a healthy, compatible launcher for the current workspace; stale, duplicate, or incompatible launcher processes are stopped and relaunched automatically; and version mismatch becomes a first-class supervised state rather than an accidental endpoint failure path.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Implement launcher capability and launcher-run readiness
-      Deliverable: machine-readable launcher capability readiness and launcher-run readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs. Run state distinguishes launch requested, launching, running, healthy, degraded, failed, stopping, and stopped; readiness detail includes model health, telemetry read/write availability, critical failures, and stable reasons for timeout/degraded/failure outcomes.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Align implementation and CLI naming on `studio_workbench` / `workbench`
-      Deliverable: hub contracts, Studio state/resource names, implementation-facing docs, CLI command grammar, and CLI flags all use `studio_workbench`, `studio_workbench_id`, `workbench`, and `--workbench` for the Studio route/workbench concept, while `robotick_workspace` remains the checkout/runtime-registration concept.
-      Recommended Codex model/effort: `gpt-5.4-mini` / `small`
-
-- [ ] Implement Studio workbench/viewer and capture readiness
-      Deliverable: Studio reports active window, active/custom Studio workbench, active layout tab, relevant panel/editor identity, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Direct telemetry or launcher-derived readiness paths can bypass panels when the requested truth is not panel-specific. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Debug RC viewer bootstrap flakiness and expose viewer recovery commands
-      Deliverable: the Remote Control viewer no longer depends on manual refresh to begin receiving/presenting frames when upstream runtime state is healthy; Robotick exposes explicit viewer status and recovery operations such as `viewer status`, `viewer refresh`, or `viewer rebind` against a specific workbench/panel target; and status output makes subscribed vs receiving vs presenting vs placeholder vs degraded states machine-readable so agents can distinguish retryable viewer failure from upstream runtime failure.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Replace ad hoc DevTools screenshotting with a first-class Studio capture path
-      Deliverable: agents can request full-window and targeted workbench/panel/viewer captures through Robotick commands and hub/Studio contracts in both dev and packaged modes, without scraping log files for remote-debugging ports or speaking raw CDP. Capture results must include canonical Robotick metadata and route through the same readiness/capture contract as normal CLI capture.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
-- [ ] Implement first-class capture
-      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, Studio window id, selected project, launcher run id if relevant, Studio workbench id, layout tab id when panel-derived, panel/editor id when panel-derived, data-source target id when direct, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`
-
 - [ ] Fix Studio launch-time window-control probe noise
       Deliverable: Studio no longer logs the current renderer window-controls probe failure during normal launch, and startup diagnostics cleanly distinguish benign capability absence from actual launch failure.
       Recommended Codex model/effort: `gpt-5.4-mini` / `small`
-
-- [ ] Fix shutdown sequencing
-      Deliverable: `robotick studio <instance> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
-      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` if the sequencing/debugging problem proves genuinely hard
 
 - [ ] Make the flow self-describing
       Deliverable: a cold operator or bot can discover the canonical flow from `README.md`, `AGENTS.md`, `robotick.yaml`, and `robotick studio --help`; context listings surface instance state clearly; and visual treatment differentiates enterable contexts from action commands in the same way `ls` already distinguishes folders from non-folder entries.
