@@ -96,13 +96,15 @@ The CLI should follow a path-oriented grammar:
 - the shell prompt is a rendering of the current bound context stack
 - `back` pops one level from that stack
 - `ls` should present context-forming entries with a directory-like feel, for example `studio/` or `studio-12345/`
-- one-shot commands and immediate-mode navigation should describe the same hierarchy, not two different mental models
+- one-shot commands and immediate-mode navigation should describe the same hierarchy, while being honest about the fact that one-shot commands cannot leave the caller in a changed CLI context
 
 That metaphor should inform the whole interface:
 
 - `studio` is a context
 - `create` is the primitive action that materializes a Studio instance without changing context
-- `open` is a composite action over the primitives, initially `create` + `cd`
+- `open` is a composite convenience action over the primitives, initially `create` + bind
+- in immediate mode, bind means the prompt may move into the new instance context
+- in one-shot argv mode, bind means the command returns a stable instance identity that later commands can target explicitly
 - instance folders such as `studio-12345/` are the persistent contexts representing open Studio instances
 - later contexts such as `project[...]`, `workspace[...]`, and `viewer[...]` should only appear once they are genuinely bound inside a specific instance folder
 - actions such as `launch`, `stop`, `status`, `capture`, and `quit` run within the current bound context rather than pretending to be peers of it
@@ -118,7 +120,7 @@ The command hierarchy should therefore be explicit and path-like:
 - `robotick studio create`
   create/materialize a new Studio instance without changing context
 - `robotick studio open`
-  composite convenience command that creates a new Studio instance and enters it
+  composite convenience command that creates a new Studio instance and returns or binds its instance identity
 - `robotick studio <instance>`
   enter or target an existing Studio instance context
 - `robotick studio <instance> project ...`
@@ -127,6 +129,8 @@ The command hierarchy should therefore be explicit and path-like:
   bind or operate on workspace state within that instance
 - `robotick studio <instance> viewer ...`
   bind or operate on viewer state within that instance
+- `robotick studio <instance> wait-ready viewer ...`
+  wait for workspace/viewer readiness within that instance
 - `robotick studio <instance> capture ...`
   capture panels or views from that instance
 - `robotick studio <instance> quit`
@@ -143,7 +147,9 @@ The interactive shell should mirror that hierarchy rather than inventing differe
 - `robotick:studio:studio-12345>`
   shell bound to a specific open Studio instance
 
-Within that bound prompt, everything should be understood as operating on the currently open Studio instance. In other words, `studio-12345/` is the user-facing hierarchy for “the Studio instance I currently have open”, and the shell should behave as though the user has `cd`'d into that instance.
+Within that bound prompt, unqualified Studio-scoped commands should be understood as operating on the currently open Studio instance. In other words, `studio-12345/` is the user-facing hierarchy for “the Studio instance I currently have open”, and the shell should behave as though the user has `cd`'d into that instance.
+
+Top-level capability namespaces remain addressable from a bound prompt, but they keep their own ownership model. For example, `launcher` is a workspace-scoped capability with explicit runs beneath it; invoking `launcher launch ...` from `robotick:studio:studio-12345>` may associate the new run with the current Studio instance for UX/diagnostics, but it must not imply that the launcher service itself is owned by that Studio instance.
 
 `back` should always unwind one shell level. The bound-instance prompt is a path/state indicator. Once bound to a Studio instance, the commands available there are the operations and deeper context bindings on that instance, while `open` remains the action used back at `robotick:studio>` to create another instance.
 
@@ -170,10 +176,11 @@ robotick studio projects
 robotick studio open
 robotick studio instances
 robotick studio studio-12345 project barr-e
-robotick launcher launch --project barr-e --profile local:ALL
-robotick launcher wait-ready --project barr-e --workspace remote-control
-robotick studio studio-12345 capture panel --workspace remote-control --panel main --out artifacts/...
-robotick launcher stop --project barr-e
+robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
+robotick launcher wait-ready run-67890 --readiness launcher-run
+robotick studio studio-12345 wait-ready viewer --workspace remote-control --panel main --run run-67890
+robotick studio studio-12345 capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+robotick launcher stop run-67890
 robotick studio studio-12345 quit --wait
 ```
 
@@ -184,9 +191,10 @@ robotick> studio
 robotick:studio> projects
 robotick:studio> ls
 robotick:studio> open
-robotick:studio> cd studio-12345
 robotick:studio:studio-12345> project barr-e
-robotick:studio:studio-12345> launcher launch --project barr-e
+robotick:studio:studio-12345> launcher launch --project barr-e --profile local:ALL
+robotick:studio:studio-12345> launcher wait-ready run-67890 --readiness launcher-run
+robotick:studio:studio-12345> wait-ready viewer --workspace remote-control --panel main --run run-67890
 robotick:studio:studio-12345> clear
 robotick:studio:studio-12345> quit
 robotick:studio> back
@@ -202,6 +210,16 @@ Command style:
 - use flags for context and modifiers: `--instance`, `--profile`, `--workspace`, `--panel`, `--out`, `--timeout`, `--json`
 
 CLI output should be human-readable by default, provide `--json` for status/diagnostics, keep normal output quiet, and use explicit exit codes for invalid args, launch failure, readiness timeout, degraded state, and shutdown timeout.
+
+State ownership should stay explicit:
+
+- workspace identity belongs to `robotick-hub`
+- Studio instance identity belongs to the Studio capability and is rendered as folders such as `studio-12345/`
+- Studio target-project selection belongs to a Studio instance
+- launcher service identity belongs to the workspace
+- launcher run identity belongs to the launcher service and should be represented by explicit run ids
+- workspace/viewer state belongs to a Studio instance, even when it depends on launcher-run telemetry
+- capture output belongs to the capture operation and should include enough metadata to prove which instance, project, run, workspace, viewer, and readiness states produced it
 
 ### Workspace Contract
 
@@ -224,7 +242,7 @@ projects:
     project_dir: robots/pip-e
 ```
 
-Do not put readiness policy or artifact policy in this file. A robot/model is ready when the launcher/runtime reports it is alive and ready to read/write telemetry. That is product behavior, not workspace configuration.
+Do not put readiness policy or artifact policy in this file. `robotick.yaml` registers workspace shape; it should not decide whether a runtime, workspace, viewer, or capture is ready. Readiness is product state reported through the hub, launcher, and Studio contracts.
 
 Docs should be split clearly:
 
@@ -415,17 +433,23 @@ Recommended transport:
 - add WebSocket later for event streams if needed
 - hub API owns capability discovery, health, workspace status, service provisioning, and cross-capability status
 - launcher capability API owns model/runtime launch, stop, status, and readiness
-- Studio capability API owns instance, project switching, workspace, viewer, capture, focus, and quit
+- Studio capability API owns instance, project switching, workspace, viewer readiness, capture, focus, and quit
 
 MCP should wrap this same surface. It should not have stronger powers or a separate privileged model.
 
 ### Readiness Model
 
-Separate model/runtime readiness from workspace/viewer readiness.
+Do not collapse readiness into one boolean. The Barr.e baseline failure happened because a UI-level heuristic was treated as operational truth. MVP should use explicit readiness classes and require callers to name the class they are waiting for when ambiguity matters.
 
-Model/runtime readiness answers:
+Launcher capability readiness answers:
 
-- is the requested robot/model stack up?
+- is the workspace-scoped launcher service available?
+- is it contract-compatible with the current hub?
+- can it accept run lifecycle commands?
+
+Launcher run readiness answers:
+
+- is the requested robot/model stack up for a specific run id?
 - are required models running?
 - are required models healthy?
 - is telemetry read/write available?
@@ -433,12 +457,20 @@ Model/runtime readiness answers:
 
 Workspace/viewer readiness answers:
 
+- is the requested Studio instance alive and bound to the intended project?
 - is the requested workspace active?
 - is the selected viewer option known?
 - are frames or telemetry arriving where relevant?
-- is the view degraded by upstream failures?
+- is the view degraded by upstream runtime failures?
 
-Remote Control readiness is one workspace/viewer projection over the same model/runtime truth, not a separate definition of robot readiness.
+Capture readiness answers:
+
+- is the requested capture target present and measurable?
+- has the target produced enough recent non-placeholder data to be trustworthy?
+- does the capture metadata include runtime and viewer readiness summaries?
+- should capture proceed, wait, or fail with a machine-readable reason?
+
+Remote Control readiness is a workspace/viewer readiness projection over launcher-run truth plus view-specific receive/present signals. It is not a separate definition of robot readiness, and launcher-run readiness alone is not enough to prove an RC screenshot or panel capture will be meaningful.
 
 ### Capture And Shutdown
 
@@ -526,8 +558,8 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
 - [x] Surface Studio-level success
       Deliverable: `open` now reports a Robotick-level result including Studio launch start, log location, and a provisional instance identity instead of only inheriting child-process lifetime.
 
-- [x] Keep `open` action-like rather than auto-binding
-      Deliverable: after a successful quiet launch from immediate mode, the shell now stays at `robotick:studio>`, reports an instance folder such as `studio-12345/`, and leaves navigation to `cd studio-12345`.
+- [x] Established the initial action-like `open` behavior
+      Deliverable: the first quiet launch flow kept the shell at `robotick:studio>`, reported an instance folder such as `studio-12345/`, and left navigation to `cd studio-12345`. This was later superseded by the explicit `create` primitive plus `open` composite, where immediate-mode `open` may bind to the new instance while one-shot `open` returns a targetable instance identity.
 
 - [x] Made `back` follow shell pathing
       Deliverable: `back` now unwinds one level at a time, so an instance-bound prompt returns to `robotick:studio>`, then `robotick>`.
@@ -628,15 +660,19 @@ The main agentic risk is no longer command discovery; it is lifecycle truth. Hub
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
 - [ ] Define MVP Robotick capability/state contract
-      Deliverable: documented Studio app, project, hub capability, launcher capability, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity, the explicit run-id model, any early concurrency limits such as one active run per `(project, profile)`, and explicit compatibility/version metadata such as `api_contract_version` and `build_id` for long-running managed services.
+      Deliverable: documented Studio app, project, hub capability, launcher capability, launcher-run, readiness, capture, and shutdown state, including a state ownership table for workspace, Studio instance, Studio target project, launcher service, launcher run, workspace/viewer, and capture output. The contract must explicitly distinguish Studio target-project selection from launcher run identity, define the run-id model, state any early concurrency limits such as one active run per `(project, profile)`, and require compatibility/version metadata such as `api_contract_version` and `build_id` for long-running managed services.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
+
+- [ ] Freeze MVP command/result grammar before adding new surface
+      Deliverable: one-shot and immediate-mode semantics are documented for `create`, `open`, instance binding, launcher launch results, readiness waits, capture, and stop/quit. In particular, one-shot `studio open` returns a targetable instance identity rather than pretending to change shell context; immediate-mode `open` may bind the prompt to that instance; `launcher launch` returns a run id; `launcher wait-ready` and `launcher stop` accept run ids; and launcher commands invoked from a bound Studio prompt may attach owner-instance metadata without making the launcher service instance-owned.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Enforce workspace-scoped hub singleton and compatibility reuse
       Deliverable: one `robotick-hub` exists per workspace at a time via an explicit runtime lock; CLI `ensure_hub` reuses only a healthy, compatible, lock-owning hub; stale, duplicate, or incompatible hub processes are rejected or restarted deterministically; and `hub status` surfaces enough metadata to explain the active owner.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement instance discovery and targeting
-      Deliverable: `robotick studio instances`, stable instance folder names, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts with reconciled state such as `running`, `degraded`, `stale`, or `gone`.
+      Deliverable: `robotick studio instances`, stable instance folder names, one-shot targeting by instance identity, bound-prompt targeting by current instance, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts with reconciled state such as `running`, `degraded`, `stale`, or `gone`.
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Implement bound interactive mode
@@ -652,23 +688,23 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
       Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Implement launcher commands
-      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability, address explicit run ids where needed, and work consistently in one-shot and immediate-mode forms.
+      Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the hub-owned launcher capability and work consistently in one-shot and immediate-mode forms. `launch` returns a machine-readable run id, `status --json` reports service state plus run state, `wait-ready` can wait on a specific run id and readiness class, and `stop` can stop a specific run without relying on hidden global singleton state.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Enforce launcher compatibility under hub supervision
       Deliverable: launcher exposes explicit compatibility/version metadata through its managed contract; hub reuses only a healthy, compatible launcher for the current workspace; stale, duplicate, or incompatible launcher processes are stopped and relaunched automatically; and version mismatch becomes a first-class supervised state rather than an accidental endpoint failure path.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
-- [ ] Implement readiness state
-      Deliverable: machine-readable launcher-run state distinguishing launch requested, launching, running, healthy, degraded, failed, stopping, and stopped, with readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs.
+- [ ] Implement launcher capability and launcher-run readiness
+      Deliverable: machine-readable launcher capability readiness and launcher-run readiness reported through the hub contract rather than inferred from Studio UI state or launcher logs. Run state distinguishes launch requested, launching, running, healthy, degraded, failed, stopping, and stopped; readiness detail includes model health, telemetry read/write availability, critical failures, and stable reasons for timeout/degraded/failure outcomes.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
-- [ ] Implement workspace/viewer readiness for capture workflows
-      Deliverable: active workspace, selected viewer option, receive/present metrics where relevant, and degraded/not-trustworthy state.
+- [ ] Implement workspace/viewer and capture readiness
+      Deliverable: Studio reports active workspace, selected viewer option, receive/present metrics where relevant, placeholder/non-placeholder state, upstream runtime degradation, and capture-ready/not-ready state. Capture readiness must be distinct from launcher-run readiness so a healthy runtime with a blank or stale RC viewport fails clearly instead of producing a misleading artifact.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement first-class capture
-      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata.
+      Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata including timestamp, Studio instance id, selected project, launcher run id if relevant, workspace, viewer/panel id, runtime readiness summary, viewer readiness summary, capture readiness decision, and failure/degraded reasons.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Fix shutdown sequencing
@@ -681,31 +717,32 @@ Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, a
 
 ### Success Criteria
 
-The Barr.e baseline should become:
+The exact flag names can change during contract review, but the Barr.e baseline should become a flow with explicit instance identity, explicit launcher run identity, and explicit readiness class:
 
 ```bash
-robotick studio open
+robotick studio open --json
 robotick studio studio-12345 project barr-e
-robotick launcher launch --project barr-e --profile local:ALL
-robotick launcher wait-ready --project barr-e --workspace remote-control
-robotick studio studio-12345 capture panel --workspace remote-control --panel main --out artifacts/...
-robotick launcher stop --project barr-e
+robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345 --json
+robotick launcher wait-ready run-67890 --readiness launcher-run
+robotick studio studio-12345 wait-ready viewer --workspace remote-control --panel main --run run-67890
+robotick studio studio-12345 capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+robotick launcher stop run-67890
 robotick studio studio-12345 quit --wait
 ```
 
-The equivalent interactive flow should work after binding an instance:
+The equivalent interactive flow should work after binding an instance. `open` should bind the prompt to the new instance, and `launcher launch` should print a run id that later commands use explicitly:
 
 ```text
 robotick studio
 open
-ls
-cd studio-12345
 robotick:studio:studio-12345>
+ls
 project barr-e
 launcher launch --project barr-e --profile local:ALL
-launcher wait-ready --project barr-e --workspace remote-control
-capture panel --workspace remote-control --panel main --out artifacts/...
-launcher stop --project barr-e
+launcher wait-ready run-67890 --readiness launcher-run
+wait-ready viewer --workspace remote-control --panel main --run run-67890
+capture panel --workspace remote-control --panel main --run run-67890 --require capture-ready --out artifacts/...
+launcher stop run-67890
 quit
 ```
 
