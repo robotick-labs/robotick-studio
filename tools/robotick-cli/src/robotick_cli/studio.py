@@ -1,25 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import os
 from pathlib import Path
-import socket
-import subprocess
 from typing import Literal
 
 from robotick_cli.app.context import AppContext
-from robotick_cli.app.errors import CliError
+from robotick_cli.app.errors import CliError, HubRequestError
 from robotick_cli.command_result import CommandResult
 from robotick_cli.hub import get_hub_workspace_projects
+from robotick_cli.hub_client import ensure_hub, fetch_hub_json, post_hub_json, restart_hub
 from robotick_cli.instances import (
-    InstanceRecord,
-    create_instance_name,
+    format_instance_age,
     get_live_instance,
-    list_live_instances,
     normalize_instance_specifier,
     quit_studio_instance,
-    write_instance_record,
 )
 from robotick_cli.language.help import (
     create_help_text,
@@ -36,9 +31,7 @@ from robotick_cli.output import write_json, writeln
 class OpenLaunchTarget:
     kind: Literal["empty", "project"]
     label: str
-    launch_script: str
     attach: bool
-    forwarded_args: list[str]
 
 
 def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
@@ -98,9 +91,10 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
     if unknown_args:
         raise CliError(f"Unknown argument for 'instances': {unknown_args[0]}")
 
-    instances = list_live_instances(workspace_root)
+    payload = fetch_studio_hub_json(workspace_root, "/v1/studio/instances")
+    instances = payload["instances"]
     if json_mode:
-        write_json({"instances": [instance.model_dump(mode="json") for instance in instances]})
+        write_json({"instances": instances})
         return
 
     writeln("Open Robotick Studio instances:")
@@ -108,8 +102,13 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
         writeln("- none")
         return
     for instance in instances:
-        project_suffix = f" ({instance.project_name})" if instance.project_name else ""
-        writeln(f"- {instance.name}{project_suffix}")
+        details = [instance["state"], instance["mode"]]
+        if instance.get("project_name"):
+            details.append(str(instance["project_name"]))
+        age = format_instance_age(str(instance["started_at"]))
+        if age:
+            details.append(age)
+        writeln(f"- {instance['name']} ({' | '.join(details)})")
 
 
 def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -> CommandResult:
@@ -118,9 +117,17 @@ def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -
         return CommandResult(exit_code=0)
     if args:
         raise CliError(f"Unknown argument for '{instance_name} quit': {args[0]}")
-    accepted, message = quit_studio_instance(ctx.workspace_root, instance_name)
-    writeln(message)
-    return CommandResult(exit_code=0 if accepted else 1)
+    try:
+        payload = post_studio_hub_json(
+            ctx.workspace_root,
+            f"/v1/studio/instances/{instance_name}/quit",
+        )
+        writeln(payload["message"])
+        return CommandResult(exit_code=0 if payload["accepted"] else 1)
+    except HubRequestError:
+        accepted, message = quit_studio_instance(ctx.workspace_root, instance_name)
+        writeln(f"{message} (hub fallback)")
+        return CommandResult(exit_code=0 if accepted else 1)
 
 
 def run_studio_instance_command(
@@ -146,7 +153,9 @@ def handle_create_command(ctx: AppContext, manifest: Manifest, args: list[str]) 
         writeln(create_help_text())
         return CommandResult(exit_code=0)
     target = resolve_open_launch_target(ctx.workspace_root, manifest, args, "create")
-    return launch_studio_target(ctx.workspace_root, manifest, target)
+    if target.attach:
+        raise CliError("--attach is not yet supported on the hub-managed Studio path.")
+    return launch_studio_via_hub(ctx, manifest, target)
 
 
 def handle_open_command(ctx: AppContext, manifest: Manifest, args: list[str]) -> CommandResult:
@@ -163,7 +172,6 @@ def resolve_open_launch_target(
     command_name: str = "open",
 ) -> OpenLaunchTarget:
     attach = False
-    forwarded_args: list[str] = []
     project_name: str | None = None
 
     for arg in args:
@@ -175,15 +183,15 @@ def resolve_open_launch_target(
         if project_name is None:
             project_name = arg
         else:
-            forwarded_args.append(arg)
+            raise CliError(
+                f"Extra arguments are not yet supported on the hub-managed Studio path: {arg}"
+            )
 
     if project_name is None:
         return OpenLaunchTarget(
             kind="empty",
             label="Robotick Studio",
-            launch_script=resolve_studio_runner_path(workspace_root, manifest),
             attach=attach,
-            forwarded_args=forwarded_args,
         )
 
     project = manifest.projects.get(project_name)
@@ -191,151 +199,61 @@ def resolve_open_launch_target(
         names = ", ".join(sorted(manifest.projects))
         raise CliError(f"Unknown project: {project_name}. Registered projects: {names}")
 
-    launch_script = str((Path(workspace_root) / project.launch_script).resolve())
-    if not Path(launch_script).exists():
-        raise CliError(f"Launch script not found: {launch_script}")
-
     return OpenLaunchTarget(
         kind="project",
         label=project_name,
-        launch_script=launch_script,
         attach=attach,
-        forwarded_args=forwarded_args,
     )
 
 
-def launch_studio_target(
-    workspace_root: str | Path,
+def launch_studio_via_hub(
+    ctx: AppContext,
     manifest: Manifest,
     target: OpenLaunchTarget,
 ) -> CommandResult:
-    env = create_studio_launch_env(workspace_root, manifest)
-    if not target.attach:
-        return launch_quiet_studio(
-            workspace_root,
-            target.label,
-            manifest,
-            target.launch_script,
-            target.forwarded_args,
-            env,
-            has_project=target.kind == "project",
-        )
-    return launch_attached_studio(
-        workspace_root,
-        target.label,
-        target.launch_script,
-        target.forwarded_args,
-        env,
-        has_project=target.kind == "project",
+    project_name = target.label if target.kind == "project" else None
+    payload = post_studio_hub_json(
+        ctx.workspace_root,
+        "/v1/studio/open",
+        {"project_name": project_name},
     )
-
-
-def create_studio_log_path(workspace_root: str | Path, project_name: str) -> Path:
-    logs_dir = Path(workspace_root) / ".robotick" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).isoformat().replace(":", "-")
-    return logs_dir / f"studio-open-{project_name}-{timestamp}.log"
-
-
-def launch_quiet_studio(
-    workspace_root: str | Path,
-    label: str,
-    manifest: Manifest,
-    launch_script: str,
-    forwarded_args: list[str],
-    env: dict[str, str],
-    *,
-    has_project: bool,
-) -> CommandResult:
-    log_path = create_studio_log_path(workspace_root, label if has_project else "empty")
-    log_handle = open(log_path, "a", encoding="utf-8")
-    writeln(f"Opening Robotick Studio for {label}..." if has_project else "Opening Robotick Studio...")
+    instance = payload["instance"]
+    if project_name is not None:
+        writeln(f"Opening Robotick Studio for {project_name}...")
+    else:
+        writeln("Opening Robotick Studio...")
     writeln(f"Starting Studio in {manifest.studio.default_mode} mode...")
-    writeln(f"Logs: {os.path.relpath(log_path, workspace_root)}")
+    if instance.get("log_path"):
+        writeln(f"Logs: {os.path.relpath(str(instance['log_path']), ctx.workspace_root)}")
+    if project_name is not None:
+        writeln(f"Studio launch started for {project_name}.")
+    else:
+        writeln("Studio launch started.")
+    writeln(f"Instance: {instance['name']}/")
+    return CommandResult(exit_code=0, opened_instance_name=str(instance["name"]))
+
+
+def fetch_studio_hub_json(workspace_root: str | Path, path: str) -> dict[str, object]:
+    record = ensure_hub(workspace_root)
     try:
-        child = subprocess.Popen(
-            [launch_script, *forwarded_args],
-            cwd=workspace_root,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=log_handle,
-            start_new_session=True,
-        )
-    finally:
-        log_handle.close()
-
-    instance_name = create_instance_name(child.pid)
-    if instance_name is not None:
-        write_instance_record(
-            workspace_root,
-            InstanceRecord(
-                name=instance_name,
-                pid=child.pid,
-                mode=manifest.studio.default_mode,
-                log_path=str(log_path),
-                project_name=label if has_project else None,
-                started_at=datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-    writeln(f"Studio launch started for {label}." if has_project else "Studio launch started.")
-    if instance_name is not None:
-        writeln(f"Instance: {instance_name}/")
-    return CommandResult(exit_code=0, opened_instance_name=instance_name)
+        return fetch_hub_json(record, path)
+    except HubRequestError as error:
+        if error.status_code != 404:
+            raise
+        refreshed = restart_hub(workspace_root)
+        return fetch_hub_json(refreshed, path)
 
 
-def launch_attached_studio(
+def post_studio_hub_json(
     workspace_root: str | Path,
-    label: str,
-    launch_script: str,
-    forwarded_args: list[str],
-    env: dict[str, str],
-    *,
-    has_project: bool,
-) -> CommandResult:
-    writeln(f"Opening Robotick Studio for {label}..." if has_project else "Opening Robotick Studio...")
-    writeln("Attaching to full Studio logs. Use this mode when you want raw dev/build output.")
-    child = subprocess.Popen([launch_script, *forwarded_args], cwd=workspace_root, env=env)
-    instance_name = create_instance_name(child.pid)
-    if instance_name is not None:
-        writeln(f"Instance: {instance_name}/")
-    code = child.wait()
-    return CommandResult(exit_code=code, opened_instance_name=instance_name)
-
-
-def create_studio_launch_env(workspace_root: str | Path, manifest: Manifest) -> dict[str, str]:
-    remote_debugging_port = os.environ.get("ROBOTICK_REMOTE_DEBUGGING_PORT") or str(
-        find_available_port()
-    )
-    return {
-        **os.environ,
-        "ROBOTICK_WORKSPACE_ROOT": str(workspace_root),
-        "ROBOTICK_STUDIO_MODE": os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode),
-        "ROBOTICK_STUDIO_DIR": os.environ.get(
-            "ROBOTICK_STUDIO_DIR",
-            str((Path(workspace_root) / manifest.studio.default_path).resolve()),
-        ),
-        "ROBOTICK_REMOTE_DEBUGGING_PORT": remote_debugging_port,
-    }
-
-
-def resolve_studio_runner_path(workspace_root: str | Path, manifest: Manifest) -> str:
-    studio_dir = Path(
-        os.environ.get(
-            "ROBOTICK_STUDIO_DIR",
-            str((Path(workspace_root) / manifest.studio.default_path).resolve()),
-        )
-    )
-    mode = os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode)
-    runner_name = "run-studio-production.sh" if mode == "production" else "run-studio-dev.sh"
-    runner = studio_dir / runner_name
-    if not runner.exists():
-        raise CliError(f"Expected Studio runner at {runner}")
-    return str(runner)
-
-
-def find_available_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-        server.bind(("127.0.0.1", 0))
-        server.listen(1)
-        return int(server.getsockname()[1])
+    path: str,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    record = ensure_hub(workspace_root)
+    try:
+        return post_hub_json(record, path, payload)
+    except HubRequestError as error:
+        if error.status_code != 404:
+            raise
+        refreshed = restart_hub(workspace_root)
+        return post_hub_json(refreshed, path, payload)

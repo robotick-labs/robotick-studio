@@ -6,18 +6,31 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from robotick_hub.contracts import (
+    AppClosingRequest,
+    AppClosingResponse,
     CapabilityList,
     CapabilitySummary,
     HubHealth,
     LauncherEnsureResponse,
     LauncherStatusResponse,
+    StudioInstancesResponse,
+    StudioOpenRequest,
+    StudioOpenResponse,
     StudioProjectsResponse,
+    StudioQuitResponse,
     WorkspaceProject,
     WorkspaceProjectsResponse,
 )
 from robotick_hub.launcher import ensure_launcher, get_launcher_status, stop_launcher
 from robotick_hub.manifest import load_manifest
 from robotick_hub.runtime import remove_hub_record, write_hub_record
+from robotick_hub.studio import (
+    get_instance,
+    list_instances,
+    notify_instance_closing,
+    open_studio,
+    quit_instance,
+)
 
 
 def get_workspace_root() -> str:
@@ -99,7 +112,7 @@ def create_app() -> FastAPI:
         return WorkspaceProjectsResponse(projects=projects)
 
     @app.get("/v1/studio/projects", response_model=StudioProjectsResponse)
-    def studio_projects() -> StudioProjectsResponse:
+    def studio_projects(instance_id: str | None = None) -> StudioProjectsResponse:
         manifest = load_manifest(get_workspace_root())
         projects = [
             WorkspaceProject(
@@ -109,7 +122,54 @@ def create_app() -> FastAPI:
             )
             for name, project in manifest.projects.items()
         ]
-        return StudioProjectsResponse(projects=projects, selected_target_project=None)
+        selected_target_project = None
+        if instance_id:
+            instance = get_instance(get_workspace_root(), instance_id)
+            if instance is not None:
+                selected_target_project = str(instance.get("project_name") or "") or None
+        return StudioProjectsResponse(
+            projects=projects,
+            selected_target_project=selected_target_project,
+        )
+
+    @app.get("/v1/studio/instances", response_model=StudioInstancesResponse)
+    def studio_instances() -> StudioInstancesResponse:
+        return StudioInstancesResponse.model_validate(
+            {"instances": list_instances(get_workspace_root())}
+        )
+
+    @app.post("/v1/studio/open", response_model=StudioOpenResponse)
+    def studio_open(request: StudioOpenRequest) -> StudioOpenResponse:
+        return StudioOpenResponse.model_validate(
+            {"instance": open_studio(get_workspace_root(), project_name=request.project_name)}
+        )
+
+    @app.post("/v1/studio/instances/{instance_id}/quit", response_model=StudioQuitResponse)
+    def studio_quit(instance_id: str) -> StudioQuitResponse:
+        accepted, message, instance = quit_instance(get_workspace_root(), instance_id)
+        return StudioQuitResponse.model_validate(
+            {
+                "accepted": accepted,
+                "message": message,
+                "instance": instance,
+            }
+        )
+
+    @app.post("/v1/apps/{app_id}/instances/closing", response_model=AppClosingResponse)
+    def app_instance_closing(app_id: str, request: AppClosingRequest) -> AppClosingResponse:
+        accepted, message, instance = notify_instance_closing(
+            get_workspace_root(),
+            app_id=app_id,
+            process_id=request.pid,
+            instance_name=request.instance_name,
+        )
+        return AppClosingResponse.model_validate(
+            {
+                "accepted": accepted,
+                "message": message,
+                "instance": instance,
+            }
+        )
 
     @app.post("/v1/capabilities/launcher/ensure", response_model=LauncherEnsureResponse)
     def launcher_ensure() -> LauncherEnsureResponse:

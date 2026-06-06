@@ -588,19 +588,35 @@ Checklist housekeeping rule:
       Summary of work done: routed Studio project listing through the hub-backed workspace projects endpoint, preserved the existing `studio projects` UX while moving its source of truth, and changed immediate shell startup to ensure the hub up front so normal CLI entry now creates visible hub/tray presence when appropriate.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
-- [ ] Open Studio through hub and remove Studio-owned launcher lifecycle
-      Deliverable: `robotick studio open` ensures `robotick-hub`, asks hub to ensure required capabilities, opens/registers Studio with the hub endpoint, opens blank with the real workspace project list when no project is specified, opens with the same list plus a preselected target when a project is specified, and Studio no longer starts, stops, supervises, or force-kills launcher processes.
-      Test scope: CLI-to-hub open tests, hub Studio registration tests, Studio launch environment/config tests proving the hub endpoint is passed, tests proving blank and preselected Studio opens both expose the same workspace project list, and Studio-side tests proving launcher spawn/stop paths are gone.
+- [x] Opened Studio through hub and removed Studio-owned launcher lifecycle
+      Deliverable: `robotick studio open` now ensures `robotick-hub`, asks hub to ensure required capabilities, opens/registers Studio through new hub-owned Studio endpoints, opens blank with the real workspace project list when no project is specified, opens with the same list plus a preselected target when a project is specified, and Studio no longer starts, stops, supervises, or force-kills launcher processes during its own boot/shutdown path.
+      Test scope: CLI-to-hub open tests, hub Studio registration/open tests, provider tests for hub-owned Studio launch/recording, and targeted Studio/Electron bootstrap tests proving launcher spawn/stop hooks are gone now pass.
+      Summary of work done: added hub-owned `studio open`, `studio instances`, and `studio quit` endpoints plus a managed instance registry, routed the CLI quiet open path through those endpoints, ensured launcher through hub before Studio launch, removed launcher kill hooks from the Studio shell scripts, removed launcher-manager usage from Electron bootstrap shutdown/startup, and stopped exporting launcher-specific startup hints from the shared Studio launcher scripts.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` only if architectural reasoning starts dominating implementation
 
-- [ ] Finish Studio quit and instance polish on the hub path
-      Deliverable: `quit` prefers the Studio control API when available, falls back clearly when needed, updates hub/instance registry state, `ls` and `instances` show lightweight metadata such as current project/mode/launch age, and normal Studio quit no longer stalls on launcher ownership because launcher is outside Studio's process lifecycle.
-      Test scope: graceful quit tests, stale-instance cleanup tests, metadata rendering tests, and shutdown tests proving Studio quit does not stop launcher capability state.
+- [x] Finished Studio quit and instance polish on the hub path
+      Deliverable: `quit` now prefers the future Studio control API slot when available and falls back clearly to process-group shutdown today, updates hub/instance registry state, `ls` and `instances` show lightweight metadata such as current project/mode/launch age, and normal Studio quit no longer stalls on launcher ownership because launcher is outside Studio's process lifecycle.
+      Test scope: graceful quit tests, stale-instance cleanup tests, metadata rendering tests, provider tests for quit fallback behavior, and shutdown tests proving Studio quit does not stop launcher capability state now pass.
+      Summary of work done: moved one-shot quit onto the hub endpoint, kept bound-shell quit aligned with that same path, taught instance rendering to include running state/mode/project/age, preserved stale-instance cleanup on the registry-backed path, and removed the main cause of launcher-related Studio quit coupling by taking launcher lifecycle out of the Studio bootstrap entirely.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` for stubborn shutdown/lifecycle reasoning
+
+- [x] Added a generic app-closing signal path through hub
+      Deliverable: hub now exposes a small reusable `app instance closing` signal, Studio uses it as a best-effort shutdown notification, and hub can clear the tracked Studio instance immediately when the UI begins closing rather than waiting only for later prompt-time reconciliation or process sweeps.
+      Test scope: hub contract tests for the closing endpoint, provider tests for pid-to-instance matching and instance-name matching, and Electron bootstrap tests proving hub-managed Studio attempts the closing signal during graceful shutdown now pass.
+      Summary of work done: added a generic `POST /v1/apps/{app_id}/instances/closing` hub route, taught the hub-side Studio provider to resolve a closing signal from either explicit instance name or member pid within the tracked process group, and wired Electron bootstrap to emit a short best-effort `studio closing` notification before forcing final app exit.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
+
+- [x] Hardened interactive-shell error handling and stale quit fallbacks
+      Deliverable: command-level failures in the Robotick immediate shell no longer terminate the shell session; stale bound-instance `quit` requests now fall back to instance reconciliation and context unwind where possible; and unexpected command exceptions degrade to a concise error plus continued shell operation rather than crashing out to the parent terminal.
+      Test scope: stale bound-instance quit tests, interactive-shell recovery tests for unexpected command exceptions, and existing CLI shell regression coverage now pass.
+      Summary of work done: moved bound-instance `quit` onto an explicit helper with stale-instance fallback behavior, widened the interactive shell's command-processing error trap beyond `CliError`, and kept the shell alive after both expected command failures and unexpected command exceptions.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 #### How It Is Looking For Agentic UX
 
-The shape is now materially better for agentic use. The CLI exposes an explicit resource lifecycle: create a Studio instance, discover the reusable instance folder, bind to it, and close it. That is easier for an agent to reason about than the earlier auto-bound shell because creation, navigation, and action are now separate concepts with separate tests. Splitting `create` from composite `open` should improve that further by making the primitive contract scriptable while still giving humans a concise default workflow. The remaining weakness is not the shell grammar; it is the lack of a richer Studio control API behind `quit`, project binding, and readiness, which is why the next work should stay focused on lifecycle/control contracts rather than more prompt polish.
+The shape is now materially better for agentic use. The CLI exposes an explicit resource lifecycle: create a Studio instance, discover the reusable instance folder, bind to it, and close it. That is easier for an agent to reason about than the earlier auto-bound shell because creation, navigation, and action are now separate concepts with separate tests. Splitting `create` from composite `open` should improve that further by making the primitive contract scriptable while still giving humans a concise default workflow.
+
+The lifecycle story is also starting to become bi-directional rather than purely inferred. Hub-owned process reconciliation remains the safety net, but Studio can now emit a tiny `I am closing` signal back to `robotick-hub`, which gives faster state convergence and establishes a reusable pattern for future Robotick apps without requiring constant polling.
 
 ### MVP
 

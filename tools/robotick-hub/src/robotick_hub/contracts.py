@@ -37,6 +37,46 @@ class StudioProjectsResponse(BaseModel):
     selected_target_project: str | None = None
 
 
+class StudioInstanceSummary(BaseModel):
+    name: str
+    pid: int
+    mode: str
+    started_at: str
+    state: str
+    project_name: str | None = None
+    log_path: str | None = None
+    control_endpoint: str | None = None
+
+
+class StudioInstancesResponse(BaseModel):
+    instances: list[StudioInstanceSummary]
+
+
+class StudioOpenRequest(BaseModel):
+    project_name: str | None = None
+
+
+class StudioOpenResponse(BaseModel):
+    instance: StudioInstanceSummary
+
+
+class StudioQuitResponse(BaseModel):
+    accepted: bool
+    message: str
+    instance: StudioInstanceSummary | None = None
+
+
+class AppClosingRequest(BaseModel):
+    pid: int | None = None
+    instance_name: str | None = None
+
+
+class AppClosingResponse(BaseModel):
+    accepted: bool
+    message: str
+    instance: StudioInstanceSummary | None = None
+
+
 class LauncherEnsureResponse(BaseModel):
     capability_status: str
     endpoint: str

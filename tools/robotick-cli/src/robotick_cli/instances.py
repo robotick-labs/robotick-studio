@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 import signal
 import subprocess
 import time
 from pathlib import Path
 
 from pydantic import BaseModel
+
+from robotick_cli.app.errors import HubRequestError
+from robotick_cli.hub_client import discover_hub, fetch_hub_json
 
 
 class InstanceRecord(BaseModel):
@@ -17,6 +21,7 @@ class InstanceRecord(BaseModel):
     log_path: str | None = None
     project_name: str | None = None
     started_at: str
+    control_endpoint: str | None = None
 
 
 def get_instances_dir(workspace_root: str | Path) -> Path:
@@ -111,7 +116,41 @@ def is_instance_alive(instance: InstanceRecord) -> bool:
     return len(list_unix_process_group_members(instance.pid)) > 0
 
 
+def parse_instance_summary(payload: dict[str, object]) -> InstanceRecord | None:
+    try:
+        return InstanceRecord.model_validate(payload)
+    except Exception:
+        return None
+
+
+def list_hub_instances(workspace_root: str | Path) -> list[InstanceRecord] | None:
+    record = discover_hub(workspace_root)
+    if record is None:
+        return None
+    try:
+        payload = fetch_hub_json(record, "/v1/studio/instances")
+    except HubRequestError:
+        return None
+
+    items = payload.get("instances")
+    if not isinstance(items, list):
+        return None
+
+    instances: list[InstanceRecord] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        instance = parse_instance_summary(item)
+        if instance is not None:
+            instances.append(instance)
+    return sorted(instances, key=lambda item: item.name)
+
+
 def list_live_instances(workspace_root: str | Path) -> list[InstanceRecord]:
+    hub_instances = list_hub_instances(workspace_root)
+    if hub_instances is not None:
+        return hub_instances
+
     instances_dir = get_instances_dir(workspace_root)
     if not instances_dir.exists():
         return []
@@ -155,7 +194,35 @@ def reconcile_bound_instance(workspace_root: str | Path, state) -> str | None:
 def format_instance_contexts(instances: list[InstanceRecord]) -> list[str]:
     if not instances:
         return ["- none"]
-    return [f"- {instance.name}/" for instance in instances]
+    return [
+        f"- {instance.name}/ ({format_instance_details(instance)})"
+        for instance in instances
+    ]
+
+
+def format_instance_details(instance: InstanceRecord) -> str:
+    details = ["running", instance.mode]
+    if instance.project_name:
+        details.append(instance.project_name)
+    age = format_instance_age(instance.started_at)
+    if age:
+        details.append(age)
+    return " | ".join(details)
+
+
+def format_instance_age(started_at: str) -> str | None:
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    age_seconds = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    if age_seconds < 60:
+        return f"{age_seconds}s"
+    if age_seconds < 3600:
+        return f"{age_seconds // 60}m"
+    return f"{age_seconds // 3600}h"
 
 
 def signal_instance_process_tree(pid: int, sig: signal.Signals) -> None:

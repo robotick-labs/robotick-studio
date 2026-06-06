@@ -105,6 +105,29 @@ def test_workspace_and_studio_projects_endpoints() -> None:
         assert studio_response.json()["selected_target_project"] is None
 
 
+def test_studio_projects_can_reflect_selected_target_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_hub.app.get_instance",
+        lambda _workspace, instance_id: {
+            "name": instance_id,
+            "pid": 1234,
+            "mode": "dev",
+            "started_at": "2026-06-06T12:00:00+00:00",
+            "state": "running",
+            "project_name": "barr-e",
+            "log_path": None,
+            "control_endpoint": None,
+        },
+    )
+    with build_client(workspace) as client:
+        studio_response = client.get("/v1/studio/projects?instance_id=studio-1234")
+        assert studio_response.status_code == 200
+        assert studio_response.json()["selected_target_project"] == "barr-e"
+
+
 def test_launcher_ensure_and_status_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -149,6 +172,63 @@ def test_launcher_ensure_and_status_endpoints(
         assert status_response.json()["listener_status"]["status"] == "stopped"
         assert stop_response.status_code == 200
         assert stop_response.json()["capability_status"] == "stopped"
+
+
+def test_studio_instances_open_and_quit_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    summary = {
+        "name": "studio-1234",
+        "pid": 1234,
+        "mode": "dev",
+        "started_at": "2026-06-06T12:00:00+00:00",
+        "state": "running",
+        "project_name": "barr-e",
+        "log_path": "/tmp/studio.log",
+        "control_endpoint": None,
+    }
+    monkeypatch.setattr("robotick_hub.app.list_instances", lambda _: [summary])
+    monkeypatch.setattr("robotick_hub.app.open_studio", lambda _, project_name=None: summary)
+    monkeypatch.setattr(
+        "robotick_hub.app.quit_instance",
+        lambda _, instance_id: (True, f"Studio instance {instance_id} closed.", summary),
+    )
+    with build_client(workspace) as client:
+        instances_response = client.get("/v1/studio/instances")
+        open_response = client.post("/v1/studio/open", json={"project_name": "barr-e"})
+        quit_response = client.post("/v1/studio/instances/studio-1234/quit")
+        assert instances_response.status_code == 200
+        assert instances_response.json()["instances"][0]["name"] == "studio-1234"
+        assert open_response.status_code == 200
+        assert open_response.json()["instance"]["project_name"] == "barr-e"
+        assert quit_response.status_code == 200
+        assert quit_response.json()["accepted"] is True
+
+
+def test_app_instance_closing_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    summary = {
+        "name": "studio-1234",
+        "pid": 1234,
+        "mode": "dev",
+        "started_at": "2026-06-06T12:00:00+00:00",
+        "state": "running",
+        "project_name": None,
+        "log_path": None,
+        "control_endpoint": None,
+    }
+    monkeypatch.setattr(
+        "robotick_hub.app.notify_instance_closing",
+        lambda *_args, **_kwargs: (True, "Studio instance studio-1234 marked closing.", summary),
+    )
+    with build_client(workspace) as client:
+        response = client.post("/v1/apps/studio/instances/closing", json={"pid": 1234})
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+        assert response.json()["instance"]["name"] == "studio-1234"
 
 
 def test_should_use_tray_defaults_to_headless_without_desktop(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -62,10 +62,9 @@ export default function HomePage() {
       <section>
         <h2 className={styles.projectsSectionTitle}>Select a Project</h2>
         <p>
-          TODO - add simple info on how to run the Launcher and create your
-          first project.
+          TODO - add simple info on how to open Robotick through the CLI and
+          create your first project.
         </p>
-        <p>pip install robotick-launcher && robotick-launcher listen</p>
 
         <div className={styles.projectList}>
           {projects.length === 0 && (

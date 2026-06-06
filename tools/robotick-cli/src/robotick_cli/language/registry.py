@@ -65,19 +65,18 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="create",
-        usage="robotick studio create [project] [--attach] [studio-args...]",
+        usage="robotick studio create [project]",
         summary="Primitive instance creation without changing shell context",
         shell_label="create [project]",
         description_lines=(
             "Create a new Robotick Studio instance without changing shell context.",
             "By default the launch is quiet and writes logs to .robotick/logs/.",
-            "Use --attach to inherit the full Studio log stream.",
-            "Any extra arguments are forwarded to the project launch script when a project is given.",
+            "Studio launch now routes through robotick-hub.",
         ),
     ),
     CommandSpec(
         name="open",
-        usage="robotick studio open [project] [--attach] [studio-args...]",
+        usage="robotick studio open [project]",
         summary="Convenience launch; in the immediate shell it creates then enters the instance",
         shell_label="open [project]",
         description_lines=(
@@ -85,8 +84,7 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
             "Robotick Studio instance and enters it immediately.",
             "In one-shot CLI usage it behaves like the create primitive.",
             "By default the launch is quiet and writes logs to .robotick/logs/.",
-            "Use --attach to inherit the full Studio log stream.",
-            "Any extra arguments are forwarded to the project launch script when a project is given.",
+            "Studio launch now routes through robotick-hub.",
         ),
     ),
     CommandSpec(

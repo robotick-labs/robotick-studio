@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import socket as socket_module
 import socket
 import subprocess
 import sys
 import time
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
@@ -113,6 +114,27 @@ def stop_hub_process(pid: int | None) -> None:
         os.kill(pid, 15)
     except OSError:
         return
+
+
+def restart_hub(workspace_root: str | Path) -> HubRecord:
+    record = discover_hub(workspace_root)
+    if record is not None:
+        stop_hub_process(record.pid)
+        record_path = get_hub_record_path(workspace_root)
+        if record_path.exists():
+            record_path.unlink()
+    start_hub(workspace_root)
+    started_at = time.time()
+    while time.time() - started_at < 8:
+        record = discover_hub(workspace_root)
+        if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
+            if not desktop_tray_expected():
+                return record
+            health = fetch_hub_json(record, "/v1/health")
+            if health.get("tray_active") is True:
+                return record
+        time.sleep(0.1)
+    raise HubUnavailableError("robotick-hub did not become ready after restart.")
     started_at = time.time()
     while time.time() - started_at < 3:
         if not is_pid_alive(pid):
@@ -184,14 +206,33 @@ def fetch_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
     try:
         with urlopen(url, timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
-    except URLError as error:
+    except HTTPError as error:
+        raise HubRequestError(
+            f"robotick-hub request failed: {error.code} {error.reason}",
+            status_code=error.code,
+        ) from error
+    except (URLError, TimeoutError, socket_module.timeout) as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
 
 
-def post_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
-    request = Request(f"{record.endpoint}{path}", method="POST")
+def post_hub_json(
+    record: HubRecord,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data = None
+    headers: dict[str, str] = {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = Request(f"{record.endpoint}{path}", data=data, headers=headers, method="POST")
     try:
         with urlopen(request, timeout=2) as response:
             return json.loads(response.read().decode("utf-8"))
-    except URLError as error:
+    except HTTPError as error:
+        raise HubRequestError(
+            f"robotick-hub request failed: {error.code} {error.reason}",
+            status_code=error.code,
+        ) from error
+    except (URLError, TimeoutError, socket_module.timeout) as error:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error

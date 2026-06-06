@@ -12,10 +12,22 @@ import json
 import pytest
 
 import robotick_cli.hub_client as hub_client_module
+import robotick_cli.studio
 from robotick_cli.app.context import AppContext, ShellState
 from robotick_cli.hub_client import HubRecord, discover_hub, desktop_tray_expected, ensure_hub, get_hub_record_path
+from robotick_cli.interfaces.completion import get_completion_matches
+import robotick_cli.interfaces.repl as repl_module
 from robotick_cli.instances import parse_instance_pid, reconcile_bound_instance
-from robotick_cli.interfaces.repl import apply_cd, bind_opened_instance_to_state, step_back
+from robotick_cli.interfaces.repl import (
+    apply_cd,
+    bind_opened_instance_to_state,
+    bind_top_level_studio_open_to_state,
+    handle_bound_instance_quit,
+    start_interactive_shell,
+    step_back,
+    try_handle_top_level_studio_open,
+    try_enter_context_directly,
+)
 from robotick_cli.language.help import format_shell_context, get_prompt, get_studio_help_text
 from robotick_cli.language.registry import get_studio_command_spec
 from robotick_cli.studio import CommandResult
@@ -252,6 +264,63 @@ def test_open_without_project_launches_empty_studio_quietly() -> None:
     assert any(name.name.startswith("studio-open-empty-") for name in logs_dir.iterdir())
 
 
+def test_studio_open_restarts_stale_hub_when_new_route_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    old_record = HubRecord(endpoint="http://127.0.0.1:7000", pid=111, workspace_root=str(workspace))
+    fresh_record = HubRecord(endpoint="http://127.0.0.1:7001", pid=222, workspace_root=str(workspace))
+    state = {"restarted": 0}
+
+    monkeypatch.setattr("robotick_cli.studio.ensure_hub", lambda _workspace: old_record if state["restarted"] == 0 else fresh_record)
+
+    def fake_post(record, path, payload=None):
+        if record.endpoint == old_record.endpoint:
+            raise hub_client_module.HubRequestError("robotick-hub request failed: 404 Not Found", status_code=404)
+        return {
+            "instance": {
+                "name": "studio-2222",
+                "pid": 2222,
+                "mode": "dev",
+                "started_at": "2026-06-06T12:00:00+00:00",
+                "state": "running",
+                "project_name": None,
+                "log_path": str(workspace / ".robotick" / "logs" / "studio-open-empty.log"),
+                "control_endpoint": None,
+            }
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.post_hub_json", fake_post)
+    monkeypatch.setattr("robotick_cli.studio.restart_hub", lambda _workspace: state.__setitem__("restarted", state["restarted"] + 1) or fresh_record)
+
+    result = robotick_cli.studio.run_studio_command(AppContext(workspace_root=workspace), ["open"])
+    assert result.exit_code == 0
+    assert result.opened_instance_name == "studio-2222"
+    assert state["restarted"] == 1
+
+
+def test_studio_quit_falls_back_when_hub_request_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.post_studio_hub_json",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            hub_client_module.HubRequestError("Unable to reach robotick-hub at http://127.0.0.1:7000")
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick_cli.studio.quit_studio_instance",
+        lambda _workspace, instance_name: (True, f"Studio instance {instance_name} closed."),
+    )
+    result = robotick_cli.studio.handle_instance_quit(
+        AppContext(workspace_root=workspace),
+        "studio-2222",
+        [],
+    )
+    assert result.exit_code == 0
+
+
 def test_create_without_project_launches_empty_studio_quietly() -> None:
     workspace = create_fake_workspace()
     result = run_cli(["studio", "create"], workspace)
@@ -317,6 +386,55 @@ def test_cd_enters_a_discovered_instance_context() -> None:
     assert state == ShellState(namespace="studio", instance_name=instance_name)
 
 
+def test_direct_instance_entry_works_without_cd() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+    state = ShellState(namespace="studio")
+
+    entered = try_enter_context_directly(
+        AppContext(workspace_root=workspace),
+        state,
+        [instance_name],
+    )
+
+    assert entered is True
+    assert state == ShellState(namespace="studio", instance_name=instance_name)
+
+
+def test_cd_parent_sibling_instance_works() -> None:
+    workspace = create_fake_workspace()
+    first_opened = run_cli(["studio", "open"], workspace)
+    second_opened = run_cli(["studio", "open"], workspace)
+    first_instance = next(
+        line.split(": ", 1)[1][:-1]
+        for line in first_opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+    second_instance = next(
+        line.split(": ", 1)[1][:-1]
+        for line in second_opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+    state = ShellState(namespace="studio", instance_name=first_instance)
+
+    apply_cd(AppContext(workspace_root=workspace), state, [f"../{second_instance}"])
+
+    assert state == ShellState(namespace="studio", instance_name=second_instance)
+
+
+def test_cd_parent_top_level_namespace_works() -> None:
+    state = ShellState(namespace="studio")
+
+    apply_cd(AppContext(workspace_root=create_fake_workspace()), state, ["../hub"])
+
+    assert state == ShellState(namespace="hub")
+
+
 def test_shell_open_composite_binds_new_instance_into_context() -> None:
     state = ShellState(namespace="studio")
     bind_opened_instance_to_state(state, CommandResult(exit_code=0, opened_instance_name="studio-12345"))
@@ -327,6 +445,104 @@ def test_shell_create_primitive_does_not_bind_without_opened_instance() -> None:
     state = ShellState(namespace="studio")
     bind_opened_instance_to_state(state, CommandResult(exit_code=0))
     assert state == ShellState(namespace="studio")
+
+
+def test_top_level_studio_open_binds_into_opened_instance_context() -> None:
+    state = ShellState()
+
+    bind_top_level_studio_open_to_state(
+        state,
+        ["studio", "open"],
+        CommandResult(exit_code=0, opened_instance_name="studio-12345"),
+    )
+
+    assert state == ShellState(namespace="studio", instance_name="studio-12345")
+
+
+def test_top_level_studio_open_project_uses_same_binding_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = ShellState()
+    ctx = AppContext(workspace_root=create_fake_workspace())
+    monkeypatch.setattr(
+        repl_module,
+        "run_studio_command",
+        lambda _ctx, _args: CommandResult(exit_code=0, opened_instance_name="studio-56789"),
+    )
+
+    entered = try_handle_top_level_studio_open(ctx, state, ["studio", "open", "barr-e"])
+
+    assert entered is True
+    assert state == ShellState(namespace="studio", instance_name="studio-56789")
+
+
+def test_bound_instance_quit_stale_instance_does_not_raise_and_unbinds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    state = ShellState(namespace="studio", instance_name="studio-12345")
+    writes: list[str] = []
+
+    def fake_writeln(text: str = "", stream=None) -> None:
+        writes.append(text)
+
+    monkeypatch.setattr(
+        repl_module,
+        "run_studio_command",
+        lambda _ctx, _args: (_ for _ in ()).throw(
+            repl_module.CliError("Unknown studio command or instance: studio-12345")
+        ),
+    )
+    monkeypatch.setattr(
+        repl_module,
+        "reconcile_bound_instance",
+        lambda _workspace, shell_state: (
+            shell_state.__setattr__("instance_name", None) or "Studio instance studio-12345 closed."
+        ),
+    )
+    monkeypatch.setattr(repl_module, "writeln", fake_writeln)
+
+    handle_bound_instance_quit(AppContext(workspace_root=workspace), state)
+
+    assert state == ShellState(namespace="studio", instance_name=None)
+    assert "Studio instance studio-12345 closed." in writes
+
+
+def test_unexpected_command_error_does_not_exit_interactive_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    inputs = iter(["studio", "projects", "exit"])
+    writes: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(inputs)
+
+    def fake_write(text: str, stream=None) -> None:
+        writes.append(text)
+
+    def fake_writeln(text: str = "", stream=None) -> None:
+        writes.append(f"{text}\n")
+
+    monkeypatch.setattr(repl_module, "ensure_hub", lambda _workspace: None)
+    monkeypatch.setattr(repl_module, "install_readline_completion", lambda _ctx, _state: (lambda: None))
+    monkeypatch.setattr(repl_module, "write", fake_write)
+    monkeypatch.setattr(repl_module, "writeln", fake_writeln)
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(
+        repl_module,
+        "run_command",
+        lambda _ctx, args: (_ for _ in ()).throw(RuntimeError("boom"))
+        if args == ["studio", "projects"]
+        else CommandResult(exit_code=0),
+    )
+
+    exit_code = start_interactive_shell(AppContext(workspace_root=workspace))
+
+    assert exit_code == 0
+    captured = "".join(writes)
+    assert "Robotick hit an unexpected error while handling that command. The session is still running." in captured
+    assert "boom" in captured
 
 
 def test_back_unwinds_from_instance_context_to_studio_without_leaving_cli() -> None:
@@ -354,6 +570,131 @@ def test_reconcile_bound_instance_clears_stale_context() -> None:
     message = reconcile_bound_instance(workspace, state)
     assert message == "Studio instance studio-12345 closed."
     assert state == ShellState(namespace="studio")
+
+
+def test_reconcile_bound_instance_uses_hub_backed_instance_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    state = ShellState(namespace="studio", instance_name="studio-12345")
+    monkeypatch.setattr(
+        "robotick_cli.instances.discover_hub",
+        lambda _workspace: HubRecord(endpoint="http://127.0.0.1:7090", pid=1234),
+    )
+    monkeypatch.setattr(
+        "robotick_cli.instances.fetch_hub_json",
+        lambda _record, _path: {"instances": []},
+    )
+
+    message = reconcile_bound_instance(workspace, state)
+
+    assert message == "Studio instance studio-12345 closed."
+    assert state == ShellState(namespace="studio")
+
+
+def test_interrupts_do_not_exit_interactive_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    inputs = iter([KeyboardInterrupt(), "exit"])
+    writes: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        value = next(inputs)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    def fake_write(text: str, stream=None) -> None:
+        writes.append(text)
+
+    def fake_writeln(text: str = "", stream=None) -> None:
+        writes.append(f"{text}\n")
+
+    monkeypatch.setattr(repl_module, "ensure_hub", lambda _workspace: None)
+    monkeypatch.setattr(repl_module, "install_readline_completion", lambda _ctx, _state: (lambda: None))
+    monkeypatch.setattr(repl_module, "write", fake_write)
+    monkeypatch.setattr(repl_module, "writeln", fake_writeln)
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    exit_code = start_interactive_shell(AppContext(workspace_root=workspace))
+
+    assert exit_code == 0
+    captured = "".join(writes)
+    assert "KeyboardInterrupt" in captured
+    assert "Use 'exit' to leave Robotick." in captured
+
+
+def test_eof_does_not_exit_interactive_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    inputs = iter([EOFError(), "exit"])
+    writes: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        value = next(inputs)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    def fake_write(text: str, stream=None) -> None:
+        writes.append(text)
+
+    def fake_writeln(text: str = "", stream=None) -> None:
+        writes.append(f"{text}\n")
+
+    monkeypatch.setattr(repl_module, "ensure_hub", lambda _workspace: None)
+    monkeypatch.setattr(repl_module, "install_readline_completion", lambda _ctx, _state: (lambda: None))
+    monkeypatch.setattr(repl_module, "write", fake_write)
+    monkeypatch.setattr(repl_module, "writeln", fake_writeln)
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    exit_code = start_interactive_shell(AppContext(workspace_root=workspace))
+
+    assert exit_code == 0
+    captured = "".join(writes)
+    assert "Use 'exit' to leave Robotick." in captured
+
+
+def test_completion_suggests_studio_instances_for_cd() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    matches = get_completion_matches(
+        AppContext(workspace_root=workspace),
+        ShellState(namespace="studio"),
+        "cd stu",
+        3,
+        6,
+    )
+
+    assert f"{instance_name}/" in matches
+
+
+def test_completion_suggests_instance_quit_in_studio_context() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    matches = get_completion_matches(
+        AppContext(workspace_root=workspace),
+        ShellState(namespace="studio"),
+        f"{instance_name} q",
+        len(instance_name) + 1,
+        len(instance_name) + 2,
+    )
+
+    assert "quit" in matches
 
 
 def test_discover_hub_reads_registry_record() -> None:
