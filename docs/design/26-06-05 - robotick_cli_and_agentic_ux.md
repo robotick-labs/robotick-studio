@@ -350,6 +350,8 @@ Initial hub contract:
   list embedded, managed, and discovered capabilities plus health/endpoint summaries
 - `GET /v1/workspace/projects`
   list registered workspace projects without requiring launcher runtime state
+- `GET /v1/studio/projects`
+  return the same workspace project list in Studio-facing shape, plus current target-project metadata when a Studio instance is bound
 - `POST /v1/capabilities/launcher/ensure`
   ensure the launcher capability is available when a command needs it
 - `GET /v1/launcher/status`
@@ -372,9 +374,21 @@ Capability acquisition policy:
 Recommended Studio instance model:
 
 - each running Studio instance advertises a stable instance id
-- each instance registration includes process id, active project, control endpoint, and app lifecycle state
+- each instance registration includes process id, selected target-project if any, control endpoint, and app lifecycle state
+- opening Studio without a project means `selected_target_project = null`, not an implicit fake default project
+- Studio should always be able to show the full workspace project list from `robotick-hub`, whether it opened blank or with a preselected project
 - MVP registry can be a workspace-local runtime directory, for example `.robotick/instances/`
 - each instance should write and remove its own registration record
+- instance discovery should be registry-backed but reconciled against live process-group and, when available, control-endpoint truth rather than trusting either source alone
+- reconciled instance state should classify entries such as `running`, `degraded`, `stale`, and `gone`
+
+Recommended launcher capability model:
+
+- one `robotick-hub` exists per workspace
+- launcher is a workspace-scoped capability/service, not a singleton bound to one Studio instance or one project
+- launcher should support many runs beneath that service, each with its own run id, target project, profile, status, and optional owning Studio instance id
+- Studio target-project state and launcher run identity are separate concepts; switching Studio target project should not silently redefine launcher service identity
+- if concurrent runs need to stay constrained in early MVP, constrain them with explicit rules such as one active run per `(project, profile)` rather than a hidden global singleton
 
 Recommended transport:
 
@@ -527,25 +541,29 @@ Goal: make `robotick studio open ...` and the eventual Studio close path feel li
 - [x] Split create from open and make open the first composite command
       Deliverable: `create` is now the primitive instance-creation command that reports the new `studio-12345/` folder without changing context, while `open` is now the convenience composite that creates an instance and immediately binds to it in the immediate shell.
 
-- [ ] Establish the Python CLI language and hub client slice
-      Deliverable: the hello-world TypeScript CLI is replaced or ported to the Python Robotick operations stack before deeper lifecycle work, one-shot argv mode and immediate shell mode use the same Robotick language/routing layer, and hub-backed commands go through a small `hub_client` that can ensure/discover `robotick-hub`.
-      Test scope: parse/route tests, help text tests, argv vs immediate-mode equivalence tests, and tests proving help/project-listing paths do not start hub-backed services.
+- [x] Established the Python CLI language and hub client slice
+      Deliverable: the hello-world TypeScript CLI has been replaced with a Python Robotick operations CLI, one-shot argv mode and immediate shell mode now use the same Robotick language/routing layer, hub-backed commands go through a small `hub_client` that can ensure/discover `robotick-hub`, and command/help/shell-discovery output now comes from a shared command registry rather than hand-maintained strings.
+      Test scope: parse/route tests, command-registry/help generation tests, argv vs immediate-mode equivalence tests, and tests proving help/project-listing paths do not start hub-backed services now pass.
 
 - [ ] Add the hello-world `robotick-hub` slice
-      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service registry basics, and a first CLI command path that calls the hub API end-to-end.
-      Test scope: FastAPI contract tests for health/capabilities/workspace identity, service-registry unit tests, and CLI tests using a real or fake hub endpoint.
+      Deliverable: `tools/robotick-hub/` exists as a Python/FastAPI/Pydantic service with health, capability listing, workspace identity, service registry basics, workspace project listing, Studio-facing project-list metadata, and a first CLI command path that calls the hub API end-to-end.
+      Test scope: FastAPI contract tests for health/capabilities/workspace identity/project-list endpoints, service-registry unit tests, and CLI tests using a real or fake hub endpoint.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Route launcher capability through hub
-      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, and endpoint discovery; `robotick-hub` uses those contracts without importing arbitrary deep launcher internals; `robotick launcher status` and the launcher ensure path operate through the hub.
-      Test scope: fake launcher provider tests, idempotent ensure tests, status mapping tests, and checks that hub code depends only on the stable launcher capability API.
+      Deliverable: `robotick-launcher` exposes small stable functions or service contracts for ensure, status, stop, endpoint discovery, and run-oriented state; `robotick-hub` uses those contracts without importing arbitrary deep launcher internals; launcher is modelled as a workspace capability with runs beneath it rather than as a hidden single-project singleton; and `robotick launcher status` plus the launcher ensure path operate through the hub.
+      Test scope: fake launcher provider tests, idempotent ensure tests, run/status mapping tests, and checks that hub code depends only on the stable launcher capability API.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if the integration seam gets tangled
 
 - [ ] Open Studio through hub and remove Studio-owned launcher lifecycle
-      Deliverable: `robotick studio open` ensures `robotick-hub`, asks hub to ensure required capabilities, opens/registers Studio with the hub endpoint, and Studio no longer starts, stops, supervises, or force-kills launcher processes.
-      Test scope: CLI-to-hub open tests, hub Studio registration tests, Studio launch environment/config tests proving the hub endpoint is passed, and Studio-side tests proving launcher spawn/stop paths are gone.
+      Deliverable: `robotick studio open` ensures `robotick-hub`, asks hub to ensure required capabilities, opens/registers Studio with the hub endpoint, opens blank with the real workspace project list when no project is specified, opens with the same list plus a preselected target when a project is specified, and Studio no longer starts, stops, supervises, or force-kills launcher processes.
+      Test scope: CLI-to-hub open tests, hub Studio registration tests, Studio launch environment/config tests proving the hub endpoint is passed, tests proving blank and preselected Studio opens both expose the same workspace project list, and Studio-side tests proving launcher spawn/stop paths are gone.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` only if architectural reasoning starts dominating implementation
 
 - [ ] Finish Studio quit and instance polish on the hub path
       Deliverable: `quit` prefers the Studio control API when available, falls back clearly when needed, updates hub/instance registry state, `ls` and `instances` show lightweight metadata such as current project/mode/launch age, and normal Studio quit no longer stalls on launcher ownership because launcher is outside Studio's process lifecycle.
       Test scope: graceful quit tests, stale-instance cleanup tests, metadata rendering tests, and shutdown tests proving Studio quit does not stop launcher capability state.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` for stubborn shutdown/lifecycle reasoning
 
 #### How It Is Looking For Agentic UX
 
@@ -556,37 +574,48 @@ The shape is now materially better for agentic use. The CLI exposes an explicit 
 Goal: make launch -> ready -> snapshot -> stop -> quit obvious, deterministic, and reliable for humans and external automation.
 
 - [ ] Define MVP Robotick capability/state contract
-      Deliverable: documented Studio app, project, launcher, readiness, capture, and shutdown state.
+      Deliverable: documented Studio app, project, launcher, launcher-run, readiness, capture, and shutdown state, including the distinction between Studio target-project selection and launcher run identity.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement instance discovery and targeting
-      Deliverable: `robotick studio instances`, stable instance folder names, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts.
+      Deliverable: `robotick studio instances`, stable instance folder names, optional targeting flags where still useful, and `ls` support for presenting discovered Studio instances as enterable contexts with reconciled state such as `running`, `degraded`, `stale`, or `gone`.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Implement bound interactive mode
       Deliverable: `robotick studio` opens a REPL that can bind to an instance and run repeated commands without `--instance`.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement project switching
-      Deliverable: `robotick studio <instance> project <project>` and bound-instance `project ...` flows can bind/switch project state explicitly with clear success/failure reporting.
+      Deliverable: `robotick studio <instance> project <project>` and bound-instance `project ...` flows can bind/switch project state explicitly with clear success/failure reporting; Studio always exposes the full workspace project list from `robotick-hub`; blank-open Studio starts with no selected target project; and preselected-open Studio starts with the same list plus the requested current target.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Continue expanding CLI shell/unit/integration test coverage
       Deliverable: every new command/state permutation is added test-first or test-alongside, including one-shot vs immediate-mode equivalence, quiet vs attached open flows, close/quit lifecycle behavior, future instance discovery/binding, and invalid context/action combinations.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 
 - [ ] Implement launcher commands
       Deliverable: `robotick launcher launch`, `stop`, `status --json`, and `wait-ready` operate through the launcher capability and work consistently in one-shot and immediate-mode forms.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement readiness state
       Deliverable: machine-readable state distinguishing launch requested, launching, running, healthy, degraded, and failed.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement workspace/viewer readiness for capture workflows
       Deliverable: active workspace, selected viewer option, receive/present metrics where relevant, and degraded/not-trustworthy state.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Implement first-class capture
       Deliverable: `robotick studio <instance> capture panel ...` writes predictable output plus metadata.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Fix shutdown sequencing
       Deliverable: `robotick studio <instance> quit --wait`, staged shutdown state, blocker diagnostics, and terminal/log reconnect suppression during quit.
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` if the sequencing/debugging problem proves genuinely hard
 
 - [ ] Make the flow self-describing
-      Deliverable: a cold operator or bot can discover the canonical flow from `README.md`, `AGENTS.md`, `robotick.yaml`, and `robotick studio --help`.
+      Deliverable: a cold operator or bot can discover the canonical flow from `README.md`, `AGENTS.md`, `robotick.yaml`, and `robotick studio --help`; context listings surface instance state clearly; and visual treatment differentiates enterable contexts from action commands in the same way `ls` already distinguishes folders from non-folder entries.
+      Recommended Codex model/effort: `gpt-5.4-mini` / `low`
 
 ### Success Criteria
 
@@ -623,10 +652,17 @@ The equivalent MCP workflow should complete without repo rummaging, script-path 
 ### Future Work
 
 - [ ] Artifact/output conventions once capture workflows settle
+      Recommended Codex model/effort: `gpt-5.4-mini` / `low`
 - [ ] Richer log inspection and tailing commands
       Deliverable: explicit log viewing/tailing commands beyond the current `--attach` launch mode
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
 - [ ] Richer `workspace`, `viewer`, `diagnostics`, `capture`, and child-window coverage
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 - [ ] MCP adapter over the same operational contract
+      Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5 XL` if the cross-contract design work becomes the main challenge
 - [ ] Broader telemetry/model inspection commands
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 - [ ] Stronger visibility/focus/window-state introspection
+      Recommended Codex model/effort: `gpt-5.4` / `medium`
 - [ ] Python or other scripting client over the same contract
+      Recommended Codex model/effort: `gpt-5.4-mini` / `medium`
