@@ -6,10 +6,6 @@ import subprocess
 import sys
 from typing import Callable
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
-from PyQt5.QtWidgets import QAction, QApplication, QMenu, QMessageBox, QSystemTrayIcon
-
 from robotick_hub.app import get_endpoint, get_workspace_root
 
 
@@ -29,7 +25,9 @@ def get_bundled_icon_path() -> Path:
     return Path(__file__).resolve().parent / "assets" / "robotick-icon.png"
 
 
-def build_fallback_icon() -> QIcon:
+def build_fallback_icon():
+    from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
+
     pixmap = QPixmap(64, 64)
     pixmap.fill(QColor("#0f172a"))
     painter = QPainter(pixmap)
@@ -40,7 +38,9 @@ def build_fallback_icon() -> QIcon:
     return QIcon(pixmap)
 
 
-def load_tray_icon() -> QIcon:
+def load_tray_icon():
+    from PyQt5.QtGui import QIcon
+
     icon_path = get_bundled_icon_path()
     if icon_path.exists() and icon_path.stat().st_size > 0:
         icon = QIcon(str(icon_path))
@@ -50,6 +50,9 @@ def load_tray_icon() -> QIcon:
 
 
 def start_tray(stop_hub: Callable[[], None]) -> int:
+    from PyQt5.QtCore import QTimer
+    from PyQt5.QtWidgets import QAction, QApplication, QMenu, QMessageBox, QSystemTrayIcon
+
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
     if not QSystemTrayIcon.isSystemTrayAvailable():

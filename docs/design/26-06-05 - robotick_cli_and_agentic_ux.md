@@ -573,9 +573,10 @@ Checklist housekeeping rule:
       Test scope: fake launcher provider tests, idempotent ensure tests, run/status mapping tests, and checks that hub code depends only on the stable launcher capability API.
       Recommended Codex model/effort: `gpt-5.4` / `medium`, escalate to `gpt-5.5` / `medium` if the integration seam gets tangled
 
-- [ ] Move shared workspace/project queries onto hub-backed paths
-      Deliverable: project discovery is no longer Studio-only; canonical shared query paths such as `robotick hub projects` and later `robotick workspace projects` answer from the hub, while `robotick studio projects` becomes a convenience wrapper over the same hub-backed truth rather than a direct manifest-only special case.
-      Test scope: CLI tests proving shared and Studio convenience query paths return the same hub-backed project list, plus immediate-shell startup tests proving entering `robotick` eagerly ensures the hub while `--help` remains side-effect free.
+- [x] Moved shared workspace/project queries onto hub-backed paths
+      Deliverable: project discovery is no longer Studio-only; canonical shared query paths such as `robotick hub projects` now answer from the hub, `robotick studio projects` now acts as a convenience wrapper over the same hub-backed truth rather than a direct manifest-only special case, and entering the immediate `robotick` shell eagerly ensures the hub.
+      Test scope: CLI tests now prove shared and Studio convenience query paths return the same hub-backed project list, immediate-shell startup eagerly ensures the hub, and `--help` remains side-effect free.
+      Summary of work done: routed Studio project listing through the hub-backed workspace projects endpoint, preserved the existing `studio projects` UX while moving its source of truth, and changed immediate shell startup to ensure the hub up front so normal CLI entry now creates visible hub/tray presence when appropriate.
       Recommended Codex model/effort: `gpt-5.4` / `medium`
 
 - [ ] Open Studio through hub and remove Studio-owned launcher lifecycle

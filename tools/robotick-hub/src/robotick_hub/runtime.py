@@ -11,18 +11,32 @@ class HubRecord(BaseModel):
     pid: int | None = None
     workspace_root: str | None = None
     started_at: str | None = None
+    tray_expected: bool = False
+    tray_active: bool = False
+    python_executable: str | None = None
 
 
 def get_hub_record_path(workspace_root: str | Path) -> Path:
     return Path(workspace_root) / ".robotick" / "hub.json"
 
 
-def write_hub_record(workspace_root: str | Path, endpoint: str, pid: int | None) -> HubRecord:
+def write_hub_record(
+    workspace_root: str | Path,
+    endpoint: str,
+    pid: int | None,
+    *,
+    tray_expected: bool = False,
+    tray_active: bool = False,
+    python_executable: str | None = None,
+) -> HubRecord:
     record = HubRecord(
         endpoint=endpoint,
         pid=pid,
         workspace_root=str(Path(workspace_root).resolve()),
         started_at=datetime.now(timezone.utc).isoformat(),
+        tray_expected=tray_expected,
+        tray_active=tray_active,
+        python_executable=python_executable,
     )
     record_path = get_hub_record_path(workspace_root)
     record_path.parent.mkdir(parents=True, exist_ok=True)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -22,6 +21,9 @@ class HubRecord(BaseModel):
     pid: int | None = None
     workspace_root: str | None = None
     started_at: str | None = None
+    tray_expected: bool = False
+    tray_active: bool = False
+    python_executable: str | None = None
 
 
 def get_hub_record_path(workspace_root: str | Path) -> Path:
@@ -56,6 +58,14 @@ def is_hub_healthy(record: HubRecord) -> bool:
     return payload.get("status") == "ok"
 
 
+def desktop_tray_expected() -> bool:
+    if os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS") == "1":
+        return False
+    if os.environ.get("ROBOTICK_HUB_FORCE_TRAY") == "1":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def find_available_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))
@@ -85,17 +95,33 @@ def python_supports_module(executable: str, module_name: str) -> bool:
 
 
 def select_hub_python_executable() -> str:
-    wants_tray = (
-        os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS") != "1"
-        and bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-    )
-    if not wants_tray or python_supports_module(sys.executable, "PyQt5"):
+    wants_tray = desktop_tray_expected()
+    if not wants_tray:
         return sys.executable
 
-    system_python = shutil.which("python3")
-    if system_python and python_supports_module(system_python, "PyQt5"):
-        return system_python
-    return sys.executable
+    if python_supports_module(sys.executable, "PyQt5"):
+        return sys.executable
+    raise HubUnavailableError(
+        "robotick-hub requires PyQt5 for tray mode in this desktop session, but the managed Robotick Python environment does not have it installed."
+    )
+
+
+def stop_hub_process(pid: int | None) -> None:
+    if not pid:
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    started_at = time.time()
+    while time.time() - started_at < 3:
+        if not is_pid_alive(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, 9)
+    except OSError:
+        return
 
 
 def start_hub(workspace_root: str | Path) -> None:
@@ -111,12 +137,14 @@ def start_hub(workspace_root: str | Path) -> None:
     env["ROBOTICK_WORKSPACE_ROOT"] = str(workspace_root)
     env["ROBOTICK_HUB_HOST"] = "127.0.0.1"
     env["ROBOTICK_HUB_PORT"] = str(port)
+    env["ROBOTICK_HUB_EXPECT_TRAY"] = "1" if desktop_tray_expected() else "0"
+    env["ROBOTICK_HUB_PYTHON_EXECUTABLE"] = select_hub_python_executable()
     log_dir = workspace_root / ".robotick" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "robotick-hub.log"
     with open(log_path, "a", encoding="utf-8") as log_handle:
         subprocess.Popen(
-            [select_hub_python_executable(), "-m", "robotick_hub"],
+            [env["ROBOTICK_HUB_PYTHON_EXECUTABLE"], "-m", "robotick_hub"],
             cwd=workspace_root,
             env=env,
             stdin=subprocess.DEVNULL,
@@ -128,15 +156,25 @@ def start_hub(workspace_root: str | Path) -> None:
 
 def ensure_hub(workspace_root: str | Path) -> HubRecord:
     record = discover_hub(workspace_root)
+    tray_required = desktop_tray_expected()
     if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
-        return record
+        if not tray_required:
+            return record
+        health = fetch_hub_json(record, "/v1/health")
+        if health.get("tray_active") is True:
+            return record
+        stop_hub_process(record.pid)
 
     start_hub(workspace_root)
     started_at = time.time()
     while time.time() - started_at < 8:
         record = discover_hub(workspace_root)
         if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
-            return record
+            if not tray_required:
+                return record
+            health = fetch_hub_json(record, "/v1/health")
+            if health.get("tray_active") is True:
+                return record
         time.sleep(0.1)
     raise HubUnavailableError("robotick-hub did not become ready.")
 

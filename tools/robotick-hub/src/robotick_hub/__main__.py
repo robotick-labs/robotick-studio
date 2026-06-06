@@ -26,6 +26,7 @@ def run_headless() -> None:
 def run_with_tray() -> None:
     from robotick_hub.tray import should_use_tray, start_tray
 
+    os.environ["ROBOTICK_HUB_EXPECT_TRAY"] = "1"
     server = build_server()
     server_thread = threading.Thread(target=server.run, daemon=True)
     server_thread.start()
@@ -43,10 +44,13 @@ def run_with_tray() -> None:
         server.force_exit = True
 
     try:
+        os.environ["ROBOTICK_HUB_TRAY_ACTIVE"] = "1"
         exit_code = start_tray(stop_hub)
     except Exception:
-        server_thread.join()
-        return
+        os.environ["ROBOTICK_HUB_TRAY_ACTIVE"] = "0"
+        stop_hub()
+        server_thread.join(timeout=5)
+        raise
     stop_hub()
     server_thread.join(timeout=5)
     raise SystemExit(exit_code)
@@ -55,6 +59,8 @@ def run_with_tray() -> None:
 def main() -> None:
     from robotick_hub.tray import should_use_tray
 
+    os.environ.setdefault("ROBOTICK_HUB_EXPECT_TRAY", "0")
+    os.environ.setdefault("ROBOTICK_HUB_TRAY_ACTIVE", "0")
     if should_use_tray():
         run_with_tray()
         return

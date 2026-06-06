@@ -10,6 +10,8 @@ from typing import Literal
 
 from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError
+from robotick_cli.command_result import CommandResult
+from robotick_cli.hub import get_hub_workspace_projects
 from robotick_cli.instances import (
     InstanceRecord,
     create_instance_name,
@@ -30,13 +32,6 @@ from robotick_cli.language.help import (
 from robotick_cli.manifest import Manifest, load_manifest
 from robotick_cli.output import write_json, writeln
 
-
-@dataclass
-class CommandResult:
-    exit_code: int
-    opened_instance_name: str | None = None
-
-
 @dataclass
 class OpenLaunchTarget:
     kind: Literal["empty", "project"]
@@ -54,7 +49,7 @@ def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
     manifest = load_manifest(ctx.workspace_root)
     command, *rest = args
     if command == "projects":
-        handle_projects_command(manifest, rest)
+        handle_projects_command(ctx, rest)
         return CommandResult(exit_code=0)
     if command == "instances":
         handle_instances_command(ctx.workspace_root, rest)
@@ -76,7 +71,7 @@ def is_help_flag(value: str) -> bool:
     return value in {"--help", "-h", "help"}
 
 
-def handle_projects_command(manifest: Manifest, args: list[str]) -> None:
+def handle_projects_command(ctx: AppContext, args: list[str]) -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln(projects_help_text())
         return
@@ -85,14 +80,7 @@ def handle_projects_command(manifest: Manifest, args: list[str]) -> None:
     if unknown_args:
         raise CliError(f"Unknown argument for 'projects': {unknown_args[0]}")
 
-    projects = [
-        {
-            "name": name,
-            "project_dir": project.project_dir,
-            "launch_script": project.launch_script,
-        }
-        for name, project in manifest.projects.items()
-    ]
+    projects = get_hub_workspace_projects(ctx)
     if json_mode:
         write_json({"projects": projects})
         return

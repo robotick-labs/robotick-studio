@@ -27,6 +27,14 @@ def get_endpoint() -> str:
     return f"http://{host}:{port}"
 
 
+def tray_expected() -> bool:
+    return os.environ.get("ROBOTICK_HUB_EXPECT_TRAY") == "1"
+
+
+def tray_active() -> bool:
+    return os.environ.get("ROBOTICK_HUB_TRAY_ACTIVE") == "1"
+
+
 def build_capabilities() -> list[CapabilitySummary]:
     return [
         CapabilitySummary(name="workspace", kind="embedded", status="healthy"),
@@ -37,7 +45,14 @@ def build_capabilities() -> list[CapabilitySummary]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    write_hub_record(get_workspace_root(), get_endpoint(), os.getpid())
+    write_hub_record(
+        get_workspace_root(),
+        get_endpoint(),
+        os.getpid(),
+        tray_expected=tray_expected(),
+        tray_active=tray_active(),
+        python_executable=os.environ.get("ROBOTICK_HUB_PYTHON_EXECUTABLE"),
+    )
     try:
         yield
     finally:
@@ -53,6 +68,8 @@ def create_app() -> FastAPI:
             status="ok",
             workspace_root=get_workspace_root(),
             endpoint=get_endpoint(),
+            tray_expected=tray_expected(),
+            tray_active=tray_active(),
         )
 
     @app.get("/v1/capabilities", response_model=CapabilityList)

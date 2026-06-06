@@ -50,6 +50,8 @@ def test_health_and_registry_record() -> None:
         response = client.get("/v1/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+        assert response.json()["tray_expected"] is False
+        assert response.json()["tray_active"] is False
         assert get_hub_record_path(workspace).exists()
     assert not get_hub_record_path(workspace).exists()
 

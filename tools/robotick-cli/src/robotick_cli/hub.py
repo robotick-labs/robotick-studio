@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from robotick_cli.command_result import CommandResult
 from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError
 from robotick_cli.hub_client import ensure_hub, fetch_hub_json
 from robotick_cli.language.help import get_hub_help_text, hub_projects_help_text, hub_status_help_text
 from robotick_cli.output import write_json, writeln
-from robotick_cli.studio import CommandResult
 
 
 def is_help_flag(value: str) -> bool:
@@ -76,3 +76,9 @@ def handle_projects_command(ctx: AppContext, args: list[str]) -> None:
     writeln("Workspace projects from robotick-hub:")
     for project in payload["projects"]:
         writeln(f"- {project['name']}: {project['project_dir']}")
+
+
+def get_hub_workspace_projects(ctx: AppContext) -> list[dict[str, str]]:
+    record = ensure_hub(ctx.workspace_root)
+    payload = fetch_hub_json(record, "/v1/workspace/projects")
+    return list(payload["projects"])

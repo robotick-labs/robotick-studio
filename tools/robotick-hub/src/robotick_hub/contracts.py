@@ -7,6 +7,8 @@ class HubHealth(BaseModel):
     status: str
     workspace_root: str
     endpoint: str
+    tray_expected: bool = False
+    tray_active: bool = False
 
 
 class CapabilitySummary(BaseModel):

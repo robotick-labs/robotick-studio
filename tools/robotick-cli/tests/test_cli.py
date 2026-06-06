@@ -10,8 +10,9 @@ import time
 
 import pytest
 
+import robotick_cli.hub_client as hub_client_module
 from robotick_cli.app.context import AppContext, ShellState
-from robotick_cli.hub_client import HubRecord, discover_hub, get_hub_record_path
+from robotick_cli.hub_client import HubRecord, discover_hub, desktop_tray_expected, ensure_hub, get_hub_record_path
 from robotick_cli.instances import parse_instance_pid, reconcile_bound_instance
 from robotick_cli.interfaces.repl import apply_cd, bind_opened_instance_to_state, step_back
 from robotick_cli.language.help import format_shell_context, get_prompt, get_studio_help_text
@@ -168,6 +169,28 @@ def test_hub_projects_reads_workspace_projects_through_hub_json() -> None:
     terminate_pid(record.pid)
 
 
+def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
+    workspace = create_fake_workspace()
+    hub_result = run_cli(["hub", "projects", "--json"], workspace)
+    studio_result = run_cli(["studio", "projects", "--json"], workspace)
+    assert hub_result.returncode == 0
+    assert studio_result.returncode == 0
+    assert hub_result.stdout == studio_result.stdout
+
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
+
+
+def test_interactive_shell_start_eagerly_ensures_hub() -> None:
+    workspace = create_fake_workspace()
+    result = run_shell(["exit"], workspace)
+    assert result.returncode == 0
+    record = discover_hub(workspace)
+    assert record is not None
+    terminate_pid(record.pid)
+
+
 def test_bound_instance_ls_advertises_quit_as_action() -> None:
     text = format_shell_context(
         ShellState(namespace="studio", instance_name="studio-12345"),
@@ -304,3 +327,58 @@ def test_discover_hub_reads_registry_record() -> None:
     record = discover_hub(workspace)
     assert record is not None
     assert record.endpoint == "http://127.0.0.1:7090"
+
+
+def test_desktop_tray_expected_honors_headless_and_desktop_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_HEADLESS", raising=False)
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_TRAY", raising=False)
+    assert desktop_tray_expected() is False
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert desktop_tray_expected() is True
+    monkeypatch.setenv("ROBOTICK_HUB_FORCE_HEADLESS", "1")
+    assert desktop_tray_expected() is False
+
+
+def test_ensure_hub_replaces_non_tray_hub_in_desktop_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = create_fake_workspace()
+    stale = HubRecord(endpoint="http://127.0.0.1:7000", pid=111)
+    fresh = HubRecord(endpoint="http://127.0.0.1:7001", pid=222)
+    state = {"discover_calls": 0, "stopped": [], "started": 0}
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_HEADLESS", raising=False)
+
+    def fake_discover(_workspace):
+        state["discover_calls"] += 1
+        if state["discover_calls"] == 1:
+            return stale
+        return fresh
+
+    def fake_is_pid_alive(pid):
+        return pid in {111, 222}
+
+    def fake_fetch(record, path):
+        assert path == "/v1/health"
+        if record.pid == 111:
+            return {"status": "ok", "tray_active": False}
+        return {"status": "ok", "tray_active": True}
+
+    monkeypatch.setattr(hub_client_module, "discover_hub", fake_discover)
+    monkeypatch.setattr(hub_client_module, "is_pid_alive", fake_is_pid_alive)
+    monkeypatch.setattr(hub_client_module, "fetch_hub_json", fake_fetch)
+    monkeypatch.setattr(hub_client_module, "start_hub", lambda _workspace: state.__setitem__("started", state["started"] + 1))
+    monkeypatch.setattr(hub_client_module, "stop_hub_process", lambda pid: state["stopped"].append(pid))
+
+    record = ensure_hub(workspace)
+    assert record.pid == 222
+    assert state["stopped"] == [111]
+    assert state["started"] == 1
+
+
+def test_select_hub_python_executable_requires_pyqt5_in_managed_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.delenv("ROBOTICK_HUB_FORCE_HEADLESS", raising=False)
+    monkeypatch.setattr(hub_client_module, "python_supports_module", lambda executable, module: executable == sys.executable and module == "PyQt5")
+    assert hub_client_module.select_hub_python_executable() == sys.executable
