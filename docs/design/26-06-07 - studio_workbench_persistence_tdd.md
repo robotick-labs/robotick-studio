@@ -306,10 +306,15 @@ Draft `studio_layout` example:
 
 - [x] Produce an in-doc persisted-state inventory table covering current keys/files, owning code, value shape, durability classification, migration target, and notes.
 - [x] Produce in-doc draft canonical JSON examples for `studio_window`, `studio_workbench`, and `studio_layout`.
-- [ ] Produce implementation contracts for `studio_window`, `studio_workbench`, `studio_layout`, the normalized in-memory model, and project path resolution.
+- [x] Produce implementation contracts for `studio_window`, `studio_workbench`, `studio_layout`, the normalized in-memory model, and project path resolution.
 
 Result:
 The TDD doc contains the inventory and draft resource examples; the codebase contains the first TypeScript contracts/path helpers needed by later implementation steps.
+
+Implemented in:
+
+- `src/renderer/services/studio-persistence/`
+- `src/__tests__/unit/services/studioPersistence.test.ts`
 
 ### Canonical resource IO
 
