@@ -93,7 +93,6 @@ import { __mockEntries } from "../../../../renderer/services/EditorRegistry";
 
 class MemoryStudioPersistenceStore {
   files = new Map<string, string>();
-  legacyStorage: Record<string, string> | null = null;
 
   async listResourceFiles(_projectPath: string, directory: string) {
     const prefix = `studio/${directory}/`;
@@ -112,10 +111,6 @@ class MemoryStudioPersistenceStore {
     content: string
   ) {
     this.files.set(resourcePath, content);
-  }
-
-  async readLegacyRendererStorage() {
-    return this.legacyStorage;
   }
 }
 

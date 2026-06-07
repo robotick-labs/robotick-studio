@@ -48,7 +48,7 @@ PY
 )"
   LAUNCHER_SPEC="robotick-launcher[dev] @ ${LAUNCHER_URI}"
   if ! pip install --upgrade pip >/dev/null || \
-     ! pip install -e "$LAUNCHER_SPEC" >/dev/null; then
+     ! pip install --force-reinstall -e "$LAUNCHER_SPEC" >/dev/null; then
     rm -f "$MARKER_FILE"
     echo "[Launcher CLI] Pip install failed; please rerun." >&2
     exit 1

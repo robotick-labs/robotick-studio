@@ -54,23 +54,6 @@ function resolveStudioResourcePath(
   return resolved;
 }
 
-function safeParseRendererStorage(content: string): Record<string, string> | null {
-  try {
-    const parsed = JSON.parse(content);
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      Object.values(parsed).every((value) => typeof value === "string")
-    ) {
-      return parsed as Record<string, string>;
-    }
-  } catch {
-    // fall through
-  }
-  return null;
-}
-
 async function writeFileAtomic(filePath: string, content: string): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -138,27 +121,6 @@ export function registerStudioPersistence(ipcMain: IpcMain) {
         payload.resourcePath
       );
       await writeFileAtomic(filePath, payload.content);
-    }
-  );
-
-  ipcMain.handle(
-    "robotick-studio-persistence:read-legacy-renderer-storage",
-    async (_event, payload: { projectPath: string }) => {
-      const filePath = path.join(
-        resolveProjectDirectory(payload.projectPath),
-        ".studio",
-        "renderer-storage.json"
-      );
-      try {
-        return safeParseRendererStorage(
-          await fs.promises.readFile(filePath, "utf-8")
-        );
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return null;
-        }
-        throw error;
-      }
     }
   );
 }

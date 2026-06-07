@@ -92,10 +92,9 @@ Relationship model:
 ### Migration contract
 
 - New canonical resources use `workbench` terminology from day one.
-- Migration reads existing legacy renderer storage and legacy `workspace`-named keys.
-- Migration also tolerates transitional `workbench` aliases during rollout.
+- Migration read existing legacy renderer storage and legacy `workspace`-named keys during rollout.
+- Runtime Studio no longer reads or writes legacy persistence paths.
 - Canonical writes go only to the new project `studio/` JSON resources.
-- Legacy readers stay in place long enough for existing user state to survive normal use.
 - Broad shipped-surface `workspace -> workbench` cleanup belongs in a follow-up pass unless needed by the persistence migration.
 
 Known legacy sources:
@@ -294,11 +293,9 @@ Draft `studio_layout` example:
 ### Test strategy
 
 - Validate resource schemas directly.
-- Test legacy-to-canonical migration with representative fixtures.
-- Compare canonical and legacy inputs through the same normalized Studio domain model.
+- Test canonical resource loading and writeback with representative fixtures.
 - Compare normalized domain state, not raw file text.
-- Keep dual-load or migration-equivalence helpers test-only where possible.
-- Avoid permanent production dual-write behavior unless a concrete operational need appears.
+- Avoid reintroducing legacy read/write behavior unless a concrete operational need appears.
 
 ## 2. Implementation checklist
 
@@ -316,25 +313,20 @@ Implemented in:
 - `src/renderer/services/studio-persistence/`
 - `src/__tests__/unit/services/studioPersistence.test.ts`
 
-### Persistence loading, migration, and writeback
+### Persistence loading and writeback
 
 - [x] Produce typed resource-file readers and writers for window, workbench, and layout resources.
 - [x] Produce atomic write behavior for resource-file updates and first-write materialization for missing window, workbench, and layout resources.
-- [x] Produce legacy storage readers for `.studio/renderer-storage.json` and the current renderer storage bridge.
-- [x] Produce migration mapping for `workspace-layout-tabs:*`, `panelLayout:*`, `floating-panels:*`, and any durable panel-local or viewer-local keys found during inventory.
-- [x] Produce one normalized persistence model that both resource files and legacy storage load into, excluding live window chrome and session-only state.
-- [x] Produce representative legacy and resource-file fixtures plus temporary test-only equivalence helpers as part of the migration seam, so resource-file and legacy loads can be compared while the new path is being built.
-- [x] Produce resource-file-first loading with legacy fallback and resource-file-only writeback after migration materializes resources.
+- [x] Produce one normalized persistence model for resource files, excluding live window chrome and session-only state.
+- [x] Produce canonical-only loading and canonical-only writeback.
 
 Result:
-Studio can load either project resource files or legacy storage into one normalized model, prove their equivalence while the seam is under construction, materialize `studio/` assets when needed, and write back only through the project resource file path.
+Studio loads project resource files into one normalized model and writes back only through the project resource file path.
 
 Implemented in:
 
 - `src/renderer/services/studio-persistence/resources.ts`
-- `src/renderer/services/studio-persistence/scaffolding/legacy-migration.ts`
 - `src/renderer/services/studio-persistence/load.ts`
-- `src/renderer/services/studio-persistence/scaffolding/migration-equivalence.ts`
 - `src/renderer/services/studio-persistence/store.ts`
 - `src/electron/main/studio-persistence.ts`
 - `src/electron/preload/preload.ts`
@@ -355,15 +347,24 @@ Implemented in:
 
 ### Tests and fixtures
 
-- [x] Produce tests for schema validation, legacy migration, canonical-first loading, load equivalence, first-write materialization, and no-data-loss behavior.
+- [x] Produce tests for schema validation, canonical loading, first-write materialization, and no-data-loss behavior.
 
 Result:
-The broader persistence test suite covers the finished behavior, while the migration seam already had equivalence checks in place during implementation.
+The broader persistence test suite covers the finished canonical-resource behavior.
 
 Implemented in:
 
 - `src/__tests__/unit/services/studioPersistence.test.ts`
 - `src/__tests__/unit/components/workspaces/PanelLayout.test.tsx`
+
+### User testing and iteration (UX, robustness)
+
+- [ ] Review generated `studio/` assets from real project sessions and prune noisy default-only resources where appropriate.
+- [ ] Tighten canonical save/load robustness around project switching, child windows, and unexpected editor availability changes.
+- [ ] Refine what is persisted versus omitted so saved Studio assets feel intentional and inspectable rather than cache-like.
+
+Result:
+Real project usage feeds back into the canonical resource model so the saved `studio/` assets become cleaner, more robust, and more predictable.
 
 ### Documentation and follow-up
 

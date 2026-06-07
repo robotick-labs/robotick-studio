@@ -14,9 +14,6 @@ export type StudioPersistenceStore = {
     resourcePath: string,
     content: string
   ) => Promise<void>;
-  readLegacyRendererStorage: (
-    projectPath: string
-  ) => Promise<Record<string, string> | null>;
 };
 
 export function getBrowserStudioPersistenceStore(): StudioPersistenceStore | null {

@@ -50,9 +50,6 @@ export interface RobotickStudioPersistence {
     resourcePath: string,
     content: string
   ) => Promise<void>;
-  readonly readLegacyRendererStorage: (
-    projectPath: string
-  ) => Promise<Record<string, string> | null>;
 }
 
 export interface RobotickStudioProcessStats {

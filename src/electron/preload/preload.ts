@@ -290,14 +290,6 @@ const expose = () => {
         content,
       }) as Promise<void>;
     },
-    readLegacyRendererStorage(
-      projectPath: string
-    ): Promise<Record<string, string> | null> {
-      return ipcRenderer.invoke(
-        "robotick-studio-persistence:read-legacy-renderer-storage",
-        { projectPath }
-      ) as Promise<Record<string, string> | null>;
-    },
   };
 
   const robotickGlobals = {

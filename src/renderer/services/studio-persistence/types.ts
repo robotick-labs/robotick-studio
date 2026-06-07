@@ -87,7 +87,7 @@ export type StudioPersistenceModel = {
   layouts: StudioLayoutResource[];
 };
 
-export type StudioPersistenceSource = "canonical" | "legacy" | "empty";
+export type StudioPersistenceSource = "canonical" | "empty";
 
 export type StudioPersistenceLoadResult = {
   source: StudioPersistenceSource;
