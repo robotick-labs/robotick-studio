@@ -1,0 +1,9 @@
+{
+  "name": "robotick-cli",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Python CLI for Robotick workspaces",
+  "scripts": {
+    "test": "PYTHONPATH=src python3 -m pytest tests"
+  }
+}

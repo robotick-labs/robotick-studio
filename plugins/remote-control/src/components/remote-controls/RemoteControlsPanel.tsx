@@ -5,6 +5,7 @@ import {
   type RemoteControlStateKeysMeta,
 } from "./UseRemoteControlClient";
 import {
+  applyTriggerModeTransform,
   applyStickModeTransform,
   normalizeRemoteControlsConfig,
   type NormalizedRemoteControlsConfig,
@@ -13,6 +14,9 @@ import {
   type RemoteControlStickMode,
   type RemoteControlStickName,
   type RemoteControlTargetBinding,
+  type RemoteControlTriggerConfig,
+  type RemoteControlTriggerMode,
+  type RemoteControlTriggerName,
 } from "./remote-control-config";
 import styles from "../styles/RemoteControlsPanel.module.css";
 import {
@@ -49,7 +53,8 @@ type PendingBaseUrlWork = {
   enableUpdates: Map<string, true>;
 };
 
-type SelectedModesState = Partial<Record<RemoteControlStickName, string>>;
+type TriggerModeStateKey = `${RemoteControlTriggerName}_trigger`;
+type SelectedModesState = Partial<Record<RemoteControlStickName | TriggerModeStateKey, string>>;
 type PersistedSelectedModesState = {
   storageKey: string;
   selectedModes: SelectedModesState;
@@ -110,6 +115,12 @@ function buildSelectedModesDefaults(
       selectedModes[stickName] = stickConfig.selectedMode;
     }
   }
+  for (const triggerName of ["left", "right"] as const) {
+    const triggerConfig = config.triggers[triggerName];
+    if (triggerConfig) {
+      selectedModes[`${triggerName}_trigger`] = triggerConfig.selectedMode;
+    }
+  }
   return selectedModes;
 }
 
@@ -145,7 +156,29 @@ function buildSelectedModesStorageSignature(
       ];
     })
   );
-  return hashString(JSON.stringify(sticks));
+  const triggers = Object.fromEntries(
+    (["left", "right"] as const).map((triggerName) => {
+      const triggerConfig = config.triggers[triggerName];
+      if (!triggerConfig) {
+        return [triggerName, null];
+      }
+      return [
+        triggerName,
+        Object.fromEntries(
+          Object.entries(triggerConfig.modes).map(([modeId, mode]) => [
+            modeId,
+            {
+              deadZone: mode.deadZone,
+              scale: mode.scale,
+              bias: mode.bias,
+              output: mode.output,
+            },
+          ])
+        ),
+      ];
+    })
+  );
+  return hashString(JSON.stringify({ sticks, triggers }));
 }
 
 function buildSelectedModesStorageKey(
@@ -188,7 +221,9 @@ function readStoredSelectedModes(
   }
 
   try {
-    const parsed = JSON.parse(raw) as Partial<Record<RemoteControlStickName, unknown>>;
+    const parsed = JSON.parse(raw) as Partial<
+      Record<RemoteControlStickName | TriggerModeStateKey, unknown>
+    >;
     const selectedModes: SelectedModesState = { ...defaults };
     for (const stickName of ["left", "right"] as const) {
       const savedMode = parsed[stickName];
@@ -198,6 +233,14 @@ function readStoredSelectedModes(
         stickConfig?.modes[savedMode]
       ) {
         selectedModes[stickName] = savedMode;
+      }
+    }
+    for (const triggerName of ["left", "right"] as const) {
+      const stateKey = `${triggerName}_trigger` as const;
+      const savedMode = parsed[stateKey];
+      const triggerConfig = config.triggers[triggerName];
+      if (typeof savedMode === "string" && triggerConfig?.modes[savedMode]) {
+        selectedModes[stateKey] = savedMode;
       }
     }
     return selectedModes;
@@ -401,6 +444,39 @@ export default function RemoteControlsPanel({
     return resolved;
   }, [normalizedConfig.sticks, resolveBinding]);
 
+  const resolvedTriggerBindings = useMemo(() => {
+    const resolved: Partial<
+      Record<
+        RemoteControlTriggerName,
+        {
+          selectedMode: string;
+          modes: Record<
+            string,
+            ReturnType<typeof applyResolvedBindingsToTriggerMode>
+          >;
+        }
+      >
+    > = {};
+
+    for (const triggerName of ["left", "right"] as const) {
+      const triggerConfig = normalizedConfig.triggers[triggerName];
+      if (!triggerConfig) {
+        continue;
+      }
+      const modes = Object.fromEntries(
+        Object.entries(triggerConfig.modes).map(([modeId, mode]) => [
+          modeId,
+          applyResolvedBindingsToTriggerMode(mode, resolveBinding),
+        ])
+      );
+      resolved[triggerName] = {
+        selectedMode: triggerConfig.selectedMode,
+        modes,
+      };
+    }
+    return resolved;
+  }, [normalizedConfig.triggers, resolveBinding]);
+
   const resolvedButtons = useMemo(() => {
     return Object.fromEntries(
       Object.entries(normalizedConfig.buttons).map(([buttonKey, binding]) => [
@@ -425,13 +501,24 @@ export default function RemoteControlsPanel({
         }
       }
     }
+    for (const triggerName of ["left", "right"] as const) {
+      const triggerConfig = resolvedTriggerBindings[triggerName];
+      if (!triggerConfig) {
+        continue;
+      }
+      for (const mode of Object.values(triggerConfig.modes)) {
+        if (mode.output?.telemetryBaseUrl) {
+          urls.add(mode.output.telemetryBaseUrl);
+        }
+      }
+    }
     for (const binding of Object.values(resolvedButtons)) {
       if (binding?.telemetryBaseUrl) {
         urls.add(binding.telemetryBaseUrl);
       }
     }
     return Array.from(urls);
-  }, [resolvedButtons, resolvedStickBindings]);
+  }, [resolvedButtons, resolvedStickBindings, resolvedTriggerBindings]);
 
   useEffect(() => {
     if (resolvedTargetBaseUrls.length === 0) {
@@ -800,6 +887,32 @@ export default function RemoteControlsPanel({
         }
       }
 
+      for (const triggerName of ["left", "right"] as const) {
+        const triggerConfig = resolvedTriggerBindings[triggerName];
+        if (!triggerConfig) {
+          continue;
+        }
+        const stateKey = `${triggerName}_trigger` as const;
+        const selectedModeId =
+          selectedModes[stateKey] && triggerConfig.modes[selectedModes[stateKey] ?? ""]
+            ? selectedModes[stateKey]
+            : triggerConfig.selectedMode;
+        if (!selectedModeId) {
+          continue;
+        }
+        const mode = triggerConfig.modes[selectedModeId];
+        const binding = mode?.output;
+        if (!binding) {
+          continue;
+        }
+        desiredStates.set(binding.qualifiedPath, {
+          binding,
+          value: applyTriggerModeTransform(state[stateKey], mode),
+          shouldSuppress: true,
+          reassertSuppressionOnWrite: true,
+        });
+      }
+
       for (const [buttonKey, binding] of Object.entries(resolvedButtons) as Array<
         [RemoteControlButtonKey, ResolvedTargetBinding]
       >) {
@@ -814,7 +927,7 @@ export default function RemoteControlsPanel({
 
       return desiredStates;
     },
-    [resolvedButtons, resolvedStickBindings, selectedModes]
+    [resolvedButtons, resolvedStickBindings, resolvedTriggerBindings, selectedModes]
   );
 
   const applyDesiredStates = useCallback(
@@ -950,13 +1063,25 @@ export default function RemoteControlsPanel({
         }
       }
     }
+    for (const triggerName of ["left", "right"] as const) {
+      const triggerConfig = resolvedTriggerBindings[triggerName];
+      if (!triggerConfig) {
+        continue;
+      }
+      for (const mode of Object.values(triggerConfig.modes)) {
+        const binding = mode.output;
+        if (binding && !binding.telemetryBaseUrl) {
+          missing.add(binding.qualifiedPath);
+        }
+      }
+    }
     for (const binding of Object.values(resolvedButtons)) {
       if (binding && !binding.telemetryBaseUrl) {
         missing.add(binding.qualifiedPath);
       }
     }
     return Array.from(missing);
-  }, [resolvedButtons, resolvedStickBindings]);
+  }, [resolvedButtons, resolvedStickBindings, resolvedTriggerBindings]);
 
   const renderModeSelector = (
     stickName: RemoteControlStickName,
@@ -1002,6 +1127,51 @@ export default function RemoteControlsPanel({
     );
   };
 
+  const renderTriggerModeSelector = (
+    triggerName: RemoteControlTriggerName,
+    triggerConfig: RemoteControlTriggerConfig | undefined
+  ) => {
+    if (!triggerConfig || Object.keys(triggerConfig.modes).length <= 1) {
+      return null;
+    }
+
+    const stateKey = `${triggerName}_trigger` as const;
+    const currentMode =
+      selectedModes[stateKey] && triggerConfig.modes[selectedModes[stateKey] ?? ""]
+        ? selectedModes[stateKey]
+        : triggerConfig.selectedMode;
+    const tooltip = buildTriggerModeTooltip(
+      triggerName,
+      currentMode ? triggerConfig.modes[currentMode] : undefined
+    );
+
+    return (
+      <label className={styles.modeControl} key={stateKey} title={tooltip}>
+        <span>{triggerName === "left" ? "Left Trigger" : "Right Trigger"}</span>
+        <select
+          title={tooltip}
+          value={currentMode}
+          onChange={(event) => {
+            const nextMode = event.target.value;
+            setPersistedSelectedModes({
+              storageKey: selectedModesStorageKey,
+              selectedModes: {
+                ...selectedModes,
+                [stateKey]: nextMode,
+              },
+            });
+          }}
+        >
+          {Object.values(triggerConfig.modes).map((mode) => (
+            <option key={mode.id} value={mode.id}>
+              {mode.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
+
   useRemoteControlClient({
     leftArea: leftAreaEl,
     leftKnob: leftKnobEl,
@@ -1032,8 +1202,10 @@ export default function RemoteControlsPanel({
 
       <div className={styles.controls}>
         <div className={styles.modeControls}>
+          {renderTriggerModeSelector("left", normalizedConfig.triggers.left)}
           {renderModeSelector("left", normalizedConfig.sticks.left)}
           {renderModeSelector("right", normalizedConfig.sticks.right)}
+          {renderTriggerModeSelector("right", normalizedConfig.triggers.right)}
         </div>
         {!controlsEnabled ? (
           <div className={styles.statusNote}>Remote control targets unavailable.</div>
@@ -1061,4 +1233,35 @@ function applyResolvedBindingsToMode(
       ])
     ),
   };
+}
+
+function applyResolvedBindingsToTriggerMode(
+  mode: RemoteControlTriggerMode,
+  resolveBinding: (binding: RemoteControlTargetBinding) => ResolvedTargetBinding
+) {
+  return {
+    ...mode,
+    output: mode.output ? resolveBinding(mode.output) : mode.output,
+  };
+}
+
+function buildTriggerModeTooltip(
+  triggerName: RemoteControlTriggerName,
+  mode: RemoteControlTriggerMode | undefined
+): string {
+  const triggerLabel = triggerName === "left" ? "Left trigger" : "Right trigger";
+  if (!mode) {
+    return `${triggerLabel}: no mode selected`;
+  }
+
+  const lines = [
+    `${triggerLabel}: ${mode.label}`,
+    `mode: ${mode.id}`,
+    `deadZone: ${mode.deadZone}`,
+    `scale: ${mode.scale}`,
+    `bias: ${mode.bias}`,
+    `output: ${mode.output?.qualifiedPath ?? "(none)"}`,
+  ];
+
+  return lines.join("\n");
 }

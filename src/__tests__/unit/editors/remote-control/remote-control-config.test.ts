@@ -3,6 +3,7 @@ import {
   applyDeadZone,
   applyShapeTransform,
   applyStickModeTransform,
+  applyTriggerModeTransform,
   normalizeRemoteControlsConfig,
   parseTargetBinding,
 } from "../../../../../plugins/remote-control/src/components/remote-controls/remote-control-config";
@@ -33,6 +34,21 @@ describe("remote-control-config", () => {
           },
         },
       },
+      triggers: {
+        left: {
+          selectedMode: "eyes_wider",
+          modes: {
+            none: {},
+            eyes_wider: {
+              deadZone: 0.15,
+              scale: 0.75,
+              bias: 0.1,
+              output:
+                "demo-robot-face.face_control.inputs.left_eye_open_norm",
+            },
+          },
+        },
+      },
       buttons: {
         left_stick_button: "demo-robot-face.face_control.inputs.blink_request",
       },
@@ -49,6 +65,13 @@ describe("remote-control-config", () => {
       x: 0.5,
       y: 0.75,
     });
+    expect(config.triggers.left?.selectedMode).toBe("eyes_wider");
+    expect(config.triggers.left?.modes.eyes_wider.deadZone).toBe(0.15);
+    expect(config.triggers.left?.modes.eyes_wider.scale).toBe(0.75);
+    expect(config.triggers.left?.modes.eyes_wider.bias).toBe(0.1);
+    expect(config.triggers.left?.modes.eyes_wider.output?.fieldPath).toBe(
+      "face_control.inputs.left_eye_open_norm"
+    );
     expect(config.buttons.left_stick_button?.fieldPath).toBe(
       "face_control.inputs.blink_request"
     );
@@ -134,5 +157,40 @@ describe("remote-control-config", () => {
 
     expect(transformed.x).toBeCloseTo(0.25, 5);
     expect(transformed.y).toBe(-1);
+  });
+
+  it("applies trigger dead-zone, scale, bias, and clamp", () => {
+    expect(
+      applyTriggerModeTransform(0.1, {
+        id: "eyes_wider",
+        label: "Eyes Wider",
+        deadZone: 0.2,
+        scale: 1,
+        bias: 0,
+        output: null,
+      })
+    ).toBe(0);
+
+    expect(
+      applyTriggerModeTransform(0.6, {
+        id: "eyes_wider",
+        label: "Eyes Wider",
+        deadZone: 0.2,
+        scale: 0.5,
+        bias: 0.1,
+        output: null,
+      })
+    ).toBeCloseTo(0.35, 5);
+
+    expect(
+      applyTriggerModeTransform(1, {
+        id: "eyes_close",
+        label: "Eyes Close",
+        deadZone: 0,
+        scale: -2,
+        bias: 0,
+        output: null,
+      })
+    ).toBe(-1);
   });
 });

@@ -10,3 +10,5 @@ robotick_local
 *.vsix
 tools/vscode-extension/media/renderer
 .venv-launcher-dev
+**/__pycache__
+**/*.egg-info

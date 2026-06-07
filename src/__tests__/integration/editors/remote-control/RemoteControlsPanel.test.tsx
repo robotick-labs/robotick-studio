@@ -205,6 +205,21 @@ describe("RemoteControlsPanel", () => {
                       },
                     },
                   },
+                  triggers: {
+                    left: {
+                      selectedMode: "eyes_wider",
+                      modes: {
+                        none: {},
+                        eyes_wider: {
+                          deadZone: 0.15,
+                          scale: 1,
+                          bias: 0,
+                          output:
+                            "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
+                        },
+                      },
+                    },
+                  },
                 }}
               />
             </TestLauncherProviders>
@@ -218,7 +233,9 @@ describe("RemoteControlsPanel", () => {
 
       expect(document.body.textContent).not.toContain("TAKEOVER");
       expect(document.body.textContent).toContain("Left Stick");
+      expect(document.body.textContent).toContain("Left Trigger");
       expect(document.body.textContent).toContain("Drive Wheels");
+      expect(document.body.textContent).toContain("Eyes Wider");
       expect(telemetryService.ensureLayout).toHaveBeenCalledWith(
         "http://example-spine"
       );
@@ -232,14 +249,12 @@ describe("RemoteControlsPanel", () => {
             field_path: "spine_interface.inputs.angular_speed_norm",
             enabled: false,
           }),
-          expect.objectContaining({
-            field_path: "spine_interface.inputs.linear_speed_norm",
-            enabled: false,
-          }),
         ])
       );
 
-      const select = document.body.querySelector("select");
+      const select = Array.from(document.body.querySelectorAll("label")).find(
+        (label) => label.textContent?.includes("Left Stick")
+      )?.querySelector("select");
       expect(select).not.toBeNull();
       act(() => {
         select!.value = "none";
@@ -256,10 +271,6 @@ describe("RemoteControlsPanel", () => {
         expect.arrayContaining([
           expect.objectContaining({
             field_path: "spine_interface.inputs.angular_speed_norm",
-            enabled: true,
-          }),
-          expect.objectContaining({
-            field_path: "spine_interface.inputs.linear_speed_norm",
             enabled: true,
           }),
         ])
@@ -678,6 +689,21 @@ describe("RemoteControlsPanel", () => {
                       },
                     },
                   },
+                  triggers: {
+                    left: {
+                      selectedMode: "eyes_wider",
+                      modes: {
+                        none: {},
+                        eyes_wider: {
+                          deadZone: 0.15,
+                          scale: 1,
+                          bias: 0,
+                          output:
+                            "demo-robot-spine.spine_interface.inputs.linear_speed_norm",
+                        },
+                      },
+                    },
+                  },
                 }}
               />
             </TestLauncherProviders>
@@ -727,10 +753,6 @@ describe("RemoteControlsPanel", () => {
         expect.arrayContaining([
           expect.objectContaining({
             field_path: "spine_interface.inputs.angular_speed_norm",
-            enabled: false,
-          }),
-          expect.objectContaining({
-            field_path: "spine_interface.inputs.linear_speed_norm",
             enabled: false,
           }),
         ])

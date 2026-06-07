@@ -4,11 +4,6 @@ import {
   type BrowserWindowConstructor,
 } from "../../main/bootstrap";
 
-vi.mock("../../main/launcher-manager", () => ({
-  ensureLauncherReady: vi.fn().mockResolvedValue(undefined),
-  stopManagedLauncher: vi.fn().mockResolvedValue(undefined),
-}));
-
 type BrowserWindowMock = {
   setMenuBarVisibility: ReturnType<typeof vi.fn>;
   loadURL: ReturnType<typeof vi.fn>;
@@ -28,6 +23,7 @@ type BrowserWindowMock = {
     send: ReturnType<typeof vi.fn>;
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
   };
+  handlers: Map<string, Array<(...args: unknown[]) => void>>;
 };
 
 const createElectronMocks = () => {
@@ -58,7 +54,13 @@ const createElectronMocks = () => {
           send: vi.fn(),
           setWindowOpenHandler: vi.fn(),
         },
+        handlers: new Map<string, Array<(...args: unknown[]) => void>>(),
       };
+      win.on.mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+        const handlers = win.handlers.get(event) ?? [];
+        handlers.push(handler);
+        win.handlers.set(event, handlers);
+      });
       windows.push(win);
       return win;
     }),
@@ -129,6 +131,12 @@ const bootstrapWithMocks = async (env?: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+    }),
+  );
 });
 
 describe("electron launch paths", () => {
@@ -243,5 +251,38 @@ describe("electron launch paths", () => {
 
     expect(mocks.windows[0].close).toHaveBeenCalledTimes(1);
     expect(mocks.app.quit).not.toHaveBeenCalled();
+  });
+
+  it("hub-managed primary window close starts app quit immediately", async () => {
+    const mocks = createElectronMocks();
+    await bootstrapElectron({
+      app: mocks.app,
+      BrowserWindow: mocks.BrowserWindow as BrowserWindowConstructor,
+      Menu: mocks.Menu as unknown as typeof import("electron").Menu,
+      ipcMain: mocks.ipcMain as unknown as import("electron").IpcMain,
+      env: {
+        ROBOTICK_STUDIO_MANAGED_BY_HUB: "1",
+        ROBOTICK_HUB_ENDPOINT: "http://127.0.0.1:7099",
+      },
+      platform: "linux",
+    });
+
+    const primaryWindow = mocks.windows[0];
+    for (const handler of primaryWindow.handlers.get("close") ?? []) {
+      handler();
+    }
+    for (const handler of primaryWindow.handlers.get("closed") ?? []) {
+      handler();
+    }
+
+    await vi.waitFor(() => {
+      expect(mocks.app.quit).toHaveBeenCalledTimes(1);
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/apps/studio/instances/closing"),
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
   });
 });

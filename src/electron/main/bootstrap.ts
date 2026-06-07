@@ -2,7 +2,6 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { screen } from "electron";
-import { ensureLauncherReady, stopManagedLauncher } from "./launcher-manager";
 import { registerRendererStorage } from "./renderer-storage";
 import type {
   BrowserWindow as ElectronBrowserWindow,
@@ -281,6 +280,35 @@ async function resolveDevServerUrl(): Promise<string> {
     }
   }
   return "http://localhost:5173";
+}
+
+async function notifyHubAppClosing(
+  env: NodeJS.ProcessEnv,
+  appId: string,
+): Promise<void> {
+  const hubEndpoint = env.ROBOTICK_HUB_ENDPOINT?.trim();
+  if (!hubEndpoint) {
+    return;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 400);
+  try {
+    await fetch(`${hubEndpoint}/v1/apps/${appId}/instances/closing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pid: process.pid,
+        instance_name: env.ROBOTICK_STUDIO_INSTANCE_NAME?.trim() || null,
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    // best-effort signal only
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function persistWindowStateStore(state: WindowStateStore) {
@@ -905,6 +933,7 @@ export async function bootstrapElectron({
   const desiredCwd =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
+  const isHubManaged = env.ROBOTICK_STUDIO_MANAGED_BY_HUB === "1";
   const skipSmokeWindowControlsCheck =
     env.ROBOTICK_SMOKE_SKIP_WINDOW_CONTROLS === "1";
   if (desiredCwd && process.cwd() !== desiredCwd) {
@@ -939,10 +968,11 @@ export async function bootstrapElectron({
   if (platform === "linux") {
     app.commandLine.appendSwitch("class", "RobotickStudio");
   }
-  await ensureLauncherReady();
-
   if (env.ELECTRON_DEV === "1") {
-    app.commandLine.appendSwitch("remote-debugging-port", "9222");
+    app.commandLine.appendSwitch(
+      "remote-debugging-port",
+      env.ROBOTICK_REMOTE_DEBUGGING_PORT || "9222",
+    );
   }
   const disableAccelerated2dCanvas =
     env.ROBOTICK_STUDIO_DISABLE_ACCELERATED_2D_CANVAS !== "0";
@@ -1278,18 +1308,13 @@ export async function bootstrapElectron({
     );
   }
 
-  const cleanupLauncher = (() => {
-    let done = false;
-    return async () => {
-      if (done) return;
-      done = true;
-      try {
-        await stopManagedLauncher();
-      } catch (error) {
-        console.error("[Launcher] Failed to stop cleanly", error);
-      }
-    };
-  })();
+  const shutdown = (code = 0) => {
+    if (app.exit) {
+      app.exit(code);
+    } else {
+      process.exit(code);
+    }
+  };
 
   const notifyRenderersAppQuitting = () => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -1316,14 +1341,22 @@ export async function bootstrapElectron({
   };
 
   let gracefulQuitInFlight = false;
+  let forcedShutdownTimer: NodeJS.Timeout | null = null;
+  let closingNotificationSent = false;
   const runGracefulQuit = async () => {
     if (gracefulQuitInFlight) {
       return;
     }
     gracefulQuitInFlight = true;
+    if (!forcedShutdownTimer) {
+      forcedShutdownTimer = setTimeout(() => shutdown(0), 1500);
+    }
+    if (isHubManaged && !closingNotificationSent) {
+      closingNotificationSent = true;
+      void notifyHubAppClosing(env, "studio");
+    }
     notifyRenderersAppQuitting();
     closeAllWindowsForQuit();
-    await cleanupLauncher();
     app.quit();
   };
 
@@ -1404,6 +1437,9 @@ export async function bootstrapElectron({
     win.setMenuBarVisibility(false);
     win.on("closed", () => {
       clearAlwaysOnTopTimer();
+      if (isPrimary && platform !== "darwin" && isHubManaged) {
+        void runGracefulQuit();
+      }
     });
     registerWindowStateListeners(win, scope);
     registerDevtoolsShortcuts(win, platform);
@@ -1463,20 +1499,6 @@ export async function bootstrapElectron({
       });
     }
   });
-
-  const shutdown = (code = 0) => {
-    cleanupLauncher()
-      .catch(() => {
-        // ignore cleanup errors during shutdown
-      })
-      .finally(() => {
-        if (app.exit) {
-          app.exit(code);
-        } else {
-          process.exit(code);
-        }
-      });
-  };
 
   process.on("SIGINT", () => shutdown(0));
   process.on("SIGTERM", () => shutdown(0));

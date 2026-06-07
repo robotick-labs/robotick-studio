@@ -621,4 +621,41 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(result.registry).toHaveLength(1);
     expect(result.registry[0]?.type).toBe("SampleWorkload");
   });
+
+  it("uses robotick-hub as the launcher transport base when exposed in the renderer environment", async () => {
+    vi.stubGlobal("window", {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:44493",
+        },
+      },
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/launcher/status") {
+        expect(url.origin).toBe("http://127.0.0.1:44493");
+        return createJsonResponse({ status: "stopped" });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toEqual({
+      status: "stopped",
+    });
+    expect(launcherInterface.getLauncherLogStreamUrl()).toBe(
+      "ws://127.0.0.1:44493/launcher/ws/log"
+    );
+    expect(
+      launcherInterface.buildProjectAssetUrl(
+        "/tmp/demo/demo.project.yaml",
+        "assets/demo.glb"
+      )
+    ).toContain("http://127.0.0.1:44493/query/project-assets/assets/demo.glb");
+  });
 });

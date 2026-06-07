@@ -268,6 +268,9 @@ const expose = () => {
       isStandaloneApp: true,
       appTitle: "Robotick Studio",
       cesiumToken,
+      hubEndpoint: process.env.ROBOTICK_HUB_ENDPOINT?.trim() || undefined,
+      selectedProject:
+        process.env.ROBOTICK_STUDIO_SELECTED_PROJECT?.trim() || undefined,
       usesNativeWindowFrame,
       windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
       isPrimaryWindow:

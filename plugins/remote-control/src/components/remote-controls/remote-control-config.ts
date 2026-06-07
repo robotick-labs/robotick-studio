@@ -25,6 +25,7 @@ export type RemoteControlButtonKey = Extract<
 >;
 
 export type RemoteControlStickName = "left" | "right";
+export type RemoteControlTriggerName = "left" | "right";
 export type RemoteControlShapeTransform = "None" | "CircleToSquare";
 
 export type RemoteControlTargetBinding = {
@@ -47,8 +48,23 @@ export type RemoteControlStickConfig = {
   modes: Record<string, RemoteControlStickMode>;
 };
 
+export type RemoteControlTriggerMode = {
+  id: string;
+  label: string;
+  deadZone: number;
+  scale: number;
+  bias: number;
+  output: RemoteControlTargetBinding | null;
+};
+
+export type RemoteControlTriggerConfig = {
+  selectedMode: string;
+  modes: Record<string, RemoteControlTriggerMode>;
+};
+
 export type NormalizedRemoteControlsConfig = {
   sticks: Partial<Record<RemoteControlStickName, RemoteControlStickConfig>>;
+  triggers: Partial<Record<RemoteControlTriggerName, RemoteControlTriggerConfig>>;
   buttons: Partial<Record<RemoteControlButtonKey, RemoteControlTargetBinding>>;
 };
 
@@ -57,6 +73,13 @@ type RawStickModeConfig = {
   deadZone?: { x?: unknown; y?: unknown } | null;
   scale?: { x?: unknown; y?: unknown } | null;
   outputs?: { x?: unknown; y?: unknown } | null;
+};
+
+type RawTriggerModeConfig = {
+  deadZone?: unknown;
+  scale?: unknown;
+  bias?: unknown;
+  output?: unknown;
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -185,6 +208,54 @@ function normalizeStickConfig(
   };
 }
 
+function normalizeTriggerMode(
+  modeId: string,
+  rawMode: RawTriggerModeConfig
+): RemoteControlTriggerMode {
+  return {
+    id: modeId,
+    label: prettifyLabel(modeId),
+    deadZone: clampDeadZone(rawMode.deadZone),
+    scale: normalizeScale(rawMode.scale),
+    bias: typeof rawMode.bias === "number" && Number.isFinite(rawMode.bias)
+      ? rawMode.bias
+      : 0,
+    output: parseTargetBinding(rawMode.output),
+  };
+}
+
+function normalizeTriggerConfig(
+  rawTrigger: unknown
+): RemoteControlTriggerConfig | null {
+  if (!isPlainObject(rawTrigger)) {
+    return null;
+  }
+  const rawModes = isPlainObject(rawTrigger.modes) ? rawTrigger.modes : {};
+  const modeEntries = Object.entries(rawModes)
+    .map(([modeId, rawMode]) => {
+      if (!modeId.trim() || !isPlainObject(rawMode)) {
+        return null;
+      }
+      return [modeId, normalizeTriggerMode(modeId, rawMode)] as const;
+    })
+    .filter((entry): entry is readonly [string, RemoteControlTriggerMode] => entry !== null);
+
+  if (modeEntries.length === 0) {
+    return null;
+  }
+
+  const modes = Object.fromEntries(modeEntries);
+  const selectedModeRaw = String(rawTrigger.selectedMode ?? "").trim();
+  const selectedMode =
+    (selectedModeRaw && modes[selectedModeRaw] ? selectedModeRaw : null) ??
+    modeEntries[0][0];
+
+  return {
+    selectedMode,
+    modes,
+  };
+}
+
 export function normalizeRemoteControlsConfig(
   rawConfig: unknown
 ): NormalizedRemoteControlsConfig {
@@ -196,6 +267,16 @@ export function normalizeRemoteControlsConfig(
     const stickConfig = normalizeStickConfig(rawSticks[stickName]);
     if (stickConfig) {
       sticks[stickName] = stickConfig;
+    }
+  }
+
+  const rawTriggers = isPlainObject(config.triggers) ? config.triggers : {};
+  const triggers: NormalizedRemoteControlsConfig["triggers"] = {};
+
+  for (const triggerName of ["left", "right"] as const) {
+    const triggerConfig = normalizeTriggerConfig(rawTriggers[triggerName]);
+    if (triggerConfig) {
+      triggers[triggerName] = triggerConfig;
     }
   }
 
@@ -212,6 +293,7 @@ export function normalizeRemoteControlsConfig(
 
   return {
     sticks,
+    triggers,
     buttons,
   };
 }
@@ -265,4 +347,17 @@ export function applyStickModeTransform(
     x: Math.max(-1, Math.min(1, x)),
     y: Math.max(-1, Math.min(1, y)),
   };
+}
+
+export function applyTriggerModeTransform(
+  input: number,
+  mode: RemoteControlTriggerMode
+): number {
+  const normalizedInput =
+    typeof input === "number" && Number.isFinite(input)
+      ? Math.max(0, Math.min(1, input))
+      : 0;
+  const deadZoned = applyDeadZone(normalizedInput, mode.deadZone);
+  const transformed = deadZoned * mode.scale + mode.bias;
+  return Math.max(-1, Math.min(1, transformed));
 }
