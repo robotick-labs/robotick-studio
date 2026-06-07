@@ -1,6 +1,6 @@
-# TODO
+# Studio Workbench Persistence Technical Design and Plan
 
-## 1. Studio workbench persistence technical design
+## 1. Technical design
 
 Source issue: [robotick-labs/robotick-studio#39](https://github.com/robotick-labs/robotick-studio/issues/39)
 
