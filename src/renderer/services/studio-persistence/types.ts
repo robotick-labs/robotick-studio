@@ -7,6 +7,7 @@ export type StudioResourceType =
 
 export type StudioWindowRole = "main" | "child";
 export type StudioWorkbenchSource = "builtin" | "project" | "user" | "session";
+export type StudioResourceDirectory = "windows" | "workbenches" | "layouts";
 
 export type StudioDockNode =
   | {
@@ -73,4 +74,22 @@ export type StudioLayoutResource = {
   dockTree: StudioDockNode;
   panelInstances: StudioPanelInstance[];
   floatingPanels?: StudioFloatingPanelInstance[];
+};
+
+export type StudioResource =
+  | StudioWindowResource
+  | StudioWorkbenchResource
+  | StudioLayoutResource;
+
+export type StudioPersistenceModel = {
+  windows: StudioWindowResource[];
+  workbenches: StudioWorkbenchResource[];
+  layouts: StudioLayoutResource[];
+};
+
+export type StudioPersistenceSource = "canonical" | "legacy" | "empty";
+
+export type StudioPersistenceLoadResult = {
+  source: StudioPersistenceSource;
+  model: StudioPersistenceModel;
 };

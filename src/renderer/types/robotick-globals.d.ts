@@ -36,6 +36,25 @@ export interface RobotickStorage {
   readonly clear?: () => void;
 }
 
+export interface RobotickStudioPersistence {
+  readonly listResourceFiles: (
+    projectPath: string,
+    directory: "windows" | "workbenches" | "layouts"
+  ) => Promise<string[]>;
+  readonly readResourceFile: (
+    projectPath: string,
+    resourcePath: string
+  ) => Promise<string | null>;
+  readonly writeResourceFile: (
+    projectPath: string,
+    resourcePath: string,
+    content: string
+  ) => Promise<void>;
+  readonly readLegacyRendererStorage: (
+    projectPath: string
+  ) => Promise<Record<string, string> | null>;
+}
+
 export interface RobotickStudioProcessStats {
   readonly cpuPercent: number;
   readonly memoryMb: number;
@@ -50,6 +69,7 @@ export interface RobotickGlobals {
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
   readonly storage?: RobotickStorage;
+  readonly studioPersistence?: RobotickStudioPersistence;
   [key: string]: unknown;
 }
 

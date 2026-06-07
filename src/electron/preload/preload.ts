@@ -263,6 +263,43 @@ const expose = () => {
     },
   };
 
+  const studioPersistenceBridge = {
+    listResourceFiles(projectPath: string, directory: string): Promise<string[]> {
+      return ipcRenderer.invoke("robotick-studio-persistence:list", {
+        projectPath,
+        directory,
+      }) as Promise<string[]>;
+    },
+    readResourceFile(
+      projectPath: string,
+      resourcePath: string
+    ): Promise<string | null> {
+      return ipcRenderer.invoke("robotick-studio-persistence:read", {
+        projectPath,
+        resourcePath,
+      }) as Promise<string | null>;
+    },
+    writeResourceFile(
+      projectPath: string,
+      resourcePath: string,
+      content: string
+    ): Promise<void> {
+      return ipcRenderer.invoke("robotick-studio-persistence:write", {
+        projectPath,
+        resourcePath,
+        content,
+      }) as Promise<void>;
+    },
+    readLegacyRendererStorage(
+      projectPath: string
+    ): Promise<Record<string, string> | null> {
+      return ipcRenderer.invoke(
+        "robotick-studio-persistence:read-legacy-renderer-storage",
+        { projectPath }
+      ) as Promise<Record<string, string> | null>;
+    },
+  };
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
@@ -282,6 +319,7 @@ const expose = () => {
     windowControls,
     studioProcess,
     storage: storageBridge,
+    studioPersistence: studioPersistenceBridge,
   };
 
   contextBridge.exposeInMainWorld("robotick", robotickGlobals);

@@ -1,4 +1,5 @@
 import { STUDIO_RESOURCE_DIRECTORIES } from "./constants";
+import type { StudioResourceDirectory } from "./types";
 
 function trimTrailingSeparators(value: string): string {
   if (value === "/" || /^[A-Za-z]:\\?$/.test(value)) {
@@ -26,6 +27,10 @@ function getParentDirectory(value: string): string {
   return trimmed.slice(0, lastSlash);
 }
 
+function looksLikeProjectFilePath(value: string): boolean {
+  return /\.(ya?ml|json|toml)$/i.test(value.trim());
+}
+
 function joinPathParts(
   separator: "/" | "\\",
   ...parts: Array<string | undefined>
@@ -46,6 +51,9 @@ function joinPathParts(
 }
 
 export function getStudioProjectDirectory(projectPath: string): string {
+  if (!looksLikeProjectFilePath(projectPath)) {
+    return trimTrailingSeparators(projectPath.trim());
+  }
   return getParentDirectory(projectPath);
 }
 
@@ -95,6 +103,24 @@ export function getStudioWindowResourcePath(
     getStudioWindowsDirectoryPath(projectPath),
     `${slug}.window.json`
   );
+}
+
+export function getStudioResourceDirectoryRelativePath(
+  directory: StudioResourceDirectory
+): string {
+  return `${STUDIO_RESOURCE_DIRECTORIES.root}/${directory}`;
+}
+
+export function getStudioWindowResourceRelativePath(slug: string): string {
+  return `${getStudioResourceDirectoryRelativePath("windows")}/${slug}.window.json`;
+}
+
+export function getStudioWorkbenchResourceRelativePath(slug: string): string {
+  return `${getStudioResourceDirectoryRelativePath("workbenches")}/${slug}.workbench.json`;
+}
+
+export function getStudioLayoutResourceRelativePath(slug: string): string {
+  return `${getStudioResourceDirectoryRelativePath("layouts")}/${slug}.layout.json`;
 }
 
 export function getStudioWorkbenchResourcePath(

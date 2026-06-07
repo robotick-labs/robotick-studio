@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { screen } from "electron";
 import { registerRendererStorage } from "./renderer-storage";
+import { registerStudioPersistence } from "./studio-persistence";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -920,6 +921,7 @@ export async function bootstrapElectron({
       : undefined;
   if (ipcMain) {
     registerRendererStorage(ipcMain, storageFile);
+    registerStudioPersistence(ipcMain);
   }
 
   const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";

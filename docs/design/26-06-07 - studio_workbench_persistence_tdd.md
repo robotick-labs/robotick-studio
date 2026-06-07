@@ -316,28 +316,32 @@ Implemented in:
 - `src/renderer/services/studio-persistence/`
 - `src/__tests__/unit/services/studioPersistence.test.ts`
 
-### Canonical resource IO
+### Persistence loading, migration, and writeback
 
-- [ ] Produce typed canonical resource readers and writers for window, workbench, and layout resources.
-- [ ] Produce atomic write behavior for canonical resource updates.
-- [ ] Produce first-write materialization for missing canonical window, workbench, and layout resources.
-
-Result:
-Studio can read, write, and create canonical project `studio/` resources without using legacy renderer storage.
-
-### Legacy migration
-
-- [ ] Produce legacy storage readers for `.studio/renderer-storage.json` and the current renderer storage bridge.
-- [ ] Produce migration mapping for `workspace-layout-tabs:*`, `panelLayout:*`, `floating-panels:*`, and any durable panel-local or viewer-local keys found during inventory.
-- [ ] Produce a migrated normalized model that excludes live window chrome and session-only state.
+- [x] Produce typed resource-file readers and writers for window, workbench, and layout resources.
+- [x] Produce atomic write behavior for resource-file updates and first-write materialization for missing window, workbench, and layout resources.
+- [x] Produce legacy storage readers for `.studio/renderer-storage.json` and the current renderer storage bridge.
+- [x] Produce migration mapping for `workspace-layout-tabs:*`, `panelLayout:*`, `floating-panels:*`, and any durable panel-local or viewer-local keys found during inventory.
+- [x] Produce one normalized persistence model that both resource files and legacy storage load into, excluding live window chrome and session-only state.
+- [x] Produce representative legacy and resource-file fixtures plus temporary test-only equivalence helpers as part of the migration seam, so resource-file and legacy loads can be compared while the new path is being built.
+- [x] Produce resource-file-first loading with legacy fallback and resource-file-only writeback after migration materializes resources.
 
 Result:
-Legacy persisted state can be loaded and normalized into the same model as canonical resources, ready to materialize as project `studio/` assets.
+Studio can load either project resource files or legacy storage into one normalized model, prove their equivalence while the seam is under construction, materialize `studio/` assets when needed, and write back only through the project resource file path.
+
+Implemented in:
+
+- `src/renderer/services/studio-persistence/resources.ts`
+- `src/renderer/services/studio-persistence/scaffolding/legacy-migration.ts`
+- `src/renderer/services/studio-persistence/load.ts`
+- `src/renderer/services/studio-persistence/scaffolding/migration-equivalence.ts`
+- `src/renderer/services/studio-persistence/store.ts`
+- `src/electron/main/studio-persistence.ts`
+- `src/electron/preload/preload.ts`
+- `src/__tests__/unit/services/studioPersistence.test.ts`
 
 ### Renderer integration
 
-- [ ] Produce canonical-first layout persistence in the renderer, with legacy fallback loading.
-- [ ] Produce canonical-only writes after migration materializes resources.
 - [ ] Produce floating-panel persistence that embeds panel instances in the owning layout resource.
 
 Result:
@@ -345,12 +349,10 @@ The renderer no longer owns durable workbench/layout state through ad hoc storag
 
 ### Tests and fixtures
 
-- [ ] Produce representative legacy renderer storage fixtures and equivalent canonical `windows/`, `workbenches/`, and `layouts/` fixtures.
-- [ ] Produce temporary test-only equivalence helpers that compare legacy and canonical loads through the normalized model.
 - [ ] Produce tests for schema validation, legacy migration, canonical-first loading, load equivalence, first-write materialization, and no-data-loss behavior.
 
 Result:
-Reviewers can validate that old and new persistence paths produce equivalent Studio state and that migration does not drop existing user state.
+The broader persistence test suite covers the finished behavior, while the migration seam already had equivalence checks in place during implementation.
 
 ### Documentation and follow-up
 
