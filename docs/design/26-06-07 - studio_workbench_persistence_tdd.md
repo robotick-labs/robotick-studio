@@ -342,17 +342,28 @@ Implemented in:
 
 ### Renderer integration
 
-- [ ] Produce floating-panel persistence that embeds panel instances in the owning layout resource.
+- [x] Produce floating-panel persistence that embeds panel instances in the owning layout resource.
 
 Result:
 The renderer no longer owns durable workbench/layout state through ad hoc storage keys during normal operation.
 
+Implemented in:
+
+- `src/renderer/components/workspaces/PanelLayout.tsx`
+- `src/renderer/components/workspaces/panel-layout-persistence.ts`
+- `src/renderer/components/workspaces/floating-panels/floating-panel-store.ts`
+
 ### Tests and fixtures
 
-- [ ] Produce tests for schema validation, legacy migration, canonical-first loading, load equivalence, first-write materialization, and no-data-loss behavior.
+- [x] Produce tests for schema validation, legacy migration, canonical-first loading, load equivalence, first-write materialization, and no-data-loss behavior.
 
 Result:
 The broader persistence test suite covers the finished behavior, while the migration seam already had equivalence checks in place during implementation.
+
+Implemented in:
+
+- `src/__tests__/unit/services/studioPersistence.test.ts`
+- `src/__tests__/unit/components/workspaces/PanelLayout.test.tsx`
 
 ### Documentation and follow-up
 

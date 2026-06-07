@@ -3,9 +3,13 @@ import {
   useEditorRegistry,
 } from "../../services/EditorRegistry";
 import {
+  clearFloatingPanels,
   FloatingPanelLayer,
   FloatingPanelsScopeProvider,
+  replaceFloatingPanels,
   spawnFloatingPanel,
+  subscribeFloatingPanels,
+  type FloatingPanelRecord,
 } from "./floating-panels";
 import type { PanelContextMenuState } from "./PanelContextMenu";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
@@ -14,11 +18,21 @@ import { PanelInstanceProvider } from "./PanelInstanceContext";
 import { GenericDialog } from "../dialog/GenericDialog";
 import styles from "./PanelLayout.module.css";
 import { addWindowEventListener } from "../../utils/domEnvironment";
+import { useProjectContext } from "../../data-sources/launcher/internal/ProjectContext";
 import {
-  readStorageValue,
-  removeStorageValue,
-  setStorageValue,
-} from "../../services/storage";
+  getBrowserStudioPersistenceStore,
+  loadStudioPersistence,
+  writeStudioResourceFiles,
+  type StudioFloatingPanelInstance,
+  type StudioPersistenceModel,
+} from "../../services/studio-persistence";
+import {
+  applyWorkspaceLayoutState,
+  buildLayoutResourceId,
+  loadWorkspaceLayoutState,
+  panelNodeFromResource,
+  type PersistedPanelNode,
+} from "./panel-layout-persistence";
 
 type PanelLeafNode = {
   id: string;
@@ -166,185 +180,44 @@ function countLeaves(node: PanelNode): number {
   return countLeaves(node.children[0]) + countLeaves(node.children[1]);
 }
 
-function sanitizeLayoutTabs(
-  raw: unknown,
-  storageKey: string,
-  workspaceLabel?: string
-): WorkspaceLayoutTabsState {
-  const fallback = createDefaultLayoutTab(workspaceLabel);
-  const defaultTabName = getDefaultLayoutTabName(workspaceLabel);
-  if (!raw || typeof raw !== "object") {
-    return {
-      storageKey,
-      tabs: [fallback],
-      activeTabId: fallback.id,
-    };
-  }
-  const data = raw as Record<string, unknown>;
-  const rawTabs = Array.isArray(data.tabs) ? data.tabs : [];
-  const seen = new Set<string>();
-  const tabs = rawTabs
-    .filter((item) => item && typeof item === "object")
-    .map((item) => {
-      const tab = item as Record<string, unknown>;
-      const id = typeof tab.id === "string" ? tab.id.trim() : "";
-      const rawName = typeof tab.name === "string" ? tab.name.trim() : "";
-      if (!id || seen.has(id)) {
-        return null;
-      }
-      seen.add(id);
-      return {
-        id,
-        name: rawName || defaultTabName,
-      };
-    })
-    .filter((item): item is WorkspaceLayoutTab => item !== null);
-  const resolvedTabs = tabs.length > 0 ? tabs : [fallback];
-  const activeTabId =
-    typeof data.activeTabId === "string" &&
-    resolvedTabs.some((tab) => tab.id === data.activeTabId)
-      ? data.activeTabId
-      : resolvedTabs[0].id;
-  return {
-    storageKey,
-    tabs: resolvedTabs,
-    activeTabId,
-  };
+function toFloatingPanelRecords(
+  panels: StudioFloatingPanelInstance[]
+): FloatingPanelRecord[] {
+  return panels.map((panel) => ({
+    id: panel.panelInstanceId,
+    editorId: panel.editorId,
+    title: panel.label,
+    settings: { ...(panel.settings ?? {}) },
+    initialPosition: { x: panel.frame.x, y: panel.frame.y },
+    initialSize: { width: panel.frame.width, height: panel.frame.height },
+    minSize:
+      typeof panel.frame.minWidth === "number" ||
+      typeof panel.frame.minHeight === "number"
+        ? {
+            width: panel.frame.minWidth ?? 260,
+            height: panel.frame.minHeight ?? 180,
+          }
+        : undefined,
+  }));
 }
 
-function loadLayoutTabs(
-  storageKey: string,
-  workspaceLabel?: string
-): WorkspaceLayoutTabsState {
-  try {
-    const raw = readStorageValue(storageKey);
-    if (!raw) {
-      return sanitizeLayoutTabs(null, storageKey, workspaceLabel);
-    }
-    return sanitizeLayoutTabs(JSON.parse(raw), storageKey, workspaceLabel);
-  } catch {
-    return sanitizeLayoutTabs(null, storageKey, workspaceLabel);
-  }
-}
-
-function saveLayoutTabs(state: WorkspaceLayoutTabsState) {
-  try {
-    setStorageValue(
-      state.storageKey,
-      JSON.stringify({
-        tabs: state.tabs,
-        activeTabId: state.activeTabId,
-      })
-    );
-  } catch {
-    // Ignore write failures (e.g., storage disabled)
-  }
-}
-
-/**
- * Validate and normalize a raw panel layout object into a sanitized panel tree node.
- *
- * The function accepts an untrusted value and returns a well-formed PanelNode if the
- * input represents a valid leaf or split node. For leaf nodes it resolves the editor
- * id against the allowed set and ensures an id exists. For split nodes it validates
- * direction and children, recursively sanitizes both children, clamps the ratio, and
- * ensures an id exists.
- *
- * @param raw - Untrusted input to validate and sanitize
- * @param fallbackEditorId - Editor id to use when a leaf's editor is missing or not allowed
- * @param allowedEditors - Set of permitted editor ids used to validate leaf editor assignments
- * @returns A sanitized `PanelNode` when `raw` is valid, or `null` when the input is invalid
- */
-function sanitizeNode(
-  raw: unknown,
-  fallbackEditorId: string,
-  allowedEditors: Set<string>
-): PanelNode | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as Record<string, unknown>;
-  if (data.kind === "leaf") {
-    const editorId = typeof data.editorId === "string" ? data.editorId : null;
-    const resolvedEditor =
-      editorId && allowedEditors.has(editorId) ? editorId : fallbackEditorId;
-    const id =
-      typeof data.id === "string" && data.id ? data.id : generatePanelId();
-    return { id, kind: "leaf", editorId: resolvedEditor };
-  }
-  if (
-    data.kind === "split" &&
-    (data.direction === "horizontal" || data.direction === "vertical") &&
-    Array.isArray(data.children) &&
-    data.children.length === 2
-  ) {
-    const first = sanitizeNode(
-      data.children[0],
-      fallbackEditorId,
-      allowedEditors
-    );
-    const second = sanitizeNode(
-      data.children[1],
-      fallbackEditorId,
-      allowedEditors
-    );
-    if (!first || !second) return null;
-    const ratio =
-      typeof data.ratio === "number" ? clampRatio(data.ratio) : DEFAULT_RATIO;
-    const id =
-      typeof data.id === "string" && data.id ? data.id : generatePanelId();
-    return {
-      id,
-      kind: "split",
-      direction: data.direction,
-      ratio,
-      children: [first, second],
-    };
-  }
-  return null;
-}
-
-/**
- * Load a persisted panel layout for a workspace and return a validated layout tree, or a fresh leaf using the fallback editor when no valid layout exists.
- *
- * @param workspaceId - Identifier used to locate the persisted layout for the workspace
- * @param fallbackEditorId - Editor id to use when returning a new leaf or replacing invalid/unsupported editor entries
- * @param allowedEditors - Set of editor ids permitted in the returned layout; any editor not in this set will be replaced by `fallbackEditorId`
- * @returns A sanitized PanelNode representing the workspace layout, or a single-leaf node using `fallbackEditorId` if the stored layout is missing or invalid
- */
-function loadLayout(
-  storageKey: string,
-  fallbackEditorId: string,
-  allowedEditors: Set<string>,
-  legacyStorageKey?: string
-): PanelNode {
-  try {
-    const raw = readStorageValue(storageKey) ?? (
-      legacyStorageKey ? readStorageValue(legacyStorageKey) : null
-    );
-    if (!raw) {
-      return createLeaf(fallbackEditorId);
-    }
-    const parsed = JSON.parse(raw);
-    const sanitized = sanitizeNode(parsed, fallbackEditorId, allowedEditors);
-    return sanitized ?? createLeaf(fallbackEditorId);
-  } catch {
-    return createLeaf(fallbackEditorId);
-  }
-}
-
-/**
- * Persist the given panel layout for a workspace in durable storage.
- *
- * @param workspaceId - Identifier for the workspace; used as the storage key
- * @param layout - The root panel node representing the layout to persist
- *
- * @remarks
- * Write failures (for example, when storage is unavailable or disabled) are ignored. */
-function saveLayout(storageKey: string, layout: PanelNode) {
-  try {
-    setStorageValue(storageKey, JSON.stringify(layout));
-  } catch {
-    // Ignore write failures (e.g., storage disabled)
-  }
+function toStudioFloatingPanels(
+  panels: FloatingPanelRecord[]
+): StudioFloatingPanelInstance[] {
+  return panels.map((panel) => ({
+    panelInstanceId: panel.id,
+    editorId: panel.editorId,
+    label: panel.title,
+    settings: { ...panel.settings },
+    frame: {
+      x: panel.initialPosition?.x ?? 160,
+      y: panel.initialPosition?.y ?? 160,
+      width: panel.initialSize?.width ?? 640,
+      height: panel.initialSize?.height ?? 400,
+      minWidth: panel.minSize?.width,
+      minHeight: panel.minSize?.height,
+    },
+  }));
 }
 
 /**
@@ -457,6 +330,12 @@ export function PanelLayout({
   allowedEditors,
   windowScope = DEFAULT_WINDOW_SCOPE,
 }: PanelLayoutProps) {
+  const { projectPath } = useProjectContext();
+  const studioPersistenceStore = getBrowserStudioPersistenceStore();
+  const studioPersistenceEnabled =
+    Boolean(projectPath) && studioPersistenceStore !== null;
+  const resourceModelRef = React.useRef<StudioPersistenceModel | null>(null);
+  const persistenceHydratingRef = React.useRef(false);
   const { listEditorEntries, loading: registryLoading } = useEditorRegistry();
   const editorEntries = React.useMemo(() => {
     const entries = listEditorEntries();
@@ -496,18 +375,20 @@ export function PanelLayout({
     () => getLayoutTabsStorageKey(windowScope, workspaceId),
     [windowScope, workspaceId]
   );
-  const legacyPanelLayoutStorageKey = React.useMemo(
-    () => `${STORAGE_PREFIX}${workspaceId}`,
-    [workspaceId]
-  );
   const [layoutTabsState, setLayoutTabsState] =
-    React.useState<WorkspaceLayoutTabsState>(() =>
-      loadLayoutTabs(layoutTabsStorageKey, workspaceLabel)
-    );
+    React.useState<WorkspaceLayoutTabsState>(() => ({
+      storageKey: layoutTabsStorageKey,
+      tabs: [createDefaultLayoutTab(workspaceLabel)],
+      activeTabId: DEFAULT_LAYOUT_TAB_ID,
+    }));
   const activeLayoutTabId =
     layoutTabsState.storageKey === layoutTabsStorageKey
       ? layoutTabsState.activeTabId
       : DEFAULT_LAYOUT_TAB_ID;
+  const activeLayoutResourceId = React.useMemo(
+    () => buildLayoutResourceId(windowScope, workspaceId, activeLayoutTabId),
+    [activeLayoutTabId, windowScope, workspaceId]
+  );
   const visibleLayoutTabs =
     layoutTabsState.storageKey === layoutTabsStorageKey
       ? layoutTabsState.tabs
@@ -521,23 +402,23 @@ export function PanelLayout({
     () => getFloatingPanelScope(windowScope, workspaceId, activeLayoutTabId),
     [windowScope, workspaceId, activeLayoutTabId]
   );
+  const [floatingPanelsState, setFloatingPanelsState] = React.useState<
+    StudioFloatingPanelInstance[]
+  >([]);
+  const [persistenceLoaded, setPersistenceLoaded] = React.useState(false);
   const [layoutState, setLayoutState] = React.useState<PanelLayoutState>(() => ({
     storageKey: panelLayoutStorageKey,
-    node: loadLayout(
-      panelLayoutStorageKey,
-      fallbackEditorId,
-      allowedIdSet,
-      activeLayoutTabId === DEFAULT_LAYOUT_TAB_ID
-        ? legacyPanelLayoutStorageKey
-        : undefined
-    ),
+    node: createLeaf(fallbackEditorId),
   }));
   const layout = layoutState.node;
-  const layoutReady = layoutState.storageKey === panelLayoutStorageKey;
+  const currentLayoutStateKey = studioPersistenceEnabled
+    ? activeLayoutResourceId
+    : panelLayoutStorageKey;
+  const layoutReady = layoutState.storageKey === currentLayoutStateKey;
   const setCurrentLayout = React.useCallback(
     (updater: (current: PanelNode) => PanelNode) => {
       setLayoutState((current) => {
-        if (current.storageKey !== panelLayoutStorageKey) {
+        if (current.storageKey !== currentLayoutStateKey) {
           return current;
         }
         return {
@@ -546,7 +427,7 @@ export function PanelLayout({
         };
       });
     },
-    [panelLayoutStorageKey]
+    [currentLayoutStateKey]
   );
   const [maximizedPanelId, setMaximizedPanelId] = React.useState<string | null>(
     null
@@ -565,73 +446,217 @@ export function PanelLayout({
     React.useState<WorkspaceLayoutTab | null>(null);
   const draggingLayoutTabIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    const nextTabs = loadLayoutTabs(layoutTabsStorageKey, workspaceLabel);
-    setLayoutTabsState(nextTabs);
-    const nextPanelLayoutStorageKey = getPanelLayoutStorageKey(
-      windowScope,
-      workspaceId,
-      nextTabs.activeTabId
-    );
-    setLayoutState({
-      storageKey: nextPanelLayoutStorageKey,
-      node: loadLayout(
-        nextPanelLayoutStorageKey,
-        fallbackEditorId,
-        allowedIdSet,
-        nextTabs.activeTabId === DEFAULT_LAYOUT_TAB_ID
-          ? legacyPanelLayoutStorageKey
-          : undefined
-      ),
-    });
-    setMaximizedPanelId(null);
+    let cancelled = false;
+    persistenceHydratingRef.current = true;
+    setPersistenceLoaded(false);
+
+    if (!studioPersistenceEnabled || !projectPath || !studioPersistenceStore) {
+      const nextTabs: WorkspaceLayoutTabsState = {
+        storageKey: layoutTabsStorageKey,
+        tabs: [createDefaultLayoutTab(workspaceLabel)],
+        activeTabId: DEFAULT_LAYOUT_TAB_ID,
+      };
+      setLayoutTabsState(nextTabs);
+      setLayoutState({
+        storageKey: getPanelLayoutStorageKey(
+          windowScope,
+          workspaceId,
+          DEFAULT_LAYOUT_TAB_ID
+        ),
+        node: createLeaf(fallbackEditorId),
+      });
+      setFloatingPanelsState([]);
+      replaceFloatingPanels(
+        getFloatingPanelScope(windowScope, workspaceId, DEFAULT_LAYOUT_TAB_ID),
+        []
+      );
+      setMaximizedPanelId(null);
+      persistenceHydratingRef.current = false;
+      setPersistenceLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void loadStudioPersistence(projectPath, studioPersistenceStore)
+      .then((loaded) => {
+        if (cancelled) {
+          return;
+        }
+        const workspaceState = loadWorkspaceLayoutState({
+          model: loaded.model,
+          workspaceId,
+          workspaceLabel,
+          windowScope,
+          fallbackEditorId,
+          allowedEditors: allowedIdSet,
+          createPanelId: generatePanelId,
+        });
+        resourceModelRef.current = workspaceState.model;
+        setLayoutTabsState({
+          storageKey: layoutTabsStorageKey,
+          tabs: workspaceState.tabs.map((tab) => ({
+            id: tab.id,
+            name: tab.name,
+          })),
+          activeTabId: workspaceState.activeTabId,
+        });
+        setLayoutState({
+          storageKey: workspaceState.activeLayout.id,
+          node: panelNodeFromResource(
+            workspaceState.activeLayout,
+            fallbackEditorId,
+            allowedIdSet,
+            generatePanelId
+          ) as PanelNode,
+        });
+        const nextScope = getFloatingPanelScope(
+          windowScope,
+          workspaceId,
+          workspaceState.activeTabId
+        );
+        setFloatingPanelsState(workspaceState.floatingPanels);
+        replaceFloatingPanels(
+          nextScope,
+          toFloatingPanelRecords(workspaceState.floatingPanels)
+        );
+        setMaximizedPanelId(null);
+        persistenceHydratingRef.current = false;
+        setPersistenceLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          persistenceHydratingRef.current = false;
+          setPersistenceLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      persistenceHydratingRef.current = false;
+    };
   }, [
     allowedIdsKey,
     fallbackEditorId,
     layoutTabsStorageKey,
-    legacyPanelLayoutStorageKey,
+    projectPath,
+    studioPersistenceEnabled,
+    studioPersistenceStore,
     windowScope,
     workspaceLabel,
     workspaceId,
   ]);
 
   React.useEffect(() => {
-    if (layoutState.storageKey === panelLayoutStorageKey) {
+    return subscribeFloatingPanels(floatingPanelScope, (panels) => {
+      setFloatingPanelsState(toStudioFloatingPanels(panels));
+    });
+  }, [floatingPanelScope]);
+
+  React.useEffect(() => {
+    if (studioPersistenceEnabled || layoutState.storageKey === panelLayoutStorageKey) {
       return;
     }
     setLayoutState({
       storageKey: panelLayoutStorageKey,
-      node: loadLayout(
-        panelLayoutStorageKey,
-        fallbackEditorId,
-        allowedIdSet,
-        activeLayoutTabId === DEFAULT_LAYOUT_TAB_ID
-          ? legacyPanelLayoutStorageKey
-          : undefined
-      ),
+      node: createLeaf(fallbackEditorId),
     });
+    setFloatingPanelsState([]);
+    replaceFloatingPanels(floatingPanelScope, []);
     setMaximizedPanelId(null);
   }, [
     activeLayoutTabId,
     allowedIdsKey,
     fallbackEditorId,
+    floatingPanelScope,
     layoutState.storageKey,
-    legacyPanelLayoutStorageKey,
     panelLayoutStorageKey,
+    studioPersistenceEnabled,
   ]);
 
   React.useEffect(() => {
-    if (layoutTabsState.storageKey !== layoutTabsStorageKey) {
+    if (!studioPersistenceEnabled || !persistenceLoaded) {
       return;
     }
-    saveLayoutTabs(layoutTabsState);
-  }, [layoutTabsState, layoutTabsStorageKey]);
+    const activeLayout = resourceModelRef.current?.layouts.find(
+      (layoutResource) => layoutResource.id === activeLayoutResourceId
+    );
+    if (!activeLayout) {
+      replaceFloatingPanels(floatingPanelScope, []);
+      setFloatingPanelsState([]);
+      return;
+    }
+    setLayoutState({
+      storageKey: activeLayout.id,
+      node: panelNodeFromResource(
+        activeLayout,
+        fallbackEditorId,
+        allowedIdSet,
+        generatePanelId
+      ) as PanelNode,
+    });
+    setFloatingPanelsState(activeLayout.floatingPanels ?? []);
+    replaceFloatingPanels(
+      floatingPanelScope,
+      toFloatingPanelRecords(activeLayout.floatingPanels ?? [])
+    );
+    setMaximizedPanelId(null);
+  }, [
+    activeLayoutResourceId,
+    allowedIdsKey,
+    fallbackEditorId,
+    floatingPanelScope,
+    layoutState.storageKey,
+    persistenceLoaded,
+    studioPersistenceEnabled,
+  ]);
 
   React.useEffect(() => {
-    if (!layoutReady || registryLoading) {
+    if (
+      !persistenceLoaded ||
+      registryLoading ||
+      persistenceHydratingRef.current
+    ) {
       return;
     }
-    saveLayout(layoutState.storageKey, layoutState.node);
-  }, [layoutReady, layoutState, registryLoading]);
+    if (!studioPersistenceEnabled || !projectPath || !studioPersistenceStore) {
+      return;
+    }
+    const nextModel = applyWorkspaceLayoutState({
+      model: resourceModelRef.current,
+      workspaceId,
+      workspaceLabel,
+      windowScope,
+      tabs: visibleLayoutTabs.map((tab) => ({
+        id: tab.id,
+        name: tab.name,
+        layoutId: buildLayoutResourceId(windowScope, workspaceId, tab.id),
+      })),
+      activeTabId: activeLayoutTabId,
+      layoutNode: layoutState.node as PersistedPanelNode,
+      floatingPanels: floatingPanelsState,
+      fallbackEditorId,
+    });
+    resourceModelRef.current = nextModel;
+    void writeStudioResourceFiles(projectPath, studioPersistenceStore, nextModel);
+  }, [
+    activeLayoutTabId,
+    fallbackEditorId,
+    floatingPanelsState,
+    layoutReady,
+    layoutState,
+    layoutTabsState,
+    layoutTabsStorageKey,
+    persistenceLoaded,
+    projectPath,
+    registryLoading,
+    studioPersistenceEnabled,
+    studioPersistenceStore,
+    visibleLayoutTabs,
+    windowScope,
+    workspaceId,
+    workspaceLabel,
+  ]);
 
   React.useEffect(() => {
     if (maximizedPanelId && !nodeContains(layout, maximizedPanelId)) {
@@ -701,13 +726,18 @@ export function PanelLayout({
 
   const resetLayout = React.useCallback(() => {
     const fresh = createLeaf(fallbackEditorId);
-    removeStorageValue(panelLayoutStorageKey);
+    clearFloatingPanels(floatingPanelScope);
+    setFloatingPanelsState([]);
     setLayoutState({
-      storageKey: panelLayoutStorageKey,
+      storageKey: currentLayoutStateKey,
       node: fresh,
     });
     setMaximizedPanelId(null);
-  }, [fallbackEditorId, panelLayoutStorageKey]);
+  }, [
+    currentLayoutStateKey,
+    fallbackEditorId,
+    floatingPanelScope,
+  ]);
 
   const handleSelectLayoutTab = React.useCallback(
     (tabId: string) => {
@@ -807,9 +837,6 @@ export function PanelLayout({
         current.activeTabId === closingTab.id
           ? nextTabs[Math.min(closingIndex, nextTabs.length - 1)].id
           : current.activeTabId;
-      removeStorageValue(
-        getPanelLayoutStorageKey(windowScope, workspaceId, closingTab.id)
-      );
       return {
         ...current,
         tabs: nextTabs,
@@ -818,7 +845,10 @@ export function PanelLayout({
     });
     setLayoutTabPendingClose(null);
     setEditingLayoutTab(null);
-  }, [layoutTabPendingClose, layoutTabsStorageKey, windowScope, workspaceId]);
+  }, [
+    layoutTabPendingClose,
+    layoutTabsStorageKey,
+  ]);
 
   const handleLayoutTabDragStart = React.useCallback(
     (tabId: string, event: React.DragEvent<HTMLElement>) => {
