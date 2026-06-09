@@ -37,17 +37,9 @@ export interface RobotickStorage {
 }
 
 export interface RobotickStudioPersistence {
-  readonly listResourceFiles: (
+  readonly readStudioDocument: (projectPath: string) => Promise<string | null>;
+  readonly writeStudioDocument: (
     projectPath: string,
-    directory: "windows" | "workbenches" | "layouts"
-  ) => Promise<string[]>;
-  readonly readResourceFile: (
-    projectPath: string,
-    resourcePath: string
-  ) => Promise<string | null>;
-  readonly writeResourceFile: (
-    projectPath: string,
-    resourcePath: string,
     content: string
   ) => Promise<void>;
 }

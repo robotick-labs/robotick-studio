@@ -1,6 +1,3 @@
-import { STUDIO_RESOURCE_DIRECTORIES } from "./constants";
-import type { StudioResourceDirectory } from "./types";
-
 function trimTrailingSeparators(value: string): string {
   if (value === "/" || /^[A-Za-z]:\\?$/.test(value)) {
     return value;
@@ -59,100 +56,22 @@ export function getStudioProjectDirectory(projectPath: string): string {
 
 export function getStudioRootPath(projectPath: string): string {
   const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioProjectDirectory(projectPath),
-    STUDIO_RESOURCE_DIRECTORIES.root
-  );
+  return joinPathParts(separator, getStudioProjectDirectory(projectPath), "studio");
 }
 
-export function getStudioWindowsDirectoryPath(projectPath: string): string {
+export function getStudioDocumentRelativePath(): string {
+  return "studio/studio.yaml";
+}
+
+export function getStudioDocumentPath(projectPath: string): string {
   const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioRootPath(projectPath),
-    STUDIO_RESOURCE_DIRECTORIES.windows
-  );
-}
-
-export function getStudioWorkbenchesDirectoryPath(projectPath: string): string {
-  const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioRootPath(projectPath),
-    STUDIO_RESOURCE_DIRECTORIES.workbenches
-  );
-}
-
-export function getStudioLayoutsDirectoryPath(projectPath: string): string {
-  const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioRootPath(projectPath),
-    STUDIO_RESOURCE_DIRECTORIES.layouts
-  );
-}
-
-export function getStudioWindowResourcePath(
-  projectPath: string,
-  slug: string
-): string {
-  const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioWindowsDirectoryPath(projectPath),
-    `${slug}.window.json`
-  );
-}
-
-export function getStudioResourceDirectoryRelativePath(
-  directory: StudioResourceDirectory
-): string {
-  return `${STUDIO_RESOURCE_DIRECTORIES.root}/${directory}`;
-}
-
-export function getStudioWindowResourceRelativePath(slug: string): string {
-  return `${getStudioResourceDirectoryRelativePath("windows")}/${slug}.window.json`;
-}
-
-export function getStudioWorkbenchResourceRelativePath(slug: string): string {
-  return `${getStudioResourceDirectoryRelativePath("workbenches")}/${slug}.workbench.json`;
-}
-
-export function getStudioLayoutResourceRelativePath(slug: string): string {
-  return `${getStudioResourceDirectoryRelativePath("layouts")}/${slug}.layout.json`;
-}
-
-export function getStudioWorkbenchResourcePath(
-  projectPath: string,
-  slug: string
-): string {
-  const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioWorkbenchesDirectoryPath(projectPath),
-    `${slug}.workbench.json`
-  );
-}
-
-export function getStudioLayoutResourcePath(
-  projectPath: string,
-  slug: string
-): string {
-  const separator = detectSeparator(projectPath);
-  return joinPathParts(
-    separator,
-    getStudioLayoutsDirectoryPath(projectPath),
-    `${slug}.layout.json`
-  );
+  return joinPathParts(separator, getStudioRootPath(projectPath), "studio.yaml");
 }
 
 export function getStudioResourcePaths(projectPath: string) {
   return {
     projectDirectory: getStudioProjectDirectory(projectPath),
     studioRoot: getStudioRootPath(projectPath),
-    windowsDirectory: getStudioWindowsDirectoryPath(projectPath),
-    workbenchesDirectory: getStudioWorkbenchesDirectoryPath(projectPath),
-    layoutsDirectory: getStudioLayoutsDirectoryPath(projectPath),
+    studioDocument: getStudioDocumentPath(projectPath),
   };
 }

@@ -62,6 +62,7 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",
     "three": "^0.180.0",
-    "three-stdlib": "^2.36.0"
+    "three-stdlib": "^2.36.0",
+    "yaml": "^2.9.0"
   }
 }

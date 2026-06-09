@@ -22,13 +22,14 @@ import { useProjectContext } from "../../data-sources/launcher/internal/ProjectC
 import {
   getBrowserStudioPersistenceStore,
   loadStudioPersistence,
-  writeStudioResourceFiles,
+  writeStudioDocument,
   type StudioFloatingPanelInstance,
   type StudioPersistenceModel,
 } from "../../services/studio-persistence";
 import {
   applyWorkspaceLayoutState,
   buildLayoutResourceId,
+  findLayoutResource,
   loadWorkspaceLayoutState,
   panelNodeFromResource,
   type PersistedPanelNode,
@@ -184,7 +185,7 @@ function toFloatingPanelRecords(
   panels: StudioFloatingPanelInstance[]
 ): FloatingPanelRecord[] {
   return panels.map((panel) => ({
-    id: panel.panelInstanceId,
+    id: panel.id,
     editorId: panel.editorId,
     title: panel.label,
     settings: { ...(panel.settings ?? {}) },
@@ -205,7 +206,7 @@ function toStudioFloatingPanels(
   panels: FloatingPanelRecord[]
 ): StudioFloatingPanelInstance[] {
   return panels.map((panel) => ({
-    panelInstanceId: panel.id,
+    id: panel.id,
     editorId: panel.editorId,
     label: panel.title,
     settings: { ...panel.settings },
@@ -578,8 +579,11 @@ export function PanelLayout({
     if (!studioPersistenceEnabled || !persistenceLoaded) {
       return;
     }
-    const activeLayout = resourceModelRef.current?.layouts.find(
-      (layoutResource) => layoutResource.id === activeLayoutResourceId
+    const activeLayout = findLayoutResource(
+      resourceModelRef.current,
+      workspaceId,
+      windowScope,
+      activeLayoutResourceId
     );
     if (!activeLayout) {
       replaceFloatingPanels(floatingPanelScope, []);
@@ -638,7 +642,7 @@ export function PanelLayout({
       fallbackEditorId,
     });
     resourceModelRef.current = nextModel;
-    void writeStudioResourceFiles(projectPath, studioPersistenceStore, nextModel);
+    void writeStudioDocument(projectPath, studioPersistenceStore, nextModel);
   }, [
     activeLayoutTabId,
     fallbackEditorId,

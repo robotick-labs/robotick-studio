@@ -1,163 +1,244 @@
+import { parse, stringify } from "yaml";
 import { STUDIO_PERSISTENCE_SCHEMA_VERSION } from "./constants";
-import {
-  getStudioLayoutResourceRelativePath,
-  getStudioResourceDirectoryRelativePath,
-  getStudioWindowResourceRelativePath,
-  getStudioWorkbenchResourceRelativePath,
-} from "./paths";
+import { getStudioProjectDirectory } from "./paths";
 import type { StudioPersistenceStore } from "./store";
 import type {
+  StudioDockNode,
+  StudioFloatingPanelInstance,
   StudioLayoutResource,
   StudioPersistenceModel,
-  StudioResourceDirectory,
   StudioWindowResource,
   StudioWorkbenchResource,
 } from "./types";
 
-export const EMPTY_STUDIO_PERSISTENCE_MODEL: StudioPersistenceModel = {
-  windows: [],
-  workbenches: [],
-  layouts: [],
-};
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function deriveStudioDocumentId(projectPath: string): string {
+  const projectDirectory = getStudioProjectDirectory(projectPath)
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .pop();
+  return projectDirectory ? `${projectDirectory}-studio` : "studio";
 }
+
+export function createEmptyStudioPersistenceModel(
+  projectPath?: string
+): StudioPersistenceModel {
+  return {
+    resourceType: "studio_document",
+    schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+    id: projectPath ? deriveStudioDocumentId(projectPath) : "studio",
+    windows: [],
+  };
+}
+
+export const EMPTY_STUDIO_PERSISTENCE_MODEL = createEmptyStudioPersistenceModel();
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isValidWindowResource(value: unknown): value is StudioWindowResource {
-  if (!isObject(value)) return false;
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return isObject(value);
+}
+
+function isPanelFrame(value: unknown): value is StudioFloatingPanelInstance["frame"] {
   return (
-    value.resourceType === "studio_window" &&
-    value.schemaVersion === STUDIO_PERSISTENCE_SCHEMA_VERSION &&
+    isObject(value) &&
+    typeof value.x === "number" &&
+    typeof value.y === "number" &&
+    typeof value.width === "number" &&
+    typeof value.height === "number" &&
+    (value.minWidth === undefined || typeof value.minWidth === "number") &&
+    (value.minHeight === undefined || typeof value.minHeight === "number")
+  );
+}
+
+function isDockNode(value: unknown): value is StudioDockNode {
+  if (!isObject(value) || typeof value.nodeType !== "string") {
+    return false;
+  }
+  if (value.nodeType === "panel") {
+    return (
+      typeof value.panelId === "string" &&
+      typeof value.editorId === "string" &&
+      (value.label === undefined || typeof value.label === "string") &&
+      (value.settings === undefined || isStringRecord(value.settings))
+    );
+  }
+  if (value.nodeType === "split") {
+    return (
+      (value.direction === "horizontal" || value.direction === "vertical") &&
+      typeof value.ratio === "number" &&
+      Array.isArray(value.children) &&
+      value.children.length === 2 &&
+      isDockNode(value.children[0]) &&
+      isDockNode(value.children[1])
+    );
+  }
+  return false;
+}
+
+function isFloatingPanel(value: unknown): value is StudioFloatingPanelInstance {
+  return (
+    isObject(value) &&
     typeof value.id === "string" &&
-    typeof value.slug === "string" &&
+    typeof value.editorId === "string" &&
+    (value.label === undefined || typeof value.label === "string") &&
+    (value.settings === undefined || isStringRecord(value.settings)) &&
+    isPanelFrame(value.frame)
+  );
+}
+
+function isLayoutResource(value: unknown): value is StudioLayoutResource {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.label === "string" &&
+    isDockNode(value.dock) &&
+    (value.floatingPanels === undefined ||
+      (Array.isArray(value.floatingPanels) &&
+        value.floatingPanels.every((panel) => isFloatingPanel(panel))))
+  );
+}
+
+function isWorkbenchResource(value: unknown): value is StudioWorkbenchResource {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.label === "string" &&
+    (value.defaultLayoutId === undefined ||
+      typeof value.defaultLayoutId === "string") &&
+    Array.isArray(value.layouts) &&
+    value.layouts.every((layout) => isLayoutResource(layout))
+  );
+}
+
+function isWindowResource(value: unknown): value is StudioWindowResource {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
     typeof value.label === "string" &&
     (value.windowRole === "main" || value.windowRole === "child") &&
-    isStringArray(value.hostedWorkbenchIds)
+    (value.defaultWorkbenchId === undefined ||
+      typeof value.defaultWorkbenchId === "string") &&
+    Array.isArray(value.workbenches) &&
+    value.workbenches.every((workbench) => isWorkbenchResource(workbench))
   );
 }
 
-function isValidWorkbenchResource(
-  value: unknown
-): value is StudioWorkbenchResource {
-  if (!isObject(value)) return false;
+function isStudioDocument(value: unknown): value is StudioPersistenceModel {
   return (
-    value.resourceType === "studio_workbench" &&
+    isObject(value) &&
+    value.resourceType === "studio_document" &&
     value.schemaVersion === STUDIO_PERSISTENCE_SCHEMA_VERSION &&
     typeof value.id === "string" &&
-    typeof value.slug === "string" &&
-    typeof value.label === "string" &&
-    typeof value.source === "string" &&
-    isStringArray(value.layoutIds)
+    Array.isArray(value.windows) &&
+    value.windows.every((window) => isWindowResource(window))
   );
 }
 
-function isValidLayoutResource(value: unknown): value is StudioLayoutResource {
-  if (!isObject(value)) return false;
-  return (
-    value.resourceType === "studio_layout" &&
-    value.schemaVersion === STUDIO_PERSISTENCE_SCHEMA_VERSION &&
-    typeof value.id === "string" &&
-    typeof value.slug === "string" &&
-    typeof value.label === "string" &&
-    typeof value.workbenchId === "string" &&
-    isObject(value.dockTree) &&
-    Array.isArray(value.panelInstances)
-  );
-}
-
-async function readJsonResources<T>(
-  projectPath: string,
-  store: StudioPersistenceStore,
-  directory: StudioResourceDirectory,
-  isValid: (value: unknown) => value is T
-): Promise<T[]> {
-  const resourcePaths = await store.listResourceFiles(projectPath, directory);
-  const resources: T[] = [];
-  for (const resourcePath of resourcePaths) {
-    const raw = await store.readResourceFile(projectPath, resourcePath);
-    if (!raw) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (isValid(parsed)) {
-        resources.push(parsed);
-      }
-    } catch {
-      // Invalid resource files are ignored until schema validation is stricter.
-    }
+function cloneDockNode(node: StudioDockNode): StudioDockNode {
+  if (node.nodeType === "panel") {
+    return {
+      nodeType: "panel",
+      panelId: node.panelId,
+      editorId: node.editorId,
+      label: node.label,
+      settings: node.settings ? { ...node.settings } : undefined,
+    };
   }
-  return resources;
+  return {
+    nodeType: "split",
+    direction: node.direction,
+    ratio: node.ratio,
+    children: [cloneDockNode(node.children[0]), cloneDockNode(node.children[1])],
+  };
 }
 
-export async function loadStudioResourceFiles(
+function normalizeLayout(layout: StudioLayoutResource): StudioLayoutResource {
+  return {
+    id: layout.id,
+    label: layout.label,
+    dock: cloneDockNode(layout.dock),
+    floatingPanels: layout.floatingPanels?.map((panel) => ({
+      id: panel.id,
+      editorId: panel.editorId,
+      label: panel.label,
+      settings: panel.settings ? { ...panel.settings } : undefined,
+      frame: { ...panel.frame },
+    })),
+  };
+}
+
+function normalizeWorkbench(
+  workbench: StudioWorkbenchResource
+): StudioWorkbenchResource {
+  return {
+    id: workbench.id,
+    label: workbench.label,
+    defaultLayoutId: workbench.defaultLayoutId,
+    layouts: workbench.layouts.map((layout) => normalizeLayout(layout)),
+  };
+}
+
+function normalizeWindow(window: StudioWindowResource): StudioWindowResource {
+  return {
+    id: window.id,
+    label: window.label,
+    windowRole: window.windowRole,
+    defaultWorkbenchId: window.defaultWorkbenchId,
+    workbenches: window.workbenches.map((workbench) =>
+      normalizeWorkbench(workbench)
+    ),
+  };
+}
+
+function normalizeStudioDocument(
+  model: StudioPersistenceModel
+): StudioPersistenceModel {
+  return {
+    resourceType: "studio_document",
+    schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+    id: model.id,
+    windows: model.windows.map((window) => normalizeWindow(window)),
+  };
+}
+
+export async function loadStudioDocument(
   projectPath: string,
   store: StudioPersistenceStore
 ): Promise<StudioPersistenceModel> {
-  const [windows, workbenches, layouts] = await Promise.all([
-    readJsonResources(projectPath, store, "windows", isValidWindowResource),
-    readJsonResources(
-      projectPath,
-      store,
-      "workbenches",
-      isValidWorkbenchResource
-    ),
-    readJsonResources(projectPath, store, "layouts", isValidLayoutResource),
-  ]);
-  return { windows, workbenches, layouts };
+  const raw = await store.readStudioDocument(projectPath);
+  if (!raw) {
+    return createEmptyStudioPersistenceModel(projectPath);
+  }
+  try {
+    const parsed = parse(raw);
+    if (isStudioDocument(parsed)) {
+      return normalizeStudioDocument(parsed);
+    }
+  } catch {
+    // Invalid documents are treated as missing until stricter error handling lands.
+  }
+  return createEmptyStudioPersistenceModel(projectPath);
 }
 
-export function hasStudioResourceFiles(model: StudioPersistenceModel): boolean {
-  return (
-    model.windows.length > 0 ||
-    model.workbenches.length > 0 ||
-    model.layouts.length > 0
-  );
+export function hasStudioDocument(model: StudioPersistenceModel): boolean {
+  return model.windows.length > 0;
 }
 
-function serializeResource(resource: unknown): string {
-  return `${JSON.stringify(resource, null, 2)}\n`;
-}
-
-export async function writeStudioResourceFiles(
+export async function writeStudioDocument(
   projectPath: string,
   store: StudioPersistenceStore,
   model: StudioPersistenceModel
 ): Promise<void> {
-  await Promise.all([
-    ...model.windows.map((resource) =>
-      store.writeResourceFile(
-        projectPath,
-        getStudioWindowResourceRelativePath(resource.slug),
-        serializeResource(resource)
-      )
-    ),
-    ...model.workbenches.map((resource) =>
-      store.writeResourceFile(
-        projectPath,
-        getStudioWorkbenchResourceRelativePath(resource.slug),
-        serializeResource(resource)
-      )
-    ),
-    ...model.layouts.map((resource) =>
-      store.writeResourceFile(
-        projectPath,
-        getStudioLayoutResourceRelativePath(resource.slug),
-        serializeResource(resource)
-      )
-    ),
-  ]);
-}
-
-export function getStudioResourceDirectories(): string[] {
-  return [
-    getStudioResourceDirectoryRelativePath("windows"),
-    getStudioResourceDirectoryRelativePath("workbenches"),
-    getStudioResourceDirectoryRelativePath("layouts"),
-  ];
+  const normalized = normalizeStudioDocument({
+    ...model,
+    id: model.id || deriveStudioDocumentId(projectPath),
+  });
+  const content = stringify(normalized, {
+    lineWidth: 0,
+    defaultStringType: "PLAIN",
+    defaultKeyType: "PLAIN",
+  });
+  await store.writeStudioDocument(projectPath, content);
 }

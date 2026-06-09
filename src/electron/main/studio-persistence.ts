@@ -2,14 +2,6 @@ import fs from "fs";
 import path from "path";
 import type { IpcMain } from "electron";
 
-type StudioResourceDirectory = "windows" | "workbenches" | "layouts";
-
-const DIRECTORY_SUFFIXES: Record<StudioResourceDirectory, string> = {
-  windows: ".window.json",
-  workbenches: ".workbench.json",
-  layouts: ".layout.json",
-};
-
 function looksLikeProjectFilePath(value: string): boolean {
   return /\.(ya?ml|json|toml)$/i.test(value.trim());
 }
@@ -26,32 +18,8 @@ function resolveProjectDirectory(projectPath: string): string {
   }
 }
 
-function assertInside(root: string, candidate: string): void {
-  const relative = path.relative(root, candidate);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Path escapes project studio directory: ${candidate}`);
-  }
-}
-
-function getStudioRoot(projectPath: string): string {
-  return path.join(resolveProjectDirectory(projectPath), "studio");
-}
-
-function resolveStudioResourcePath(
-  projectPath: string,
-  resourcePath: string
-): string {
-  if (path.isAbsolute(resourcePath)) {
-    throw new Error(`Studio resource path must be project-relative: ${resourcePath}`);
-  }
-  const normalized = resourcePath.replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!normalized.startsWith("studio/")) {
-    throw new Error(`Studio resource path must start with studio/: ${resourcePath}`);
-  }
-  const studioRoot = getStudioRoot(projectPath);
-  const resolved = path.resolve(resolveProjectDirectory(projectPath), normalized);
-  assertInside(studioRoot, resolved);
-  return resolved;
+function getStudioDocumentPath(projectPath: string): string {
+  return path.join(resolveProjectDirectory(projectPath), "studio", "studio.yaml");
 }
 
 async function writeFileAtomic(filePath: string, content: string): Promise<void> {
@@ -63,42 +31,9 @@ async function writeFileAtomic(filePath: string, content: string): Promise<void>
 
 export function registerStudioPersistence(ipcMain: IpcMain) {
   ipcMain.handle(
-    "robotick-studio-persistence:list",
-    async (
-      _event,
-      payload: { projectPath: string; directory: StudioResourceDirectory }
-    ) => {
-      const suffix = DIRECTORY_SUFFIXES[payload.directory];
-      if (!suffix) {
-        return [];
-      }
-      const directoryPath = path.join(getStudioRoot(payload.projectPath), payload.directory);
-      try {
-        const entries = await fs.promises.readdir(directoryPath, {
-          withFileTypes: true,
-        });
-        return entries
-          .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
-          .map((entry) =>
-            path.posix.join("studio", payload.directory, entry.name)
-          )
-          .sort();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return [];
-        }
-        throw error;
-      }
-    }
-  );
-
-  ipcMain.handle(
     "robotick-studio-persistence:read",
-    async (_event, payload: { projectPath: string; resourcePath: string }) => {
-      const filePath = resolveStudioResourcePath(
-        payload.projectPath,
-        payload.resourcePath
-      );
+    async (_event, payload: { projectPath: string }) => {
+      const filePath = getStudioDocumentPath(payload.projectPath);
       try {
         return await fs.promises.readFile(filePath, "utf-8");
       } catch (error) {
@@ -112,14 +47,8 @@ export function registerStudioPersistence(ipcMain: IpcMain) {
 
   ipcMain.handle(
     "robotick-studio-persistence:write",
-    async (
-      _event,
-      payload: { projectPath: string; resourcePath: string; content: string }
-    ) => {
-      const filePath = resolveStudioResourcePath(
-        payload.projectPath,
-        payload.resourcePath
-      );
+    async (_event, payload: { projectPath: string; content: string }) => {
+      const filePath = getStudioDocumentPath(payload.projectPath);
       await writeFileAtomic(filePath, payload.content);
     }
   );

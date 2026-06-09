@@ -1,7 +1,7 @@
 import {
-  EMPTY_STUDIO_PERSISTENCE_MODEL,
-  hasStudioResourceFiles,
-  loadStudioResourceFiles,
+  createEmptyStudioPersistenceModel,
+  hasStudioDocument,
+  loadStudioDocument,
 } from "./resources";
 import type { StudioPersistenceStore } from "./store";
 import type { StudioPersistenceLoadResult } from "./types";
@@ -10,9 +10,12 @@ export async function loadStudioPersistence(
   projectPath: string,
   store: StudioPersistenceStore
 ): Promise<StudioPersistenceLoadResult> {
-  const resources = await loadStudioResourceFiles(projectPath, store);
-  if (hasStudioResourceFiles(resources)) {
-    return { source: "canonical", model: resources };
+  const document = await loadStudioDocument(projectPath, store);
+  if (hasStudioDocument(document)) {
+    return { source: "canonical", model: document };
   }
-  return { source: "empty", model: EMPTY_STUDIO_PERSISTENCE_MODEL };
+  return {
+    source: "empty",
+    model: createEmptyStudioPersistenceModel(projectPath),
+  };
 }

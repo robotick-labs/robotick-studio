@@ -1,19 +1,6 @@
-import type { StudioResourceDirectory } from "./types";
-
 export type StudioPersistenceStore = {
-  listResourceFiles: (
-    projectPath: string,
-    directory: StudioResourceDirectory
-  ) => Promise<string[]>;
-  readResourceFile: (
-    projectPath: string,
-    resourcePath: string
-  ) => Promise<string | null>;
-  writeResourceFile: (
-    projectPath: string,
-    resourcePath: string,
-    content: string
-  ) => Promise<void>;
+  readStudioDocument: (projectPath: string) => Promise<string | null>;
+  writeStudioDocument: (projectPath: string, content: string) => Promise<void>;
 };
 
 export function getBrowserStudioPersistenceStore(): StudioPersistenceStore | null {

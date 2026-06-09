@@ -1,95 +1,62 @@
 import { describe, expect, it } from "vitest";
 import {
   STUDIO_PERSISTENCE_SCHEMA_VERSION,
-  getStudioLayoutResourcePath,
-  getStudioLayoutResourceRelativePath,
+  createEmptyStudioPersistenceModel,
+  getStudioDocumentPath,
+  getStudioDocumentRelativePath,
   getStudioProjectDirectory,
   getStudioResourcePaths,
   getStudioRootPath,
-  getStudioWindowResourcePath,
-  getStudioWindowResourceRelativePath,
-  getStudioWorkbenchResourcePath,
-  getStudioWorkbenchResourceRelativePath,
-  loadStudioResourceFiles,
+  loadStudioDocument,
   loadStudioPersistence,
-  writeStudioResourceFiles,
+  writeStudioDocument,
   type StudioPersistenceModel,
   type StudioPersistenceStore,
-  type StudioResourceDirectory,
 } from "../../../renderer/services/studio-persistence";
 
 class MemoryStudioPersistenceStore implements StudioPersistenceStore {
   files = new Map<string, string>();
 
-  async listResourceFiles(
-    _projectPath: string,
-    directory: StudioResourceDirectory
-  ): Promise<string[]> {
-    const prefix = `studio/${directory}/`;
-    return Array.from(this.files.keys())
-      .filter((key) => key.startsWith(prefix))
-      .sort();
+  async readStudioDocument(_projectPath: string): Promise<string | null> {
+    return this.files.get(getStudioDocumentRelativePath()) ?? null;
   }
 
-  async readResourceFile(
+  async writeStudioDocument(
     _projectPath: string,
-    resourcePath: string
-  ): Promise<string | null> {
-    return this.files.get(resourcePath) ?? null;
-  }
-
-  async writeResourceFile(
-    _projectPath: string,
-    resourcePath: string,
     content: string
   ): Promise<void> {
-    this.files.set(resourcePath, content);
+    this.files.set(getStudioDocumentRelativePath(), content);
   }
 }
 
 const canonicalModel: StudioPersistenceModel = {
+  resourceType: "studio_document",
+  schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+  id: "barr-e-studio",
   windows: [
     {
-      resourceType: "studio_window",
-      schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
       id: "main",
-      slug: "main",
       label: "Main Window",
       windowRole: "main",
-      hostedWorkbenchIds: ["remote-control"],
       defaultWorkbenchId: "remote-control",
-    },
-  ],
-  workbenches: [
-    {
-      resourceType: "studio_workbench",
-      schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
-      id: "remote-control",
-      slug: "remote-control",
-      label: "Remote Control",
-      source: "project",
-      layoutIds: ["main:remote-control:default"],
-      defaultLayoutId: "main:remote-control:default",
-      windowIds: ["main"],
-    },
-  ],
-  layouts: [
-    {
-      resourceType: "studio_layout",
-      schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
-      id: "main:remote-control:default",
-      slug: "main.remote-control.default",
-      label: "Default",
-      workbenchId: "remote-control",
-      dockTree: {
-        nodeType: "panel",
-        panelInstanceId: "panel-main",
-      },
-      panelInstances: [
+      workbenches: [
         {
-          panelInstanceId: "panel-main",
-          editorId: "terminal",
-          settings: { filter: "warning" },
+          id: "remote-control",
+          label: "Remote Control",
+          defaultLayoutId: "main:remote-control:default",
+          layouts: [
+            {
+              id: "main:remote-control:default",
+              label: "Default",
+              dock: {
+                nodeType: "panel",
+                panelId: "panel-main",
+                editorId: "terminal",
+                settings: { filter: "warning" },
+              },
+              floatingPanels: [],
+            },
+          ],
         },
       ],
     },
@@ -102,14 +69,8 @@ describe("studioPersistence", () => {
 
     expect(getStudioProjectDirectory(projectPath)).toBe("/repo/robots/barr-e");
     expect(getStudioRootPath(projectPath)).toBe("/repo/robots/barr-e/studio");
-    expect(getStudioWorkbenchResourcePath(projectPath, "remote-control")).toBe(
-      "/repo/robots/barr-e/studio/workbenches/remote-control.workbench.json"
-    );
-    expect(getStudioLayoutResourcePath(projectPath, "remote-control.default")).toBe(
-      "/repo/robots/barr-e/studio/layouts/remote-control.default.layout.json"
-    );
-    expect(getStudioWindowResourcePath(projectPath, "main")).toBe(
-      "/repo/robots/barr-e/studio/windows/main.window.json"
+    expect(getStudioDocumentPath(projectPath)).toBe(
+      "/repo/robots/barr-e/studio/studio.yaml"
     );
   });
 
@@ -118,61 +79,57 @@ describe("studioPersistence", () => {
 
     expect(getStudioProjectDirectory(projectPath)).toBe("C:\\repo\\robots\\barr-e");
     expect(getStudioRootPath(projectPath)).toBe("C:\\repo\\robots\\barr-e\\studio");
-    expect(getStudioWorkbenchResourcePath(projectPath, "remote-control")).toBe(
-      "C:\\repo\\robots\\barr-e\\studio\\workbenches\\remote-control.workbench.json"
-    );
-    expect(getStudioLayoutResourcePath(projectPath, "remote-control.default")).toBe(
-      "C:\\repo\\robots\\barr-e\\studio\\layouts\\remote-control.default.layout.json"
-    );
-    expect(getStudioWindowResourcePath(projectPath, "main")).toBe(
-      "C:\\repo\\robots\\barr-e\\studio\\windows\\main.window.json"
+    expect(getStudioDocumentPath(projectPath)).toBe(
+      "C:\\repo\\robots\\barr-e\\studio\\studio.yaml"
     );
   });
 
-  it("exposes the shared studio directory bundle and schema version", () => {
+  it("exposes the shared studio document path and schema version", () => {
     const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
 
     expect(STUDIO_PERSISTENCE_SCHEMA_VERSION).toBe(1);
     expect(getStudioResourcePaths(projectPath)).toEqual({
       projectDirectory: "/repo/robots/barr-e",
       studioRoot: "/repo/robots/barr-e/studio",
-      windowsDirectory: "/repo/robots/barr-e/studio/windows",
-      workbenchesDirectory: "/repo/robots/barr-e/studio/workbenches",
-      layoutsDirectory: "/repo/robots/barr-e/studio/layouts",
+      studioDocument: "/repo/robots/barr-e/studio/studio.yaml",
     });
   });
 
-  it("round-trips canonical resources through the project store", async () => {
+  it("round-trips the canonical studio document through the project store", async () => {
     const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
     const store = new MemoryStudioPersistenceStore();
 
-    await writeStudioResourceFiles(projectPath, store, canonicalModel);
+    await writeStudioDocument(projectPath, store, canonicalModel);
 
-    expect(store.files.has(getStudioWindowResourceRelativePath("main"))).toBe(true);
-    expect(
-      store.files.has(getStudioWorkbenchResourceRelativePath("remote-control"))
-    ).toBe(true);
-    expect(
-      store.files.has(getStudioLayoutResourceRelativePath("main.remote-control.default"))
-    ).toBe(true);
-
-    await expect(loadStudioResourceFiles(projectPath, store)).resolves.toEqual(
+    expect(store.files.has(getStudioDocumentRelativePath())).toBe(true);
+    await expect(loadStudioDocument(projectPath, store)).resolves.toEqual(
       canonicalModel
     );
   });
 
-  it("ignores legacy renderer storage when canonical resources are absent", async () => {
+  it("materializes a yaml document on first write when no document exists", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+    const model = createEmptyStudioPersistenceModel(projectPath);
+    model.windows.push(...canonicalModel.windows);
+
+    await writeStudioDocument(projectPath, store, model);
+
+    const written = store.files.get(getStudioDocumentRelativePath());
+    expect(written).toContain("resourceType: studio_document");
+    expect(written).toContain("windows:");
+    expect(written).toContain("workbenches:");
+    expect(written).toContain("layouts:");
+  });
+
+  it("ignores missing studio.yaml when no canonical document is present", async () => {
     const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
     const store = new MemoryStudioPersistenceStore();
 
     const loaded = await loadStudioPersistence(projectPath, store);
 
     expect(loaded.source).toBe("empty");
-    expect(loaded.model).toEqual({
-      windows: [],
-      workbenches: [],
-      layouts: [],
-    });
+    expect(loaded.model).toEqual(createEmptyStudioPersistenceModel(projectPath));
     expect(store.files.size).toBe(0);
   });
 });
