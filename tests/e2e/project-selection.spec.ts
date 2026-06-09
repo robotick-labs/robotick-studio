@@ -66,7 +66,7 @@ test.describe("Studio project selection", () => {
 
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
 
-    await window.getByRole("link", { name: "Project" }).click();
+    await navigateToWorkbench(window, "Project");
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
@@ -83,7 +83,7 @@ test.describe("Studio project selection", () => {
     const projectPicker = window.getByLabel("Select project");
     await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
 
-    await window.getByRole("link", { name: "Project" }).click();
+    await navigateToWorkbench(window, "Project");
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
@@ -95,7 +95,7 @@ test.describe("Studio project selection", () => {
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
 
-    await window.getByRole("link", { name: "Home" }).click();
+    await navigateToWorkbench(window, "Home");
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/home");
@@ -112,7 +112,7 @@ test.describe("Studio project selection", () => {
     const projectPicker = window.getByLabel("Select project");
     await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
 
-    await window.getByRole("link", { name: "Project" }).click();
+    await navigateToWorkbench(window, "Project");
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
@@ -254,6 +254,50 @@ async function openChildWindow(
   await childWindow.waitForLoadState("domcontentloaded");
   await expect(childWindow.getByLabel("Rename child window")).toBeVisible();
   return childWindow;
+}
+
+async function navigateToWorkbench(window: Page, label: string): Promise<void> {
+  const directLink = window.getByRole("link", { name: new RegExp(`^${escapeRegExp(label)}$`, "i") }).first();
+  if (await directLink.isVisible().catch(() => false)) {
+    await directLink.click();
+    return;
+  }
+
+  const leftMenuButton = window.getByRole("button", {
+    name: "Open project navigation menu",
+  });
+  if (await leftMenuButton.isVisible().catch(() => false)) {
+    await leftMenuButton.click();
+    const menuLink = window
+      .getByRole("menu")
+      .getByRole("link", { name: new RegExp(`^${escapeRegExp(label)}$`, "i") })
+      .first();
+    if (await menuLink.isVisible().catch(() => false)) {
+      await menuLink.click();
+      return;
+    }
+  }
+
+  const rightMenuButton = window.getByRole("button", {
+    name: "Open workbench tools menu",
+  });
+  if (await rightMenuButton.isVisible().catch(() => false)) {
+    await rightMenuButton.click();
+    const menuLink = window
+      .getByRole("menu")
+      .getByRole("link", { name: new RegExp(`^${escapeRegExp(label)}$`, "i") })
+      .first();
+    if (await menuLink.isVisible().catch(() => false)) {
+      await menuLink.click();
+      return;
+    }
+  }
+
+  throw new Error(`Could not find workbench navigation link for "${label}"`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function readChildWindowLabel(projectDir: string): string | null {
