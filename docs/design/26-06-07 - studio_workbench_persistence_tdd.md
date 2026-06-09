@@ -31,9 +31,13 @@ Current direction:
 Window initialization direction:
 
 - Fresh project Studio state is bootstrapped from one builtin Studio seed document.
+- The builtin Studio seed document is also the canonical source for the default top-level workbench set presented in Studio navigation.
+- The main header/menu should derive its default workbench list from the active Studio document shape, not from a separate renderer-only workbench YAML config.
+- The current standalone renderer workbench config should be treated as transitional and removed as part of MVP once bootstrap/document-backed navigation lands.
 - Creating a child window does not clone the current main window or another existing project window by default.
 - The MVP child-window behavior should create a fresh minimal window inside the existing project Studio document.
 - That fresh minimal window should typically contain one workbench instance, one default layout, and one default panel.
+- MVP should use the seeded default workbench set only; general CRUD for workbench instances remains future work.
 - Future window-creation modes may include `Create Empty`, `Create Default`, and `Create Clone`, but MVP should standardize only one default path.
 - MVP default should be `Create Default`, meaning a fresh minimal window initialized from the standard default window template shape.
 
@@ -528,7 +532,7 @@ Implemented in:
 - [x] Update tests, fixtures, and docs in the same pass so the new term is the only supported term in active Studio development.
 - [x] Run a focused regression sweep covering routing/navigation, remembered last-opened workbench behavior, Studio document persistence, panel persistence, and plugin loading after the rename.
 
-#### 2.2. Multi-window persistence ownership
+#### 2.2. Bootstrap, navigation source, and multi-window persistence ownership
 
 - MVP decision:
   child windows belong to one Studio session, but each window owns its own durable UI subtree by default.
@@ -536,22 +540,30 @@ Implemented in:
   do not treat child windows as fully separate app instances.
 - MVP decision:
   do not rely on independent renderer windows issuing unsynchronized whole-document writes to the same project Studio file as the long-term model.
+- MVP decision:
+  the builtin Studio seed document is the canonical bootstrap source for both first project initialization and default child-window creation.
+- MVP decision:
+  the default header/menu workbench set should come from the active Studio document seeded from that template, not from a separate renderer-only workbench YAML file.
+- MVP decision:
+  `app-workbenches.yaml` should be deleted in this phase rather than retained as a deprecated parallel source.
+- MVP decision:
+  general create/read/update/delete operations for arbitrary workbench instances are not part of this MVP slice; Studio uses the seeded default workbench set for now.
+- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
+- [ ] Define the canonical default top-level workbench/navigation set inside that seed document so bootstrap, routing, and header/menu presentation all derive from one source.
+- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
+- [ ] Route header/menu default workbench discovery through the active Studio document model and delete `app-workbenches.yaml` rather than keeping a deprecated parallel source for that surface.
+- [ ] Keep the seeded default workbench set fixed for MVP rather than introducing general workbench-instance CRUD while the bootstrap/navigation/multi-window model is still settling.
 - [ ] Produce a small design note and implementation contract for a Studio-session persistence authority that owns read/modify/write coordination for `studio/studio.yaml` across all windows in one app session.
 - [ ] Decide explicitly whether MVP will land that centralized session persistence authority now, or instead temporarily split persistence to one file per durable window while keeping one Studio session model.
 - [ ] If centralized session coordination is the chosen MVP path, route child-window persistence writes through that single owner and stop treating each renderer window as the authoritative owner of a whole-document snapshot.
 - [ ] If one-file-per-window is the chosen MVP path, define the deterministic file layout, ownership boundaries, and bootstrap/update rules so windows cannot overwrite each other's durable state.
+- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` using the same seeded default window/workbench template rather than implicitly cloning an existing window, covered by focused fixture and renderer tests.
 - [ ] Add focused regression tests covering two windows in one Studio session mutating different window-owned state without losing each other's changes.
-- [ ] Once that coordination model is chosen and implemented, add focused multi-workbench / child-window persistence isolation tests for panel settings, active workbench/layout selection, and window-owned floating-panel frame state.
+- [ ] Once that coordination model is chosen and implemented, add focused multi-workbench / child-window persistence isolation tests for panel settings, active workbench/layout selection, window-owned floating-panel frame state, and bootstrap-derived header/menu workbench availability.
 - [ ] Add a follow-up MVP/near-term decision note for separate app processes opening the same project, even if the first shipped behavior is only a warning or unsupported-state guard.
 
-#### 3. Bootstrap and completion
-
-- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
-- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
-- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` without implicitly cloning an existing window, covered by focused fixture and renderer tests.
-
 Result:
-The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, the remote-control plugin now keeps its selected stream/control-mode/subtitles overlay state inside the owning panel settings, floating-panel frame data now round-trips through `floatingPanels[].frame`, the shipped Studio surface now consistently uses `workbench` terminology, and regression tests cover document-backed panel settings, layout-tab isolation, plugin discovery, editor reassignment clearing, remote-control panel persistence, and floating-panel frame serialization. Remaining MVP work is now narrower and more concrete: harden/write-test multi-workbench or child-window persistence coordination, and land builtin seed/default-definition plus explicit child-window creation behavior.
+The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, the remote-control plugin now keeps its selected stream/control-mode/subtitles overlay state inside the owning panel settings, floating-panel frame data now round-trips through `floatingPanels[].frame`, and the shipped Studio surface now consistently uses `workbench` terminology. Remaining MVP work is now one combined completion slice: land the builtin seed/default-definition, derive default navigation/workbench presentation from that document, and harden coordinated child-window persistence/creation around the same bootstrap model.
 
 Implemented in:
 
