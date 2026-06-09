@@ -66,8 +66,10 @@ test.describe("Studio project selection", () => {
 
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
 
-    await window.getByRole("link", { name: "Help" }).click();
-    await expect(window.getByRole("heading", { name: "Robotick Studio Help Center" })).toBeVisible();
+    await window.getByRole("link", { name: "Project" }).click();
+    await expect
+      .poll(() => window.evaluate(() => window.location.hash))
+      .toBe("#/project");
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
   });
 
@@ -81,16 +83,22 @@ test.describe("Studio project selection", () => {
     const projectPicker = window.getByLabel("Select project");
     await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
 
-    await window.getByRole("link", { name: "Help" }).click();
-    await expect(window.getByRole("heading", { name: "Robotick Studio Help Center" })).toBeVisible();
+    await window.getByRole("link", { name: "Project" }).click();
+    await expect
+      .poll(() => window.evaluate(() => window.location.hash))
+      .toBe("#/project");
 
     await projectPicker.selectOption(environment.projects.tim.projectYamlPath);
 
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
-    await expect(window.getByRole("heading", { name: "Welcome to Robotick Studio" })).toBeVisible();
+    await expect
+      .poll(() => window.evaluate(() => window.location.hash))
+      .toBe("#/project");
 
-    await window.getByRole("link", { name: "Help" }).click();
-    await expect(window.getByRole("heading", { name: "Robotick Studio Help Center" })).toBeVisible();
+    await window.getByRole("link", { name: "Home" }).click();
+    await expect
+      .poll(() => window.evaluate(() => window.location.hash))
+      .toBe("#/home");
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
   });
 
