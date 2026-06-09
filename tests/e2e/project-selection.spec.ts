@@ -141,8 +141,8 @@ test.describe("Studio project selection", () => {
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
-      .toBe("#/home");
-    await expect(window.getByRole("heading", { name: "Welcome to Robotick Studio" })).toBeVisible();
+      .toBe("#/project");
+    await expect(window.getByRole("button", { name: /Save/ })).toBeVisible();
 
     await projectPicker.selectOption(environment.projects.barr.projectYamlPath);
     await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);

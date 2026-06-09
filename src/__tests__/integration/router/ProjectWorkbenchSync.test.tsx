@@ -42,6 +42,71 @@ vi.mock("../../../renderer/services/AppConfigService", async () => {
 });
 
 describe("ProjectWorkbenchSync", () => {
+  it("keeps the current route on project switch when that workbench still exists and no remembered route overrides it", async () => {
+    const service = createMockLauncherService({
+      projectPath: "/repo/robots/barr-e/barr-e.project.yaml",
+    });
+    appConfigState.loading = false;
+    appConfigState.workbenches = [
+      {
+        id: "home",
+        path: "/home",
+        label: "Home",
+        group: "project-select",
+        editor: "home",
+      },
+      {
+        id: "project",
+        path: "/project",
+        label: "Project",
+        group: "dev",
+        editor: "project",
+      },
+    ];
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <TestLauncherProviders service={service}>
+          <MemoryRouter initialEntries={["/project"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.innerHTML).toContain('data-testid="workbench-project"');
+
+    await act(async () => {
+      appConfigState.loading = true;
+      service.setProjectPath("/repo/robots/tim-e/tim-e.project.yaml");
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      appConfigState.loading = false;
+      root.render(
+        <TestLauncherProviders service={service}>
+          <MemoryRouter initialEntries={["/project"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.innerHTML).toContain('data-testid="workbench-project"');
+    expect(container.innerHTML).not.toContain('data-testid="workbench-home"');
+
+    await act(async () => {
+      root.unmount();
+    });
+    window.localStorage.clear();
+  });
+
   it("revalidates the route after a project switch finishes loading a different workbench set", async () => {
     const service = createMockLauncherService({
       projectPath: "/repo/robots/barr-e/barr-e.project.yaml",

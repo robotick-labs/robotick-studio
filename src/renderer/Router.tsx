@@ -103,6 +103,23 @@ function resolveRememberedWorkbench(
   return getFallbackWorkbenchPath(workbenches);
 }
 
+function loadValidRememberedWorkbench(
+  projectPath: string | undefined,
+  workbenches: Array<{ path: string }>
+): string | null {
+  const remembered = loadRememberedWorkbenchPath(projectPath, {
+    windowScope: getWindowScope(),
+    isPrimaryWindow: isPrimaryWindowSession(),
+  });
+  if (
+    remembered &&
+    workbenches.some((workbench) => workbench.path === remembered)
+  ) {
+    return remembered;
+  }
+  return null;
+}
+
 function DefaultWorkbenchRedirect() {
   const { projectPath } = useProjectContext();
   const { workbenches } = useAppConfig();
@@ -134,7 +151,10 @@ function ProjectWorkbenchSync() {
       return;
     }
     previousProject.current = projectPath;
-    const target = resolveRememberedWorkbench(projectPath, workbenches);
+    const rememberedTarget = loadValidRememberedWorkbench(projectPath, workbenches);
+    const target =
+      rememberedTarget ??
+      (currentPathIsValid ? location.pathname : getFallbackWorkbenchPath(workbenches));
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }
