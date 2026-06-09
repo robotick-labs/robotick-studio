@@ -182,6 +182,44 @@ function countLeaves(node: PanelNode): number {
   return countLeaves(node.children[0]) + countLeaves(node.children[1]);
 }
 
+function panelSettingsEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (!panelSettingsEqual(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (
+    left &&
+    right &&
+    typeof left === "object" &&
+    typeof right === "object" &&
+    !Array.isArray(left) &&
+    !Array.isArray(right)
+  ) {
+    const leftEntries = Object.entries(left);
+    const rightEntries = Object.entries(right);
+    if (leftEntries.length !== rightEntries.length) {
+      return false;
+    }
+    for (const [key, value] of leftEntries) {
+      if (!panelSettingsEqual(value, (right as Record<string, unknown>)[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 function toFloatingPanelRecords(
   panels: StudioFloatingPanelInstance[]
 ): FloatingPanelRecord[] {
@@ -190,16 +228,7 @@ function toFloatingPanelRecords(
     editorId: panel.editorId,
     title: panel.label,
     settings: { ...(panel.settings ?? {}) },
-    initialPosition: { x: panel.frame.x, y: panel.frame.y },
-    initialSize: { width: panel.frame.width, height: panel.frame.height },
-    minSize:
-      typeof panel.frame.minWidth === "number" ||
-      typeof panel.frame.minHeight === "number"
-        ? {
-            width: panel.frame.minWidth ?? 260,
-            height: panel.frame.minHeight ?? 180,
-          }
-        : undefined,
+    frame: { ...panel.frame },
   }));
 }
 
@@ -212,12 +241,12 @@ function toStudioFloatingPanels(
     label: panel.title,
     settings: { ...panel.settings },
     frame: {
-      x: panel.initialPosition?.x ?? 160,
-      y: panel.initialPosition?.y ?? 160,
-      width: panel.initialSize?.width ?? 640,
-      height: panel.initialSize?.height ?? 400,
-      minWidth: panel.minSize?.width,
-      minHeight: panel.minSize?.height,
+      x: panel.frame?.x ?? 160,
+      y: panel.frame?.y ?? 160,
+      width: panel.frame?.width ?? 640,
+      height: panel.frame?.height ?? 400,
+      minWidth: panel.frame?.minWidth,
+      minHeight: panel.frame?.minHeight,
     },
   }));
 }
@@ -811,10 +840,15 @@ export function PanelLayout({
   const onSetPanelSettings = React.useCallback(
     (panelId: string, settings: Record<string, unknown>) => {
       setCurrentLayout((current) =>
-        updateNode(current, panelId, (leaf) => ({
-          ...leaf,
-          settings: { ...settings },
-        }))
+        updateNode(current, panelId, (leaf) => {
+          if (panelSettingsEqual(leaf.settings ?? {}, settings)) {
+            return leaf;
+          }
+          return {
+            ...leaf,
+            settings: { ...settings },
+          };
+        })
       );
     },
     [setCurrentLayout]
@@ -823,13 +857,19 @@ export function PanelLayout({
   const onUpdatePanelSettings = React.useCallback(
     (panelId: string, partial: Record<string, unknown>) => {
       setCurrentLayout((current) =>
-        updateNode(current, panelId, (leaf) => ({
-          ...leaf,
-          settings: {
+        updateNode(current, panelId, (leaf) => {
+          const nextSettings = {
             ...(leaf.settings ?? {}),
             ...partial,
-          },
-        }))
+          };
+          if (panelSettingsEqual(leaf.settings ?? {}, nextSettings)) {
+            return leaf;
+          }
+          return {
+            ...leaf,
+            settings: nextSettings,
+          };
+        })
       );
     },
     [setCurrentLayout]
@@ -1710,6 +1750,15 @@ function PanelLeaf({
 
   const entry = getEditorEntry(node.editorId);
   const Component = entry?.Component ?? null;
+  const handleSetPanelSettings = React.useCallback(
+    (settings: Record<string, unknown>) => onSetPanelSettings(node.id, settings),
+    [node.id, onSetPanelSettings]
+  );
+  const handleUpdatePanelSettings = React.useCallback(
+    (partial: Record<string, unknown>) =>
+      onUpdatePanelSettings(node.id, partial),
+    [node.id, onUpdatePanelSettings]
+  );
 
   return (
     <PanelInstanceProvider
@@ -1717,8 +1766,8 @@ function PanelLeaf({
       workspaceId={workspaceId}
       editorId={node.editorId}
       settings={node.settings ?? {}}
-      setSettings={(settings) => onSetPanelSettings(node.id, settings)}
-      updateSettings={(partial) => onUpdatePanelSettings(node.id, partial)}
+      setSettings={handleSetPanelSettings}
+      updateSettings={handleUpdatePanelSettings}
     >
       <div
         className={styles.panelLeaf}

@@ -160,6 +160,32 @@ function sanitizeModelsPageSettings(value: unknown): ModelsPageSettings {
   };
 }
 
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function modelsViewStateEqual(
+  left: ModelsViewState,
+  right: ModelsViewState,
+): boolean {
+  return (
+    left.edgeVisibilityMode === right.edgeVisibilityMode &&
+    (left.remoteConnectionVisibility ?? "hidden") ===
+      (right.remoteConnectionVisibility ?? "hidden") &&
+    left.selectedNodeId === right.selectedNodeId &&
+    (left.showPropertyPanel ?? true) === (right.showPropertyPanel ?? true) &&
+    arraysEqual(left.collapsedModelIds ?? [], right.collapsedModelIds ?? [])
+  );
+}
+
 export const modelsPagePersistence = definePanelPersistence<ModelsPageSettings>({
   schemaVersion: 1,
   defaults: defaultModelsPageSettings(),
@@ -171,6 +197,7 @@ export function ModelsPage() {
   const { workspaceId, panelId } = usePanelInstance();
   const [settings, updateSettings] = usePanelSettings(modelsPagePersistence);
   const settingsRef = useRef(settings);
+  const updateSettingsRef = useRef(updateSettings);
   const graphRef = useRef<SVGSVGElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const workspaceIdentifier = workspaceId ?? "workspace";
@@ -195,6 +222,10 @@ export function ModelsPage() {
     settingsRef.current = settings;
   }, [settings]);
 
+  useEffect(() => {
+    updateSettingsRef.current = updateSettings;
+  }, [updateSettings]);
+
   const replaceViewState = React.useCallback(
     (
       next:
@@ -203,14 +234,18 @@ export function ModelsPage() {
     ) => {
       const current = settingsRef.current.viewState;
       const resolved = typeof next === "function" ? next(current) : next;
+      const normalized: ModelsViewState = {
+        ...resolved,
+        remoteConnectionVisibility:
+          resolved.remoteConnectionVisibility ?? "hidden",
+        showPropertyPanel: resolved.showPropertyPanel ?? true,
+        collapsedModelIds: resolved.collapsedModelIds ?? [],
+      };
+      if (modelsViewStateEqual(current, normalized)) {
+        return;
+      }
       updateSettings({
-        viewState: {
-          ...resolved,
-          remoteConnectionVisibility:
-            resolved.remoteConnectionVisibility ?? "hidden",
-          showPropertyPanel: resolved.showPropertyPanel ?? true,
-          collapsedModelIds: resolved.collapsedModelIds ?? [],
-        },
+        viewState: normalized,
       });
     },
     [updateSettings]
@@ -324,11 +359,11 @@ export function ModelsPage() {
         }
         disposeViewportControls = attachViewportControls(
           graphElement,
-          (viewport) => updateSettings({ viewport })
+          (viewport) => updateSettingsRef.current({ viewport })
         );
         const initialViewport = getViewBox(graphElement);
         if (initialViewport) {
-          updateSettings({ viewport: initialViewport });
+          updateSettingsRef.current({ viewport: initialViewport });
         }
 
         const prevDispose = disposeViewportControls;
@@ -356,26 +391,17 @@ export function ModelsPage() {
     projectPath,
     selectionScopeKey,
     modelSortKey,
-    updateSettings,
   ]);
 
   useEffect(() => {
-    replaceViewState({
-      edgeVisibilityMode,
-      remoteConnectionVisibility,
-      selectedNodeId,
-      showPropertyPanel,
-      collapsedModelIds: collapseStateInitialized ? collapsedModelIds : [],
-    });
-  }, [
-    collapseStateInitialized,
-    collapsedModelIds,
-    edgeVisibilityMode,
-    remoteConnectionVisibility,
-    replaceViewState,
-    selectedNodeId,
-    showPropertyPanel,
-  ]);
+    if (!collapseStateInitialized) {
+      return;
+    }
+    replaceViewState((current) => ({
+      ...current,
+      collapsedModelIds,
+    }));
+  }, [collapseStateInitialized, collapsedModelIds, replaceViewState]);
 
   useEffect(() => {
     editorSelectionStore.setSelection(selectedNodeId, selectionScopeKey);
@@ -500,9 +526,6 @@ function resetDom(
   if (graphEl) {
     graphEl.innerHTML = "<defs></defs>";
     graphEl.removeAttribute("viewBox");
-  }
-  if (panelEl) {
-    panelEl.innerHTML = "";
   }
 }
 

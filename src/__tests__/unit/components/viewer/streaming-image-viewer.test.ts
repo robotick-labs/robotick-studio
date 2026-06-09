@@ -649,19 +649,21 @@ describe("viewer-streaming-image stream selection", () => {
   });
 
   it("persists the selected stream across viewer reinitialisation", async () => {
+    let persistedSelectedStream: string | undefined;
     const config = {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      projectPath: "/tmp/robotick-project",
-      selectedStream: "Head-RGB",
       streams: {
         "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
         "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
       },
       frameRateHz: 30,
+      onSelectedStreamChange: (selectedStream: string) => {
+        persistedSelectedStream = selectedStream;
+      },
     };
 
-    await init(config);
+    await init({ ...config, selectedStream: persistedSelectedStream });
 
     const selector = document.querySelector<HTMLSelectElement>(
       'select[aria-label="Image stream"]'
@@ -678,7 +680,7 @@ describe("viewer-streaming-image stream selection", () => {
     await uninit();
     subscribeTelemetry.mockClear();
 
-    await init(config);
+    await init({ ...config, selectedStream: persistedSelectedStream });
 
     const restoredSelector = document.querySelector<HTMLSelectElement>(
       'select[aria-label="Image stream"]'
@@ -706,12 +708,10 @@ describe("viewer-streaming-image stream selection", () => {
   });
 
   it("persists the selected stream per panel instance", async () => {
+    const persistedSelectedStreams = new Map<string, string | undefined>();
     const config = {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
-      projectPath: "/tmp/robotick-project",
-      workspaceId: "remote-control-workspace",
-      selectedStream: "Head-RGB",
       streams: {
         "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
         "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
@@ -719,7 +719,13 @@ describe("viewer-streaming-image stream selection", () => {
       frameRateHz: 30,
     };
 
-    await init({ ...config, panelId: "panel-a" });
+    await init({
+      ...config,
+      selectedStream: persistedSelectedStreams.get("panel-a"),
+      onSelectedStreamChange: (selectedStream: string) => {
+        persistedSelectedStreams.set("panel-a", selectedStream);
+      },
+    });
 
     const firstSelector = document.querySelector<HTMLSelectElement>(
       'select[aria-label="Image stream"]'
@@ -736,7 +742,13 @@ describe("viewer-streaming-image stream selection", () => {
     await uninit();
     subscribeTelemetry.mockClear();
 
-    await init({ ...config, panelId: "panel-b" });
+    await init({
+      ...config,
+      selectedStream: persistedSelectedStreams.get("panel-b"),
+      onSelectedStreamChange: (selectedStream: string) => {
+        persistedSelectedStreams.set("panel-b", selectedStream);
+      },
+    });
 
     const secondSelector = document.querySelector<HTMLSelectElement>(
       'select[aria-label="Image stream"]'
@@ -746,7 +758,13 @@ describe("viewer-streaming-image stream selection", () => {
     await uninit();
     subscribeTelemetry.mockClear();
 
-    await init({ ...config, panelId: "panel-a" });
+    await init({
+      ...config,
+      selectedStream: persistedSelectedStreams.get("panel-a"),
+      onSelectedStreamChange: (selectedStream: string) => {
+        persistedSelectedStreams.set("panel-a", selectedStream);
+      },
+    });
 
     const restoredSelector = document.querySelector<HTMLSelectElement>(
       'select[aria-label="Image stream"]'

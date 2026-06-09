@@ -207,6 +207,28 @@ function FloatingPanelWindow({
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const Component = entry.Component;
+  const handleSetPanelSettings = React.useCallback(
+    (settings: Record<string, unknown>) =>
+      updateFloatingPanel(scope, panel.id, { settings }),
+    [panel.id, scope]
+  );
+  const handleUpdatePanelSettings = React.useCallback(
+    (partial: Record<string, unknown>) =>
+      updateFloatingPanel(scope, panel.id, (current) => ({
+        ...current,
+        settings: { ...current.settings, ...partial },
+      })),
+    [panel.id, scope]
+  );
+  const handleSetTitle = React.useCallback(
+    (nextTitle: string) =>
+      updateFloatingPanel(scope, panel.id, { title: nextTitle }),
+    [panel.id, scope]
+  );
+  const handleClosePanel = React.useCallback(
+    () => removeFloatingPanel(scope, panel.id),
+    [panel.id, scope]
+  );
   const handleEditorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     updateFloatingPanel(scope, panel.id, {
       editorId: event.target.value,
@@ -222,14 +244,8 @@ function FloatingPanelWindow({
       workspaceId={scope}
       editorId={panel.editorId}
       settings={panel.settings}
-      setSettings={(settings) =>
-        updateFloatingPanel(scope, panel.id, { settings })
-      }
-      updateSettings={(partial) =>
-        updateFloatingPanel(scope, panel.id, {
-          settings: { ...panel.settings, ...partial },
-        })
-      }
+      setSettings={handleSetPanelSettings}
+      updateSettings={handleUpdatePanelSettings}
     >
       <FloatingPanelContext.Provider
         value={{
@@ -237,15 +253,10 @@ function FloatingPanelWindow({
           id: panel.id,
           title: panel.title,
           settings: panel.settings,
-          setTitle: (nextTitle) =>
-            updateFloatingPanel(scope, panel.id, { title: nextTitle }),
-          setSettings: (settings) =>
-            updateFloatingPanel(scope, panel.id, { settings }),
-          updateSettings: (partial) =>
-            updateFloatingPanel(scope, panel.id, {
-              settings: { ...panel.settings, ...partial },
-            }),
-          close: () => removeFloatingPanel(scope, panel.id),
+          setTitle: handleSetTitle,
+          setSettings: handleSetPanelSettings,
+          updateSettings: handleUpdatePanelSettings,
+          close: handleClosePanel,
         }}
       >
         <div
@@ -287,11 +298,40 @@ function FloatingPanelWindow({
           >
             <GenericPanel
               title={title}
-              onClose={() => removeFloatingPanel(scope, panel.id)}
-              storageKey={`floating-panel:${scope}:${panel.id}`}
-              initialPosition={panel.initialPosition}
-              initialSize={panel.initialSize}
-              minSize={panel.minSize}
+              onClose={handleClosePanel}
+              position={
+                panel.frame
+                  ? { x: panel.frame.x, y: panel.frame.y }
+                  : undefined
+              }
+              size={
+                panel.frame
+                  ? {
+                      width: panel.frame.width,
+                      height: panel.frame.height,
+                    }
+                  : undefined
+              }
+              minSize={
+                panel.frame
+                  ? {
+                      width: panel.frame.minWidth ?? 260,
+                      height: panel.frame.minHeight ?? 180,
+                    }
+                  : undefined
+              }
+              onFrameChange={({ position, size }) =>
+                updateFloatingPanel(scope, panel.id, {
+                  frame: {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                    minWidth: panel.frame?.minWidth,
+                    minHeight: panel.frame?.minHeight,
+                  },
+                })
+              }
             >
               <div className={styles.floatingContent}>
                 <div className={styles.panelBody}>

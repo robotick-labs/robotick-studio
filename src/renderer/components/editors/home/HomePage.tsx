@@ -84,15 +84,11 @@ export default function HomePage() {
 
       <section>
         <div className={styles.videoWrapper}>
-          <iframe
-            width="800"
-            height="450"
-            src="https://www.youtube.com/embed/YOUR_VIDEO_ID_HERE"
-            title="Robotick Overview"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          ></iframe>
+          <p>
+            Studio launch and navigation now live in the workspace CLI. Use the
+            project selector below to switch context, or open a project directly
+            with <code>robotick studio open &lt;project&gt;</code>.
+          </p>
         </div>
       </section>
 

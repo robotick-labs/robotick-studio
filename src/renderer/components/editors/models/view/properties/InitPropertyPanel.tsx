@@ -9,6 +9,14 @@ export type PropertyPanelAPI = {
   dispose?: () => void;
 };
 
+type ManagedRoot = {
+  disposed: boolean;
+  root: Root;
+  unmountTimer: number | null;
+};
+
+const managedRoots = new WeakMap<HTMLElement, ManagedRoot>();
+
 export function initPropertyPanel(
   hostElement: HTMLElement | null,
   store: DocumentStore,
@@ -18,10 +26,25 @@ export function initPropertyPanel(
   if (!hostElement) {
     throw new Error("initPropertyPanel requires a host element");
   }
-  const root: Root = createRoot(hostElement);
+  let managedRoot = managedRoots.get(hostElement);
+  if (!managedRoot) {
+    managedRoot = {
+      disposed: false,
+      root: createRoot(hostElement),
+      unmountTimer: null,
+    };
+    managedRoots.set(hostElement, managedRoot);
+  } else if (managedRoot.unmountTimer != null) {
+    window.clearTimeout(managedRoot.unmountTimer);
+    managedRoot.unmountTimer = null;
+    managedRoot.disposed = false;
+  }
 
   const render = () => {
-    root.render(
+    if (managedRoot.disposed) {
+      return;
+    }
+    managedRoot.root.render(
       <PropertyPanel
         store={store}
         selectionScope={selectionScope}
@@ -33,6 +56,18 @@ export function initPropertyPanel(
   render();
   return {
     render,
-    dispose: () => root.unmount(),
+    dispose: () => {
+      if (managedRoot.disposed) {
+        return;
+      }
+      managedRoot.disposed = true;
+      // This root is nested inside the main React tree via an imperative host div.
+      // Defer unmount so React is not asked to tear down another root mid-render.
+      managedRoot.unmountTimer = window.setTimeout(() => {
+        managedRoot.root.unmount();
+        managedRoots.delete(hostElement);
+        managedRoot.unmountTimer = null;
+      }, 0);
+    },
   };
 }

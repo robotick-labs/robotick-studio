@@ -113,13 +113,13 @@ export function usePanelSettings<TSettings extends PanelSettingsRecord>(
     (nextSettings: TSettings) => {
       panel.setSettings(nextSettings);
     },
-    [panel]
+    [panel.setSettings]
   );
   const updateSettings = React.useCallback(
     (partial: Partial<TSettings>) => {
       panel.updateSettings(partial);
     },
-    [panel]
+    [panel.updateSettings]
   );
 
   return [settings, updateSettings, setSettings] as const;

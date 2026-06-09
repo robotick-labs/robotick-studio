@@ -2,19 +2,13 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import styles from "./styles/RcSubtitlesOverlay.module.css";
 import {
-  buildNamespacedKey,
   ProjectData,
-  readStorageValue,
-  setStorageValue,
   useTelemetryStream,
 } from "../studio-host";
 
 const SUBTITLES_SAMPLE_RATE_HZ = 5; // sample 5x per second (every 200ms)
 const DEFAULT_POSITION_X_NORM = 0.5;
 const DEFAULT_POSITION_Y_NORM = 0.84;
-const SUBTITLES_POSITION_STORAGE_BASE = "robotick-studio.rc.subtitles.position";
-const SUBTITLES_COLLAPSED_STORAGE_BASE =
-  "robotick-studio.rc.subtitles.collapsed";
 
 function resolveRuntimeFieldPath(
   model: { workloads?: Array<{ name: string }>; getField?: (path: string) => unknown } | null,
@@ -50,35 +44,26 @@ type RcSubtitlesConfig = {
 
 type RcSubtitlesProps = {
   config?: RcSubtitlesConfig;
+  persistedState?: RcSubtitlesPersistedState;
+  onPersistedStateChange?: (nextState: RcSubtitlesPersistedState) => void;
 };
 
-export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
+export type RcSubtitlesPersistedState = {
+  positionNorm?: { x: number; y: number };
+  collapsed?: boolean;
+};
+
+export function RcSubtitlesOverlay({
+  config,
+  persistedState,
+  onPersistedStateChange,
+}: RcSubtitlesProps) {
   const { projectModels, findModelByName } = ProjectData.use();
   const fieldPath = config?.fieldPath;
   const configuredBaseUrl = config?.telemetryBaseUrl?.trim();
   const configuredModelName = config?.modelName?.trim();
   const configuredX = normalizeCoord(config?.x, DEFAULT_POSITION_X_NORM);
   const configuredY = normalizeCoord(config?.y, DEFAULT_POSITION_Y_NORM);
-  const storageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        SUBTITLES_POSITION_STORAGE_BASE,
-        configuredModelName,
-        configuredBaseUrl,
-        fieldPath?.trim()
-      ),
-    [configuredBaseUrl, configuredModelName, fieldPath]
-  );
-  const collapsedStorageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        SUBTITLES_COLLAPSED_STORAGE_BASE,
-        configuredModelName,
-        configuredBaseUrl,
-        fieldPath?.trim()
-      ),
-    [configuredBaseUrl, configuredModelName, fieldPath]
-  );
 
   const telemetryBaseUrl = useMemo(() => {
     if (configuredBaseUrl) {
@@ -119,21 +104,31 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   const [visible, setVisible] = useState(false);
   const [animateKey, setAnimateKey] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const [positionNorm, setPositionNorm] = useState<{
+  const [uncontrolledPositionNorm, setUncontrolledPositionNorm] = useState<{
     x: number;
     y: number;
   }>({
-    x: configuredX,
-    y: configuredY,
+    x: normalizeCoord(persistedState?.positionNorm?.x, configuredX),
+    y: normalizeCoord(persistedState?.positionNorm?.y, configuredY),
   });
-  const [positionStorageReadyKey, setPositionStorageReadyKey] =
-    useState<string>("");
-  const [collapsed, setCollapsed] = useState(false);
+  const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState(
+    Boolean(persistedState?.collapsed)
+  );
+  const positionNorm = {
+    x: normalizeCoord(
+      persistedState?.positionNorm?.x,
+      uncontrolledPositionNorm.x,
+    ),
+    y: normalizeCoord(
+      persistedState?.positionNorm?.y,
+      uncontrolledPositionNorm.y,
+    ),
+  };
+  const collapsed = persistedState?.collapsed ?? uncontrolledCollapsed;
   const lastTextRef = useRef("");
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
-  const positionDirtyRef = useRef(false);
   const dragStateRef = useRef<{
     pointerId: number;
     halfXNorm: number;
@@ -141,30 +136,21 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   } | null>(null);
 
   useEffect(() => {
-    const stored = parseStoredPosition(readStorageValue(storageKey));
-    if (stored) {
-      setPositionNorm(stored);
-    } else {
-      setPositionNorm({ x: configuredX, y: configuredY });
+    if (persistedState?.positionNorm) {
+      return;
     }
-    positionDirtyRef.current = false;
-    setPositionStorageReadyKey(storageKey);
-  }, [configuredX, configuredY, storageKey]);
+    setUncontrolledPositionNorm({
+      x: configuredX,
+      y: configuredY,
+    });
+  }, [configuredX, configuredY, persistedState?.positionNorm]);
 
   useEffect(() => {
-    setCollapsed(readStorageValue(collapsedStorageKey) === "true");
-  }, [collapsedStorageKey]);
-
-  useEffect(() => {
-    if (positionStorageReadyKey !== storageKey) return;
-    if (!positionDirtyRef.current) return;
-    setStorageValue(storageKey, JSON.stringify(positionNorm));
-    positionDirtyRef.current = false;
-  }, [positionNorm, positionStorageReadyKey, storageKey]);
-
-  useEffect(() => {
-    setStorageValue(collapsedStorageKey, collapsed ? "true" : "false");
-  }, [collapsed, collapsedStorageKey]);
+    if (persistedState?.collapsed !== undefined) {
+      return;
+    }
+    setUncontrolledCollapsed(false);
+  }, [persistedState?.collapsed]);
 
   useEffect(() => {
     if (!effectiveFieldPath || !telemetryBaseUrl || !model?.getField) return;
@@ -194,17 +180,19 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 
       const halfXNorm = clamp01((anchorRect.width * 0.5) / overlayRect.width);
       const halfYNorm = clamp01((anchorRect.height * 0.5) / overlayRect.height);
-
-      setPositionNorm((prev) => {
-        const next = {
-          x: clamp(prev.x, halfXNorm, 1.0 - halfXNorm),
-          y: clamp(prev.y, halfYNorm, 1.0 - halfYNorm),
-        };
-        if (next.x === prev.x && next.y === prev.y) {
-          return prev;
-        }
-        positionDirtyRef.current = true;
-        return next;
+      const next = {
+        x: clamp(positionNorm.x, halfXNorm, 1.0 - halfXNorm),
+        y: clamp(positionNorm.y, halfYNorm, 1.0 - halfYNorm),
+      };
+      if (next.x === positionNorm.x && next.y === positionNorm.y) {
+        return;
+      }
+      if (persistedState?.positionNorm === undefined) {
+        setUncontrolledPositionNorm(next);
+      }
+      onPersistedStateChange?.({
+        positionNorm: next,
+        collapsed,
       });
     };
 
@@ -214,7 +202,7 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", clampToViewport);
     };
-  }, [collapsed, safeSubtitle, visible]);
+  }, [collapsed, onPersistedStateChange, persistedState?.positionNorm, positionNorm.x, positionNorm.y, safeSubtitle, visible]);
 
   if (!fieldPath) {
     console.warn(
@@ -263,10 +251,16 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 
     const rawX = (event.clientX - overlayRect.left) / overlayRect.width;
     const rawY = (event.clientY - overlayRect.top) / overlayRect.height;
-    positionDirtyRef.current = true;
-    setPositionNorm({
+    const nextPosition = {
       x: clamp(rawX, drag.halfXNorm, 1.0 - drag.halfXNorm),
       y: clamp(rawY, drag.halfYNorm, 1.0 - drag.halfYNorm),
+    };
+    if (persistedState?.positionNorm === undefined) {
+      setUncontrolledPositionNorm(nextPosition);
+    }
+    onPersistedStateChange?.({
+      positionNorm: nextPosition,
+      collapsed,
     });
   };
 
@@ -286,7 +280,14 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    setCollapsed((value) => !value);
+    const nextCollapsed = !collapsed;
+    if (persistedState?.collapsed === undefined) {
+      setUncontrolledCollapsed(nextCollapsed);
+    }
+    onPersistedStateChange?.({
+      positionNorm,
+      collapsed: nextCollapsed,
+    });
   };
 
   const togglePointerDown: React.PointerEventHandler<HTMLButtonElement> = (
@@ -358,23 +359,6 @@ export function RcSubtitlesOverlay({ config }: RcSubtitlesProps) {
 function normalizeForDisplay(s: string): string {
   const trimmed = s.replace(/\r/g, "").trim();
   return trimmed.replace(/[ \t]{2,}/g, " ");
-}
-
-function parseStoredPosition(
-  raw: string | null
-): { x: number; y: number } | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<{ x: number; y: number }>;
-    const x = normalizeCoord(parsed.x, NaN);
-    const y = normalizeCoord(parsed.y, NaN);
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      return { x, y };
-    }
-  } catch {
-    // Ignore malformed values.
-  }
-  return null;
 }
 
 function normalizeCoord(value: unknown, fallback: number): number {

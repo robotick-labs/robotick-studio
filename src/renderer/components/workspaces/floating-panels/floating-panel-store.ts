@@ -1,22 +1,26 @@
 type PanelSettings = Record<string, unknown>;
+type FloatingPanelFrame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  minWidth?: number;
+  minHeight?: number;
+};
 
 export type FloatingPanelRecord = {
   id: string;
   editorId: string;
   title?: string;
   settings: PanelSettings;
-  initialPosition?: { x: number; y: number };
-  initialSize?: { width: number; height: number };
-  minSize?: { width: number; height: number };
+  frame?: FloatingPanelFrame;
 };
 
 export type FloatingPanelSpawnConfig = {
   editorId: string;
   title?: string;
   settings?: PanelSettings;
-  initialPosition?: { x: number; y: number };
-  initialSize?: { width: number; height: number };
-  minSize?: { width: number; height: number };
+  frame?: FloatingPanelFrame;
 };
 
 type Listener = (panels: FloatingPanelRecord[]) => void;
@@ -34,6 +38,7 @@ function clone(records: FloatingPanelRecord[]): FloatingPanelRecord[] {
   return records.map((record) => ({
     ...record,
     settings: { ...record.settings },
+    frame: record.frame ? { ...record.frame } : undefined,
   }));
 }
 
@@ -85,9 +90,7 @@ export function spawnFloatingPanel(
     editorId: config.editorId,
     title: config.title,
     settings: { ...(config.settings ?? {}) },
-    initialPosition: config.initialPosition,
-    initialSize: config.initialSize,
-    minSize: config.minSize,
+    frame: config.frame ? { ...config.frame } : undefined,
   });
   notify(scope);
   return id;
@@ -128,6 +131,12 @@ export function updateFloatingPanel(
       next.settings !== undefined
         ? { ...next.settings }
         : { ...current.settings },
+    frame:
+      next.frame !== undefined
+        ? { ...next.frame }
+        : current.frame
+          ? { ...current.frame }
+          : undefined,
   };
   notify(scope);
 }

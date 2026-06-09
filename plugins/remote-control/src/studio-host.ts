@@ -2,13 +2,15 @@ import {
   Launcher,
   Project,
   ProjectData,
+  type PanelPersistenceDefinition,
   type RcModuleDescriptor,
+  type StudioPanelContribution,
 } from "../../../src/renderer/services/plugins/animation-studio-host";
 import {
-  buildNamespacedKey,
-  readStorageValue,
-  setStorageValue,
+  definePanelPersistence,
+  defineStudioPanel,
   usePanelInstance,
+  usePanelSettings,
   useTelemetryService,
   useTelemetryStream,
   viewer,
@@ -19,15 +21,21 @@ import type {
 } from "../../../src/renderer/services/plugins/animation-studio-host";
 
 export {
-  buildNamespacedKey,
+  definePanelPersistence,
+  defineStudioPanel,
   Launcher,
   Project,
   ProjectData,
-  readStorageValue,
-  setStorageValue,
   usePanelInstance,
+  usePanelSettings,
   useTelemetryService,
   useTelemetryStream,
   viewer,
 };
-export type { ITelemetryModel, LayoutWritableInput, RcModuleDescriptor };
+export type {
+  ITelemetryModel,
+  LayoutWritableInput,
+  PanelPersistenceDefinition,
+  RcModuleDescriptor,
+  StudioPanelContribution,
+};

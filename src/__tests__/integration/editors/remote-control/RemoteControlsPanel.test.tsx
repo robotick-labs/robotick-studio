@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RemoteControlsPanel from "../../../../../plugins/remote-control/src/components/remote-controls/RemoteControlsPanel";
-import { PanelInstanceProvider } from "../../../../renderer/components/workspaces/PanelInstanceContext";
 import { TelemetryServiceProvider } from "../../../../renderer/data-sources/telemetry";
 import {
   resetLauncherDataTestState,
@@ -355,7 +354,24 @@ describe("RemoteControlsPanel", () => {
         },
       },
     };
+    let persistedSelectedModes: Record<string, string> | undefined;
     const renderPanel = (root: ReturnType<typeof createRoot>) => {
+      function Harness() {
+        const [selectedModes, setSelectedModes] = React.useState<
+          Record<string, string>
+        >(persistedSelectedModes ?? {});
+        React.useEffect(() => {
+          persistedSelectedModes = selectedModes;
+        }, [selectedModes]);
+        return (
+          <RemoteControlsPanel
+            config={config}
+            selectedModes={selectedModes}
+            onSelectedModesChange={setSelectedModes}
+          />
+        );
+      }
+
       act(() => {
         root.render(
           <TelemetryServiceProvider service={telemetryService as any}>
@@ -366,7 +382,7 @@ describe("RemoteControlsPanel", () => {
                 refreshProjectModels: vi.fn(async () => projectModels as any),
               }}
             >
-              <RemoteControlsPanel config={config} />
+              <Harness />
             </TestLauncherProviders>
           </TelemetryServiceProvider>
         );
@@ -498,10 +514,27 @@ describe("RemoteControlsPanel", () => {
         },
       },
     };
+    const persistedSelectedModesByPanel = new Map<string, Record<string, string>>();
     const renderPanel = (
       root: ReturnType<typeof createRoot>,
       panelId: string
     ) => {
+      function Harness() {
+        const [selectedModes, setSelectedModes] = React.useState<
+          Record<string, string>
+        >(persistedSelectedModesByPanel.get(panelId) ?? {});
+        React.useEffect(() => {
+          persistedSelectedModesByPanel.set(panelId, selectedModes);
+        }, [panelId, selectedModes]);
+        return (
+          <RemoteControlsPanel
+            config={config}
+            selectedModes={selectedModes}
+            onSelectedModesChange={setSelectedModes}
+          />
+        );
+      }
+
       act(() => {
         root.render(
           <TelemetryServiceProvider service={telemetryService as any}>
@@ -512,12 +545,7 @@ describe("RemoteControlsPanel", () => {
                 refreshProjectModels: vi.fn(async () => projectModels as any),
               }}
             >
-              <PanelInstanceProvider
-                workspaceId="remote-control-workspace"
-                panelId={panelId}
-              >
-                <RemoteControlsPanel config={config} />
-              </PanelInstanceProvider>
+              <Harness />
             </TestLauncherProviders>
           </TelemetryServiceProvider>
         );

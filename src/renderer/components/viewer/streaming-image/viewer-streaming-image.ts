@@ -8,15 +8,9 @@ import {
 } from "../../../data-sources/telemetry";
 import { sanitizeTelemetryImageBytes } from "../../editors/telemetry/utils/telemetry-image";
 import { ProjectData } from "../../../data-sources/launcher";
-import {
-  buildNamespacedKey,
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
 import { summarizeCadence } from "./streaming-image-metrics";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  selectedStream?: string;
   streams?: Record<string, unknown>;
   frameRateHz?: number;
   samplingRateHz?: number; // legacy
@@ -46,7 +40,6 @@ let streamSelectorElement: HTMLSelectElement | null = null;
 let activeStreamingConfig: StreamingImageViewerConfig | null = null;
 let activeStreamSources: StreamingImageStream[] = [];
 let activeStreamingStream: StreamingImageStream | null = null;
-let activeSelectedStreamStorageKey: string | null = null;
 let decodeInFlight = false;
 let monitorIntervalId: number | null = null;
 let presentTimerId: number | null = null;
@@ -303,7 +296,6 @@ function resetRuntimeState() {
   activeStreamingConfig = null;
   activeStreamSources = [];
   activeStreamingStream = null;
-  activeSelectedStreamStorageKey = null;
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
@@ -2059,106 +2051,8 @@ function getStreamingImageSources(
     .filter((source): source is StreamingImageStream => source !== null);
 }
 
-function hashString(value: string): string {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = Math.imul(31, hash) + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return (hash >>> 0).toString(16);
-}
-
-function buildStreamingImageSourcesStorageSignature(
-  sources: StreamingImageStream[],
-): string {
-  return hashString(
-    JSON.stringify(
-      sources.flatMap((stream) =>
-        stream.layers.map((source) => ({
-          streamId: stream.id,
-          id: source.id,
-          index: source.index,
-          sourceModel: source.sourceModel ?? "",
-          modelName: source.modelName ?? "",
-          telemetryModelName: source.telemetryModelName ?? "",
-          sourceField: source.sourceField,
-          detectionsSourceField: source.detectionsSourceField ?? "",
-          detectionsSourceModel: source.detectionsSourceModel ?? "",
-          detectionsTelemetryModelName:
-            source.detectionsTelemetryModelName ?? "",
-          fieldOfViewSourceField: source.fieldOfViewSourceField ?? "",
-          fieldOfViewSourceModel: source.fieldOfViewSourceModel ?? "",
-          fieldOfViewTelemetryModelName:
-            source.fieldOfViewTelemetryModelName ?? "",
-          telemetryBaseUrl: source.telemetryBaseUrl ?? "",
-          detectionsTelemetryBaseUrl: source.detectionsTelemetryBaseUrl ?? "",
-          fieldOfViewTelemetryBaseUrl: source.fieldOfViewTelemetryBaseUrl ?? "",
-          transform: source.transform,
-          blendMode: source.blendMode,
-          opacity: source.opacity,
-          visible: source.visible,
-        })),
-      ),
-    ),
-  );
-}
-
-function buildSelectedStreamStorageKey(
-  config: StreamingImageViewerConfig,
-  sources: StreamingImageStream[],
-): string | null {
-  if (sources.length <= 1) {
-    return null;
-  }
-  if (!config.workspaceId && !config.panelId) {
-    return buildLegacySelectedStreamStorageKey(config, sources);
-  }
-  return buildNamespacedKey(
-    "robotick.streaming-image.selected-stream",
-    config.projectPath || "default-project",
-    config.workspaceId || "workspace",
-    config.panelId || "default",
-    buildStreamingImageSourcesStorageSignature(sources),
-  );
-}
-
-function buildLegacySelectedStreamStorageKey(
-  config: StreamingImageViewerConfig,
-  sources: StreamingImageStream[],
-): string | null {
-  if (sources.length <= 1) {
-    return null;
-  }
-  return buildNamespacedKey(
-    "robotick.streaming-image.selected-stream",
-    config.projectPath || "default-project",
-    buildStreamingImageSourcesStorageSignature(sources),
-  );
-}
-
-function readStoredSelectedStream(
-  storageKey: string | null,
-  sources: StreamingImageStream[],
-  legacyStorageKey?: string | null,
-): string | null {
-  if (!storageKey && !legacyStorageKey) {
-    return null;
-  }
-  const stored = (
-    (storageKey ? readStorageValue(storageKey) : null) ??
-    (legacyStorageKey ? readStorageValue(legacyStorageKey) : null)
-  )?.trim();
-  if (!stored || !sources.some((source) => source.id === stored)) {
-    return null;
-  }
-  return stored;
-}
-
 function writeStoredSelectedStream(streamId: string): void {
-  if (!activeSelectedStreamStorageKey) {
-    return;
-  }
-  setStorageValue(activeSelectedStreamStorageKey, streamId);
+  activeStreamingConfig?.onSelectedStreamChange?.(streamId);
 }
 
 export function resolveStreamingImageSource(
@@ -2492,21 +2386,9 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   const streamingConfig = viewerConfig as StreamingImageViewerConfig;
   activeStreamingConfig = streamingConfig;
   activeStreamSources = getStreamingImageSources(streamingConfig);
-  activeSelectedStreamStorageKey = buildSelectedStreamStorageKey(
-    streamingConfig,
-    activeStreamSources,
-  );
-  const legacySelectedStreamStorageKey = buildLegacySelectedStreamStorageKey(
-    streamingConfig,
-    activeStreamSources,
-  );
   const activeStream = resolveStreamingImageStream(
     streamingConfig,
-    readStoredSelectedStream(
-      activeSelectedStreamStorageKey,
-      activeStreamSources,
-      legacySelectedStreamStorageKey,
-    ) ?? undefined,
+    streamingConfig.selectedStream?.trim() || undefined,
   );
   if (!activeStream) {
     console.warn(

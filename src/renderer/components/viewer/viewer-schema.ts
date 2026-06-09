@@ -140,6 +140,8 @@ export interface ViewerConfig {
   projectPath?: string;
   workspaceId?: string;
   panelId?: string;
+  selectedStream?: string;
+  onSelectedStreamChange?: (selectedStream: string) => void;
   backgroundColor?: string; // "#ffffff"
   fog?: FogConfig | null;
   addGroundPlane?: boolean;
