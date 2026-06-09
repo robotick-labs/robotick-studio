@@ -94,6 +94,22 @@ describe("project lock ownership", () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
+  it("treats unreadable lock payloads as stale", () => {
+    const projectDir = createProjectDir();
+    projectDirs.push(projectDir);
+    const lockPath = getProjectLockPath(projectDir);
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, "{not-json", "utf-8");
+
+    const status = readProjectLockStatus(projectDir, {
+      pid: process.pid,
+      instanceName: "studio-test",
+    });
+
+    expect(status.state).toBe("available");
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
   it("locks the project directory when selection uses a project yaml path", () => {
     const projectDir = createProjectDir();
     projectDirs.push(projectDir);

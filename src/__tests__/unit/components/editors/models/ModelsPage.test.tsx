@@ -168,6 +168,43 @@ describe("ModelsPage", () => {
     container.remove();
   });
 
+  it("restores a stored viewport before falling back to the computed default", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelHost
+          initialSettings={{
+            viewport: {
+              x: 10,
+              y: 20,
+              width: 300,
+              height: 200,
+            },
+          }}
+        >
+          <ModelsPage />
+        </PanelHost>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector("[data-testid='settings']")?.textContent,
+    ).toContain("\"width\":300");
+    expect(
+      container.querySelector("[data-testid='settings']")?.textContent,
+    ).not.toContain("\"width\":600");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
   it("replaces a stored viewport that does not include the selected node", async () => {
     initNodeGraphMock.mockReturnValueOnce({
       dispose: vi.fn(),

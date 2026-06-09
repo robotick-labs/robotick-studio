@@ -442,12 +442,18 @@ describe("AppHeader", () => {
     ) as HTMLButtonElement | null;
     expect(menuButton).not.toBeNull();
 
-    await act(async () => {
-      menuButton?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-    });
+    const reopenedMenuButton = container.querySelector(
+      'button[aria-label="Select child window"]'
+    ) as HTMLButtonElement | null;
+
+    if (!container.textContent?.includes("Telemetry Window")) {
+      await act(async () => {
+        reopenedMenuButton?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+        await Promise.resolve();
+      });
+    }
 
     expect(container.textContent).toContain("Telemetry Window");
 

@@ -352,7 +352,12 @@ export function ModelsPage() {
         );
         const storedViewport = settingsRef.current.viewport;
         const defaultViewport = computeDefaultViewport(graphElement);
-        const initialViewport = defaultViewport ?? storedViewport ?? null;
+        const selectedNode =
+          selectedNodeId ? graphApi.getDoc().getNode(selectedNodeId) : null;
+        const initialViewport =
+          storedViewport && viewportContainsNode(storedViewport, selectedNode)
+            ? storedViewport
+            : defaultViewport ?? storedViewport ?? null;
         if (initialViewport) {
           setViewBox(graphElement, initialViewport);
         }
@@ -806,6 +811,35 @@ function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
   const y = contentCenterY - height / 2;
 
   return { x, y, width, height };
+}
+
+function viewportContainsNode(
+  viewport: GraphViewport,
+  node:
+    | {
+        x?: number;
+        y?: number;
+        w?: number;
+        h?: number;
+      }
+    | null
+    | undefined
+): boolean {
+  if (
+    !node ||
+    typeof node.x !== "number" ||
+    typeof node.y !== "number" ||
+    typeof node.w !== "number" ||
+    typeof node.h !== "number"
+  ) {
+    return true;
+  }
+  return (
+    node.x >= viewport.x &&
+    node.y >= viewport.y &&
+    node.x + node.w <= viewport.x + viewport.width &&
+    node.y + node.h <= viewport.y + viewport.height
+  );
 }
 export const contribution = defineStudioPanel({
   component: ModelsPage,

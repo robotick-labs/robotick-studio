@@ -767,6 +767,7 @@ export function PanelLayout({
   React.useEffect(() => {
     if (
       !persistenceLoaded ||
+      !layoutReady ||
       registryLoading ||
       persistenceHydratingRef.current
     ) {

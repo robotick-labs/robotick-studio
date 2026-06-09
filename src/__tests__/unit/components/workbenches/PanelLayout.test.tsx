@@ -1046,6 +1046,106 @@ describe("PanelLayout context menu", () => {
     });
   });
 
+  it("does not overwrite the remaining layout with the closing tab state", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    registryState.entries = [
+      {
+        id: "settings-editor",
+        label: "Settings Editor",
+        module: "settings-module",
+        Component: SettingsEditor,
+        source: "builtin" as const,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const settingsButton = container.querySelector(
+      "[data-testid='settings-editor']"
+    );
+    expect(settingsButton?.textContent).toBe("empty");
+
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default")?.dock?.settings
+    ).toEqual({ selectedField: "outputs.alpha" });
+
+    const addTab = container.querySelector(
+      "button[aria-label='Create layout tab']"
+    );
+    await act(async () => {
+      addTab?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='settings-editor']")?.textContent).toBe(
+      "empty"
+    );
+
+    const closeButton = container.querySelector(
+      "button[aria-label='Close layout tab Mock Workbench | New Layout 2']"
+    );
+    expect(closeButton).not.toBeNull();
+
+    await act(async () => {
+      closeButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const confirmButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Close tab"
+    );
+    expect(confirmButton).not.toBeNull();
+
+    await act(async () => {
+      confirmButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default")?.dock?.settings
+    ).toEqual({ selectedField: "outputs.alpha" });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("updates editor selector options when plugin editors arrive after initial render", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);

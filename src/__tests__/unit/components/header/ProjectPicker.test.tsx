@@ -60,7 +60,18 @@ import { ProjectPicker } from "../../../../renderer/components/header/ProjectPic
 
 describe("ProjectPicker", () => {
   beforeEach(() => {
-    projectPickerMocks.state.projectPath = "/repo/robots/barr-e";
+    projectPickerMocks.state.projectPath =
+      "/repo/robots/barr-e/barr-e.project.yaml";
+    projectPickerMocks.projects = [
+      {
+        path: "/repo/robots/barr-e/barr-e.project.yaml",
+        name: "Barr-E",
+      },
+      {
+        path: "/repo/robots/tim-e/tim-e.project.yaml",
+        name: "Tim-E",
+      },
+    ];
     projectPickerMocks.requestProjectChange.mockReset();
   });
 
@@ -86,5 +97,25 @@ describe("ProjectPicker", () => {
     expect(projectPickerMocks.requestProjectChange).toHaveBeenCalledWith(
       "/repo/robots/tim-e/tim-e.project.yaml"
     );
+  });
+
+  it("does not collapse distinct project files that only share the same basename", () => {
+    projectPickerMocks.state.projectPath =
+      "/repo/archive/barr-e/barr-e.project.yaml";
+    projectPickerMocks.projects = [
+      {
+        path: "/repo/robots/barr-e/barr-e.project.yaml",
+        name: "Barr-E",
+      },
+      {
+        path: "/repo/sim/barr-e/barr-e.project.yaml",
+        name: "Barr-E Sim",
+      },
+    ];
+
+    render(<ProjectPicker />);
+
+    const select = screen.getByLabelText("Select project") as HTMLSelectElement;
+    expect(select.value).toBe("/repo/archive/barr-e/barr-e.project.yaml");
   });
 });

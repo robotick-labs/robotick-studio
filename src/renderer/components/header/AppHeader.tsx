@@ -148,6 +148,14 @@ export function AppHeader() {
       ),
     [optimisticDeletedChildWindowIds, windows]
   );
+  useEffect(() => {
+    setOptimisticDeletedChildWindowIds((current) => {
+      if (current.size === 0) {
+        return current;
+      }
+      return new Set<string>();
+    });
+  }, [windows]);
   const refreshActiveChildWindowScopes = useCallback(async () => {
     const scopes =
       (await window.robotick?.windowControls?.getChildWindowScopes?.()) ?? [];

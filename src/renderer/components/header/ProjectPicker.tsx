@@ -29,12 +29,7 @@ function pathsReferToSameProject(left: string, right: string) {
   if (!normalizedLeft || !normalizedRight) {
     return false;
   }
-  if (normalizedLeft === normalizedRight) {
-    return true;
-  }
-  const leftBase = getBasename(normalizedLeft);
-  const rightBase = getBasename(normalizedRight);
-  return leftBase.length > 0 && leftBase === rightBase;
+  return normalizedLeft === normalizedRight;
 }
 
 export function ProjectPicker() {

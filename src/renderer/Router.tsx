@@ -117,13 +117,20 @@ function DefaultWorkbenchRedirect() {
  */
 function ProjectWorkbenchSync() {
   const { projectPath } = useProjectContext();
-  const { workbenches } = useAppConfig();
+  const { workbenches, loading } = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
   const previousProject = React.useRef<string | undefined>(undefined);
 
   React.useEffect(() => {
-    if (previousProject.current === projectPath) {
+    if (loading) {
+      return;
+    }
+    const projectChanged = previousProject.current !== projectPath;
+    const currentPathIsValid = workbenches.some(
+      (workbench) => workbench.path === location.pathname
+    );
+    if (!projectChanged && currentPathIsValid) {
       return;
     }
     previousProject.current = projectPath;
@@ -131,7 +138,7 @@ function ProjectWorkbenchSync() {
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }
-  }, [projectPath, location.pathname, navigate, workbenches]);
+  }, [loading, projectPath, location.pathname, navigate, workbenches]);
 
   return null;
 }

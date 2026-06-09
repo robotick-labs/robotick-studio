@@ -154,7 +154,7 @@ export function readProjectLockStatus(
       ? payload.instanceName.trim()
       : undefined;
 
-  if (typeof pid === "number" && !isPidAlive(pid)) {
+  if (pid === undefined || !isPidAlive(pid)) {
     tryRemoveStaleLock(resolvedSelectionPath, pid);
     return {
       projectPath: resolvedSelectionPath,
