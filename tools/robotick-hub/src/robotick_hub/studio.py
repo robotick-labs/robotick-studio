@@ -10,6 +10,7 @@ import threading
 import time
 
 from pydantic import BaseModel
+import yaml
 
 from robotick_hub.launcher import ensure_launcher
 from robotick_hub.manifest import Manifest, load_manifest
@@ -227,6 +228,336 @@ def summarize_instance(instance: StudioInstanceRecord) -> dict[str, object]:
     }
 
 
+def build_default_layout_id(window_id: str, workbench_id: str, index: int) -> str:
+    if index == 0:
+        return f"{window_id}:{workbench_id}:default"
+    return f"{window_id}:{workbench_id}:layout-{index + 1}"
+
+
+def build_default_layout_label(workbench_label: str, index: int) -> str:
+    if index == 0:
+        return f"{workbench_label} | Default"
+    return f"{workbench_label} | Layout {index + 1}"
+
+
+def clone_value(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): clone_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [clone_value(item) for item in value]
+    return value
+
+
+def normalize_dock_node(node: object) -> dict[str, object]:
+    if not isinstance(node, dict):
+        return {
+            "nodeType": "panel",
+            "panelId": "panel-missing",
+            "editorId": "unknown",
+        }
+    node_type = str(node.get("nodeType") or "")
+    if node_type == "split":
+        children = node.get("children")
+        normalized_children = (
+            [normalize_dock_node(children[0]), normalize_dock_node(children[1])]
+            if isinstance(children, list) and len(children) == 2
+            else [
+                {
+                    "nodeType": "panel",
+                    "panelId": "panel-missing-left",
+                    "editorId": "unknown",
+                },
+                {
+                    "nodeType": "panel",
+                    "panelId": "panel-missing-right",
+                    "editorId": "unknown",
+                },
+            ]
+        )
+        return {
+            "nodeType": "split",
+            "direction": str(node.get("direction") or "horizontal"),
+            "ratio": float(node.get("ratio") or 0.5),
+            "children": normalized_children,
+        }
+    return {
+        "nodeType": "panel",
+        "panelId": str(node.get("panelId") or "panel-missing"),
+        "editorId": str(node.get("editorId") or "unknown"),
+        **(
+            {"label": str(node["label"])}
+            if isinstance(node.get("label"), str)
+            else {}
+        ),
+        **(
+            {"settings": clone_value(node["settings"])}
+            if isinstance(node.get("settings"), dict)
+            else {}
+        ),
+    }
+
+
+def extract_docked_panels(
+    node: dict[str, object],
+    *,
+    instance_name: str,
+    window_id: str,
+    workbench_id: str,
+    layout_id: str,
+) -> list[dict[str, object]]:
+    node_type = str(node.get("nodeType") or "")
+    if node_type == "split":
+        children = node.get("children")
+        if not isinstance(children, list):
+            return []
+        panels: list[dict[str, object]] = []
+        for child in children:
+            if isinstance(child, dict):
+                panels.extend(
+                    extract_docked_panels(
+                        child,
+                        instance_name=instance_name,
+                        window_id=window_id,
+                        workbench_id=workbench_id,
+                        layout_id=layout_id,
+                    )
+                )
+        return panels
+    return [
+        {
+            "resource_type": "studio_panel",
+            "id": str(node.get("panelId") or "panel-missing"),
+            "panel_location": "docked",
+            "instance_id": instance_name,
+            "window_id": window_id,
+            "workbench_id": workbench_id,
+            "layout_id": layout_id,
+            "editor_id": str(node.get("editorId") or "unknown"),
+            "label": str(node.get("label") or node.get("panelId") or "panel"),
+            "settings": clone_value(node.get("settings") or {}),
+            "diagnostics": {},
+        }
+    ]
+
+
+def normalize_layout(
+    layout: object,
+    *,
+    instance_name: str,
+    window_id: str,
+    workbench_id: str,
+    workbench_label: str,
+    index: int,
+) -> dict[str, object]:
+    payload = layout if isinstance(layout, dict) else {}
+    layout_id = str(payload.get("id") or build_default_layout_id(window_id, workbench_id, index))
+    dock = normalize_dock_node(payload.get("dock"))
+    docked_panels = extract_docked_panels(
+        dock,
+        instance_name=instance_name,
+        window_id=window_id,
+        workbench_id=workbench_id,
+        layout_id=layout_id,
+    )
+    floating_panels: list[dict[str, object]] = []
+    raw_floating = payload.get("floatingPanels")
+    if isinstance(raw_floating, list):
+        for panel in raw_floating:
+            if not isinstance(panel, dict):
+                continue
+            floating_panels.append(
+                {
+                    "resource_type": "studio_panel",
+                    "id": str(panel.get("id") or "panel-floating"),
+                    "panel_location": "floating",
+                    "instance_id": instance_name,
+                    "window_id": window_id,
+                    "workbench_id": workbench_id,
+                    "layout_id": layout_id,
+                    "editor_id": str(panel.get("editorId") or "unknown"),
+                    "label": str(panel.get("label") or panel.get("id") or "panel"),
+                    "settings": clone_value(panel.get("settings") or {}),
+                    "frame": clone_value(panel.get("frame") or {}),
+                    "diagnostics": {},
+                }
+            )
+    panels = [*docked_panels, *floating_panels]
+    return {
+        "resource_type": "studio_layout",
+        "id": layout_id,
+        "label": str(payload.get("label") or build_default_layout_label(workbench_label, index)),
+        "instance_id": instance_name,
+        "window_id": window_id,
+        "workbench_id": workbench_id,
+        "dock": dock,
+        "docked_panels": docked_panels,
+        "floating_panels": floating_panels,
+        "panels": panels,
+        "diagnostics": {
+            "panel_count": len(panels),
+            "floating_panel_count": len(floating_panels),
+        },
+    }
+
+
+def build_default_layout(
+    *,
+    instance_name: str,
+    window_id: str,
+    workbench_id: str,
+    workbench_label: str,
+    default_editor_id: str,
+) -> dict[str, object]:
+    return normalize_layout(
+        {
+            "id": build_default_layout_id(window_id, workbench_id, 0),
+            "label": build_default_layout_label(workbench_label, 0),
+            "dock": {
+                "nodeType": "panel",
+                "panelId": f"panel-{workbench_id}",
+                "editorId": default_editor_id,
+            },
+            "floatingPanels": [],
+        },
+        instance_name=instance_name,
+        window_id=window_id,
+        workbench_id=workbench_id,
+        workbench_label=workbench_label,
+        index=0,
+    )
+
+
+def normalize_workbench(
+    workbench: object,
+    *,
+    instance_name: str,
+    window_id: str,
+) -> dict[str, object]:
+    payload = workbench if isinstance(workbench, dict) else {}
+    workbench_id = str(payload.get("id") or "workbench")
+    label = str(payload.get("label") or workbench_id)
+    default_editor_id = str(payload.get("defaultEditorId") or "unknown")
+    raw_layouts = payload.get("layouts")
+    layouts = (
+        [
+            normalize_layout(
+                entry,
+                instance_name=instance_name,
+                window_id=window_id,
+                workbench_id=workbench_id,
+                workbench_label=label,
+                index=index,
+            )
+            for index, entry in enumerate(raw_layouts)
+            if isinstance(raw_layouts, list)
+        ]
+        if isinstance(raw_layouts, list) and raw_layouts
+        else [
+            build_default_layout(
+                instance_name=instance_name,
+                window_id=window_id,
+                workbench_id=workbench_id,
+                workbench_label=label,
+                default_editor_id=default_editor_id,
+            )
+        ]
+    )
+    default_layout_id = str(
+        payload.get("defaultLayoutId") or layouts[0]["id"]
+    )
+    return {
+        "resource_type": "studio_workbench",
+        "id": workbench_id,
+        "label": label,
+        "instance_id": instance_name,
+        "window_id": window_id,
+        "path": str(payload.get("path") or f"/{workbench_id}"),
+        "group": payload.get("group"),
+        "default_editor_id": default_editor_id,
+        "default_layout_id": default_layout_id,
+        "active_layout_id": default_layout_id,
+        "layouts": layouts,
+    }
+
+
+def normalize_window(
+    window: object,
+    *,
+    instance_name: str,
+) -> dict[str, object]:
+    payload = window if isinstance(window, dict) else {}
+    window_id = str(payload.get("id") or "main")
+    raw_workbenches = payload.get("workbenches")
+    workbenches = [
+        normalize_workbench(
+            workbench,
+            instance_name=instance_name,
+            window_id=window_id,
+        )
+        for workbench in (raw_workbenches if isinstance(raw_workbenches, list) else [])
+    ]
+    default_workbench_id = str(
+        payload.get("defaultWorkbenchId") or (workbenches[0]["id"] if workbenches else "")
+    )
+    active_workbench_id = default_workbench_id or None
+    return {
+        "resource_type": "studio_window",
+        "id": window_id,
+        "label": str(payload.get("label") or window_id),
+        "instance_id": instance_name,
+        "window_role": str(payload.get("windowRole") or "main"),
+        "default_workbench_id": active_workbench_id,
+        "active_workbench_id": active_workbench_id,
+        "workbenches": workbenches,
+    }
+
+
+def load_studio_document_for_instance(
+    workspace_root: str | Path,
+    instance: StudioInstanceRecord,
+) -> dict[str, object]:
+    manifest = load_manifest(workspace_root)
+    candidate_paths: list[Path] = []
+    if instance.project_dir:
+        candidate_paths.append(Path(instance.project_dir) / "studio" / "studio.yaml")
+    candidate_paths.append(
+        (Path(workspace_root) / manifest.studio.default_path / "studio.template.yaml").resolve()
+    )
+    for path in candidate_paths:
+        if not path.exists():
+            continue
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if isinstance(loaded, dict):
+            return loaded
+    return {"resourceType": "studio_document", "schemaVersion": 1, "id": "studio", "windows": []}
+
+
+def build_instance_status(
+    workspace_root: str | Path,
+    instance: StudioInstanceRecord,
+) -> dict[str, object]:
+    summary = summarize_instance(instance)
+    document = load_studio_document_for_instance(workspace_root, instance)
+    raw_windows = document.get("windows")
+    windows = [
+        normalize_window(window, instance_name=instance.name)
+        for window in (raw_windows if isinstance(raw_windows, list) else [])
+    ]
+    active_window_id = (
+        "main"
+        if any(window["id"] == "main" for window in windows)
+        else (windows[0]["id"] if windows else None)
+    )
+    return {
+        "resource_type": "studio_instance",
+        "id": instance.name,
+        **summary,
+        "project_dir": instance.project_dir,
+        "active_window_id": active_window_id,
+        "windows": windows,
+    }
+
+
 def list_instances(workspace_root: str | Path) -> list[dict[str, object]]:
     instances_dir = get_instances_dir(workspace_root)
     if not instances_dir.exists():
@@ -257,6 +588,18 @@ def get_instance(workspace_root: str | Path, instance_name: str) -> dict[str, ob
         remove_instance_record(workspace_root, instance.name)
         return None
     return summarize_instance(instance)
+
+
+def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[str, object] | None:
+    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    if instance is None:
+        return None
+    if not is_instance_alive(instance):
+        reap_instance_process_group(instance)
+        release_project_lock(instance.project_dir)
+        remove_instance_record(workspace_root, instance.name)
+        return None
+    return build_instance_status(workspace_root, instance)
 
 
 def find_instance_record_by_process_member(

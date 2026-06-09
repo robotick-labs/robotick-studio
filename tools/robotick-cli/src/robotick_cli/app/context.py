@@ -17,3 +17,4 @@ class AppContext:
 class ShellState:
     namespace: ShellNamespace = None
     instance_name: str | None = None
+    studio_path: tuple[str, ...] = ()

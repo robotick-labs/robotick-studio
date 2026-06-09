@@ -34,6 +34,7 @@ from robotick_hub.launcher import (
 from robotick_hub.runtime import remove_hub_record, write_hub_record
 from robotick_hub.studio import (
     get_instance,
+    get_instance_status,
     list_instances,
     notify_instance_closing,
     open_studio,
@@ -261,6 +262,13 @@ def create_app() -> FastAPI:
         return StudioInstancesResponse.model_validate(
             {"instances": list_instances(get_workspace_root())}
         )
+
+    @app.get("/v1/studio/instances/{instance_id}/status", response_class=JSONResponse)
+    def studio_instance_status(instance_id: str) -> JSONResponse:
+        payload = get_instance_status(get_workspace_root(), instance_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+        return JSONResponse(payload)
 
     @app.post("/v1/studio/open", response_model=StudioOpenResponse)
     def studio_open(request: StudioOpenRequest) -> StudioOpenResponse:

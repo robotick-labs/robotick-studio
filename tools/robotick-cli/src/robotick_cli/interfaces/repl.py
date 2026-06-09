@@ -12,11 +12,18 @@ from robotick_cli.language.registry import TOP_LEVEL_NAMESPACES
 from robotick_cli.language.route import run_command
 from robotick_cli.output import write, writeln
 from robotick_cli.studio import run_studio_command
+from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
 
 
 def step_back(state: ShellState) -> ShellState:
+    if state.namespace == "studio" and state.instance_name is not None and state.studio_path:
+        return ShellState(
+            namespace=state.namespace,
+            instance_name=state.instance_name,
+            studio_path=state.studio_path[:-1],
+        )
     if state.instance_name is not None:
-        return ShellState(namespace=state.namespace, instance_name=None)
+        return ShellState(namespace=state.namespace, instance_name=None, studio_path=())
     if state.namespace is not None:
         return ShellState(namespace=None, instance_name=None)
     return ShellState(namespace=state.namespace, instance_name=state.instance_name)
@@ -25,6 +32,7 @@ def step_back(state: ShellState) -> ShellState:
 def bind_opened_instance_to_state(state: ShellState, result: CommandResult) -> None:
     if state.namespace == "studio" and state.instance_name is None and result.opened_instance_name:
         state.instance_name = result.opened_instance_name
+        state.studio_path = ()
 
 
 def bind_top_level_studio_open_to_state(state: ShellState, tokens: list[str], result: CommandResult) -> None:
@@ -34,6 +42,7 @@ def bind_top_level_studio_open_to_state(state: ShellState, tokens: list[str], re
         return
     state.namespace = "studio"
     state.instance_name = result.opened_instance_name
+    state.studio_path = ()
 
 
 def try_handle_top_level_studio_open(
@@ -84,6 +93,21 @@ def try_enter_context_directly(
         if instance is None:
             return False
         state.instance_name = instance.name
+        state.studio_path = ()
+        return True
+    if state.namespace == "studio" and state.instance_name is not None:
+        if len(tokens) != 1:
+            return False
+        payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
+        node = resolve_studio_node(payload, state.studio_path)
+        child_names = {
+            name[:-1]
+            for name in list_child_contexts(node)
+            if name.endswith("/")
+        }
+        if tokens[0] not in child_names:
+            return False
+        state.studio_path = (*state.studio_path, tokens[0])
         return True
     return False
 
@@ -119,6 +143,21 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
         if instance is None:
             raise CliError(f"Unknown Studio instance: {args[0]}")
         state.instance_name = instance.name
+        state.studio_path = ()
+        return
+    if state.namespace == "studio" and state.instance_name is not None:
+        if len(args) != 1:
+            raise CliError("Use 'cd <context>' from the bound Studio context.")
+        payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
+        node = resolve_studio_node(payload, state.studio_path)
+        child_names = {
+            name[:-1]
+            for name in list_child_contexts(node)
+            if name.endswith("/")
+        }
+        if args[0] not in child_names:
+            raise CliError(f"Unknown Studio context: {args[0]}")
+        state.studio_path = (*state.studio_path, args[0])
         return
     raise CliError(f"No child contexts are currently available for {get_prompt(state).strip()}")
 
@@ -171,6 +210,16 @@ def start_interactive_shell(ctx: AppContext) -> int:
                     continue
                 if line == "quit":
                     handle_bound_instance_quit(ctx, state)
+                    continue
+                if (
+                    state.namespace == "studio"
+                    and state.instance_name is not None
+                    and line == "status"
+                ):
+                    run_studio_command(
+                        ctx,
+                        [state.instance_name, *state.studio_path, "status"],
+                    )
                     continue
                 if try_enter_context_directly(ctx, state, [line]):
                     continue

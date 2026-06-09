@@ -20,13 +20,13 @@ from robotick_cli.language.help import (
     create_help_text,
     instance_help_text,
     instance_quit_help_text,
-    instance_workbench_help_text,
     instances_help_text,
     open_help_text,
     projects_help_text,
 )
 from robotick_cli.manifest import Manifest, load_manifest
 from robotick_cli.output import write_json, writeln
+from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
 
 @dataclass
 class OpenLaunchTarget:
@@ -131,6 +131,53 @@ def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -
         return CommandResult(exit_code=0 if accepted else 1)
 
 
+def print_studio_context_listing(
+    ctx: AppContext,
+    instance_name: str,
+    path_segments: tuple[str, ...],
+) -> None:
+    payload = fetch_instance_status(ctx.workspace_root, instance_name)
+    node = resolve_studio_node(payload, path_segments)
+    contexts = list_child_contexts(node)
+    label = f"studio/{instance_name}"
+    if path_segments:
+        label += "/" + "/".join(path_segments)
+    writeln(f"Available in {label}:")
+    writeln("Contexts:")
+    if not contexts:
+        writeln("- none")
+    else:
+        for context_name in contexts:
+            writeln(f"- {context_name}")
+
+
+def handle_instance_status(
+    ctx: AppContext,
+    instance_name: str,
+    path_segments: tuple[str, ...],
+    args: list[str],
+) -> CommandResult:
+    if args:
+        raise CliError(f"Unknown argument for '{instance_name} status': {args[0]}")
+    payload = fetch_instance_status(ctx.workspace_root, instance_name)
+    write_json(resolve_studio_node(payload, path_segments))
+    return CommandResult(exit_code=0)
+
+
+def parse_instance_path_args(
+    args: list[str],
+) -> tuple[tuple[str, ...], str | None]:
+    if not args:
+        return (), None
+    if any(is_help_flag(arg) for arg in args):
+        return (), "help"
+    if args == ["quit"]:
+        return (), "quit"
+    if args and args[-1] == "status":
+        return tuple(args[:-1]), "status"
+    return tuple(args), None
+
+
 def run_studio_instance_command(
     ctx: AppContext,
     instance_token: str,
@@ -140,21 +187,19 @@ def run_studio_instance_command(
     instance = get_live_instance(ctx.workspace_root, instance_name)
     if instance is None:
         raise CliError(f"Unknown studio command or instance: {instance_token}")
-    if not args or is_help_flag(args[0]):
+    path_segments, action = parse_instance_path_args(args)
+    if action == "help":
         writeln(instance_help_text(instance.name))
         return CommandResult(exit_code=0)
-    command, *rest = args
-    if command == "quit":
-        return handle_instance_quit(ctx, instance.name, rest)
-    if command == "workbench":
-        if not rest or any(is_help_flag(arg) for arg in rest):
-            writeln(instance_workbench_help_text(instance.name))
-            return CommandResult(exit_code=0)
-        raise CliError(
-            "Studio workbench subcommands are not implemented yet. "
-            "Use 'robotick studio <instance> workbench --help' for the current grammar."
-        )
-    raise CliError(f"Unknown instance command for {instance.name}: {command}")
+    if action == "quit":
+        return handle_instance_quit(ctx, instance.name, [])
+    if action == "status":
+        return handle_instance_status(ctx, instance.name, path_segments, [])
+    if not args:
+        writeln(instance_help_text(instance.name))
+        return CommandResult(exit_code=0)
+    print_studio_context_listing(ctx, instance.name, path_segments)
+    return CommandResult(exit_code=0)
 
 
 def handle_create_command(ctx: AppContext, manifest: Manifest, args: list[str]) -> CommandResult:

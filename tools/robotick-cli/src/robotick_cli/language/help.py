@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from robotick_cli.app.context import ShellState
 from robotick_cli.instances import format_instance_contexts, list_live_instances
+from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
 from robotick_cli.language.registry import (
     CONTEXT_SHELL_BUILTINS,
     TOP_LEVEL_NAMESPACES,
@@ -20,20 +21,21 @@ def get_prompt(state: ShellState) -> str:
     if state.namespace is None:
         return "robotick> "
     if state.namespace == "studio" and state.instance_name is not None:
-        return f"robotick:studio:{state.instance_name}> "
+        suffix = "".join(f":{segment}" for segment in state.studio_path)
+        return f"robotick:studio:{state.instance_name}{suffix}> "
     return f"robotick:{state.namespace}> "
 
 
 def get_studio_help_text() -> str:
     root_specs = [get_studio_command_spec(name) for name in studio_root_action_names()]
+    status_spec = get_studio_command_spec("status")
     quit_spec = get_studio_command_spec("quit")
-    workbench_spec = get_studio_command_spec("workbench")
     return "\n".join(
         [
             "Usage:",
             *[f"  {spec.usage}" for spec in root_specs],
+            f"  {status_spec.usage}",
             f"  {quit_spec.usage}",
-            f"  {workbench_spec.usage}",
             "",
             "Commands:",
             *[f"  {spec.name:<10}{spec.summary}" for spec in root_specs],
@@ -85,7 +87,7 @@ def format_shell_help(state: ShellState) -> str:
         )
 
     current_context = (
-        f"studio/{state.instance_name}"
+        f"studio/{state.instance_name}{''.join(f'/{segment}' for segment in state.studio_path)}"
         if state.namespace == "studio" and state.instance_name is not None
         else state.namespace
     )
@@ -93,7 +95,9 @@ def format_shell_help(state: ShellState) -> str:
     lines = [f"Current context: {current_context}"]
     lines.extend([f"  {spec.name:<8} {spec.summary}" for spec in CONTEXT_SHELL_BUILTINS])
     if state.namespace == "studio" and state.instance_name is not None:
+        status_spec = get_studio_command_spec("status")
         quit_spec = get_studio_command_spec("quit")
+        lines.append(f"  {status_spec.name:<8} {status_spec.summary}")
         lines.append(f"  {quit_spec.name:<8} {quit_spec.summary}")
     lines.append("")
     if state.namespace == "studio":
@@ -125,20 +129,25 @@ def format_shell_context(state: ShellState, workspace_root: str) -> str:
         )
 
     if state.namespace == "studio" and state.instance_name is not None:
-        studio_actions = bound_instance_action_names()
+        try:
+            status_tree = fetch_instance_status(workspace_root, state.instance_name)
+            node = resolve_studio_node(status_tree, state.studio_path)
+            child_contexts = (
+                [f"- {name}" for name in list_child_contexts(node)]
+                or ["- none"]
+            )
+        except Exception:
+            child_contexts = ["- none"]
         contextual_action_names = ["ls", "cd", "clear", "help", "back"]
         return "\n".join(
             [
-                f"Available in studio/{state.instance_name}:",
+                f"Available in studio/{state.instance_name}{''.join(f'/{segment}' for segment in state.studio_path)}:",
                 "Contexts:",
-                "- none",
+                *child_contexts,
                 "Actions:",
-                f"- {get_studio_command_spec('projects').shell_label or 'projects'}",
+                f"- {get_studio_command_spec('status').shell_label or 'status'}",
                 *[f"- {name}" for name in contextual_action_names],
-                *[
-                    f"- {get_studio_command_spec(name).shell_label or name}"
-                    for name in studio_actions
-                ],
+                f"- {get_studio_command_spec('quit').shell_label or 'quit'}",
                 "- exit",
                 "",
             ]
@@ -273,17 +282,18 @@ def open_help_text() -> str:
 
 
 def instance_help_text(instance_name: str) -> str:
+    status_spec = get_studio_command_spec("status")
     spec = get_studio_command_spec("quit")
-    workbench_spec = get_studio_command_spec("workbench")
     return "\n".join(
         [
             "Usage:",
+            f"  robotick studio {instance_name} status",
             f"  robotick studio {instance_name} quit",
-            f"  robotick studio {instance_name} workbench [--help]",
+            f"  robotick studio {instance_name} windows",
             "",
             "Commands:",
+            f"  {status_spec.name:<6} {status_spec.summary}",
             f"  {spec.name:<6} {spec.summary}",
-            f"  {workbench_spec.name:<6} {workbench_spec.summary}",
             "",
         ]
     )
@@ -295,20 +305,6 @@ def instance_quit_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} quit",
-            "",
-            "Description:",
-            *[f"  {line}" for line in spec.description_lines],
-            "",
-        ]
-    )
-
-
-def instance_workbench_help_text(instance_name: str) -> str:
-    spec = get_studio_command_spec("workbench")
-    return "\n".join(
-        [
-            "Usage:",
-            f"  robotick studio {instance_name} workbench [--help]",
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],

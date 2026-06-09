@@ -356,6 +356,41 @@ def test_studio_instances_open_and_quit_endpoints(
         assert quit_response.json()["accepted"] is True
 
 
+def test_studio_instance_status_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    status_payload = {
+        "resource_type": "studio_instance",
+        "id": "studio-1234",
+        "name": "studio-1234",
+        "pid": 1234,
+        "mode": "dev",
+        "started_at": "2026-06-06T12:00:00+00:00",
+        "state": "running",
+        "project_name": "barr-e",
+        "control_endpoint": None,
+        "windows": [
+            {
+                "resource_type": "studio_window",
+                "id": "main",
+                "label": "Main Window",
+                "window_role": "main",
+                "workbenches": [],
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "robotick_hub.app.get_instance_status",
+        lambda _, instance_id: status_payload if instance_id == "studio-1234" else None,
+    )
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+        assert response.status_code == 200
+        assert response.json()["resource_type"] == "studio_instance"
+        assert response.json()["windows"][0]["id"] == "main"
+
+
 def test_app_instance_closing_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

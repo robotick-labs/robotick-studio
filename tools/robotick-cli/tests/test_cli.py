@@ -32,7 +32,6 @@ from robotick_cli.language.help import (
     format_shell_context,
     get_prompt,
     get_studio_help_text,
-    instance_workbench_help_text,
 )
 from robotick_cli.language.registry import get_studio_command_spec
 from robotick_cli.studio import CommandResult
@@ -77,6 +76,64 @@ def create_fake_workspace() -> Path:
     write_executable(
         root / "robots" / "barr-e" / "run-studio.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\nsleep 30\n",
+    )
+    (root / "robots" / "barr-e" / "studio").mkdir(parents=True, exist_ok=True)
+    (root / "robots" / "barr-e" / "studio" / "studio.yaml").write_text(
+        "\n".join(
+            [
+                "resourceType: studio_document",
+                "schemaVersion: 1",
+                "id: barr-e-studio",
+                "windows:",
+                "  - id: main",
+                "    label: Main Window",
+                "    windowRole: main",
+                "    defaultWorkbenchId: remote-control",
+                "    workbenches:",
+                "      - id: remote-control",
+                "        label: Remote Control",
+                "        group: test",
+                "        defaultEditorId: remote-control",
+                "        layouts:",
+                "          - dock:",
+                "              nodeType: split",
+                "              direction: horizontal",
+                "              ratio: 0.7",
+                "              children:",
+                "                - nodeType: panel",
+                "                  panelId: panel-remote-control",
+                "                  editorId: remote-control",
+                "                  settings:",
+                "                    selectedStream: Chase",
+                "                - nodeType: panel",
+                "                  panelId: panel-telemetry",
+                "                  editorId: telemetry",
+                "            floatingPanels:",
+                "              - id: panel-face-preview",
+                "                editorId: streaming-image-viewer",
+                "                settings:",
+                "                  source: face-camera",
+                "                frame:",
+                "                  x: 100",
+                "                  y: 120",
+                "                  width: 320",
+                "                  height: 240",
+                "  - id: child-window-1",
+                "    label: Animation Window",
+                "    windowRole: child",
+                "    workbenches:",
+                "      - id: anim",
+                "        label: Animation",
+                "        group: dev",
+                "        defaultEditorId: animation-editor",
+                "        layouts:",
+                "          - dock:",
+                "              nodeType: panel",
+                "              panelId: panel-anim",
+                "              editorId: animation-editor",
+            ]
+        ),
+        encoding="utf-8",
     )
     (studio_root / "tools" / "robotick-hub").symlink_to(HUB_DIR, target_is_directory=True)
     return root
@@ -164,11 +221,9 @@ def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> 
 
 def test_studio_help_is_generated_from_command_registry() -> None:
     open_spec = get_studio_command_spec("open")
-    workbench_spec = get_studio_command_spec("workbench")
     help_text = get_studio_help_text()
     assert f"  {open_spec.usage}" in help_text
     assert open_spec.summary in help_text
-    assert f"  {workbench_spec.usage}" in help_text
 
 
 def test_hub_status_starts_hub_and_reports_capabilities() -> None:
@@ -250,18 +305,23 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
 
 
 def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open", "barr-e"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
     text = format_shell_context(
-        ShellState(namespace="studio", instance_name="studio-12345"),
-        str(create_fake_workspace()),
+        ShellState(namespace="studio", instance_name=instance_name),
+        str(workspace),
     )
-    assert "Available in studio/studio-12345:" in text
-    assert (
-        "Actions:\n- projects\n- ls\n- cd\n- clear\n- help\n- back\n- quit\n- workbench\n- exit"
-        in text
-    )
+    assert f"Available in studio/{instance_name}:" in text
+    assert "Contexts:\n- windows/" in text
+    assert "Actions:\n- status\n- ls\n- cd\n- clear\n- help\n- back\n- quit\n- exit" in text
 
 
-def test_instance_help_lists_workbench_command() -> None:
+def test_instance_help_lists_status_and_windows_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
     instance_name = next(
@@ -273,33 +333,172 @@ def test_instance_help_lists_workbench_command() -> None:
     result = run_cli(["studio", instance_name], workspace)
 
     assert result.returncode == 0
-    assert f"robotick studio {instance_name} workbench [--help]" in result.stdout
-    assert "workbench Inspect Studio workbench commands" in result.stdout
+    assert f"robotick studio {instance_name} status" in result.stdout
+    assert f"robotick studio {instance_name} windows" in result.stdout
 
 
-def test_instance_workbench_help_is_available() -> None:
-    help_text = instance_workbench_help_text("studio-12345")
-    assert "robotick studio studio-12345 workbench [--help]" in help_text
-    assert "Inspect or act on Studio workbench state for the targeted instance." in help_text
-
-
-def test_instance_workbench_subcommands_fail_clearly_until_implemented() -> None:
+def test_instance_status_returns_structured_payload() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open"], workspace)
+    opened = run_cli(["studio", "open", "barr-e"], workspace)
     instance_name = next(
         line.split(": ", 1)[1][:-1]
         for line in opened.stdout.splitlines()
         if line.startswith("Instance: ")
     )
 
-    result = run_cli(["studio", instance_name, "workbench", "status"], workspace)
+    result = run_cli(["studio", instance_name, "status"], workspace)
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "studio_instance"
+    assert payload["id"] == instance_name
+    assert payload["project_name"] == "barr-e"
+    assert payload["windows"][0]["id"] == "main"
+
+
+def test_deep_studio_navigation_and_status_work_in_repl() -> None:
+    workspace = create_fake_workspace()
+    result = run_shell(
+        [
+            "studio",
+            "open barr-e",
+            "status",
+            "cd windows",
+            "ls",
+            "cd main",
+            "cd workbenches",
+            "cd remote-control",
+            "cd layouts",
+            "cd main:remote-control:default",
+            "status",
+            "cd panels",
+            "cd panel-face-preview",
+            "status",
+            "exit",
+        ],
+        workspace,
+    )
+
+    assert result.returncode == 0
+    assert '"resource_type": "studio_instance"' in result.stdout
+    assert "robotick:studio:studio-" in result.stdout
+    assert "Contexts:\n- main/\n- child-window-1/" in result.stdout
+    assert '"resource_type": "studio_layout"' in result.stdout
+    assert '"id": "main:remote-control:default"' in result.stdout
+    assert '"resource_type": "studio_panel"' in result.stdout
+    assert '"id": "panel-face-preview"' in result.stdout
+
+
+def test_one_shot_deep_layout_and_panel_status() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open", "barr-e"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    layout_result = run_cli(
+        [
+            "studio",
+            instance_name,
+            "windows",
+            "main",
+            "workbenches",
+            "remote-control",
+            "layouts",
+            "main:remote-control:default",
+            "status",
+        ],
+        workspace,
+    )
+    panel_result = run_cli(
+        [
+            "studio",
+            instance_name,
+            "windows",
+            "main",
+            "workbenches",
+            "remote-control",
+            "layouts",
+            "main:remote-control:default",
+            "panels",
+            "panel-face-preview",
+            "status",
+        ],
+        workspace,
+    )
+
+    assert layout_result.returncode == 0
+    assert panel_result.returncode == 0
+    layout_payload = json.loads(layout_result.stdout)
+    panel_payload = json.loads(panel_result.stdout)
+    assert layout_payload["resource_type"] == "studio_layout"
+    assert layout_payload["id"] == "main:remote-control:default"
+    assert panel_payload["resource_type"] == "studio_panel"
+    assert panel_payload["id"] == "panel-face-preview"
+    assert panel_payload["settings"]["source"] == "face-camera"
+
+
+def test_one_shot_window_and_workbench_status() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open", "barr-e"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    window_result = run_cli(
+        ["studio", instance_name, "windows", "main", "status"],
+        workspace,
+    )
+    workbench_result = run_cli(
+        [
+            "studio",
+            instance_name,
+            "windows",
+            "main",
+            "workbenches",
+            "remote-control",
+            "status",
+        ],
+        workspace,
+    )
+
+    assert window_result.returncode == 0
+    assert workbench_result.returncode == 0
+    window_payload = json.loads(window_result.stdout)
+    workbench_payload = json.loads(workbench_result.stdout)
+    assert window_payload["resource_type"] == "studio_window"
+    assert window_payload["id"] == "main"
+    assert workbench_payload["resource_type"] == "studio_workbench"
+    assert workbench_payload["id"] == "remote-control"
+    assert workbench_payload["active_layout_id"] == "main:remote-control:default"
+
+
+def test_invalid_deep_studio_context_fails_clearly() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open", "barr-e"], workspace)
+    instance_name = next(
+        line.split(": ", 1)[1][:-1]
+        for line in opened.stdout.splitlines()
+        if line.startswith("Instance: ")
+    )
+
+    result = run_cli(
+        [
+            "studio",
+            instance_name,
+            "windows",
+            "missing-window",
+            "status",
+        ],
+        workspace,
+    )
 
     assert result.returncode == 1
-    assert (
-        "Studio workbench subcommands are not implemented yet. "
-        "Use 'robotick studio <instance> workbench --help' for the current grammar."
-        in result.stderr
-    )
+    assert "Unknown Studio context: missing-window" in result.stderr
 
 
 def test_open_without_project_launches_empty_studio_quietly() -> None:
@@ -747,7 +946,7 @@ def test_completion_suggests_instance_quit_in_studio_context() -> None:
     assert "quit" in matches
 
 
-def test_completion_suggests_instance_workbench_in_studio_context() -> None:
+def test_completion_suggests_instance_status_in_studio_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
     instance_name = next(
@@ -759,12 +958,12 @@ def test_completion_suggests_instance_workbench_in_studio_context() -> None:
     matches = get_completion_matches(
         AppContext(workspace_root=workspace),
         ShellState(namespace="studio"),
-        f"{instance_name} w",
+        f"{instance_name} s",
         len(instance_name) + 1,
         len(instance_name) + 2,
     )
 
-    assert "workbench" in matches
+    assert "status" in matches
 
 
 def test_discover_hub_reads_registry_record() -> None:
