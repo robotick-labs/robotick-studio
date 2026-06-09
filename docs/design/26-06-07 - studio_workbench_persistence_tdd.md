@@ -15,7 +15,7 @@ robots/<project>/studio/studio.yaml
 
 That file is seeded from the bundled `studio.template.yaml` when a project has no Studio document yet. It is the canonical source for the default workbench set, navigation, windows, layouts, docked panels, floating panels, and panel-owned settings. The old separate app workbench YAML source has been removed from the MVP path.
 
-The Electron main process coordinates Studio document ownership for the app session. Renderers are views and controllers over that shared document, not independent owners of durable project state. This keeps child windows as "slaves" of the main Studio session while still allowing each window to own its own durable UI subtree inside `studio.yaml`.
+The Electron main process coordinates Studio document ownership for the app session. Renderers are views and controllers over that shared document, not independent owners of durable project state. This keeps child windows as subordinate renderer hosts for the main Studio session while still allowing each window to own its own durable UI subtree inside `studio.yaml`.
 
 Runtime/session state stays out of `studio.yaml`. Examples include process lock files, launcher state, monitor placement, active robot processes, and UX-only local memories such as the last selected workbench for a project.
 
