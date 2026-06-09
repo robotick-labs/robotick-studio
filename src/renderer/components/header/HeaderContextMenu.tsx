@@ -1,5 +1,5 @@
 import React from "react";
-import styles from "../workspaces/PanelLayout.module.css";
+import styles from "../workbenches/PanelLayout.module.css";
 import { getWindowControlsAPI } from "./WindowControls";
 import {
   addWindowEventListener,

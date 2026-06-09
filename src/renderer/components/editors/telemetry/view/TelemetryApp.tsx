@@ -1,7 +1,10 @@
 // src/js/components/editors/telemetry/view/TelemetryApp.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { EngineModel } from "./types";
-import { TelemetryModel } from "./TelemetryModel";
+import {
+  TelemetryModel,
+  type TelemetryModelPersistedState,
+} from "./TelemetryModel";
 import {
   Project,
   ProjectData,
@@ -76,8 +79,19 @@ function compareEngineModels(
  */
 export function TelemetryApp({
   modelSortKey = "telemetry_port",
+  modelStates = {},
+  onModelStateChange,
 }: {
   modelSortKey?: ModelSortKey;
+  modelStates?: Record<string, TelemetryModelPersistedState>;
+  onModelStateChange?: (
+    modelId: string,
+    updater:
+      | TelemetryModelPersistedState
+      | ((
+          current: TelemetryModelPersistedState
+        ) => TelemetryModelPersistedState)
+  ) => void;
 }) {
   const { projectPath } = Project.Context.use();
   const { status } = Launcher.Context.use();
@@ -202,9 +216,19 @@ export function TelemetryApp({
 
   return (
     <>
-      {engineModels.map((model, index) => {
+      {engineModels.map((model) => {
         const modelKey = `${model.instanceURL ?? "unknown"}|${model.modelPath}`;
-        return <TelemetryModel key={modelKey} model={model} index={index} />;
+        const modelId = model.modelId?.trim();
+        return (
+          <TelemetryModel
+            key={modelKey}
+            model={model}
+            persistedState={modelId ? modelStates[modelId] : undefined}
+            onPersistedStateChange={(updater) =>
+              modelId ? onModelStateChange?.(modelId, updater) : undefined
+            }
+          />
+        );
       })}
     </>
   );

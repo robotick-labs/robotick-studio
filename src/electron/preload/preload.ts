@@ -124,10 +124,10 @@ const expose = () => {
           ipcRenderer.invoke("robotick-window-command", { command: "restore" }),
         close: () =>
           ipcRenderer.invoke("robotick-window-command", { command: "close" }),
-        createWindow: (seedUrl?: string, scope?: string) =>
+        createWindow: (projectPath?: string, scope?: string) =>
           ipcRenderer.invoke("robotick-window-command", {
             command: "createWindow",
-            seedUrl,
+            projectPath,
             scope,
           }),
         getChildWindowScopes: async () => {
@@ -263,6 +263,125 @@ const expose = () => {
     },
   };
 
+  const studioPersistenceBridge = {
+    readStudioDocument(projectPath: string): Promise<string | null> {
+      return ipcRenderer.invoke("robotick-studio-persistence:read", {
+        projectPath,
+      }) as Promise<string | null>;
+    },
+    ensureStudioDocument(projectPath: string): Promise<void> {
+      return ipcRenderer.invoke("robotick-studio-persistence:ensure", {
+        projectPath,
+      }) as Promise<void>;
+    },
+    writeStudioDocument(projectPath: string, content: string): Promise<void> {
+      return ipcRenderer.invoke("robotick-studio-persistence:write", {
+        projectPath,
+        content,
+        windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
+      }) as Promise<void>;
+    },
+    deleteChildWindow(projectPath: string, windowId: string): Promise<boolean> {
+      return ipcRenderer
+        .invoke("robotick-studio-persistence:delete-child-window", {
+          projectPath,
+          windowId,
+        })
+        .then((response) => Boolean(response?.deleted));
+    },
+    onDocumentChanged(callback: (projectPath: string) => void): () => void {
+      const listener = (
+        _event: unknown,
+        payload: { projectPath?: string } | undefined
+      ) => {
+        if (typeof payload?.projectPath === "string") {
+          callback(payload.projectPath);
+        }
+      };
+      ipcRenderer.on("robotick-studio-persistence:changed", listener);
+      return () => {
+        ipcRenderer.off("robotick-studio-persistence:changed", listener);
+      };
+    },
+  };
+
+  const projectSelectionBridge = {
+    getState: () =>
+      ipcRenderer.invoke("robotick-project-selection:get-state") as Promise<{
+        currentProjectPath: string;
+        bootstrapIssue: {
+          type: "locked" | "error";
+          projectPath: string;
+          instanceName?: string;
+          pid?: number;
+          message: string;
+        } | null;
+      }>,
+    setProject: (projectPath: string) =>
+      ipcRenderer.invoke("robotick-project-selection:set", {
+        projectPath,
+      }) as Promise<{
+        accepted: boolean;
+        currentProjectPath: string;
+        issue: {
+          type: "locked" | "error";
+          projectPath: string;
+          instanceName?: string;
+          pid?: number;
+          message: string;
+        } | null;
+      }>,
+    getLockStatuses: (projectPaths: string[]) =>
+      ipcRenderer.invoke("robotick-project-selection:lock-statuses", {
+        projectPaths,
+      }) as Promise<{
+        statuses: Array<{
+          projectPath: string;
+          state: "available" | "current" | "locked";
+          instanceName?: string;
+          pid?: number;
+          message?: string;
+        }>;
+      }>,
+    onStateChanged: (
+        callback: (state: {
+          currentProjectPath: string;
+          bootstrapIssue: {
+            type: "locked" | "error";
+            projectPath: string;
+            instanceName?: string;
+            pid?: number;
+          message: string;
+        } | null;
+      }) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload:
+          | {
+              currentProjectPath?: string;
+              bootstrapIssue?: {
+                type: "locked" | "error";
+                projectPath: string;
+                instanceName?: string;
+                pid?: number;
+                message: string;
+              } | null;
+            }
+          | undefined
+      ) => {
+        callback({
+          currentProjectPath: payload?.currentProjectPath?.trim() || "",
+          bootstrapIssue: payload?.bootstrapIssue ?? null,
+        });
+      };
+      ipcRenderer.on("robotick-project-selection:changed", listener);
+      return () => {
+        ipcRenderer.off("robotick-project-selection:changed", listener);
+      };
+    },
+  };
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
@@ -276,12 +395,14 @@ const expose = () => {
       isPrimaryWindow:
         (readArgument(WINDOW_PRIMARY_ARG_PREFIX) ?? "1") !== "0",
       workspaceRoot:
-        process.env.ROBOTICK_PROJECT_DIR ??
-        process.env.ROBOTICK_WORKSPACE_ROOT,
+        process.env.ROBOTICK_WORKSPACE_ROOT ??
+        process.env.ROBOTICK_PROJECT_DIR,
     },
     windowControls,
     studioProcess,
     storage: storageBridge,
+    studioPersistence: studioPersistenceBridge,
+    projectSelection: projectSelectionBridge,
   };
 
   contextBridge.exposeInMainWorld("robotick", robotickGlobals);

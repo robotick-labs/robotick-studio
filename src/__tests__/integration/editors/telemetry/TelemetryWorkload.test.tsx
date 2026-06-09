@@ -11,7 +11,7 @@ vi.mock(
 );
 
 vi.mock(
-  "../../../../renderer/components/workspaces/floating-panels",
+  "../../../../renderer/components/workbenches/floating-panels",
   () => ({
     useFloatingPanelsScope: () => "test-floating-scope",
   }),

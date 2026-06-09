@@ -4,9 +4,9 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
 import { createRoot } from "react-dom/client";
 import { act } from "react";
 
-vi.mock("../../../renderer/components/workspaces/WorkspaceView", () => ({
-  WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
-    <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
+vi.mock("../../../renderer/components/workbenches/WorkbenchView", () => ({
+  WorkbenchView: ({ workbench }: { workbench: { id: string } }) => (
+    <div data-testid={`workbench-${workbench.id}`}>{workbench.id}</div>
   ),
 }));
 
@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("Electron renderer smoke test", () => {
-  it("renders the Home workspace when the app boots", async () => {
+  it("renders the Home workbench when the app boots", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
@@ -49,20 +49,20 @@ describe("Electron renderer smoke test", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(container.innerHTML).toContain('data-testid="workspace-home"');
+    expect(container.innerHTML).toContain('data-testid="workbench-home"');
 
     await act(async () => {
       root.unmount();
     });
   });
 
-  it("renders the Telemetry workspace when navigating directly to /telemetry", async () => {
+  it("renders the Telemetry workbench when navigating directly to /telemetry", async () => {
     window.localStorage.setItem(
-      "robotick:last-workspace:global",
+      "robotick:last-workbench:global",
       "/telemetry"
     );
     window.localStorage.setItem(
-      "robotick:last-workspace:mock-project",
+      "robotick:last-workbench:mock-project",
       "/telemetry"
     );
     const container = document.createElement("div");
@@ -79,7 +79,7 @@ describe("Electron renderer smoke test", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(container.innerHTML).toContain('data-testid="workspace-telemetry"');
+    expect(container.innerHTML).toContain('data-testid="workbench-telemetry"');
 
     await act(async () => {
       root.unmount();

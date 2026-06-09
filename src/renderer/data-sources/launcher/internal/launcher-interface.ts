@@ -1,4 +1,8 @@
-import { readStorageValue, setStorageValue } from "../../../services/storage";
+import {
+  readStorageValue,
+  removeStorageValue,
+  setStorageValue,
+} from "../../../services/storage";
 import type { LauncherService } from "./LauncherService";
 
 /**
@@ -92,6 +96,36 @@ const DEFAULT_TELEMETRY_PORT = 7090;
 const LAUNCHER_LOCAL_API_BASE = "http://localhost:7081";
 type ProjectChangedListener = (path: string) => void;
 type LauncherProfileChangedListener = (profile: string) => void;
+type ProjectSelectionStateChangedListener = (
+  state: ProjectSelectionState
+) => void;
+
+export type ProjectLockStatus = {
+  projectPath: string;
+  state: "available" | "current" | "locked";
+  instanceName?: string;
+  pid?: number;
+  message?: string;
+};
+
+export type ProjectSelectionIssue = {
+  type: "locked" | "error";
+  projectPath: string;
+  instanceName?: string;
+  pid?: number;
+  message: string;
+};
+
+export type ProjectSelectionState = {
+  currentProjectPath: string;
+  bootstrapIssue: ProjectSelectionIssue | null;
+};
+
+export type ProjectSelectionResult = {
+  accepted: boolean;
+  currentProjectPath: string;
+  issue: ProjectSelectionIssue | null;
+};
 
 export interface ProjectModelDescriptor<T = unknown> {
   modelPath: string;
@@ -186,6 +220,7 @@ export type WorkloadsRegistryResponse = {
 
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
+const projectSelectionStateListeners = new Set<ProjectSelectionStateChangedListener>();
 
 type ModelCacheEntry = {
   projectPath: string;
@@ -195,6 +230,61 @@ type ModelCacheEntry = {
 let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
 let knownProjectPaths: string[] = [];
+let bridgeProjectSelectionUnsubscribe: (() => void) | null = null;
+
+function getProjectSelectionBridge() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.robotick?.projectSelection ?? null;
+}
+
+function applyProjectPath(path: string) {
+  if (path) {
+    setStorageValue(KEY_PROJECT_PATH, path);
+  } else {
+    removeStorageValue(KEY_PROJECT_PATH);
+  }
+  invalidateModelCache();
+  notifyProjectChanged(path);
+}
+
+function notifyProjectSelectionStateChanged(state: ProjectSelectionState) {
+  for (const callback of projectSelectionStateListeners) {
+    try {
+      callback(state);
+    } catch (err) {
+      console.error("Error in onProjectSelectionStateChanged listener:", err);
+    }
+  }
+}
+
+function applyProjectSelectionState(state: ProjectSelectionState) {
+  const nextProjectPath = state.currentProjectPath?.trim() || "";
+  if (getProjectPath() !== nextProjectPath) {
+    applyProjectPath(nextProjectPath);
+  }
+  notifyProjectSelectionStateChanged({
+    currentProjectPath: nextProjectPath,
+    bootstrapIssue: state.bootstrapIssue ?? null,
+  });
+}
+
+function ensureProjectSelectionBridgeSubscription() {
+  if (bridgeProjectSelectionUnsubscribe || typeof window === "undefined") {
+    return;
+  }
+  const bridge = getProjectSelectionBridge();
+  if (!bridge?.onStateChanged) {
+    return;
+  }
+  bridgeProjectSelectionUnsubscribe = bridge.onStateChanged((state) => {
+    applyProjectSelectionState({
+      currentProjectPath: state.currentProjectPath?.trim() || "",
+      bootstrapIssue: state.bootstrapIssue ?? null,
+    });
+  });
+}
 
 function getWorkspaceRoot(): string {
   if (typeof window === "undefined") {
@@ -313,9 +403,7 @@ async function resolveProjectPath(projectPath: string): Promise<string> {
  * @param path - The project path to store and broadcast to listeners
  */
 function setProjectPath(path: string) {
-  setStorageValue(KEY_PROJECT_PATH, path);
-  invalidateModelCache();
-  notifyProjectChanged(path);
+  applyProjectPath(path);
 }
 
 /**
@@ -381,6 +469,73 @@ function notifyLauncherProfileChanged(profile: string) {
 function onProjectChanged(callback: ProjectChangedListener) {
   projectListeners.add(callback);
   return () => projectListeners.delete(callback);
+}
+
+async function getProjectSelectionState(): Promise<ProjectSelectionState> {
+  ensureProjectSelectionBridgeSubscription();
+  const bridge = getProjectSelectionBridge();
+  if (!bridge?.getState) {
+    return {
+      currentProjectPath: getProjectPath(),
+      bootstrapIssue: null,
+    };
+  }
+  const state = await bridge.getState();
+  const normalizedState = {
+    currentProjectPath: state.currentProjectPath?.trim() || "",
+    bootstrapIssue: state.bootstrapIssue ?? null,
+  };
+  applyProjectSelectionState(normalizedState);
+  return normalizedState;
+}
+
+async function requestProjectSelection(
+  path: string
+): Promise<ProjectSelectionResult> {
+  ensureProjectSelectionBridgeSubscription();
+  const bridge = getProjectSelectionBridge();
+  if (!bridge?.setProject) {
+    setProjectPath(path);
+    return {
+      accepted: true,
+      currentProjectPath: path,
+      issue: null,
+    };
+  }
+  const result = await bridge.setProject(path);
+  if (result.accepted) {
+    applyProjectSelectionState({
+      currentProjectPath: result.currentProjectPath?.trim() || "",
+      bootstrapIssue: null,
+    });
+  }
+  return {
+    accepted: result.accepted,
+    currentProjectPath: result.currentProjectPath?.trim() || "",
+    issue: result.issue ?? null,
+  };
+}
+
+function onProjectSelectionStateChanged(
+  callback: ProjectSelectionStateChangedListener
+) {
+  ensureProjectSelectionBridgeSubscription();
+  projectSelectionStateListeners.add(callback);
+  return () => projectSelectionStateListeners.delete(callback);
+}
+
+async function fetchProjectLockStatuses(
+  projectPaths: string[]
+): Promise<ProjectLockStatus[]> {
+  const bridge = getProjectSelectionBridge();
+  if (!bridge?.getLockStatuses || projectPaths.length === 0) {
+    return projectPaths.map((projectPath) => ({
+      projectPath,
+      state: "available",
+    }));
+  }
+  const payload = await bridge.getLockStatuses(projectPaths);
+  return Array.isArray(payload.statuses) ? payload.statuses : [];
 }
 
 function onLauncherProfileChanged(callback: LauncherProfileChangedListener) {
@@ -777,10 +932,14 @@ export async function refreshProjectModels(
 const currentProject: LauncherService = {
   setProjectPath,
   getProjectPath,
+  requestProjectSelection,
+  getProjectSelectionState,
   setLauncherProfile,
   getLauncherProfile,
   onProjectChanged,
+  onProjectSelectionStateChanged,
   onLauncherProfileChanged,
+  fetchProjectLockStatuses,
   fetchProjectPaths,
   fetchProjectSettingsData,
   fetchProjectRemoteControlSettings,

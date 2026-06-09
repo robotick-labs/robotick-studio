@@ -2,8 +2,16 @@ import type { ViewerConfig } from "./viewer-schema";
 
 type ViewerType = "three-js" | "cesium" | "streaming-image";
 
+export interface ViewerRuntime {
+  unmount: () => Promise<void> | void;
+}
+
 interface ViewerModule {
   default: {
+    createInstance?: (
+      config: ViewerConfig,
+      instanceId: number
+    ) => Promise<ViewerRuntime>;
     init: (config: ViewerConfig, instanceId: number) => Promise<void>;
     uninit?: (instanceId?: number) => Promise<void>;
   };
@@ -13,6 +21,7 @@ type ViewerInstance = {
   id: number;
   type: ViewerType;
   module: ViewerModule;
+  runtime: ViewerRuntime;
 };
 
 let nextInstanceId = 1;
@@ -53,11 +62,19 @@ export async function init(
   const instanceId = nextInstanceId++;
 
   try {
-    await module.default.init(resolvedConfig, instanceId);
+    const runtime = module.default.createInstance
+      ? await module.default.createInstance(resolvedConfig, instanceId)
+      : await (async (): Promise<ViewerRuntime> => {
+          await module.default.init(resolvedConfig, instanceId);
+          return {
+            unmount: () => module.default.uninit?.(instanceId),
+          };
+        })();
     instances.set(instanceId, {
       id: instanceId,
       type: type as ViewerType,
       module,
+      runtime,
     });
     console.log(
       `Created viewer of type "${type}" (instance ${instanceId})`
@@ -83,7 +100,7 @@ export async function uninit(
     }
     instances.delete(instanceId);
     try {
-      await record.module.default.uninit?.(instanceId);
+      await record.runtime.unmount();
     } catch (err) {
       console.error("Error during viewer uninit:", err);
     }
@@ -103,9 +120,9 @@ export async function uninit(
   const entries = Array.from(instances.values());
   instances.clear();
 
-  for (const { id, module } of entries) {
+  for (const { runtime } of entries) {
     try {
-      await module.default.uninit?.(id);
+      await runtime.unmount();
     } catch (err) {
       console.error("Error during viewer uninit:", err);
     }

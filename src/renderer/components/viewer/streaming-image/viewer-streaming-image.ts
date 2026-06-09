@@ -1,6 +1,7 @@
 // viewer-streaming-image.ts
 
 import type { ViewerConfig } from "../viewer-schema";
+import type { ViewerRuntime } from "../viewer";
 import { decode as decodePng } from "fast-png";
 import {
   subscribeTelemetry,
@@ -8,15 +9,9 @@ import {
 } from "../../../data-sources/telemetry";
 import { sanitizeTelemetryImageBytes } from "../../editors/telemetry/utils/telemetry-image";
 import { ProjectData } from "../../../data-sources/launcher";
-import {
-  buildNamespacedKey,
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
 import { summarizeCadence } from "./streaming-image-metrics";
 
 interface StreamingImageViewerConfig extends ViewerConfig {
-  selectedStream?: string;
   streams?: Record<string, unknown>;
   frameRateHz?: number;
   samplingRateHz?: number; // legacy
@@ -46,7 +41,6 @@ let streamSelectorElement: HTMLSelectElement | null = null;
 let activeStreamingConfig: StreamingImageViewerConfig | null = null;
 let activeStreamSources: StreamingImageStream[] = [];
 let activeStreamingStream: StreamingImageStream | null = null;
-let activeSelectedStreamStorageKey: string | null = null;
 let decodeInFlight = false;
 let monitorIntervalId: number | null = null;
 let presentTimerId: number | null = null;
@@ -79,6 +73,55 @@ let activeCompositeStreamMode = false;
 let layeredFrameSequenceByLayerId = new Map<string, number>();
 let workloadAliasCache = new Map<string, Map<string, string[]>>();
 
+type StreamingImageRuntimeState = {
+  telemetryDispose: (() => void) | null;
+  activeCanvas: HTMLCanvasElement | null;
+  activeCanvasContext: CanvasRenderingContext2D | null;
+  activeCanvasStackElement: HTMLDivElement | null;
+  viewerContainerElement: HTMLElement | null;
+  statsOverlayElement: HTMLDivElement | null;
+  detectionsOverlayElement: HTMLDivElement | null;
+  streamSelectorContainerElement: HTMLLabelElement | null;
+  streamSelectorElement: HTMLSelectElement | null;
+  activeStreamingConfig: StreamingImageViewerConfig | null;
+  activeStreamSources: StreamingImageStream[];
+  activeStreamingStream: StreamingImageStream | null;
+  decodeInFlight: boolean;
+  monitorIntervalId: number | null;
+  presentTimerId: number | null;
+  pendingFrame: PendingFrame | null;
+  metricsWindow: MetricsWindow | null;
+  metricsEnabled: boolean;
+  metricsWindowMs: number;
+  frameStallTimeoutMs: number;
+  maxPresentIntervalMs: number;
+  activeFrameRateHz: number;
+  activeTelemetrySamplingRateHz: number;
+  detectionsTelemetryDispose: (() => void) | null;
+  fieldOfViewTelemetryDispose: (() => void) | null;
+  latestDetections: ObjectDetectionOverlay[];
+  latestFieldOfViewRect: NormalizedRectOverlay | null;
+  lastRenderedDetections: ObjectDetectionOverlay[];
+  lastRenderedFieldOfViewRect: NormalizedRectOverlay | null;
+  surfaceRecycleIntervalMs: number;
+  metricsSourceLabel: string;
+  lastFrameReceivedAtMs: number;
+  lastFramePresentedAtMs: number;
+  stallStateActive: boolean;
+  viewerSessionId: number;
+  surfaceCreatedAtMs: number;
+  transformScratchCanvas: HTMLCanvasElement | null;
+  transformScratchContext: CanvasRenderingContext2D | null;
+  createImageBitmapUnavailableReported: boolean;
+  activeCompositeStreamMode: boolean;
+  layeredFrameSequenceByLayerId: Map<string, number>;
+  workloadAliasCache: Map<string, Map<string, string[]>>;
+};
+
+const runtimeStates = new Map<number, StreamingImageRuntimeState>();
+let activeRuntimeInstanceId: number | null = null;
+let runtimeStateQueue: Promise<void> = Promise.resolve();
+
 type PendingFrame = {
   mime: string;
   bytes: Uint8Array<ArrayBuffer>;
@@ -87,6 +130,210 @@ type PendingFrame = {
   detections: ObjectDetectionOverlay[];
   fieldOfViewRect: NormalizedRectOverlay | null;
 };
+
+function createInitialRuntimeState(): StreamingImageRuntimeState {
+  return {
+    telemetryDispose: null,
+    activeCanvas: null,
+    activeCanvasContext: null,
+    activeCanvasStackElement: null,
+    viewerContainerElement: null,
+    statsOverlayElement: null,
+    detectionsOverlayElement: null,
+    streamSelectorContainerElement: null,
+    streamSelectorElement: null,
+    activeStreamingConfig: null,
+    activeStreamSources: [],
+    activeStreamingStream: null,
+    decodeInFlight: false,
+    monitorIntervalId: null,
+    presentTimerId: null,
+    pendingFrame: null,
+    metricsWindow: null,
+    metricsEnabled: true,
+    metricsWindowMs: DEFAULT_METRICS_WINDOW_MS,
+    frameStallTimeoutMs: DEFAULT_FRAME_STALL_TIMEOUT_MS,
+    maxPresentIntervalMs: Math.floor(1000 / DEFAULT_FRAME_RATE_HZ),
+    activeFrameRateHz: DEFAULT_FRAME_RATE_HZ,
+    activeTelemetrySamplingRateHz:
+      DEFAULT_FRAME_RATE_HZ * TELEMETRY_SAMPLING_MULTIPLIER,
+    detectionsTelemetryDispose: null,
+    fieldOfViewTelemetryDispose: null,
+    latestDetections: [],
+    latestFieldOfViewRect: null,
+    lastRenderedDetections: [],
+    lastRenderedFieldOfViewRect: null,
+    surfaceRecycleIntervalMs: DEFAULT_SURFACE_RECYCLE_INTERVAL_MS,
+    metricsSourceLabel: "",
+    lastFrameReceivedAtMs: 0,
+    lastFramePresentedAtMs: 0,
+    stallStateActive: false,
+    viewerSessionId: 0,
+    surfaceCreatedAtMs: 0,
+    transformScratchCanvas: null,
+    transformScratchContext: null,
+    createImageBitmapUnavailableReported: false,
+    activeCompositeStreamMode: false,
+    layeredFrameSequenceByLayerId: new Map<string, number>(),
+    workloadAliasCache: new Map<string, Map<string, string[]>>(),
+  };
+}
+
+function captureRuntimeState(): StreamingImageRuntimeState {
+  return {
+    telemetryDispose,
+    activeCanvas,
+    activeCanvasContext,
+    activeCanvasStackElement,
+    viewerContainerElement,
+    statsOverlayElement,
+    detectionsOverlayElement,
+    streamSelectorContainerElement,
+    streamSelectorElement,
+    activeStreamingConfig,
+    activeStreamSources,
+    activeStreamingStream,
+    decodeInFlight,
+    monitorIntervalId,
+    presentTimerId,
+    pendingFrame,
+    metricsWindow,
+    metricsEnabled,
+    metricsWindowMs,
+    frameStallTimeoutMs,
+    maxPresentIntervalMs,
+    activeFrameRateHz,
+    activeTelemetrySamplingRateHz,
+    detectionsTelemetryDispose,
+    fieldOfViewTelemetryDispose,
+    latestDetections,
+    latestFieldOfViewRect,
+    lastRenderedDetections,
+    lastRenderedFieldOfViewRect,
+    surfaceRecycleIntervalMs,
+    metricsSourceLabel,
+    lastFrameReceivedAtMs,
+    lastFramePresentedAtMs,
+    stallStateActive,
+    viewerSessionId,
+    surfaceCreatedAtMs,
+    transformScratchCanvas,
+    transformScratchContext,
+    createImageBitmapUnavailableReported,
+    activeCompositeStreamMode,
+    layeredFrameSequenceByLayerId,
+    workloadAliasCache,
+  };
+}
+
+function applyRuntimeState(state: StreamingImageRuntimeState): void {
+  telemetryDispose = state.telemetryDispose;
+  activeCanvas = state.activeCanvas;
+  activeCanvasContext = state.activeCanvasContext;
+  activeCanvasStackElement = state.activeCanvasStackElement;
+  viewerContainerElement = state.viewerContainerElement;
+  statsOverlayElement = state.statsOverlayElement;
+  detectionsOverlayElement = state.detectionsOverlayElement;
+  streamSelectorContainerElement = state.streamSelectorContainerElement;
+  streamSelectorElement = state.streamSelectorElement;
+  activeStreamingConfig = state.activeStreamingConfig;
+  activeStreamSources = state.activeStreamSources;
+  activeStreamingStream = state.activeStreamingStream;
+  decodeInFlight = state.decodeInFlight;
+  monitorIntervalId = state.monitorIntervalId;
+  presentTimerId = state.presentTimerId;
+  pendingFrame = state.pendingFrame;
+  metricsWindow = state.metricsWindow;
+  metricsEnabled = state.metricsEnabled;
+  metricsWindowMs = state.metricsWindowMs;
+  frameStallTimeoutMs = state.frameStallTimeoutMs;
+  maxPresentIntervalMs = state.maxPresentIntervalMs;
+  activeFrameRateHz = state.activeFrameRateHz;
+  activeTelemetrySamplingRateHz = state.activeTelemetrySamplingRateHz;
+  detectionsTelemetryDispose = state.detectionsTelemetryDispose;
+  fieldOfViewTelemetryDispose = state.fieldOfViewTelemetryDispose;
+  latestDetections = state.latestDetections;
+  latestFieldOfViewRect = state.latestFieldOfViewRect;
+  lastRenderedDetections = state.lastRenderedDetections;
+  lastRenderedFieldOfViewRect = state.lastRenderedFieldOfViewRect;
+  surfaceRecycleIntervalMs = state.surfaceRecycleIntervalMs;
+  metricsSourceLabel = state.metricsSourceLabel;
+  lastFrameReceivedAtMs = state.lastFrameReceivedAtMs;
+  lastFramePresentedAtMs = state.lastFramePresentedAtMs;
+  stallStateActive = state.stallStateActive;
+  viewerSessionId = state.viewerSessionId;
+  surfaceCreatedAtMs = state.surfaceCreatedAtMs;
+  transformScratchCanvas = state.transformScratchCanvas;
+  transformScratchContext = state.transformScratchContext;
+  createImageBitmapUnavailableReported = state.createImageBitmapUnavailableReported;
+  activeCompositeStreamMode = state.activeCompositeStreamMode;
+  layeredFrameSequenceByLayerId = state.layeredFrameSequenceByLayerId;
+  workloadAliasCache = state.workloadAliasCache;
+}
+
+function persistActiveRuntimeState(): void {
+  if (activeRuntimeInstanceId === null) {
+    return;
+  }
+  runtimeStates.set(activeRuntimeInstanceId, captureRuntimeState());
+}
+
+function enqueueRuntimeStateOperation<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const queued = runtimeStateQueue.then(operation, operation);
+  runtimeStateQueue = queued.then(
+    () => undefined,
+    () => undefined,
+  );
+  return queued;
+}
+
+async function runWithRuntimeState<T>(
+  instanceId: number,
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  persistActiveRuntimeState();
+  const previousInstanceId = activeRuntimeInstanceId;
+  const previousState = captureRuntimeState();
+  const state = runtimeStates.get(instanceId);
+  if (!state) {
+    throw new Error(`Streaming image viewer instance ${instanceId} is not active`);
+  }
+
+  activeRuntimeInstanceId = instanceId;
+  applyRuntimeState(state);
+  try {
+    const result = await callback();
+    runtimeStates.set(instanceId, captureRuntimeState());
+    return result;
+  } finally {
+    runtimeStates.set(instanceId, captureRuntimeState());
+    activeRuntimeInstanceId = previousInstanceId;
+    applyRuntimeState(previousState);
+  }
+}
+
+async function withRuntimeState<T>(
+  instanceId: number,
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  return enqueueRuntimeStateOperation(() =>
+    runWithRuntimeState(instanceId, callback),
+  );
+}
+
+async function withRuntimeStateIfActive<T>(
+  instanceId: number,
+  callback: () => T | Promise<T>,
+): Promise<T | undefined> {
+  return enqueueRuntimeStateOperation(() => {
+    if (!runtimeStates.has(instanceId)) {
+      return Promise.resolve(undefined);
+    }
+    return runWithRuntimeState(instanceId, callback);
+  });
+}
 
 type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
 type StreamingImageBlendMode =
@@ -303,7 +550,6 @@ function resetRuntimeState() {
   activeStreamingConfig = null;
   activeStreamSources = [];
   activeStreamingStream = null;
-  activeSelectedStreamStorageKey = null;
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
@@ -466,6 +712,17 @@ function cleanupStreamSelector() {
   streamSelectorElement = null;
 }
 
+function cleanupCanvasSurface() {
+  if (activeCanvasStackElement?.parentElement) {
+    activeCanvasStackElement.parentElement.removeChild(activeCanvasStackElement);
+  } else if (activeCanvas?.parentElement) {
+    activeCanvas.parentElement.removeChild(activeCanvas);
+  }
+  activeCanvas = null;
+  activeCanvasContext = null;
+  activeCanvasStackElement = null;
+}
+
 function ensureStreamSelector(
   sources: StreamingImageStream[],
   selectedStreamId: string,
@@ -539,8 +796,15 @@ function ensureStreamSelector(
   }
 
   selector.value = selectedStreamId;
+  const owningInstanceId = activeRuntimeInstanceId;
   selector.addEventListener("change", () => {
-    switchStreamingImageSource(selector.value).catch((error) => {
+    const switchSource =
+      owningInstanceId === null
+        ? switchStreamingImageSource(selector.value)
+        : withRuntimeStateIfActive(owningInstanceId, () =>
+            switchStreamingImageSource(selector.value),
+          );
+    switchSource.catch((error) => {
       console.warn("[streaming-image] Failed to switch stream", error);
     });
   });
@@ -769,9 +1033,19 @@ function schedulePendingFramePresentation() {
       ? Date.now() - lastFramePresentedAtMs
       : maxPresentIntervalMs;
   const delayMs = Math.max(0, maxPresentIntervalMs - elapsedMs);
+  const owningInstanceId = activeRuntimeInstanceId;
   presentTimerId = window.setTimeout(() => {
-    presentTimerId = null;
-    void presentPendingFrame();
+    const present =
+      owningInstanceId === null
+        ? (async () => {
+            presentTimerId = null;
+            await presentPendingFrame();
+          })()
+        : withRuntimeStateIfActive(owningInstanceId, async () => {
+            presentTimerId = null;
+            await presentPendingFrame();
+          });
+    void present;
   }, delayMs);
 }
 
@@ -1659,21 +1933,29 @@ function startMonitorLoop() {
   if (monitorIntervalId !== null || typeof setInterval !== "function") {
     return;
   }
+  const owningInstanceId = activeRuntimeInstanceId;
   monitorIntervalId = window.setInterval(() => {
-    const nowMs = Date.now();
-    if (
-      metricsEnabled &&
-      (!statsOverlayElement ||
-        !statsOverlayElement.isConnected ||
-        statsOverlayElement.parentElement !== viewerContainerElement)
-    ) {
-      ensureStatsOverlay();
+    const tick = () => {
+      const nowMs = Date.now();
+      if (
+        metricsEnabled &&
+        (!statsOverlayElement ||
+          !statsOverlayElement.isConnected ||
+          statsOverlayElement.parentElement !== viewerContainerElement)
+      ) {
+        ensureStatsOverlay();
+      }
+      maybeHandleStall(nowMs);
+      maybeRecycleSurface(nowMs);
+      syncDetectionsOverlayBounds();
+      updateStatsOverlay(nowMs);
+      flushMetricsWindow(nowMs);
+    };
+    if (owningInstanceId === null) {
+      tick();
+      return;
     }
-    maybeHandleStall(nowMs);
-    maybeRecycleSurface(nowMs);
-    syncDetectionsOverlayBounds();
-    updateStatsOverlay(nowMs);
-    flushMetricsWindow(nowMs);
+    void withRuntimeStateIfActive(owningInstanceId, tick);
   }, 250);
 }
 
@@ -1683,18 +1965,7 @@ function recreateCanvasSurface(layers: StreamingImageLayer[] = []) {
   }
 
   const isLayered = layers.length > 1;
-  const previousCanvas = activeCanvas;
-  const previousStack = activeCanvasStackElement;
-  if (previousCanvas?.parentElement === viewerContainerElement) {
-    previousCanvas.width = 1;
-    previousCanvas.height = 1;
-  }
-  if (previousStack?.parentElement === viewerContainerElement) {
-    previousStack.remove();
-  } else if (viewerContainerElement.firstChild) {
-    cleanupStatsOverlay();
-    viewerContainerElement.textContent = "";
-  }
+  cleanupCanvasSurface();
 
   let nextCanvas: HTMLCanvasElement | null = null;
   let nextContext: CanvasRenderingContext2D | null = null;
@@ -2059,106 +2330,8 @@ function getStreamingImageSources(
     .filter((source): source is StreamingImageStream => source !== null);
 }
 
-function hashString(value: string): string {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = Math.imul(31, hash) + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return (hash >>> 0).toString(16);
-}
-
-function buildStreamingImageSourcesStorageSignature(
-  sources: StreamingImageStream[],
-): string {
-  return hashString(
-    JSON.stringify(
-      sources.flatMap((stream) =>
-        stream.layers.map((source) => ({
-          streamId: stream.id,
-          id: source.id,
-          index: source.index,
-          sourceModel: source.sourceModel ?? "",
-          modelName: source.modelName ?? "",
-          telemetryModelName: source.telemetryModelName ?? "",
-          sourceField: source.sourceField,
-          detectionsSourceField: source.detectionsSourceField ?? "",
-          detectionsSourceModel: source.detectionsSourceModel ?? "",
-          detectionsTelemetryModelName:
-            source.detectionsTelemetryModelName ?? "",
-          fieldOfViewSourceField: source.fieldOfViewSourceField ?? "",
-          fieldOfViewSourceModel: source.fieldOfViewSourceModel ?? "",
-          fieldOfViewTelemetryModelName:
-            source.fieldOfViewTelemetryModelName ?? "",
-          telemetryBaseUrl: source.telemetryBaseUrl ?? "",
-          detectionsTelemetryBaseUrl: source.detectionsTelemetryBaseUrl ?? "",
-          fieldOfViewTelemetryBaseUrl: source.fieldOfViewTelemetryBaseUrl ?? "",
-          transform: source.transform,
-          blendMode: source.blendMode,
-          opacity: source.opacity,
-          visible: source.visible,
-        })),
-      ),
-    ),
-  );
-}
-
-function buildSelectedStreamStorageKey(
-  config: StreamingImageViewerConfig,
-  sources: StreamingImageStream[],
-): string | null {
-  if (sources.length <= 1) {
-    return null;
-  }
-  if (!config.workspaceId && !config.panelId) {
-    return buildLegacySelectedStreamStorageKey(config, sources);
-  }
-  return buildNamespacedKey(
-    "robotick.streaming-image.selected-stream",
-    config.projectPath || "default-project",
-    config.workspaceId || "workspace",
-    config.panelId || "default",
-    buildStreamingImageSourcesStorageSignature(sources),
-  );
-}
-
-function buildLegacySelectedStreamStorageKey(
-  config: StreamingImageViewerConfig,
-  sources: StreamingImageStream[],
-): string | null {
-  if (sources.length <= 1) {
-    return null;
-  }
-  return buildNamespacedKey(
-    "robotick.streaming-image.selected-stream",
-    config.projectPath || "default-project",
-    buildStreamingImageSourcesStorageSignature(sources),
-  );
-}
-
-function readStoredSelectedStream(
-  storageKey: string | null,
-  sources: StreamingImageStream[],
-  legacyStorageKey?: string | null,
-): string | null {
-  if (!storageKey && !legacyStorageKey) {
-    return null;
-  }
-  const stored = (
-    (storageKey ? readStorageValue(storageKey) : null) ??
-    (legacyStorageKey ? readStorageValue(legacyStorageKey) : null)
-  )?.trim();
-  if (!stored || !sources.some((source) => source.id === stored)) {
-    return null;
-  }
-  return stored;
-}
-
 function writeStoredSelectedStream(streamId: string): void {
-  if (!activeSelectedStreamStorageKey) {
-    return;
-  }
-  setStorageValue(activeSelectedStreamStorageKey, streamId);
+  activeStreamingConfig?.onSelectedStreamChange?.(streamId);
 }
 
 export function resolveStreamingImageSource(
@@ -2336,6 +2509,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     if (!telemetryBase) {
       return;
     }
+    const owningInstanceId = activeRuntimeInstanceId;
     console.info(
       `[streaming-image] Subscribing to telemetry ${telemetryBase} field ${layer.sourceField} @ ${activeTelemetrySamplingRateHz}Hz, presenting @ ${activeFrameRateHz}Hz`,
     );
@@ -2343,13 +2517,28 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
       telemetryBase,
       activeTelemetrySamplingRateHz,
       {
-        callback: (model) => handleTelemetryFrame(model, layer),
-        error: (err) => {
-          console.warn(
-            `[streaming-image] Telemetry error for ${telemetryBase} (${layer.sourceField})`,
-            err,
+        callback: (model) => {
+          if (owningInstanceId === null) {
+            handleTelemetryFrame(model, layer);
+            return;
+          }
+          void withRuntimeStateIfActive(owningInstanceId, () =>
+            handleTelemetryFrame(model, layer),
           );
-          noteTransportError();
+        },
+        error: (err) => {
+          const handleError = () => {
+            console.warn(
+              `[streaming-image] Telemetry error for ${telemetryBase} (${layer.sourceField})`,
+              err,
+            );
+            noteTransportError();
+          };
+          if (owningInstanceId === null) {
+            handleError();
+            return;
+          }
+          void withRuntimeStateIfActive(owningInstanceId, handleError);
         },
       },
     );
@@ -2369,6 +2558,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     if (!layer.detectionsSourceField || !detectionsTelemetryBase) {
       return;
     }
+    const owningInstanceId = activeRuntimeInstanceId;
 
     console.info(
       `[streaming-image] Subscribing to detection overlays ${detectionsTelemetryBase} field ${layer.detectionsSourceField} @ ${activeTelemetrySamplingRateHz}Hz`,
@@ -2379,27 +2569,41 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
         activeTelemetrySamplingRateHz,
         {
           callback: (model) => {
-            if (sessionId !== viewerSessionId) {
+            const handleModel = () => {
+              if (sessionId !== viewerSessionId) {
+                return;
+              }
+              const detectionsFieldPath = resolveRuntimeFieldPath(
+                model,
+                layer.detectionsSourceField!,
+                layer.detectionsSourceModel,
+              );
+              // Keep the latest overlay telemetry cached, but let the actual
+              // overlay presentation advance with the image stream so the mask
+              // cannot run ahead of the currently displayed frame.
+              latestDetections = extractObjectDetectionOverlays(
+                model.getField?.(detectionsFieldPath)?.getValue?.(),
+              );
+            };
+            if (owningInstanceId === null) {
+              handleModel();
               return;
             }
-            const detectionsFieldPath = resolveRuntimeFieldPath(
-              model,
-              layer.detectionsSourceField!,
-              layer.detectionsSourceModel,
-            );
-            // Keep the latest overlay telemetry cached, but let the actual
-            // overlay presentation advance with the image stream so the mask
-            // cannot run ahead of the currently displayed frame.
-            latestDetections = extractObjectDetectionOverlays(
-              model.getField?.(detectionsFieldPath)?.getValue?.(),
-            );
+            void withRuntimeStateIfActive(owningInstanceId, handleModel);
           },
           error: (err) => {
-            console.warn(
-              `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${layer.detectionsSourceField})`,
-              err,
-            );
-            noteTransportError();
+            const handleError = () => {
+              console.warn(
+                `[streaming-image] Telemetry error for detection overlays ${detectionsTelemetryBase} (${layer.detectionsSourceField})`,
+                err,
+              );
+              noteTransportError();
+            };
+            if (owningInstanceId === null) {
+              handleError();
+              return;
+            }
+            void withRuntimeStateIfActive(owningInstanceId, handleError);
           },
         },
       ),
@@ -2419,6 +2623,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     if (!layer.fieldOfViewSourceField || !fieldOfViewTelemetryBase) {
       return;
     }
+    const owningInstanceId = activeRuntimeInstanceId;
 
     console.info(
       `[streaming-image] Subscribing to field-of-view overlays ${fieldOfViewTelemetryBase} field ${layer.fieldOfViewSourceField} @ ${activeTelemetrySamplingRateHz}Hz`,
@@ -2429,27 +2634,41 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
         activeTelemetrySamplingRateHz,
         {
           callback: (model) => {
-            if (sessionId !== viewerSessionId) {
+            const handleModel = () => {
+              if (sessionId !== viewerSessionId) {
+                return;
+              }
+              const fieldOfViewFieldPath = resolveRuntimeFieldPath(
+                model,
+                layer.fieldOfViewSourceField!,
+                layer.fieldOfViewSourceModel,
+              );
+              // Keep the latest overlay telemetry cached, but let the actual
+              // overlay presentation advance with the image stream so the mask
+              // cannot run ahead of the currently displayed frame.
+              latestFieldOfViewRect = extractNormalizedRectOverlay(
+                model.getField?.(fieldOfViewFieldPath)?.getValue?.(),
+              );
+            };
+            if (owningInstanceId === null) {
+              handleModel();
               return;
             }
-            const fieldOfViewFieldPath = resolveRuntimeFieldPath(
-              model,
-              layer.fieldOfViewSourceField!,
-              layer.fieldOfViewSourceModel,
-            );
-            // Keep the latest overlay telemetry cached, but let the actual
-            // overlay presentation advance with the image stream so the mask
-            // cannot run ahead of the currently displayed frame.
-            latestFieldOfViewRect = extractNormalizedRectOverlay(
-              model.getField?.(fieldOfViewFieldPath)?.getValue?.(),
-            );
+            void withRuntimeStateIfActive(owningInstanceId, handleModel);
           },
           error: (err) => {
-            console.warn(
-              `[streaming-image] Telemetry error for field-of-view overlays ${fieldOfViewTelemetryBase} (${layer.fieldOfViewSourceField})`,
-              err,
-            );
-            noteTransportError();
+            const handleError = () => {
+              console.warn(
+                `[streaming-image] Telemetry error for field-of-view overlays ${fieldOfViewTelemetryBase} (${layer.fieldOfViewSourceField})`,
+                err,
+              );
+              noteTransportError();
+            };
+            if (owningInstanceId === null) {
+              handleError();
+              return;
+            }
+            void withRuntimeStateIfActive(owningInstanceId, handleError);
           },
         },
       ),
@@ -2492,21 +2711,9 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   const streamingConfig = viewerConfig as StreamingImageViewerConfig;
   activeStreamingConfig = streamingConfig;
   activeStreamSources = getStreamingImageSources(streamingConfig);
-  activeSelectedStreamStorageKey = buildSelectedStreamStorageKey(
-    streamingConfig,
-    activeStreamSources,
-  );
-  const legacySelectedStreamStorageKey = buildLegacySelectedStreamStorageKey(
-    streamingConfig,
-    activeStreamSources,
-  );
   const activeStream = resolveStreamingImageStream(
     streamingConfig,
-    readStoredSelectedStream(
-      activeSelectedStreamStorageKey,
-      activeStreamSources,
-      legacySelectedStreamStorageKey,
-    ) ?? undefined,
+    streamingConfig.selectedStream?.trim() || undefined,
   );
   if (!activeStream) {
     console.warn(
@@ -2570,7 +2777,38 @@ export async function init(viewerConfig: ViewerConfig): Promise<void> {
   await subscribeToStreamingImageStream(activeStream);
 }
 
-export async function uninit(): Promise<void> {
+export async function createInstance(
+  viewerConfig: ViewerConfig,
+  instanceId: number,
+): Promise<ViewerRuntime> {
+  runtimeStates.set(instanceId, createInitialRuntimeState());
+  await withRuntimeState(instanceId, () => init(viewerConfig));
+  return {
+    unmount: () => uninit(instanceId),
+  };
+}
+
+export async function uninit(instanceId?: number): Promise<void> {
+  if (typeof instanceId === "number") {
+    if (!runtimeStates.has(instanceId)) {
+      return;
+    }
+    await withRuntimeState(instanceId, () => uninit());
+    runtimeStates.delete(instanceId);
+    if (activeRuntimeInstanceId === instanceId) {
+      activeRuntimeInstanceId = null;
+    }
+    return;
+  }
+
+  if (activeRuntimeInstanceId === null && runtimeStates.size > 0) {
+    const instanceIds = Array.from(runtimeStates.keys());
+    for (const runtimeInstanceId of instanceIds) {
+      await uninit(runtimeInstanceId);
+    }
+    return;
+  }
+
   flushMetricsWindow(Date.now(), true);
   telemetryDispose?.();
   telemetryDispose = null;
@@ -2579,15 +2817,11 @@ export async function uninit(): Promise<void> {
   fieldOfViewTelemetryDispose?.();
   fieldOfViewTelemetryDispose = null;
   viewerSessionId += 1;
-  activeCanvas = null;
-  activeCanvasContext = null;
   cleanupStatsOverlay();
   cleanupDetectionsOverlay();
+  cleanupCanvasSurface();
   resetRuntimeState();
-  if (viewerContainerElement) {
-    viewerContainerElement.innerHTML = "";
-    viewerContainerElement = null;
-  }
+  viewerContainerElement = null;
   console.log("Streaming Image Viewer unmounted");
 }
 
@@ -2677,6 +2911,7 @@ function handleTelemetryFrame(
     const frameSequence =
       (layeredFrameSequenceByLayerId.get(source.id) ?? 0) + 1;
     layeredFrameSequenceByLayerId.set(source.id, frameSequence);
+    const owningInstanceId = activeRuntimeInstanceId;
     void renderFrameToCanvas(
       targetCanvas,
       targetContext,
@@ -2686,24 +2921,38 @@ function handleTelemetryFrame(
       frameSequence,
     )
       .then((rendered) => {
-        if (!rendered) {
+        const completeRender = () => {
+          if (!rendered) {
+            return;
+          }
+          if (source.fieldOfViewSourceField) {
+            latestFieldOfViewRect = fieldOfViewRect;
+          }
+          if (source.detectionsSourceField) {
+            updateObjectDetectionsOverlay(detections, fieldOfViewRect);
+          } else if (source.fieldOfViewSourceField) {
+            updateObjectDetectionsOverlay([], fieldOfViewRect);
+          }
+          if (source.index === 0) {
+            notePresentedFrame(frame);
+          }
+        };
+        if (owningInstanceId === null) {
+          completeRender();
           return;
         }
-        if (source.fieldOfViewSourceField) {
-          latestFieldOfViewRect = fieldOfViewRect;
-        }
-        if (source.detectionsSourceField) {
-          updateObjectDetectionsOverlay(detections, fieldOfViewRect);
-        } else if (source.fieldOfViewSourceField) {
-          updateObjectDetectionsOverlay([], fieldOfViewRect);
-        }
-        if (source.index === 0) {
-          notePresentedFrame(frame);
-        }
+        void withRuntimeStateIfActive(owningInstanceId, completeRender);
       })
       .catch((err) => {
-        console.warn("[streaming-image] Failed to decode layered frame", err);
-        noteTransportError();
+        const handleError = () => {
+          console.warn("[streaming-image] Failed to decode layered frame", err);
+          noteTransportError();
+        };
+        if (owningInstanceId === null) {
+          handleError();
+          return;
+        }
+        void withRuntimeStateIfActive(owningInstanceId, handleError);
       });
     return;
   }
@@ -2878,4 +3127,4 @@ async function resolveTelemetryBaseUrl(
   }
 }
 
-export default { init, uninit };
+export default { createInstance, init, uninit };

@@ -2,6 +2,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { TelemetryApp } from "./view/TelemetryApp";
 import styles from "./Telemetry.module.css";
 import type { ModelSortKey } from "./view/TelemetryApp";
+import type {
+  TelemetryModelPersistedState,
+  WorkloadSortKey,
+} from "./view/TelemetryModel";
+import {
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelSettings,
+} from "../../workbenches/PanelInstanceContext";
 
 const MODEL_SORT_OPTIONS: ReadonlyArray<{
   value: ModelSortKey;
@@ -15,31 +24,101 @@ const MODEL_SORT_OPTIONS: ReadonlyArray<{
 ];
 const RMB_PAN_DRAG_THRESHOLD_PX = 4;
 
-export default function TelemetryPage() {
+type TelemetryPageSettings = {
+  modelSortKey: ModelSortKey;
+  models: PersistedTelemetryModelState[];
+};
+
+type PersistedTelemetryModelState = TelemetryModelPersistedState & {
+  id: string;
+};
+
+function isTelemetryModelSortKey(value: unknown): value is ModelSortKey {
+  return (
+    value === "telemetry_port" ||
+    value === "model_name" ||
+    value === "model_path" ||
+    value === "memory_process" ||
+    value === "memory_workloads"
+  );
+}
+
+function isTelemetryWorkloadSortKey(value: unknown): value is WorkloadSortKey {
+  return (
+    value === "none" ||
+    value === "unique_name" ||
+    value === "workload_type" ||
+    value === "memory_total" ||
+    value === "memory_static" ||
+    value === "memory_dynamic"
+  );
+}
+
+export const telemetryPagePersistence =
+  definePanelPersistence<TelemetryPageSettings>({
+    schemaVersion: 1,
+    defaults: {
+      modelSortKey: "telemetry_port",
+      models: [],
+    },
+    sanitize(value) {
+      const input =
+        value && typeof value === "object"
+          ? (value as Partial<TelemetryPageSettings>)
+          : {};
+      const models = Array.isArray(input.models)
+        ? input.models.reduce<PersistedTelemetryModelState[]>((acc, entry) => {
+            if (!entry || typeof entry !== "object") {
+              return acc;
+            }
+            const next = entry as Partial<PersistedTelemetryModelState>;
+            const id = typeof next.id === "string" ? next.id.trim() : "";
+            if (!id) {
+              return acc;
+            }
+            const sanitized: PersistedTelemetryModelState = { id };
+            if (next.isExpanded === true) {
+              sanitized.isExpanded = true;
+            }
+            if (isTelemetryWorkloadSortKey(next.workloadSortKey)) {
+              sanitized.workloadSortKey = next.workloadSortKey;
+            }
+            if (
+              sanitized.isExpanded === undefined &&
+              sanitized.workloadSortKey === undefined
+            ) {
+              return acc;
+            }
+            acc.push(sanitized);
+            return acc;
+          }, [])
+        : [];
+      return {
+        modelSortKey: isTelemetryModelSortKey(input.modelSortKey)
+          ? input.modelSortKey
+          : "telemetry_port",
+        models,
+      };
+    },
+  });
+
+export function TelemetryPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [settings, updateSettings] = usePanelSettings(telemetryPagePersistence);
+  const modelStates = React.useMemo(
+    () =>
+      Object.fromEntries(
+        settings.models.map(({ id, ...persistedState }) => [id, persistedState]),
+      ) as Record<string, TelemetryModelPersistedState>,
+    [settings.models],
+  );
   const panListenersRef = useRef<{
     mousemove: (event: MouseEvent) => void;
     mouseup: (event: MouseEvent) => void;
     blur: () => void;
     contextmenu: (event: MouseEvent) => void;
   } | null>(null);
-  const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() => {
-    try {
-      const saved = localStorage.getItem("telemetry-model-sort");
-      if (
-        saved === "telemetry_port" ||
-        saved === "model_name" ||
-        saved === "model_path" ||
-        saved === "memory_process" ||
-        saved === "memory_workloads"
-      ) {
-        return saved;
-      }
-    } catch {
-      // ignore storage failures so UI keeps working
-    }
-    return "telemetry_port";
-  });
+  const modelSortKey = settings.modelSortKey;
   const [isPanning, setIsPanning] = useState(false);
   const panStateRef = useRef<{
     scrollElement: HTMLElement;
@@ -52,13 +131,36 @@ export default function TelemetryPage() {
     previousBodyCursor: string;
   } | null>(null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("telemetry-model-sort", modelSortKey);
-    } catch {
-      // ignore storage failures so UI keeps working
-    }
-  }, [modelSortKey]);
+  const updateModelState = React.useCallback(
+    (
+      modelId: string,
+      updater:
+        | TelemetryModelPersistedState
+        | ((
+            current: TelemetryModelPersistedState
+          ) => TelemetryModelPersistedState)
+    ) => {
+      const current = modelStates[modelId] ?? {};
+      const resolved = typeof updater === "function" ? updater(current) : updater;
+      const normalized: TelemetryModelPersistedState = {
+        ...(resolved.isExpanded === true ? { isExpanded: true } : {}),
+        ...(isTelemetryWorkloadSortKey(resolved.workloadSortKey)
+          ? { workloadSortKey: resolved.workloadSortKey }
+          : {}),
+      };
+      const nextModels = settings.models.filter((entry) => entry.id !== modelId);
+      if (
+        normalized.isExpanded !== undefined ||
+        normalized.workloadSortKey !== undefined
+      ) {
+        nextModels.push({ id: modelId, ...normalized });
+      }
+      updateSettings({
+        models: nextModels,
+      });
+    },
+    [modelStates, settings.models, updateSettings]
+  );
 
   const findScrollElement = (start: EventTarget | null): HTMLElement | null => {
     let node = start instanceof HTMLElement ? start : containerRef.current;
@@ -199,7 +301,9 @@ export default function TelemetryPage() {
             id="telemetry-model-sort"
             className={styles.panelHeaderControlSelect}
             value={modelSortKey}
-            onChange={(e) => setModelSortKey(e.target.value as ModelSortKey)}
+            onChange={(e) =>
+              updateSettings({ modelSortKey: e.target.value as ModelSortKey })
+            }
           >
             {MODEL_SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -210,8 +314,19 @@ export default function TelemetryPage() {
         </label>
       </div>
       <div className={styles.tableContainer}>
-        <TelemetryApp modelSortKey={modelSortKey} />
+        <TelemetryApp
+          modelSortKey={modelSortKey}
+          modelStates={modelStates}
+          onModelStateChange={updateModelState}
+        />
       </div>
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: TelemetryPage,
+  persistence: telemetryPagePersistence,
+});
+
+export default TelemetryPage;

@@ -1,1 +1,1 @@
-export { default as RemoteControlPage } from "./RemoteControlPage";
+export { contribution as RemoteControlPage } from "./RemoteControlPage";

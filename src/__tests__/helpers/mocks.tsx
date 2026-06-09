@@ -11,14 +11,14 @@ import {
 export { createMockLauncherService };
 
 /**
- * Registers a test mock for the WorkspaceView component that renders a div showing the workspace id.
+ * Registers a test mock for the WorkbenchView component that renders a div showing the workbench id.
  *
- * The mocked component renders a div with text equal to the workspace's `id` and a `data-testid` of `workspace-{id}` so tests can locate workspace instances.
+ * The mocked component renders a div with text equal to the workbench's `id` and a `data-testid` of `workbench-{id}` so tests can locate workbench instances.
  */
-export function mockWorkspaceView() {
-  vi.mock("../../renderer/components/workspaces/WorkspaceView", () => ({
-    WorkspaceView: ({ workspace }: { workspace: { id: string } }) => (
-      <div data-testid={`workspace-${workspace.id}`}>{workspace.id}</div>
+export function mockWorkbenchView() {
+  vi.mock("../../renderer/components/workbenches/WorkbenchView", () => ({
+    WorkbenchView: ({ workbench }: { workbench: { id: string } }) => (
+      <div data-testid={`workbench-${workbench.id}`}>{workbench.id}</div>
     ),
   }));
 }

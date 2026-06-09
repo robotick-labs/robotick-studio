@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parse } from "yaml";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("../../../../renderer/components/header/LauncherControls", () => ({
   LauncherControls: () => <div data-testid="launcher-controls" />,
@@ -13,19 +17,19 @@ vi.mock("../../../../renderer/components/header/ProfilePicker", () => ({
 vi.mock("../../../../renderer/components/header/ProjectPicker", () => ({
   ProjectPicker: () => <div data-testid="project-picker" />,
 }));
-vi.mock("../../../../renderer/services/AppConfigService", () => ({
-  useAppConfig: () => ({
-    workspaces: [
-      {
-        id: "home",
-        path: "/home",
-        label: "Home",
-        group: "project-select",
-        editor: "home",
-      },
-    ],
-  }),
+const appConfigModule = vi.hoisted(() => ({
+  useAppConfig: vi.fn(),
 }));
+
+vi.mock("../../../../renderer/services/AppConfigService", () => appConfigModule);
+vi.mock(
+  "../../../../renderer/data-sources/launcher/internal/ProjectContext",
+  () => ({
+    useProjectContext: () => ({
+      projectPath: "/repo/robots/barr-e/barr-e.project.yaml",
+    }),
+  })
+);
 
 const electronModule = vi.hoisted(() => ({
   isStandaloneElectron: vi.fn(),
@@ -51,12 +55,25 @@ type RobotickEnvOptions = {
   usesNativeWindowFrame?: boolean;
   includeWindowControls?: boolean;
   studioProcessStats?: { cpuPercent: number; memoryMb: number };
+  windowScope?: string;
+  isPrimaryWindow?: boolean;
+  childWindowScopes?: string[];
+  studioPersistence?: {
+    readStudioDocument: ReturnType<typeof vi.fn>;
+    ensureStudioDocument: ReturnType<typeof vi.fn>;
+    writeStudioDocument: ReturnType<typeof vi.fn>;
+    deleteChildWindow?: ReturnType<typeof vi.fn>;
+  };
 };
 
 function setRobotickEnvironment({
   usesNativeWindowFrame = true,
   includeWindowControls = false,
   studioProcessStats,
+  windowScope = "primary",
+  isPrimaryWindow = true,
+  childWindowScopes = [],
+  studioPersistence,
 }: RobotickEnvOptions = {}): void {
   if (typeof window === "undefined") {
     return;
@@ -67,6 +84,8 @@ function setRobotickEnvironment({
         maximize: vi.fn(),
         restore: vi.fn(),
         close: vi.fn(),
+        createWindow: vi.fn(),
+        getChildWindowScopes: vi.fn().mockResolvedValue(childWindowScopes),
         toggleMaximize: vi.fn(),
         onStateChange: vi.fn(() => () => {}),
       }
@@ -76,8 +95,11 @@ function setRobotickEnvironment({
       isStandaloneApp: true,
       appTitle: "Robotick Studio",
       usesNativeWindowFrame,
+      windowScope,
+      isPrimaryWindow,
     },
     ...(windowControls ? { windowControls } : {}),
+    ...(studioPersistence ? { studioPersistence } : {}),
     ...(studioProcessStats
       ? {
           studioProcess: {
@@ -88,6 +110,67 @@ function setRobotickEnvironment({
   };
 }
 
+function getDefaultAppConfig() {
+  return {
+    workbenches: [
+      {
+        id: "home",
+        path: "/home",
+        label: "Home",
+        group: "project-select",
+        editor: "home",
+      },
+    ],
+    windows: [
+      {
+        id: "main",
+        label: "Main Window",
+        windowRole: "main",
+        defaultWorkbenchId: "home",
+        workbenches: [],
+      },
+    ],
+    editors: [],
+    loading: false,
+    source: "canonical",
+  };
+}
+
+const studioDocumentWithChildWindow = `
+resourceType: studio_document
+schemaVersion: 1
+id: barr-e-studio
+windows:
+  - id: main
+    label: Main Window
+    windowRole: main
+    defaultWorkbenchId: home
+    workbenches:
+      - id: home
+        label: Home
+        layouts:
+          - id: main:home:default
+            label: Default
+            dock:
+              nodeType: panel
+              panelId: main-home
+              editorId: home
+  - id: child-telemetry
+    label: Telemetry Window
+    windowRole: child
+    defaultWorkbenchId: telemetry
+    workbenches:
+      - id: telemetry
+        label: Telemetry
+        layouts:
+          - id: child-telemetry:telemetry:default
+            label: Default
+            dock:
+              nodeType: panel
+              panelId: child-telemetry-panel
+              editorId: telemetry
+`;
+
 describe("AppHeader", () => {
   let contextMenuHandlers: {
     showPanelMenu: ReturnType<typeof vi.fn>;
@@ -96,6 +179,7 @@ describe("AppHeader", () => {
 
   beforeEach(() => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(false);
+    appConfigModule.useAppConfig.mockReturnValue(getDefaultAppConfig());
     contextMenuHandlers = {
       showPanelMenu: vi.fn(),
       showHeaderMenu: vi.fn(),
@@ -164,7 +248,7 @@ describe("AppHeader", () => {
       '[data-testid="window-controls"]'
     )?.parentElement;
     const presetSelector = container.querySelector(
-      'button[aria-label="Select window preset"]'
+      'button[aria-label="Select child window"]'
     );
     const stats = container.querySelector('[data-testid="studio-process-stats"]');
     expect(headerRight?.firstElementChild).toBe(
@@ -210,6 +294,274 @@ describe("AppHeader", () => {
       x: 42,
       y: 64,
     });
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("renames a child window title through studio document persistence", async () => {
+    (isStandaloneElectron as vi.Mock).mockReturnValue(true);
+    let writtenContent = "";
+    const studioPersistence = {
+      readStudioDocument: vi.fn(async () => studioDocumentWithChildWindow),
+      ensureStudioDocument: vi.fn(async () => undefined),
+      writeStudioDocument: vi.fn(async (_projectPath: string, content: string) => {
+        writtenContent = content;
+      }),
+    };
+    appConfigModule.useAppConfig.mockReturnValue({
+      ...getDefaultAppConfig(),
+      windows: [
+        ...getDefaultAppConfig().windows,
+        {
+          id: "child-telemetry",
+          label: "Telemetry Window",
+          windowRole: "child",
+          defaultWorkbenchId: "telemetry",
+          workbenches: [],
+        },
+      ],
+    });
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+      windowScope: "child-telemetry",
+      isPrimaryWindow: false,
+      studioPersistence,
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    const title = container.querySelector(
+      "[aria-label='Rename child window']"
+    ) as HTMLElement | null;
+    expect(title?.textContent).toBe("Telemetry Window");
+
+    await act(async () => {
+      title?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const input = container.querySelector(
+      "input[aria-label='Rename child window']"
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set?.call(input, "Diagnostics Window");
+      input.dispatchEvent(
+        new Event("input", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      expect(studioPersistence.writeStudioDocument).toHaveBeenCalledTimes(1);
+    });
+    const parsed = parse(writtenContent) as {
+      windows: { id: string; label: string }[];
+    };
+    expect(
+      parsed.windows.find((window) => window.id === "child-telemetry")?.label
+    ).toBe("Diagnostics Window");
+    expect(container.textContent).toContain("Diagnostics Window");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("closes the child window menu when clicking outside it", async () => {
+    (isStandaloneElectron as vi.Mock).mockReturnValue(true);
+    appConfigModule.useAppConfig.mockReturnValue({
+      ...getDefaultAppConfig(),
+      windows: [
+        ...getDefaultAppConfig().windows,
+        {
+          id: "child-telemetry",
+          label: "Telemetry Window",
+          windowRole: "child",
+          defaultWorkbenchId: "telemetry",
+          workbenches: [],
+        },
+      ],
+    });
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    const menuButton = container.querySelector(
+      'button[aria-label="Select child window"]'
+    ) as HTMLButtonElement | null;
+    expect(menuButton).not.toBeNull();
+
+    const reopenedMenuButton = container.querySelector(
+      'button[aria-label="Select child window"]'
+    ) as HTMLButtonElement | null;
+
+    if (!container.textContent?.includes("Telemetry Window")) {
+      await act(async () => {
+        reopenedMenuButton?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+        await Promise.resolve();
+      });
+    }
+
+    expect(container.textContent).toContain("Telemetry Window");
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("Telemetry Window");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("requests Electron to delete an inactive child window from the studio document", async () => {
+    (isStandaloneElectron as vi.Mock).mockReturnValue(true);
+    const studioPersistence = {
+      readStudioDocument: vi.fn(async () => studioDocumentWithChildWindow),
+      ensureStudioDocument: vi.fn(async () => undefined),
+      writeStudioDocument: vi.fn(async () => undefined),
+      deleteChildWindow: vi.fn(async () => true),
+    };
+    appConfigModule.useAppConfig.mockReturnValue({
+      ...getDefaultAppConfig(),
+      windows: [
+        ...getDefaultAppConfig().windows,
+        {
+          id: "child-telemetry",
+          label: "Telemetry Window",
+          windowRole: "child",
+          defaultWorkbenchId: "telemetry",
+          workbenches: [],
+        },
+      ],
+    });
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+      studioPersistence,
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    const menuButton = container.querySelector(
+      'button[aria-label="Select child window"]'
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      menuButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    const deleteButton = container.querySelector(
+      'button[aria-label="Delete Telemetry Window"]'
+    ) as HTMLButtonElement | null;
+    expect(deleteButton).not.toBeNull();
+    expect(deleteButton?.disabled).toBe(false);
+
+    await act(async () => {
+      deleteButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "Delete Telemetry Window from this Studio document?"
+    );
+
+    const confirmDeleteButton = Array.from(
+      container.querySelectorAll("button")
+    ).find(
+      (button) =>
+        button !== deleteButton && button.textContent?.trim() === "Delete"
+    );
+    expect(confirmDeleteButton).not.toBeUndefined();
+
+    await act(async () => {
+      confirmDeleteButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      expect(studioPersistence.deleteChildWindow).toHaveBeenCalledWith(
+        "/repo/robots/barr-e/barr-e.project.yaml",
+        "child-telemetry"
+      );
+    });
+    expect(studioPersistence.writeStudioDocument).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Telemetry Window");
 
     act(() => {
       root.unmount();

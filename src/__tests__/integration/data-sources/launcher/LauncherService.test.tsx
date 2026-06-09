@@ -104,8 +104,8 @@ describe("Launcher service integration", () => {
       .fn()
       .mockResolvedValue({ status: "stopped" });
     const service = createMockLauncherService({
-      getProjectPath: () => "/proj",
-      getLauncherProfile: () => "custom-profile",
+      projectPath: "/proj",
+      launcherProfile: "custom-profile",
       requestLauncherRun,
       fetchLauncherStatus,
     });

@@ -88,7 +88,6 @@ describe("TelemetryModel", () => {
           telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
-        index={10}
       />
     );
 
@@ -107,8 +106,6 @@ describe("TelemetryModel", () => {
   });
 
   it("defaults to model order and can opt into layout-driven sorting", () => {
-    localStorage.setItem("telemetry-expanded-http___example_test_7100", "true");
-
     useTelemetryStream.mockReturnValue({
       model: {
         workloads: [
@@ -143,17 +140,35 @@ describe("TelemetryModel", () => {
       revision: 0,
     });
 
+    function Harness() {
+      const [persistedState, setPersistedState] = React.useState({
+        isExpanded: true,
+      });
+
+      return (
+        <>
+          <TelemetryModel
+            model={{
+              modelName: "Face",
+              modelPath: "robots/example/face.model.yaml",
+              instanceURL: "http://example.test:7100",
+              telemetryPushRateHz: 10,
+              fieldConnectionHints: {},
+            }}
+            persistedState={persistedState}
+            onPersistedStateChange={(updater) =>
+              setPersistedState((current) =>
+                typeof updater === "function" ? updater(current) : updater
+              )
+            }
+          />
+          <div data-testid="persisted-state">{JSON.stringify(persistedState)}</div>
+        </>
+      );
+    }
+
     const tree = render(
-      <TelemetryModel
-        model={{
-          modelName: "Face",
-          modelPath: "robots/example/face.model.yaml",
-          instanceURL: "http://example.test:7100",
-          telemetryPushRateHz: 10,
-          fieldConnectionHints: {},
-        }}
-        index={10}
-      />,
+      <Harness />,
     );
 
     const rows = Array.from(
@@ -185,11 +200,9 @@ describe("TelemetryModel", () => {
         sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
-    expect(
-      localStorage.getItem(
-        "telemetry-workload-sort-http___example_test_7100-robots_example_face_model_yaml",
-      ),
-    ).toBe("unique_name");
+    expect(tree.container.querySelector("[data-testid='persisted-state']")?.textContent).toContain(
+      '"workloadSortKey":"unique_name"'
+    );
 
     const reorderedRows = Array.from(
       tree.container.querySelectorAll("[data-testid='telemetry-workload-row']"),
@@ -203,10 +216,6 @@ describe("TelemetryModel", () => {
 
   it("uses routed push-stats URLs and avoids overlapping poll fetches", async () => {
     vi.useFakeTimers();
-    localStorage.setItem(
-      "telemetry-expanded-http___launcher_test_api_telemetry-gateway_models_face",
-      "true"
-    );
 
     useTelemetryStream.mockReturnValue({
       model: {
@@ -238,7 +247,7 @@ describe("TelemetryModel", () => {
           telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
-        index={10}
+        persistedState={{ isExpanded: true }}
       />
     );
 

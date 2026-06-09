@@ -37,6 +37,13 @@ type WorkloadSortKey =
   | "memory_static"
   | "memory_dynamic";
 
+export type { WorkloadSortKey };
+
+export type TelemetryModelPersistedState = {
+  isExpanded?: boolean;
+  workloadSortKey?: WorkloadSortKey;
+};
+
 const WORKLOAD_SORT_OPTIONS: ReadonlyArray<{
   value: WorkloadSortKey;
   label: string;
@@ -85,73 +92,36 @@ function compareWorkloads(
  * Renders a collapsible telemetry view for a single engine model.
  *
  * When expanded, subscribes to the model's telemetry stream, displays process and workloads
- * memory usage, and renders a table of workload telemetry. Expansion state is persisted
- * to localStorage (when available) and defaults to open for the first four models.
+ * memory usage, and renders a table of workload telemetry. Expansion state defaults to
+ * collapsed when no panel-owned state has been saved yet.
  *
  * @param model - The engine model to display telemetry for.
- * @param index - The zero-based index of this model in the list; used to determine the default expanded state.
  * @returns The rendered telemetry UI for the provided model.
  */
 export function TelemetryModel({
   model,
-  index,
+  persistedState,
+  onPersistedStateChange,
 }: {
   model: EngineModel;
-  index: number;
+  persistedState?: TelemetryModelPersistedState;
+  onPersistedStateChange?: (
+    updater:
+      | TelemetryModelPersistedState
+      | ((
+          current: TelemetryModelPersistedState
+        ) => TelemetryModelPersistedState)
+  ) => void;
 }) {
   const MAX_UI_SAMPLE_RATE_HZ = 10;
-  const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
-  const storageKey = `telemetry-expanded-${urlToId(model.instanceURL)}`;
-  const workloadSortKeyStorageKey = `telemetry-workload-sort-${modelStorageId}`;
-  const [isExpanded, setIsExpanded] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved !== null) return saved === "true";
-    } catch {
-      // Storage may be unavailable (e.g., hardened Electron contexts)
-    }
-    return index < 4; // default-open first 4 models
-  });
-  const [workloadSortKey, setWorkloadSortKey] = useState<WorkloadSortKey>(() => {
-    try {
-      const saved = localStorage.getItem(workloadSortKeyStorageKey);
-      if (
-        saved === "none" ||
-        saved === "unique_name" ||
-        saved === "workload_type" ||
-        saved === "memory_total" ||
-        saved === "memory_static" ||
-        saved === "memory_dynamic"
-      ) {
-        return saved;
-      }
-    } catch {
-      // Storage may be unavailable (e.g., hardened Electron contexts)
-    }
-    return "none";
-  });
+  const isExpanded = persistedState?.isExpanded ?? false;
+  const workloadSortKey = persistedState?.workloadSortKey ?? "none";
   const telemetryPushRateHz = model.telemetryPushRateHz;
   const effectiveSampleRateHz = telemetryPushRateHz ?? 20;
   const uiSampleRateHz = Math.max(
     1,
     Math.min(effectiveSampleRateHz, MAX_UI_SAMPLE_RATE_HZ)
   );
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, String(isExpanded));
-    } catch {
-      // ignore storage failures so UI keeps working
-    }
-  }, [isExpanded, storageKey]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(workloadSortKeyStorageKey, workloadSortKey);
-    } catch {
-      // ignore storage failures so UI keeps working
-    }
-  }, [workloadSortKey, workloadSortKeyStorageKey]);
 
   const { model: telemetryModel, error } = useTelemetryStream(
     model.instanceURL,
@@ -331,7 +301,11 @@ export function TelemetryModel({
     return map;
   }, [model.expectedWorkloads]);
 
-  const handleToggle = () => setIsExpanded((prev) => !prev);
+  const handleToggle = () =>
+    onPersistedStateChange?.((current) => ({
+      ...current,
+      isExpanded: !isExpanded,
+    }));
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
   const stopInputPropagation = (e: React.SyntheticEvent) => e.stopPropagation();
   const engineClockText = engineClock
@@ -373,7 +347,10 @@ export function TelemetryModel({
                   className={styles.telemetryTableControlSelect}
                   value={workloadSortKey}
                   onChange={(e) =>
-                    setWorkloadSortKey(e.target.value as WorkloadSortKey)
+                    onPersistedStateChange?.((current) => ({
+                      ...current,
+                      workloadSortKey: e.target.value as WorkloadSortKey,
+                    }))
                   }
                   onClick={stopInputPropagation}
                   onFocus={stopInputPropagation}

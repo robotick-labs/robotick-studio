@@ -1,6 +1,9 @@
 import React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const fetchProjectSettingsDataMock = vi.hoisted(() => vi.fn());
 
@@ -24,6 +27,13 @@ import {
   loadInitialEditorRegistryState,
   useEditorRegistry,
 } from "../../../renderer/services/EditorRegistry";
+
+const externalAnimationPluginInstalled = existsSync(
+  path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../../../robotick-animation/studio/plugins/animation-editor/plugin.json"
+  )
+);
 
 function RegistryProbe() {
   const { listEditorEntries } = useEditorRegistry();
@@ -105,6 +115,30 @@ describe("EditorRegistry plugin discovery", () => {
     );
     expect(screen.getByTestId("editor-ids").textContent).toContain("remote-control");
     expect(screen.getByTestId("editor-ids").textContent).not.toContain("animation-editor");
+  });
+
+  it("exposes external plugin editors when the project declares an installed plugin source", async () => {
+    fetchProjectSettingsDataMock.mockResolvedValue({
+      tooling: {
+        studio_plugins: [{ id: "robotick-animation" }],
+      },
+    });
+
+    render(
+      <EditorRegistryProvider>
+        <RegistryProbe />
+      </EditorRegistryProvider>
+    );
+
+    await waitFor(() => expect(fetchProjectSettingsDataMock).toHaveBeenCalled());
+    await waitFor(() => {
+      const editorIds = screen.getByTestId("editor-ids").textContent ?? "";
+      if (externalAnimationPluginInstalled) {
+        expect(editorIds).toContain("animation-editor");
+        return;
+      }
+      expect(editorIds).not.toContain("animation-editor");
+    });
   });
 
   it("loads bootstrapped project settings from the launcher service", async () => {

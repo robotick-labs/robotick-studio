@@ -4,15 +4,22 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useLauncherService } from "./LauncherService";
+import type {
+  ProjectSelectionIssue,
+  ProjectSelectionResult,
+} from "./launcher-interface";
 
 export type ProjectContextValue = {
   projectPath: string;
   launcherProfile: string;
   setProjectPath: (path: string) => void;
+  selectProjectPath: (path: string) => Promise<ProjectSelectionResult>;
   setLauncherProfile: (profile: string) => void;
+  bootstrapIssue: ProjectSelectionIssue | null;
 };
 
 const ProjectContext = createContext<ProjectContextValue | undefined>(undefined);
@@ -25,19 +32,56 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [launcherProfile, setLauncherProfileState] = useState(
     () => launcherService.getLauncherProfile() ?? "local:ALL"
   );
+  const [bootstrapIssue, setBootstrapIssue] =
+    useState<ProjectSelectionIssue | null>(null);
+  const selectionVersionRef = useRef(0);
 
   useEffect(
-    () => launcherService.onProjectChanged(setProjectPathState),
+    () =>
+      launcherService.onProjectChanged((path) => {
+        selectionVersionRef.current += 1;
+        setProjectPathState(path);
+      }),
+    [launcherService]
+  );
+  useEffect(
+    () =>
+      launcherService.onProjectSelectionStateChanged((state) => {
+        selectionVersionRef.current += 1;
+        setProjectPathState(state.currentProjectPath);
+        setBootstrapIssue(state.bootstrapIssue);
+      }),
     [launcherService]
   );
   useEffect(
     () => launcherService.onLauncherProfileChanged(setLauncherProfileState),
     [launcherService]
   );
+  useEffect(() => {
+    const versionAtRequest = selectionVersionRef.current;
+    void launcherService.getProjectSelectionState().then((state) => {
+      if (selectionVersionRef.current !== versionAtRequest) {
+        return;
+      }
+      setProjectPathState(state.currentProjectPath);
+      setBootstrapIssue(state.bootstrapIssue);
+    });
+  }, [launcherService]);
 
   const setProjectPath = useCallback((path: string) => {
+    selectionVersionRef.current += 1;
     setProjectPathState(path);
     launcherService.setProjectPath(path);
+  }, [launcherService]);
+
+  const selectProjectPath = useCallback(async (path: string) => {
+    selectionVersionRef.current += 1;
+    const result = await launcherService.requestProjectSelection(path);
+    if (result.accepted) {
+      setProjectPathState(result.currentProjectPath);
+      setBootstrapIssue(null);
+    }
+    return result;
   }, [launcherService]);
 
   const setLauncherProfile = useCallback((profile: string) => {
@@ -50,9 +94,18 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       projectPath,
       launcherProfile,
       setProjectPath,
+      selectProjectPath,
       setLauncherProfile,
+      bootstrapIssue,
     }),
-    [launcherProfile, projectPath, setLauncherProfile, setProjectPath]
+    [
+      bootstrapIssue,
+      launcherProfile,
+      projectPath,
+      selectProjectPath,
+      setLauncherProfile,
+      setProjectPath,
+    ]
   );
 
   return (

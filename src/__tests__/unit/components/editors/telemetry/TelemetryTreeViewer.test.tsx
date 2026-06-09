@@ -8,7 +8,8 @@ import type {
   ITelemetryStruct,
   ITelemetryWorkload,
 } from "../../../../../renderer/data-sources/telemetry";
-import { FloatingPanelsScopeProvider } from "../../../../../renderer/components/workspaces/floating-panels";
+import { FloatingPanelsScopeProvider } from "../../../../../renderer/components/workbenches/floating-panels";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 const telemetryModel = vi.hoisted(() => ({
   current: null as ITelemetryModel | null,
@@ -109,9 +110,30 @@ async function settle() {
 }
 
 function renderViewer(root: ReturnType<typeof createRoot>) {
+  function TestPanelHost({ children }: { children: React.ReactNode }) {
+    const [settings, setSettings] = React.useState<Record<string, unknown>>({});
+
+    return (
+      <PanelInstanceProvider
+        panelId="test-panel"
+        workbenchId="test-workbench"
+        editorId="telemetry-tree"
+        settings={settings}
+        setSettings={setSettings}
+        updateSettings={(partial) =>
+          setSettings((current) => ({ ...current, ...partial }))
+        }
+      >
+        {children}
+      </PanelInstanceProvider>
+    );
+  }
+
   root.render(
     <FloatingPanelsScopeProvider scope="test-floating-panels">
-      <TelemetryTreeViewer />
+      <TestPanelHost>
+        <TelemetryTreeViewer />
+      </TestPanelHost>
     </FloatingPanelsScopeProvider>
   );
 }

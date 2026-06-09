@@ -4,6 +4,7 @@ import { Project } from "../../data-sources/launcher";
 const useProjectContext = Project.Context.use;
 const useProjectSettingsList = Project.Hooks.useSettingsList;
 const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
+const useProjectLockStatuses = Project.Hooks.useLockStatuses;
 import styles from "./styles/ProjectPicker.module.css";
 
 const ADD_PROJECT_VALUE = "__add__";
@@ -14,23 +15,45 @@ function getBasename(filePath: string) {
   return parts[parts.length - 1] || filePath;
 }
 
+function normalizePath(filePath: string) {
+  return filePath.trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function stripProjectYamlSuffix(filePath: string) {
+  return normalizePath(filePath).replace(/\.project\.ya?ml$/i, "");
+}
+
+function pathsReferToSameProject(left: string, right: string) {
+  const normalizedLeft = stripProjectYamlSuffix(left);
+  const normalizedRight = stripProjectYamlSuffix(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  return normalizedLeft === normalizedRight;
+}
+
 export function ProjectPicker() {
   const { projectPath } = useProjectContext();
   const { projects, loading, error } = useProjectSettingsList(5000);
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
+  const selectedProject =
+    projects.find((project) => pathsReferToSameProject(project.path, projectPath)) ??
+    null;
 
   const options = useMemo(() => {
-    const knownPaths = new Set(projects.map((p) => p.path));
     const list = [...projects];
-    if (projectPath && !knownPaths.has(projectPath)) {
+    if (projectPath && !selectedProject) {
       list.unshift({
         path: projectPath,
         name: getBasename(projectPath),
       });
     }
     return list;
-  }, [projectPath, projects]);
+  }, [projectPath, projects, selectedProject]);
+  const { statusesByPath } = useProjectLockStatuses(
+    options.map((project) => project.path)
+  );
 
   function handleChange(value: string) {
     if (value === ADD_PROJECT_VALUE) {
@@ -40,12 +63,7 @@ export function ProjectPicker() {
     requestProjectChange(value);
   }
 
-  const selectValue =
-    projectPath && options.some((project) => project.path === projectPath)
-      ? projectPath
-      : options.length > 0
-        ? options[0].path
-        : "";
+  const selectValue = selectedProject?.path || options[0]?.path || "";
 
   return (
     <>
@@ -62,7 +80,7 @@ export function ProjectPicker() {
 
         {options.map((project) => (
           <option key={project.path} value={project.path}>
-            {project.name}
+            {formatProjectOptionLabel(project.name, statusesByPath[project.path])}
           </option>
         ))}
 
@@ -72,4 +90,25 @@ export function ProjectPicker() {
       {confirmationDialog}
     </>
   );
+}
+
+function formatProjectOptionLabel(
+  name: string,
+  lockStatus:
+    | {
+        state: "available" | "current" | "locked";
+        instanceName?: string;
+      }
+    | undefined
+) {
+  if (!lockStatus || lockStatus.state === "available") {
+    return name;
+  }
+  if (lockStatus.state === "current") {
+    return name;
+  }
+  if (lockStatus.instanceName) {
+    return `${name} [Locked: ${lockStatus.instanceName}]`;
+  }
+  return `${name} [Locked]`;
 }

@@ -1,21 +1,84 @@
 import React, { useEffect, useMemo } from "react";
 import { RcSubtitlesOverlay } from "./components/RcSubtitlesOverlay";
+import type { RcSubtitlesPersistedState } from "./components/RcSubtitlesOverlay";
 import RemoteControlsPanel from "./components/remote-controls/RemoteControlsPanel";
+import type { SelectedModesState } from "./components/remote-controls/RemoteControlsPanel";
 import {
   Launcher,
   Project,
   ProjectData,
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelSettings,
   usePanelInstance,
   viewer,
 } from "./studio-host";
 import type { RcModuleDescriptor } from "./studio-host";
 import styles from "./styles/RemoteControlPage.module.css";
 
-export default function RemoteControlPage() {
+type RemoteControlPanelSettings = {
+  selectedStream?: string;
+  selectedModes?: SelectedModesState;
+  subtitles?: RcSubtitlesPersistedState;
+};
+
+export const remoteControlPagePersistence =
+  definePanelPersistence<RemoteControlPanelSettings>({
+    schemaVersion: 1,
+    defaults: {},
+    sanitize(value) {
+      const input =
+        value && typeof value === "object"
+          ? (value as RemoteControlPanelSettings)
+          : {};
+      const selectedModes =
+        input.selectedModes && typeof input.selectedModes === "object"
+          ? Object.fromEntries(
+              Object.entries(input.selectedModes).filter(
+                ([, modeId]) => typeof modeId === "string",
+              ),
+            )
+          : undefined;
+      const positionNormInput =
+        input.subtitles?.positionNorm &&
+        typeof input.subtitles.positionNorm === "object"
+          ? input.subtitles.positionNorm
+          : undefined;
+      const positionNorm =
+        typeof positionNormInput?.x === "number" &&
+        typeof positionNormInput?.y === "number"
+          ? {
+              x: Math.min(1, Math.max(0, positionNormInput.x)),
+              y: Math.min(1, Math.max(0, positionNormInput.y)),
+            }
+          : undefined;
+      const subtitles =
+        input.subtitles && typeof input.subtitles === "object"
+          ? {
+              positionNorm,
+              collapsed:
+                typeof input.subtitles.collapsed === "boolean"
+                  ? input.subtitles.collapsed
+                  : undefined,
+            }
+          : undefined;
+      return {
+        selectedStream:
+          typeof input.selectedStream === "string"
+            ? input.selectedStream
+            : undefined,
+        selectedModes,
+        subtitles,
+      };
+    },
+  });
+
+export function RemoteControlPage() {
   const { projectPath } = Project.Context.use();
   const { rcModules } = ProjectData.use();
   const { status } = Launcher.Context.use();
   const panelInstance = usePanelInstance();
+  const [settings, updateSettings] = usePanelSettings(remoteControlPagePersistence);
   const modules = rcModules.data;
 
   const viewerSelectionCache = React.useRef<{
@@ -40,15 +103,20 @@ export default function RemoteControlPage() {
   const viewerInstanceId = React.useRef<number | null>(null);
 
   useEffect(() => {
+    const disposeCurrentViewer = (reason: string) => {
+      if (viewerInstanceId.current == null) {
+        return;
+      }
+      void viewer.uninit(viewerInstanceId.current, reason);
+      viewerInstanceId.current = null;
+    };
     const { module: viewerModule, key: viewerKey } = viewerSelection;
     if (status !== "running") {
-      viewerInstanceId.current = null;
-      void viewer.uninit(undefined, `launcher status ${status}`);
+      disposeCurrentViewer(`launcher status ${status}`);
       return;
     }
     if (!viewerModule) {
-      viewerInstanceId.current = null;
-      void viewer.uninit(undefined, "no viewer module configured");
+      disposeCurrentViewer("no viewer module configured");
       return;
     }
 
@@ -65,8 +133,11 @@ export default function RemoteControlPage() {
           ...(viewerModule.config ?? {}),
           viewerType,
           projectPath,
-          workspaceId: panelInstance.workspaceId,
+          workbenchId: panelInstance.workbenchId,
           panelId: panelInstance.panelId,
+          selectedStream: settings.selectedStream,
+          onSelectedStreamChange: (selectedStream: string) =>
+            updateSettings({ selectedStream }),
           container: viewerContainerRef.current ?? undefined,
         });
         if (!active) {
@@ -98,9 +169,11 @@ export default function RemoteControlPage() {
     };
   }, [
     panelInstance.panelId,
-    panelInstance.workspaceId,
+    panelInstance.workbenchId,
     projectPath,
+    settings.selectedStream,
     status,
+    updateSettings,
     viewerSelection.key,
   ]);
 
@@ -143,10 +216,20 @@ export default function RemoteControlPage() {
     <div id="rc-ui" className={styles.rcUi}>
       <div ref={viewerContainerRef} className={styles.viewerContainer} />
       {controlsModule ? (
-        <RemoteControlsPanel config={controlsModule.config} />
+        <RemoteControlsPanel
+          config={controlsModule.config}
+          selectedModes={settings.selectedModes}
+          onSelectedModesChange={(selectedModes) =>
+            updateSettings({ selectedModes })
+          }
+        />
       ) : null}
       {subtitlesModule ? (
-        <RcSubtitlesOverlay config={subtitlesModule.config} />
+        <RcSubtitlesOverlay
+          config={subtitlesModule.config}
+          persistedState={settings.subtitles}
+          onPersistedStateChange={(subtitles) => updateSettings({ subtitles })}
+        />
       ) : null}
       {rcModules.error ? (
         <div
@@ -158,3 +241,10 @@ export default function RemoteControlPage() {
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: RemoteControlPage,
+  persistence: remoteControlPagePersistence,
+});
+
+export default contribution;

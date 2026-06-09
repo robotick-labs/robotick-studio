@@ -9,8 +9,7 @@ import { ProjectData } from "../../../../data-sources/launcher";
 import {
   useTelemetryStream,
 } from "../../../../data-sources/telemetry";
-import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
-import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
+import { useFloatingPanelsScope } from "../../../workbenches/floating-panels";
 import {
   ITelemetryField,
   ITelemetryModel,
@@ -18,15 +17,12 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
-import panelMenuStyles from "../../../workspaces/PanelLayout.module.css";
-import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
+import panelMenuStyles from "../../../workbenches/PanelLayout.module.css";
 import {
-  buildNamespacedKey,
-  createPanelInstanceId,
-  getFirstAvailableValue,
-  removeStorageValue,
-  setStorageValue,
-} from "../../../../services/storage";
+  defineStudioPanel,
+  definePanelPersistence,
+  usePanelSettings,
+} from "../../../workbenches/PanelInstanceContext";
 import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import {
   deriveWorkloadStats,
@@ -56,6 +52,7 @@ type PanelSettings = {
   workloadName?: string;
   fieldPath?: string;
   dataKind?: DataKindSelection;
+  expandedPaths?: ExpandedPathsPreference;
 };
 
 const SECTION_KINDS: SectionKind[] = [
@@ -81,118 +78,73 @@ type TelemetryTreeFilterTarget = {
   fieldFilter: string;
 };
 
-const TREE_STORAGE_KEYS = {
-  modelId: "robotick-studio.telemetry.tree.modelId",
-  model: "robotick-studio.telemetry.tree.model",
-  workloadId: "robotick-studio.telemetry.tree.workloadId",
-  workload: "robotick-studio.telemetry.tree.workload",
-  field: "robotick-studio.telemetry.tree.field",
-  dataKind: "robotick-studio.telemetry.tree.dataKind",
-  expandedPaths: "robotick-studio.telemetry.tree.expandedPaths",
-};
-
 type ExpandedPathsPreference = {
   paths: string[];
 };
 
-function parseExpandedPathsPreference(
-  rawValue: string | undefined
-): ExpandedPathsPreference | null {
-  if (!rawValue) return null;
-  try {
-    const parsed = JSON.parse(rawValue) as
-      | Partial<ExpandedPathsPreference>
-      | string[];
-    // Current format.
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      Array.isArray(parsed.paths)
-    ) {
-      const paths = parsed.paths.filter(
-        (path): path is string => typeof path === "string"
-      );
-      return { paths };
-    }
-    // Legacy format fallback (raw array of paths).
-    if (Array.isArray(parsed)) {
-      const paths = parsed.filter(
-        (path): path is string => typeof path === "string"
-      );
-      return { paths };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+export const telemetryTreeViewerPersistence =
+  definePanelPersistence<PanelSettings>({
+    schemaVersion: 1,
+    defaults: {
+      fieldPath: "",
+      dataKind: "outputs",
+      expandedPaths: { paths: [] },
+    },
+    sanitize(value) {
+      const input =
+        value && typeof value === "object"
+          ? (value as Partial<PanelSettings>)
+          : {};
 
-function serializeExpandedPathsPreference(
-  preference: ExpandedPathsPreference
-): string {
-  return JSON.stringify(preference);
-}
+      return {
+        telemetryBaseUrl:
+          typeof input.telemetryBaseUrl === "string"
+            ? input.telemetryBaseUrl
+            : undefined,
+        modelId: typeof input.modelId === "string" ? input.modelId : undefined,
+        modelPath:
+          typeof input.modelPath === "string" ? input.modelPath : undefined,
+        modelName:
+          typeof input.modelName === "string" ? input.modelName : undefined,
+        workloadId:
+          typeof input.workloadId === "string" ? input.workloadId : undefined,
+        workloadName:
+          typeof input.workloadName === "string"
+            ? input.workloadName
+            : undefined,
+        fieldPath:
+          typeof input.fieldPath === "string" ? input.fieldPath : "",
+        dataKind:
+          input.dataKind === "all" ||
+          input.dataKind === "config" ||
+          input.dataKind === "inputs" ||
+          input.dataKind === "outputs" ||
+          input.dataKind === "stats"
+            ? input.dataKind
+            : "outputs",
+        expandedPaths: Array.isArray(input.expandedPaths?.paths)
+          ? {
+              paths: input.expandedPaths.paths.filter(
+                (path): path is string => typeof path === "string"
+              ),
+            }
+          : { paths: [] },
+      };
+    },
+  });
 
 /**
  * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
  *
- * Persists per-panel and per-workspace viewer preferences and uses the selected telemetry model to populate the displayed tree.
+ * Persists per-panel and per-workbench viewer preferences and uses the selected telemetry model to populate the displayed tree.
  *
  * @returns The React element tree for the telemetry tree viewer.
  */
-export default function TelemetryTreeViewer() {
-  const panel = useOptionalFloatingPanel();
+export function TelemetryTreeViewer() {
   const floatingPanelScope = useFloatingPanelsScope();
-  const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
-  if (!fallbackPanelIdRef.current) {
-    fallbackPanelIdRef.current = createPanelInstanceId();
-  }
-  const panelInstanceId = panelInstance.panelId ?? fallbackPanelIdRef.current;
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-  const buildPanelKey = useCallback(
-    (base: string) =>
-      buildNamespacedKey(base, workspaceIdentifier, panelInstanceId),
-    [workspaceIdentifier, panelInstanceId]
+  const [settings, updateSettings] = usePanelSettings<PanelSettings>(
+    telemetryTreeViewerPersistence
   );
-  const readPreference = useCallback(
-    (base: string) => {
-      const primaryKey = buildPanelKey(base);
-      const { value, key } = getFirstAvailableValue([primaryKey, base]);
-      if (value !== null && key && key !== primaryKey) {
-        setStorageValue(primaryKey, value);
-      }
-      return value;
-    },
-    [buildPanelKey]
-  );
-  const persistPreference = useCallback(
-    (base: string, value: string | undefined) => {
-      const key = buildPanelKey(base);
-      if (value === undefined) {
-        removeStorageValue(key);
-      } else {
-        setStorageValue(key, value);
-      }
-    },
-    [buildPanelKey]
-  );
-  const storedLocalSettings = useMemo<PanelSettings>(
-    () => ({
-      modelId: readPreference(TREE_STORAGE_KEYS.modelId) ?? undefined,
-      modelPath: readPreference(TREE_STORAGE_KEYS.model) ?? undefined,
-      workloadId: readPreference(TREE_STORAGE_KEYS.workloadId) ?? undefined,
-      workloadName: readPreference(TREE_STORAGE_KEYS.workload) ?? undefined,
-      fieldPath: readPreference(TREE_STORAGE_KEYS.field) ?? undefined,
-      dataKind: (readPreference(TREE_STORAGE_KEYS.dataKind) ?? undefined) as
-        | PanelSettings["dataKind"]
-        | undefined,
-    }),
-    [readPreference]
-  );
-  const [localSettings, setLocalSettings] =
-    useState<PanelSettings>(storedLocalSettings);
   const [treeContextMenu, setTreeContextMenu] = useState<{
     x: number;
     y: number;
@@ -217,49 +169,6 @@ export default function TelemetryTreeViewer() {
       return { ...prev, [path]: next };
     });
   }, []);
-  const storedExpandedPathsPreference = useMemo(
-    () =>
-      parseExpandedPathsPreference(
-        readPreference(TREE_STORAGE_KEYS.expandedPaths) ?? undefined
-      ),
-    [readPreference]
-  );
-  const persistLocalSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if ("modelId" in next) {
-        persistPreference(TREE_STORAGE_KEYS.modelId, next.modelId);
-      }
-      if ("modelPath" in next) {
-        persistPreference(TREE_STORAGE_KEYS.model, next.modelPath);
-      }
-      if ("workloadId" in next) {
-        persistPreference(TREE_STORAGE_KEYS.workloadId, next.workloadId);
-      }
-      if ("workloadName" in next) {
-        persistPreference(TREE_STORAGE_KEYS.workload, next.workloadName);
-      }
-      if ("fieldPath" in next) {
-        persistPreference(TREE_STORAGE_KEYS.field, next.fieldPath);
-      }
-      if ("dataKind" in next) {
-        persistPreference(TREE_STORAGE_KEYS.dataKind, next.dataKind);
-      }
-    },
-    [persistPreference]
-  );
-  const settings =
-    (panel?.settings as PanelSettings | undefined) ?? localSettings;
-  const updateSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if (panel) {
-        panel.updateSettings(next);
-      } else {
-        setLocalSettings((prev) => ({ ...prev, ...next }));
-      }
-      persistLocalSettings(next);
-    },
-    [panel, persistLocalSettings]
-  );
   const { projectModels } = ProjectData.use();
   const migratedSettings = useMemo(
     () => migrateSelectionToStableIds(settings, projectModels.data),
@@ -399,8 +308,9 @@ export default function TelemetryTreeViewer() {
   const targetWorkload = selectedWorkload
     ? workloads.find((workload) => workload.name === selectedWorkload.runtimeName)
     : undefined;
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    () => new Set<string>(storedExpandedPathsPreference?.paths ?? [])
+  const expandedNodes = useMemo(
+    () => new Set<string>(settings.expandedPaths?.paths ?? []),
+    [settings.expandedPaths]
   );
 
   useEffect(() => {
@@ -413,15 +323,6 @@ export default function TelemetryTreeViewer() {
       });
     }
   }, [migratedSettings.modelId, migratedSettings.modelPath, selectedModel, updateSettings]);
-
-  useEffect(() => {
-    persistPreference(
-      TREE_STORAGE_KEYS.expandedPaths,
-      serializeExpandedPathsPreference({
-        paths: Array.from(expandedNodes),
-      })
-    );
-  }, [expandedNodes, persistPreference]);
 
   useEffect(() => {
     if (
@@ -490,16 +391,18 @@ export default function TelemetryTreeViewer() {
   }, [displayRevision]);
 
   const toggleNode = useCallback((path: string) => {
-    setExpandedNodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
+    const next = new Set(expandedNodes);
+    if (next.has(path)) {
+      next.delete(path);
+    } else {
+      next.add(path);
+    }
+    updateSettings({
+      expandedPaths: {
+        paths: Array.from(next),
+      },
     });
-  }, []);
+  }, [expandedNodes, updateSettings]);
 
   const handleFieldTextContextMenu = useCallback(
     (
@@ -527,11 +430,6 @@ export default function TelemetryTreeViewer() {
     const descriptor = modelOptions.find(
       (model) => model.modelPath === modelPath
     );
-    setExpandedNodes(new Set());
-    persistPreference(
-      TREE_STORAGE_KEYS.expandedPaths,
-      serializeExpandedPathsPreference({ paths: [] })
-    );
     updateSettings({
       modelId:
         typeof descriptor?.data === "object" &&
@@ -545,6 +443,7 @@ export default function TelemetryTreeViewer() {
       workloadId: "",
       workloadName: "",
       fieldPath: "",
+      expandedPaths: { paths: [] },
     });
   };
 
@@ -689,7 +588,7 @@ export default function TelemetryTreeViewer() {
               <TelemetryFieldTree
                 fields={rootNodes}
                 telemetryBaseUrl={telemetryBaseUrl}
-                panelScope={panel?.scope ?? floatingPanelScope}
+                panelScope={floatingPanelScope}
                 modelName={selectedModel?.modelName}
                 fieldConnectionHints={fieldConnectionHints}
                 expandedPaths={expandedNodes}
@@ -721,6 +620,13 @@ export default function TelemetryTreeViewer() {
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: TelemetryTreeViewer,
+  persistence: telemetryTreeViewerPersistence,
+});
+
+export default TelemetryTreeViewer;
 
 function useThrottledRevision(revision: number, intervalMs: number): number {
   const [displayRevision, setDisplayRevision] = useState(revision);

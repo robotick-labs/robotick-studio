@@ -26,7 +26,36 @@ vi.mock("../../../../../renderer/data-sources/launcher", () => ({
 }));
 
 import TerminalPage from "../../../../../renderer/components/editors/terminal/TerminalPage";
-import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
+
+function PanelHost({
+  panelId,
+  workbenchId,
+  children,
+}: {
+  panelId: string;
+  workbenchId: string;
+  children: React.ReactNode;
+}) {
+  const [settings, setSettings] = React.useState<Record<string, unknown>>({});
+
+  return (
+    <>
+      <PanelInstanceProvider
+        panelId={panelId}
+        workbenchId={workbenchId}
+        settings={settings}
+        setSettings={setSettings}
+        updateSettings={(partial) =>
+          setSettings((current) => ({ ...current, ...partial }))
+        }
+      >
+        {children}
+      </PanelInstanceProvider>
+      <div data-testid={`settings-${panelId}`}>{JSON.stringify(settings)}</div>
+    </>
+  );
+}
 
 function setInputValue(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
@@ -54,12 +83,12 @@ describe("TerminalPage panel settings", () => {
     await act(async () => {
       root.render(
         <>
-          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+          <PanelHost panelId="panel-a" workbenchId="workbench">
             <TerminalPage />
-          </PanelInstanceProvider>
-          <PanelInstanceProvider panelId="panel-b" workspaceId="workspace">
+          </PanelHost>
+          <PanelHost panelId="panel-b" workbenchId="workbench">
             <TerminalPage />
-          </PanelInstanceProvider>
+          </PanelHost>
         </>
       );
       await Promise.resolve();
@@ -78,15 +107,16 @@ describe("TerminalPage panel settings", () => {
     expect(filters[0].value).toBe("alpha");
     expect(filters[1].value).toBe("");
     expect(
-      window.localStorage.getItem(
-        "robotick-studio.terminal.panel.workspace.panel-a"
-      )
+      container.querySelector("[data-testid='settings-panel-a']")?.textContent
     ).toContain('"filter":"alpha"');
     expect(
+      container.querySelector("[data-testid='settings-panel-b']")?.textContent
+    ).toBe("{}");
+    expect(
       window.localStorage.getItem(
-        "robotick-studio.terminal.panel.workspace.panel-b"
+        "robotick-studio.terminal.panel.workbench.panel-a"
       )
-    ).toContain('"filter":""');
+    ).toBeNull();
 
     act(() => {
       root.unmount();
@@ -99,9 +129,9 @@ describe("TerminalPage panel settings", () => {
 
     await act(async () => {
       root.render(
-        <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+        <PanelHost panelId="panel-a" workbenchId="workbench">
           <TerminalPage />
-        </PanelInstanceProvider>
+        </PanelHost>
       );
       await Promise.resolve();
     });

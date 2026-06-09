@@ -1,8 +1,17 @@
 import React, { createContext, useContext } from "react";
-import workspacesSource from "../config/app-workspaces.yaml?raw";
 import editorsSource from "../config/app-editors.yaml?raw";
-
-type WorkspaceGroup = "project-select" | "dev" | "test" | "help";
+import { useProjectContext } from "../data-sources/launcher/internal/ProjectContext";
+import {
+  createSeedStudioPersistenceModel,
+  getBrowserStudioPersistenceStore,
+  getSeedStudioWorkbenches,
+  loadStudioPersistence,
+  type StudioPersistenceModel,
+  type StudioWorkbenchGroup,
+  type StudioWorkbenchResource,
+  type StudioWindowResource,
+} from "./studio-persistence";
+import { getWindowScope } from "../utils/windowSession";
 
 export type EditorConfig = {
   id: string;
@@ -10,17 +19,20 @@ export type EditorConfig = {
   module: string;
 };
 
-export type WorkspaceConfig = {
+export type WorkbenchConfig = {
   id: string;
   path: string;
   label: string;
-  group: WorkspaceGroup;
+  group: StudioWorkbenchGroup;
   editor: string;
 };
 
 export type AppConfig = {
-  workspaces: WorkspaceConfig[];
+  workbenches: WorkbenchConfig[];
+  windows: StudioWindowResource[];
   editors: EditorConfig[];
+  loading: boolean;
+  source: "canonical" | "seed";
 };
 
 function parseValue(raw: string): string {
@@ -89,39 +101,131 @@ function parseYamlEditors(raw: string): EditorConfig[] {
   });
 }
 
-function parseYamlWorkspaces(raw: string): WorkspaceConfig[] {
-  const entries = parseYamlList(raw, "workspaces");
-  const workspaces: WorkspaceConfig[] = [];
-  for (const entry of entries) {
-    const workspace = entry as Partial<WorkspaceConfig>;
-    const required: (keyof WorkspaceConfig)[] = [
-      "id",
-      "path",
-      "label",
-      "group",
-      "editor",
-    ];
-    for (const key of required) {
-      if (!workspace[key]) {
-        throw new Error(`Workspace '${workspace.id ?? "unknown"}' missing ${key}`);
-      }
-    }
-    workspaces.push(workspace as WorkspaceConfig);
+const EditorsConfig = parseYamlEditors(editorsSource);
+
+function toWorkbenchConfig(
+  workbench: StudioWorkbenchResource,
+  seedFallback: StudioWorkbenchResource | undefined
+): WorkbenchConfig | null {
+  const path = workbench.path ?? seedFallback?.path ?? `/${workbench.id}`;
+  const group = workbench.group ?? seedFallback?.group;
+  const editor = workbench.defaultEditorId ?? seedFallback?.defaultEditorId;
+  if (!path || !group || !editor) {
+    return null;
   }
-  return workspaces;
+  return {
+    id: workbench.id,
+    path,
+    label: workbench.label || seedFallback?.label || workbench.id,
+    group,
+    editor,
+  };
 }
 
-function loadConfig(): AppConfig {
-  const workspaces = parseYamlWorkspaces(workspacesSource);
-  const editors = parseYamlEditors(editorsSource);
-  return { workspaces, editors };
+function getDocumentWindowId(windowScope: string): string {
+  return windowScope === "primary" ? "main" : windowScope;
 }
 
-const config = loadConfig();
+function getDefaultWindows(): StudioWindowResource[] {
+  return createSeedStudioPersistenceModel().windows;
+}
 
-const AppConfigContext = createContext<AppConfig>(config);
+function getSeedWorkbenchMap(): Map<string, StudioWorkbenchResource> {
+  return new Map(
+    getSeedStudioWorkbenches().map((workbench) => [workbench.id, workbench])
+  );
+}
+
+function resolveWindowForScope(
+  model: StudioPersistenceModel,
+  windowScope: string
+): StudioWindowResource | undefined {
+  const targetWindowId = getDocumentWindowId(windowScope);
+  return (
+    model.windows.find((window) => window.id === targetWindowId) ??
+    model.windows.find((window) => window.id === "main") ??
+    model.windows[0]
+  );
+}
+
+function deriveWorkbenchConfigs(
+  model: StudioPersistenceModel,
+  windowScope: string
+): WorkbenchConfig[] {
+  const window = resolveWindowForScope(model, windowScope);
+  if (!window) {
+    return [];
+  }
+  const seedWorkbenchMap = getSeedWorkbenchMap();
+  return window.workbenches
+    .map((workbench) =>
+      toWorkbenchConfig(workbench, seedWorkbenchMap.get(workbench.id))
+    )
+    .filter((workbench): workbench is WorkbenchConfig => workbench !== null);
+}
+
+export const WorkbenchesConfig = deriveWorkbenchConfigs(
+  createSeedStudioPersistenceModel(),
+  "main"
+);
+
+const defaultConfig: AppConfig = {
+  workbenches: WorkbenchesConfig,
+  windows: getDefaultWindows(),
+  editors: EditorsConfig,
+  loading: false,
+  source: "seed",
+};
+
+const AppConfigContext = createContext<AppConfig>(defaultConfig);
 
 export function AppConfigProvider({ children }: { children: React.ReactNode }) {
+  const { projectPath } = useProjectContext();
+  const studioPersistenceStore = getBrowserStudioPersistenceStore();
+  const windowScope = getWindowScope();
+  const [config, setConfig] = React.useState<AppConfig>(defaultConfig);
+
+  const reloadConfig = React.useCallback(async () => {
+    if (!projectPath || !studioPersistenceStore) {
+      const seedModel = createSeedStudioPersistenceModel();
+      setConfig({
+        workbenches: deriveWorkbenchConfigs(seedModel, windowScope),
+        windows: seedModel.windows,
+        editors: EditorsConfig,
+        loading: false,
+        source: "seed",
+      });
+      return;
+    }
+
+    await studioPersistenceStore.ensureStudioDocument(projectPath);
+    const loaded = await loadStudioPersistence(projectPath, studioPersistenceStore);
+    setConfig({
+      workbenches: deriveWorkbenchConfigs(loaded.model, windowScope),
+      windows: loaded.model.windows,
+      editors: EditorsConfig,
+      loading: false,
+      source: loaded.source,
+    });
+  }, [projectPath, studioPersistenceStore, windowScope]);
+
+  React.useEffect(() => {
+    setConfig((current) => ({ ...current, loading: true }));
+    void reloadConfig();
+  }, [reloadConfig]);
+
+  React.useEffect(() => {
+    if (!studioPersistenceStore?.onDocumentChanged || !projectPath) {
+      return;
+    }
+    return studioPersistenceStore.onDocumentChanged((changedProjectPath) => {
+      if (changedProjectPath !== projectPath) {
+        return;
+      }
+      void reloadConfig();
+    });
+  }, [projectPath, reloadConfig, studioPersistenceStore]);
+
   return (
     <AppConfigContext.Provider value={config}>
       {children}
@@ -133,5 +237,4 @@ export const useAppConfig = (): AppConfig => {
   return useContext(AppConfigContext);
 };
 
-export const WorkspacesConfig = config.workspaces;
-export const EditorsConfig = config.editors;
+export { EditorsConfig };

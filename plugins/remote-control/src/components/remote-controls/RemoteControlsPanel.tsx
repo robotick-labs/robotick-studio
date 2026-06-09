@@ -20,14 +20,9 @@ import {
 } from "./remote-control-config";
 import styles from "../styles/RemoteControlsPanel.module.css";
 import {
-  buildNamespacedKey,
-  Project,
   ProjectData,
   type ITelemetryModel,
   type LayoutWritableInput,
-  readStorageValue,
-  setStorageValue,
-  usePanelInstance,
   useTelemetryService,
 } from "../../studio-host";
 
@@ -54,11 +49,9 @@ type PendingBaseUrlWork = {
 };
 
 type TriggerModeStateKey = `${RemoteControlTriggerName}_trigger`;
-type SelectedModesState = Partial<Record<RemoteControlStickName | TriggerModeStateKey, string>>;
-type PersistedSelectedModesState = {
-  storageKey: string;
-  selectedModes: SelectedModesState;
-};
+export type SelectedModesState = Partial<
+  Record<RemoteControlStickName | TriggerModeStateKey, string>
+>;
 
 export type RemoteControlsPanelConfig = Record<string, unknown>;
 
@@ -124,136 +117,29 @@ function buildSelectedModesDefaults(
   return selectedModes;
 }
 
-function hashString(value: string): string {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function buildSelectedModesStorageSignature(
+function sanitizeSelectedModes(
+  value: SelectedModesState | undefined,
   config: NormalizedRemoteControlsConfig
-): string {
-  const sticks = Object.fromEntries(
-    (["left", "right"] as const).map((stickName) => {
-      const stickConfig = config.sticks[stickName];
-      if (!stickConfig) {
-        return [stickName, null];
-      }
-      return [
-        stickName,
-        Object.fromEntries(
-          Object.entries(stickConfig.modes).map(([modeId, mode]) => [
-            modeId,
-            {
-              shapeTransform: mode.shapeTransform,
-              deadZone: mode.deadZone,
-              outputs: mode.outputs,
-            },
-          ])
-        ),
-      ];
-    })
-  );
-  const triggers = Object.fromEntries(
-    (["left", "right"] as const).map((triggerName) => {
-      const triggerConfig = config.triggers[triggerName];
-      if (!triggerConfig) {
-        return [triggerName, null];
-      }
-      return [
-        triggerName,
-        Object.fromEntries(
-          Object.entries(triggerConfig.modes).map(([modeId, mode]) => [
-            modeId,
-            {
-              deadZone: mode.deadZone,
-              scale: mode.scale,
-              bias: mode.bias,
-              output: mode.output,
-            },
-          ])
-        ),
-      ];
-    })
-  );
-  return hashString(JSON.stringify({ sticks, triggers }));
-}
-
-function buildSelectedModesStorageKey(
-  projectPath: string,
-  config: NormalizedRemoteControlsConfig,
-  workspaceId: string,
-  panelId: string
-): string {
-  return buildNamespacedKey(
-    "robotick.remote-controls.selected-modes",
-    projectPath || "default-project",
-    workspaceId || "workspace",
-    panelId || "default",
-    buildSelectedModesStorageSignature(config)
-  );
-}
-
-function buildLegacySelectedModesStorageKey(
-  projectPath: string,
-  config: NormalizedRemoteControlsConfig
-): string {
-  return buildNamespacedKey(
-    "robotick.remote-controls.selected-modes",
-    projectPath || "default-project",
-    buildSelectedModesStorageSignature(config)
-  );
-}
-
-function readStoredSelectedModes(
-  storageKey: string,
-  config: NormalizedRemoteControlsConfig,
-  legacyStorageKey?: string
 ): SelectedModesState {
   const defaults = buildSelectedModesDefaults(config);
-  const raw = readStorageValue(storageKey) ?? (
-    legacyStorageKey ? readStorageValue(legacyStorageKey) : null
-  );
-  if (!raw) {
-    return defaults;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<
-      Record<RemoteControlStickName | TriggerModeStateKey, unknown>
-    >;
-    const selectedModes: SelectedModesState = { ...defaults };
-    for (const stickName of ["left", "right"] as const) {
-      const savedMode = parsed[stickName];
-      const stickConfig = config.sticks[stickName];
-      if (
-        typeof savedMode === "string" &&
-        stickConfig?.modes[savedMode]
-      ) {
-        selectedModes[stickName] = savedMode;
-      }
+  const input = value ?? {};
+  const selectedModes: SelectedModesState = { ...defaults };
+  for (const stickName of ["left", "right"] as const) {
+    const savedMode = input[stickName];
+    const stickConfig = config.sticks[stickName];
+    if (typeof savedMode === "string" && stickConfig?.modes[savedMode]) {
+      selectedModes[stickName] = savedMode;
     }
-    for (const triggerName of ["left", "right"] as const) {
-      const stateKey = `${triggerName}_trigger` as const;
-      const savedMode = parsed[stateKey];
-      const triggerConfig = config.triggers[triggerName];
-      if (typeof savedMode === "string" && triggerConfig?.modes[savedMode]) {
-        selectedModes[stateKey] = savedMode;
-      }
-    }
-    return selectedModes;
-  } catch {
-    return defaults;
   }
-}
-
-function writeStoredSelectedModes(
-  storageKey: string,
-  selectedModes: SelectedModesState
-): void {
-  setStorageValue(storageKey, JSON.stringify(selectedModes));
+  for (const triggerName of ["left", "right"] as const) {
+    const stateKey = `${triggerName}_trigger` as const;
+    const savedMode = input[stateKey];
+    const triggerConfig = config.triggers[triggerName];
+    if (typeof savedMode === "string" && triggerConfig?.modes[savedMode]) {
+      selectedModes[stateKey] = savedMode;
+    }
+  }
+  return selectedModes;
 }
 
 function clonePendingWork(work: PendingBaseUrlWork): PendingBaseUrlWork {
@@ -330,15 +216,15 @@ function buildModeTooltip(
 
 export default function RemoteControlsPanel({
   config,
+  selectedModes: controlledSelectedModes,
+  onSelectedModesChange,
 }: {
   config?: RemoteControlsPanelConfig;
+  selectedModes?: SelectedModesState;
+  onSelectedModesChange?: (selectedModes: SelectedModesState) => void;
 }) {
-  const { projectPath } = Project.Context.use();
   const { findModelByName } = ProjectData.use();
   const telemetryService = useTelemetryService();
-  const panelInstance = usePanelInstance();
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-  const panelIdentifier = panelInstance.panelId ?? "default";
   const [leftAreaEl, setLeftAreaEl] = useState<HTMLDivElement | null>(null);
   const [leftKnobEl, setLeftKnobEl] = useState<HTMLDivElement | null>(null);
   const [rightAreaEl, setRightAreaEl] = useState<HTMLDivElement | null>(null);
@@ -348,57 +234,38 @@ export default function RemoteControlsPanel({
     () => normalizeRemoteControlsConfig(config),
     [config]
   );
-  const selectedModesStorageKey = useMemo(
+  const [uncontrolledSelectedModes, setUncontrolledSelectedModes] =
+    useState<SelectedModesState>(() =>
+      sanitizeSelectedModes(undefined, normalizedConfig)
+    );
+  const selectedModes = useMemo(
     () =>
-      buildSelectedModesStorageKey(
-        projectPath,
-        normalizedConfig,
-        workspaceIdentifier,
-        panelIdentifier
+      sanitizeSelectedModes(
+        controlledSelectedModes ?? uncontrolledSelectedModes,
+        normalizedConfig
       ),
-    [normalizedConfig, panelIdentifier, projectPath, workspaceIdentifier]
+    [controlledSelectedModes, normalizedConfig, uncontrolledSelectedModes]
   );
-  const legacySelectedModesStorageKey = useMemo(
-    () => buildLegacySelectedModesStorageKey(projectPath, normalizedConfig),
-    [normalizedConfig, projectPath]
-  );
-  const [persistedSelectedModes, setPersistedSelectedModes] =
-    useState<PersistedSelectedModesState>(() => ({
-      storageKey: selectedModesStorageKey,
-      selectedModes: readStoredSelectedModes(
-        selectedModesStorageKey,
-        normalizedConfig,
-        legacySelectedModesStorageKey
-      ),
-    })
-  );
-  const selectedModes = persistedSelectedModes.selectedModes;
 
   useEffect(() => {
-    setPersistedSelectedModes((current) => {
-      if (current.storageKey === selectedModesStorageKey) {
-        return current;
-      }
-      return {
-        storageKey: selectedModesStorageKey,
-        selectedModes: readStoredSelectedModes(
-          selectedModesStorageKey,
-          normalizedConfig,
-          legacySelectedModesStorageKey
-        ),
-      };
-    });
-  }, [legacySelectedModesStorageKey, normalizedConfig, selectedModesStorageKey]);
-
-  useEffect(() => {
-    if (persistedSelectedModes.storageKey !== selectedModesStorageKey) {
+    if (controlledSelectedModes !== undefined) {
       return;
     }
-    writeStoredSelectedModes(
-      selectedModesStorageKey,
-      persistedSelectedModes.selectedModes
+    setUncontrolledSelectedModes((current) =>
+      sanitizeSelectedModes(current, normalizedConfig)
     );
-  }, [persistedSelectedModes, selectedModesStorageKey]);
+  }, [controlledSelectedModes, normalizedConfig]);
+
+  const updateSelectedModes = useCallback(
+    (nextSelectedModes: SelectedModesState) => {
+      const sanitized = sanitizeSelectedModes(nextSelectedModes, normalizedConfig);
+      if (controlledSelectedModes === undefined) {
+        setUncontrolledSelectedModes(sanitized);
+      }
+      onSelectedModesChange?.(sanitized);
+    },
+    [controlledSelectedModes, normalizedConfig, onSelectedModesChange]
+  );
 
   const resolveBinding = useCallback(
     (binding: RemoteControlTargetBinding): ResolvedTargetBinding => {
@@ -1108,12 +975,9 @@ export default function RemoteControlsPanel({
           value={currentMode}
           onChange={(event) => {
             const nextMode = event.target.value;
-            setPersistedSelectedModes({
-              storageKey: selectedModesStorageKey,
-              selectedModes: {
-                ...selectedModes,
-                [stickName]: nextMode,
-              },
+            updateSelectedModes({
+              ...selectedModes,
+              [stickName]: nextMode,
             });
           }}
         >
@@ -1153,12 +1017,9 @@ export default function RemoteControlsPanel({
           value={currentMode}
           onChange={(event) => {
             const nextMode = event.target.value;
-            setPersistedSelectedModes({
-              storageKey: selectedModesStorageKey,
-              selectedModes: {
-                ...selectedModes,
-                [stateKey]: nextMode,
-              },
+            updateSelectedModes({
+              ...selectedModes,
+              [stateKey]: nextMode,
             });
           }}
         >

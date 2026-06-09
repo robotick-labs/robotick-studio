@@ -126,19 +126,39 @@ describe("RcSubtitlesOverlay", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    let persistedState:
+      | {
+          positionNorm?: { x: number; y: number };
+          collapsed?: boolean;
+        }
+      | undefined;
 
-    const renderOverlay = () => (
-      <TelemetryServiceProvider service={telemetryService as any}>
-        <TestLauncherProviders>
+    const renderOverlay = () => {
+      function Harness() {
+        const [state, setState] = React.useState(persistedState);
+        React.useEffect(() => {
+          persistedState = state;
+        }, [state]);
+        return (
           <RcSubtitlesOverlay
             config={{
               telemetryBaseUrl: "http://example",
               fieldPath: "memory.outputs.subtitle",
             }}
+            persistedState={state}
+            onPersistedStateChange={setState}
           />
-        </TestLauncherProviders>
-      </TelemetryServiceProvider>
-    );
+        );
+      }
+
+      return (
+        <TelemetryServiceProvider service={telemetryService as any}>
+          <TestLauncherProviders>
+            <Harness />
+          </TestLauncherProviders>
+        </TelemetryServiceProvider>
+      );
+    };
 
     act(() => {
       root.render(renderOverlay());

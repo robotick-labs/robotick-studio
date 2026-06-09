@@ -7,13 +7,12 @@ import {
   type ITelemetryWorkload,
   useTelemetryService,
 } from "../../../data-sources/telemetry";
-import {
-  buildNamespacedKey,
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
 import { migrateSelectionToStableIds } from "../telemetry/utils/persisted-selection-migration";
-import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
+import {
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelSettings,
+} from "../../workbenches/PanelInstanceContext";
 import styles from "./TelemetryScopePage.module.css";
 
 type ModelOption = {
@@ -200,6 +199,62 @@ function createDefaultSettings(): ScopePanelSettings {
   };
 }
 
+function sanitizeScopePanelSettings(value: unknown): ScopePanelSettings {
+  const fallback = createDefaultSettings();
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+  const data = value as Record<string, unknown>;
+  const migrationDefaults: Partial<FieldTraceConfig> = {
+    sourceKind: "field",
+    modelId: typeof data.modelId === "string" ? data.modelId : "",
+    modelPath: typeof data.modelPath === "string" ? data.modelPath : "",
+    workloadId: typeof data.workloadId === "string" ? data.workloadId : "",
+    workloadName:
+      typeof data.workloadName === "string" ? data.workloadName : "",
+    section: isSectionKind(data.section) ? data.section : "outputs",
+    fieldPath: typeof data.fieldPath === "string" ? data.fieldPath : "",
+  };
+  const traces = Array.isArray(data.traces)
+    ? data.traces
+        .map((item, index) => sanitizeTrace(item, index, migrationDefaults))
+        .filter((trace): trace is TraceConfig => trace !== null)
+    : [];
+  return {
+    traces: traces.length > 0 ? traces : fallback.traces,
+    windowSeconds: sanitizeWindowSecondsInput(data.windowSeconds),
+    freeze: typeof data.freeze === "boolean" ? data.freeze : fallback.freeze,
+    yMode: data.yMode === "manual" ? "manual" : "auto",
+    yMin: typeof data.yMin === "string" ? data.yMin : fallback.yMin,
+    yMax: typeof data.yMax === "string" ? data.yMax : fallback.yMax,
+    showGrid:
+      typeof data.showGrid === "boolean" ? data.showGrid : fallback.showGrid,
+    showLegend:
+      typeof data.showLegend === "boolean"
+        ? data.showLegend
+        : fallback.showLegend,
+    showLatestValues:
+      typeof data.showLatestValues === "boolean"
+        ? data.showLatestValues
+        : fallback.showLatestValues,
+    fieldsExpanded:
+      typeof data.fieldsExpanded === "boolean"
+        ? data.fieldsExpanded
+        : fallback.fieldsExpanded,
+    settingsExpanded:
+      typeof data.settingsExpanded === "boolean"
+        ? data.settingsExpanded
+        : fallback.settingsExpanded,
+  };
+}
+
+export const telemetryScopePagePersistence =
+  definePanelPersistence<ScopePanelSettings>({
+    schemaVersion: 1,
+    defaults: createDefaultSettings(),
+    sanitize: sanitizeScopePanelSettings,
+  });
+
 function sanitizeWindowSecondsInput(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -304,79 +359,6 @@ function sanitizeTrace(
           ? migrationDefaults.fieldPath
           : "",
   };
-}
-
-function readScopePanelSettings(storageKeys: string[]): ScopePanelSettings {
-  const fallback = createDefaultSettings();
-  try {
-    const raw =
-      storageKeys.map((storageKey) => readStorageValue(storageKey)).find(Boolean) ??
-      null;
-    if (!raw) {
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return fallback;
-    }
-    const data = parsed as Record<string, unknown>;
-    const migrationDefaults: Partial<FieldTraceConfig> = {
-      sourceKind: "field",
-      modelId: typeof data.modelId === "string" ? data.modelId : "",
-      modelPath: typeof data.modelPath === "string" ? data.modelPath : "",
-      workloadId: typeof data.workloadId === "string" ? data.workloadId : "",
-      workloadName:
-        typeof data.workloadName === "string" ? data.workloadName : "",
-      section: isSectionKind(data.section) ? data.section : "outputs",
-      fieldPath: typeof data.fieldPath === "string" ? data.fieldPath : "",
-    };
-    const traces = Array.isArray(data.traces)
-      ? data.traces
-          .map((item, index) => sanitizeTrace(item, index, migrationDefaults))
-          .filter((trace): trace is TraceConfig => trace !== null)
-      : [];
-    return {
-      traces: traces.length > 0 ? traces : fallback.traces,
-      windowSeconds: sanitizeWindowSecondsInput(data.windowSeconds),
-      freeze:
-        typeof data.freeze === "boolean" ? data.freeze : fallback.freeze,
-      yMode: data.yMode === "manual" ? "manual" : "auto",
-      yMin: typeof data.yMin === "string" ? data.yMin : fallback.yMin,
-      yMax: typeof data.yMax === "string" ? data.yMax : fallback.yMax,
-      showGrid:
-        typeof data.showGrid === "boolean"
-          ? data.showGrid
-          : fallback.showGrid,
-      showLegend:
-        typeof data.showLegend === "boolean"
-          ? data.showLegend
-          : fallback.showLegend,
-      showLatestValues:
-        typeof data.showLatestValues === "boolean"
-          ? data.showLatestValues
-          : fallback.showLatestValues,
-      fieldsExpanded:
-        typeof data.fieldsExpanded === "boolean"
-          ? data.fieldsExpanded
-          : fallback.fieldsExpanded,
-      settingsExpanded:
-        typeof data.settingsExpanded === "boolean"
-          ? data.settingsExpanded
-          : fallback.settingsExpanded,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function writeScopePanelSettings(
-  storageKeys: string[],
-  settings: ScopePanelSettings
-): void {
-  const serialized = JSON.stringify(settings);
-  for (const storageKey of storageKeys) {
-    setStorageValue(storageKey, serialized);
-  }
 }
 
 function getStruct(
@@ -690,21 +672,10 @@ function getFieldOptions(
   return collectScalarFields(struct?.fields ?? [], workload.name, trace.section);
 }
 
-export default function TelemetryScopePage() {
-  const panelInstance = usePanelInstance();
+export function TelemetryScopePage() {
   const telemetryService = useTelemetryService();
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-  const panelIdentifier = panelInstance.panelId ?? "default";
-  const storageKey = buildNamespacedKey(
-    STORAGE_BASE_KEY,
-    workspaceIdentifier,
-    panelIdentifier
-  );
-  const sharedStorageKey = buildNamespacedKey(STORAGE_BASE_KEY, workspaceIdentifier);
-  const storageKeys = useMemo(
-    () => [storageKey, sharedStorageKey],
-    [sharedStorageKey, storageKey]
-  );
+  const [settings, updatePersistedSettings, replacePersistedSettings] =
+    usePanelSettings(telemetryScopePagePersistence);
 
   const { projectModels } = ProjectData.use();
   const modelOptions: ModelOption[] = useMemo(
@@ -716,9 +687,6 @@ export default function TelemetryScopePage() {
         telemetryPushRateHz: model.telemetryPushRateHz,
       })),
     [projectModels.data]
-  );
-  const [settings, setSettings] = useState<ScopePanelSettings>(() =>
-    readScopePanelSettings(storageKeys)
   );
   const [modelsByPath, setModelsByPath] = useState<Map<string, ITelemetryModel>>(
     () => new Map()
@@ -739,6 +707,19 @@ export default function TelemetryScopePage() {
     settingsRef.current = settings;
   }, [settings]);
 
+  const setSettings = React.useCallback(
+    (
+      next:
+        | ScopePanelSettings
+        | ((current: ScopePanelSettings) => ScopePanelSettings)
+    ) => {
+      const resolved =
+        typeof next === "function" ? next(settingsRef.current) : next;
+      replacePersistedSettings(resolved);
+    },
+    [replacePersistedSettings]
+  );
+
   useEffect(() => {
     modelOptionsRef.current = modelOptions;
   }, [modelOptions]);
@@ -751,12 +732,6 @@ export default function TelemetryScopePage() {
       freezeTimeMsRef.current = null;
     }
   }, [settings.freeze]);
-
-  useEffect(() => {
-    setSettings(readScopePanelSettings(storageKeys));
-    historiesRef.current = {};
-    modelTimingRef.current = {};
-  }, [storageKeys]);
 
   useEffect(() => {
     if (projectModels.data.length === 0) return;
@@ -798,10 +773,6 @@ export default function TelemetryScopePage() {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [dragStartPosition]);
-
-  useEffect(() => {
-    writeScopePanelSettings(storageKeys, settings);
-  }, [settings, storageKeys]);
 
   const selectedModelOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -2134,6 +2105,13 @@ export default function TelemetryScopePage() {
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: TelemetryScopePage,
+  persistence: telemetryScopePagePersistence,
+});
+
+export default TelemetryScopePage;
 
 function tracesEqual(a: TraceConfig, b: TraceConfig): boolean {
   if (a.sourceKind !== b.sourceKind) return false;

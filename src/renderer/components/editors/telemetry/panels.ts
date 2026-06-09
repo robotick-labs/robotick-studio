@@ -1,7 +1,7 @@
 import {
   spawnFloatingPanel,
   type FloatingPanelSpawnConfig,
-} from "../../workspaces/floating-panels";
+} from "../../workbenches/floating-panels";
 
 export type TelemetryPanelSettings = {
   telemetryBaseUrl?: string;
@@ -28,8 +28,14 @@ export function spawnTelemetryImagePanel({
     editorId: "telemetry-image-viewer",
     title: settings.panelTitle ?? "Telemetry Image",
     settings,
-    initialSize: { width: 680, height: 520 },
-    minSize: { width: 360, height: 280 },
+    frame: {
+      x: 160,
+      y: 160,
+      width: 680,
+      height: 520,
+      minWidth: 360,
+      minHeight: 280,
+    },
   });
 }
 
@@ -41,8 +47,14 @@ export function spawnTelemetryTreePanel({
     editorId: "telemetry-tree-viewer",
     title: settings.panelTitle ?? "Telemetry Tree",
     settings,
-    initialSize: { width: 640, height: 720 },
-    minSize: { width: 360, height: 320 },
+    frame: {
+      x: 160,
+      y: 160,
+      width: 640,
+      height: 720,
+      minWidth: 360,
+      minHeight: 320,
+    },
   });
 }
 

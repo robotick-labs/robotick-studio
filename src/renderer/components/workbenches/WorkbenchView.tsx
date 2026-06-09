@@ -1,40 +1,40 @@
 import React, { useEffect } from "react";
-import type { WorkspaceConfig } from "../../services/AppConfigService";
+import type { WorkbenchConfig } from "../../services/AppConfigService";
 import { PanelLayout } from "./PanelLayout";
 import { reportViewDiagnostics } from "../../utils/viewDiagnostics";
-import styles from "./WorkspaceView.module.css";
+import styles from "./WorkbenchView.module.css";
 import { useProjectContext } from "../../data-sources/launcher/internal/ProjectContext";
-import { rememberWorkspacePath } from "../../utils/workspaceMemory";
+import { rememberWorkbenchPath } from "../../utils/workbenchMemory";
 import {
   getWindowScope,
   isPrimaryWindowSession,
 } from "../../utils/windowSession";
 
-type WorkspaceViewProps = {
-  workspace: WorkspaceConfig;
+type WorkbenchViewProps = {
+  workbench: WorkbenchConfig;
 };
 
-export function WorkspaceView({ workspace }: WorkspaceViewProps) {
+export function WorkbenchView({ workbench }: WorkbenchViewProps) {
   const { projectPath } = useProjectContext();
   const windowScope = getWindowScope();
   const isPrimaryWindow = isPrimaryWindowSession();
   const layoutWindowScope = windowScope === "primary" ? "main" : windowScope;
   useEffect(() => {
-    reportViewDiagnostics("workspace", { workspaceId: workspace.id });
-  }, [workspace.id]);
+    reportViewDiagnostics("workbench", { workbenchId: workbench.id });
+  }, [workbench.id]);
   useEffect(() => {
-    rememberWorkspacePath(projectPath, workspace.path, {
+    rememberWorkbenchPath(projectPath, workbench.path, {
       windowScope,
       isPrimaryWindow,
     });
-  }, [projectPath, workspace.path, windowScope, isPrimaryWindow]);
+  }, [projectPath, workbench.path, windowScope, isPrimaryWindow]);
 
   return (
-    <div className={styles.workspaceShell}>
+    <div className={styles.workbenchShell}>
       <PanelLayout
-        workspaceId={workspace.id}
-        workspaceLabel={workspace.label}
-        defaultEditorId={workspace.editor}
+        workbenchId={workbench.id}
+        workbenchLabel={workbench.label}
+        defaultEditorId={workbench.editor}
         windowScope={layoutWindowScope}
       />
     </div>

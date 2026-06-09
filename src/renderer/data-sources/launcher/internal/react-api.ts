@@ -15,6 +15,7 @@ import {
 import { useProjectSettingsList } from "./use-project-settings-list";
 import { useProjectModels } from "./use-project-models";
 import { useProjectChangeConfirmation } from "./use-project-change-confirmation";
+import { useProjectLockStatuses } from "./use-project-lock-statuses";
 
 export const ProjectReact = {
   Provider: ProjectProvider,
@@ -40,8 +41,12 @@ export const ProjectReactHooks = {
   useSettingsList: useProjectSettingsList,
   useModels: useProjectModels,
   useChangeConfirmation: useProjectChangeConfirmation,
+  useLockStatuses: useProjectLockStatuses,
 };
 
 export type { LauncherStatus } from "./LauncherContext";
-export type { ProjectModelDescriptor } from "./launcher-interface";
+export type {
+  ProjectLockStatus,
+  ProjectModelDescriptor,
+} from "./launcher-interface";
 export type { ProjectSettingsSummary } from "./projects-api";

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from "react";
 import { BrowserRouter, HashRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
+import { GenericDialog } from "./components/dialog/GenericDialog";
 import {
   Launcher,
   Project,
@@ -30,6 +31,7 @@ type RouterSelectionOptions = {
 
 const DEV_USER_TIMING_CLEAR_INTERVAL_MS = 3_000;
 const DEV_USER_TIMING_ENTRY_THRESHOLD = 1_000;
+const useProjectContext = Project.Context.use;
 
 function shouldInstallDevUserTimingGuard(): boolean {
   return import.meta.env.DEV && typeof performance !== "undefined";
@@ -113,11 +115,11 @@ export function App({
   }, []);
 
   return (
-    <AppConfigProvider>
-      <TelemetryServiceProvider service={telemetryService}>
-        <LauncherServiceProvider service={launcherService}>
-          <Project.Context.Provider>
-            <ProjectData.Provider>
+    <TelemetryServiceProvider service={telemetryService}>
+      <LauncherServiceProvider service={launcherService}>
+        <Project.Context.Provider>
+          <ProjectData.Provider>
+            <AppConfigProvider>
               <EditorRegistryProvider
                 initialBootstrapState={initialEditorRegistryState}
               >
@@ -129,15 +131,64 @@ export function App({
                         <main className={styles.pageContainer}>
                           <AppRoutes />
                         </main>
+                        <ProjectBootstrapIssueDialog />
                       </div>
                     </RouterComponent>
                   </ContextMenuProvider>
                 </Launcher.Context.Provider>
               </EditorRegistryProvider>
-            </ProjectData.Provider>
-          </Project.Context.Provider>
-        </LauncherServiceProvider>
-      </TelemetryServiceProvider>
-    </AppConfigProvider>
+            </AppConfigProvider>
+          </ProjectData.Provider>
+        </Project.Context.Provider>
+      </LauncherServiceProvider>
+    </TelemetryServiceProvider>
+  );
+}
+
+function ProjectBootstrapIssueDialog() {
+  const { bootstrapIssue, projectPath } = useProjectContext();
+  const [dismissedKey, setDismissedKey] = React.useState<string | null>(null);
+  const issueKey = bootstrapIssue
+    ? `${bootstrapIssue.projectPath}:${bootstrapIssue.message}`
+    : null;
+
+  useEffect(() => {
+    if (!issueKey || projectPath) {
+      setDismissedKey(null);
+    }
+  }, [issueKey, projectPath]);
+
+  if (!bootstrapIssue || issueKey === dismissedKey) {
+    return null;
+  }
+
+  return (
+    <GenericDialog
+      title={
+        bootstrapIssue.type === "locked"
+          ? "Startup project unavailable"
+          : "Startup project failed"
+      }
+      message={
+        <>
+          {bootstrapIssue.message}
+          {bootstrapIssue.pid ? (
+            <>
+              <br />
+              Owner PID: <code>{bootstrapIssue.pid}</code>
+            </>
+          ) : null}
+        </>
+      }
+      onClose={() => setDismissedKey(issueKey)}
+      actions={[
+        {
+          label: "Okay",
+          onClick: () => setDismissedKey(issueKey),
+          variant: "primary",
+          autoFocus: true,
+        },
+      ]}
+    />
   );
 }

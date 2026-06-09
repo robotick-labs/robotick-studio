@@ -7,7 +7,10 @@ import { getRendererAppName } from "../../../utils/appName";
 const useProjectContext = Project.Context.use;
 const useProjectSettingsList = Project.Hooks.useSettingsList;
 const useProjectChangeConfirmation = Project.Hooks.useChangeConfirmation;
+const useProjectLockStatuses = Project.Hooks.useLockStatuses;
 import styles from "./styles/HomePage.module.css";
+
+let hasAppliedRequestedProjectForSession = false;
 
 function getRequestedProjectName(): string | undefined {
   const selectedProject = window.robotick?.environment?.selectedProject;
@@ -32,13 +35,17 @@ function projectMatchesRequestedName(
 }
 
 export default function HomePage() {
-  const { projectPath, setProjectPath } = useProjectContext();
+  const { projectPath, selectProjectPath } = useProjectContext();
   const { projects, error } = useProjectSettingsList(5000);
   const [selectedPath, setSelectedPath] = useState<string>("");
   const { requestProjectChange, confirmationDialog } =
     useProjectChangeConfirmation();
   const autoSelectRef = useRef(Boolean(projectPath));
+  const requestedProjectAppliedRef = useRef(false);
   const appName = getRendererAppName();
+  const { statusesByPath } = useProjectLockStatuses(
+    projects.map((project) => project.path)
+  );
 
   useEffect(() => {
     setSelectedPath(projectPath);
@@ -46,25 +53,47 @@ export default function HomePage() {
 
   useEffect(() => {
     const requestedProjectName = getRequestedProjectName();
-    if (!requestedProjectName || projects.length === 0) {
+    if (
+      requestedProjectAppliedRef.current ||
+      hasAppliedRequestedProjectForSession ||
+      !requestedProjectName ||
+      projects.length === 0
+    ) {
       return;
     }
     const requestedProject = projects.find((project) =>
       projectMatchesRequestedName(project, requestedProjectName)
     );
-    if (!requestedProject || projectPath === requestedProject.path) {
+    if (!requestedProject) {
+      requestedProjectAppliedRef.current = true;
+      hasAppliedRequestedProjectForSession = true;
       return;
     }
-    setProjectPath(requestedProject.path);
+    if (projectPath === requestedProject.path) {
+      requestedProjectAppliedRef.current = true;
+      hasAppliedRequestedProjectForSession = true;
+      return;
+    }
+    requestedProjectAppliedRef.current = true;
+    hasAppliedRequestedProjectForSession = true;
     autoSelectRef.current = true;
-  }, [projectPath, projects, setProjectPath]);
+    void selectProjectPath(requestedProject.path).then((result) => {
+      if (result.accepted) {
+        autoSelectRef.current = true;
+      }
+    });
+  }, [projectPath, projects, selectProjectPath]);
 
   useEffect(() => {
     if (!autoSelectRef.current && !projectPath && projects.length > 0) {
-      setProjectPath(projects[0].path);
       autoSelectRef.current = true;
+      void selectProjectPath(projects[0].path).then((result) => {
+        if (result.accepted) {
+          autoSelectRef.current = true;
+        }
+      });
     }
-  }, [projectPath, projects, setProjectPath]);
+  }, [projectPath, projects, selectProjectPath]);
 
   function selectProject(path: string) {
     requestProjectChange(path);
@@ -84,15 +113,11 @@ export default function HomePage() {
 
       <section>
         <div className={styles.videoWrapper}>
-          <iframe
-            width="800"
-            height="450"
-            src="https://www.youtube.com/embed/YOUR_VIDEO_ID_HERE"
-            title="Robotick Overview"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          ></iframe>
+          <p>
+            Studio launch and navigation now live in the workspace CLI. Use the
+            project selector below to switch context, or open a project directly
+            with <code>robotick studio open &lt;project&gt;</code>.
+          </p>
         </div>
       </section>
 
@@ -110,18 +135,32 @@ export default function HomePage() {
             </p>
           )}
 
-          {projects.map((p) => (
+          {projects.map((p) => {
+            const lockStatus = statusesByPath[p.path];
+            const isLockedElsewhere = lockStatus?.state === "locked";
+            const statusLabel =
+              lockStatus?.state === "current"
+                ? "Open in this Studio"
+                : isLockedElsewhere
+                  ? lockStatus.instanceName
+                    ? `Locked by ${lockStatus.instanceName}`
+                    : "Locked in another Studio"
+                  : null;
+            return (
             <div
               key={p.path}
               className={`${styles.projectCard} ${
                 selectedPath === p.path ? styles.selected : ""
-              }`.trim()}
+              } ${isLockedElsewhere ? styles.locked : ""}`.trim()}
               data-project={p.path}
               onClick={() => selectProject(p.path)}
             >
               <div>
                 <h3>{p.name || "(Unnamed Project)"}</h3>
                 <p>{p.description || "No description provided."}</p>
+                {statusLabel ? (
+                  <p className={styles.lockStatus}>{statusLabel}</p>
+                ) : null}
               </div>
               <div
                 className={`${styles.selectedIndicator} ${
@@ -131,10 +170,15 @@ export default function HomePage() {
                 ✓
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
       {confirmationDialog}
     </div>
   );
+}
+
+export function resetRequestedProjectBootstrapForTests() {
+  hasAppliedRequestedProjectForSession = false;
 }

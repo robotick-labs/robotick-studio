@@ -17,7 +17,6 @@ import {
   ITelemetryStruct,
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
-import { useOptionalFloatingPanel } from "../../../workspaces/floating-panels";
 import { getOrCreateBlobURL } from "../view/telemetry-image-blobs";
 import {
   extractTelemetryImagePayload,
@@ -27,14 +26,11 @@ import {
 } from "../utils/telemetry-image";
 import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import styles from "./TelemetryImageViewer.module.css";
-import { usePanelInstance } from "../../../workspaces/PanelInstanceContext";
 import {
-  buildNamespacedKey,
-  createPanelInstanceId,
-  getFirstAvailableValue,
-  removeStorageValue,
-  setStorageValue,
-} from "../../../../services/storage";
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelSettings,
+} from "../../../workbenches/PanelInstanceContext";
 
 type PanelSettings = {
   telemetryBaseUrl?: string;
@@ -70,13 +66,38 @@ type RegistryTypeDef = {
   format?: string;
 };
 
-const STORAGE_KEYS = {
-  modelId: "robotick-studio.telemetry.image.modelId",
-  model: "robotick-studio.telemetry.image.model",
-  workloadId: "robotick-studio.telemetry.image.workloadId",
-  workload: "robotick-studio.telemetry.image.workload",
-  field: "robotick-studio.telemetry.image.field",
-};
+export const telemetryImageViewerPersistence =
+  definePanelPersistence<PanelSettings>({
+    schemaVersion: 1,
+    defaults: {
+      fieldPath: "",
+    },
+    sanitize(value) {
+      const input =
+        value && typeof value === "object"
+          ? (value as Partial<PanelSettings>)
+          : {};
+      return {
+        telemetryBaseUrl:
+          typeof input.telemetryBaseUrl === "string"
+            ? input.telemetryBaseUrl
+            : undefined,
+        modelId: typeof input.modelId === "string" ? input.modelId : undefined,
+        modelPath:
+          typeof input.modelPath === "string" ? input.modelPath : undefined,
+        modelName:
+          typeof input.modelName === "string" ? input.modelName : undefined,
+        workloadId:
+          typeof input.workloadId === "string" ? input.workloadId : undefined,
+        workloadName:
+          typeof input.workloadName === "string"
+            ? input.workloadName
+            : undefined,
+        fieldPath:
+          typeof input.fieldPath === "string" ? input.fieldPath : "",
+      };
+    },
+  });
 
 /**
  * Render a panel that lets users pick a telemetry model, workload, and image field, and previews the latest image telemetry.
@@ -85,103 +106,12 @@ const STORAGE_KEYS = {
  *
  * @returns The rendered React element for the telemetry image viewer.
  */
-export default function TelemetryImageViewer() {
+export function TelemetryImageViewer() {
   const launcherService = useLauncherService();
   const { projectPath } = Project.Context.use();
-  const panel = useOptionalFloatingPanel();
-  const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string | undefined>(undefined);
-
-  if (!fallbackPanelIdRef.current) {
-    fallbackPanelIdRef.current = createPanelInstanceId();
-  }
-
-  const panelInstanceId = panelInstance.panelId ?? fallbackPanelIdRef.current;
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-
-  const buildPanelKey = useCallback(
-    (base: string) =>
-      buildNamespacedKey(base, workspaceIdentifier, panelInstanceId),
-    [workspaceIdentifier, panelInstanceId]
+  const [settings, updateSettings] = usePanelSettings<PanelSettings>(
+    telemetryImageViewerPersistence
   );
-
-  const readPreference = useCallback(
-    (base: string) => {
-      const primaryKey = buildPanelKey(base);
-      const { value, key } = getFirstAvailableValue([primaryKey, base]);
-
-      if (value !== null && key && key !== primaryKey) {
-        setStorageValue(primaryKey, value);
-      }
-
-      return value;
-    },
-    [buildPanelKey]
-  );
-
-  const persistPreference = useCallback(
-    (base: string, value: string | undefined) => {
-      const key = buildPanelKey(base);
-
-      if (value === undefined) {
-        removeStorageValue(key);
-      } else {
-        setStorageValue(key, value);
-      }
-    },
-    [buildPanelKey]
-  );
-
-  const storedLocalSettings = useMemo<PanelSettings>(
-    () => ({
-      modelId: readPreference(STORAGE_KEYS.modelId) ?? undefined,
-      modelPath: readPreference(STORAGE_KEYS.model) ?? undefined,
-      workloadId: readPreference(STORAGE_KEYS.workloadId) ?? undefined,
-      workloadName: readPreference(STORAGE_KEYS.workload) ?? undefined,
-      fieldPath: readPreference(STORAGE_KEYS.field) ?? undefined,
-    }),
-    [readPreference]
-  );
-
-  const [localSettings, setLocalSettings] =
-    useState<PanelSettings>(storedLocalSettings);
-
-  const persistLocalSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if ("modelId" in next) {
-        persistPreference(STORAGE_KEYS.modelId, next.modelId);
-      }
-      if ("modelPath" in next) {
-        persistPreference(STORAGE_KEYS.model, next.modelPath);
-      }
-      if ("workloadId" in next) {
-        persistPreference(STORAGE_KEYS.workloadId, next.workloadId);
-      }
-      if ("workloadName" in next) {
-        persistPreference(STORAGE_KEYS.workload, next.workloadName);
-      }
-      if ("fieldPath" in next) {
-        persistPreference(STORAGE_KEYS.field, next.fieldPath);
-      }
-    },
-    [persistPreference]
-  );
-
-  const updateSettings = useCallback(
-    (next: Partial<PanelSettings>) => {
-      if (panel) {
-        panel.updateSettings(next);
-      } else {
-        setLocalSettings((prev) => ({ ...prev, ...next }));
-      }
-
-      persistLocalSettings(next);
-    },
-    [panel, persistLocalSettings]
-  );
-
-  const settings =
-    (panel?.settings as PanelSettings | undefined) ?? localSettings;
 
   const { projectModels } = ProjectData.use();
   const migratedSettings = useMemo(
@@ -669,6 +599,13 @@ export default function TelemetryImageViewer() {
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: TelemetryImageViewer,
+  persistence: telemetryImageViewerPersistence,
+});
+
+export default TelemetryImageViewer;
 
 function collectImageFields(
   fields: ITelemetryField[],

@@ -25,13 +25,13 @@ type FloatingPanelLayerProps = {
 };
 
 /**
- * Render and manage a set of floating panels for a given workspace scope.
+ * Render and manage a set of floating panels for a given workbench scope.
  *
  * Subscribes to floating panel updates for `scope`, maintains local panel state,
  * handles panel duplication, assignment, closing and layout reset, and renders
  * each panel plus a context menu via a portal into the document body.
  *
- * @param scope - The workspace or scope identifier used to read and mutate floating panels
+ * @param scope - The workbench or scope identifier used to read and mutate floating panels
  * @param editorEntries - Available editor entries (id/label/component) used to populate panels and the editor selector
  * @returns A portal containing floating panel windows and an optional panel context menu, or `null` when there are no panels or the document body is unavailable
  */
@@ -89,7 +89,7 @@ export function FloatingPanelLayer({
   };
 
   const handleAssign = (panelId: string, editorId: string) => {
-    updateFloatingPanel(scope, panelId, { editorId });
+    updateFloatingPanel(scope, panelId, { editorId, settings: {} });
   };
 
   const handleClose = (panelId: string) => {
@@ -185,7 +185,7 @@ type FloatingPanelWindowProps = {
  * Provides the panel's context (title, settings, setters, and close) to descendants and invokes `onContextMenu`
  * when the user opens the panel context menu via mouse or keyboard.
  *
- * @param scope - Workspace identifier that owns this panel
+ * @param scope - Workbench identifier that owns this panel
  * @param panel - The floating panel record (id, title, editorId, settings, position/size, etc.)
  * @param editorEntries - Available editor entries; the entry matching `panel.editorId` is used (falls back to the first)
  * @param editorOptions - Lightweight list of editor ids and labels used to populate the editor selector overlay
@@ -207,29 +207,56 @@ function FloatingPanelWindow({
   const [selectorOpen, setSelectorOpen] = useState(false);
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const Component = entry.Component;
+  const handleSetPanelSettings = React.useCallback(
+    (settings: Record<string, unknown>) =>
+      updateFloatingPanel(scope, panel.id, { settings }),
+    [panel.id, scope]
+  );
+  const handleUpdatePanelSettings = React.useCallback(
+    (partial: Record<string, unknown>) =>
+      updateFloatingPanel(scope, panel.id, (current) => ({
+        ...current,
+        settings: { ...current.settings, ...partial },
+      })),
+    [panel.id, scope]
+  );
+  const handleSetTitle = React.useCallback(
+    (nextTitle: string) =>
+      updateFloatingPanel(scope, panel.id, { title: nextTitle }),
+    [panel.id, scope]
+  );
+  const handleClosePanel = React.useCallback(
+    () => removeFloatingPanel(scope, panel.id),
+    [panel.id, scope]
+  );
   const handleEditorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    updateFloatingPanel(scope, panel.id, { editorId: event.target.value });
+    updateFloatingPanel(scope, panel.id, {
+      editorId: event.target.value,
+      settings: {},
+    });
     setSelectorOpen(false);
   };
   const closeSelector = () => setSelectorOpen(false);
 
   return (
-    <PanelInstanceProvider panelId={panel.id} workspaceId={scope}>
+    <PanelInstanceProvider
+      panelId={panel.id}
+      workbenchId={scope}
+      editorId={panel.editorId}
+      settings={panel.settings}
+      setSettings={handleSetPanelSettings}
+      updateSettings={handleUpdatePanelSettings}
+    >
       <FloatingPanelContext.Provider
         value={{
           scope,
           id: panel.id,
           title: panel.title,
           settings: panel.settings,
-          setTitle: (nextTitle) =>
-            updateFloatingPanel(scope, panel.id, { title: nextTitle }),
-          setSettings: (settings) =>
-            updateFloatingPanel(scope, panel.id, { settings }),
-          updateSettings: (partial) =>
-            updateFloatingPanel(scope, panel.id, {
-              settings: { ...panel.settings, ...partial },
-            }),
-          close: () => removeFloatingPanel(scope, panel.id),
+          setTitle: handleSetTitle,
+          setSettings: handleSetPanelSettings,
+          updateSettings: handleUpdatePanelSettings,
+          close: handleClosePanel,
         }}
       >
         <div
@@ -271,11 +298,40 @@ function FloatingPanelWindow({
           >
             <GenericPanel
               title={title}
-              onClose={() => removeFloatingPanel(scope, panel.id)}
-              storageKey={`floating-panel:${scope}:${panel.id}`}
-              initialPosition={panel.initialPosition}
-              initialSize={panel.initialSize}
-              minSize={panel.minSize}
+              onClose={handleClosePanel}
+              position={
+                panel.frame
+                  ? { x: panel.frame.x, y: panel.frame.y }
+                  : undefined
+              }
+              size={
+                panel.frame
+                  ? {
+                      width: panel.frame.width,
+                      height: panel.frame.height,
+                    }
+                  : undefined
+              }
+              minSize={
+                panel.frame
+                  ? {
+                      width: panel.frame.minWidth ?? 260,
+                      height: panel.frame.minHeight ?? 180,
+                    }
+                  : undefined
+              }
+              onFrameChange={({ position, size }) =>
+                updateFloatingPanel(scope, panel.id, {
+                  frame: {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                    minWidth: panel.frame?.minWidth,
+                    minHeight: panel.frame?.minHeight,
+                  },
+                })
+              }
             >
               <div className={styles.floatingContent}>
                 <div className={styles.panelBody}>

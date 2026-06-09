@@ -3,34 +3,38 @@ import {
   addWindowEventListener,
   getViewportSize,
 } from "../../utils/domEnvironment";
-import { readStorageValue, setStorageValue } from "../../services/storage";
 import styles from "./GenericPanel.module.css";
 
 type Vec2 = { x: number; y: number };
 type Size = { width: number; height: number };
+type PanelFrame = {
+  position: Vec2;
+  size: Size;
+};
 
 export type GenericPanelProps = {
   title?: React.ReactNode;
   children: React.ReactNode;
   initialPosition?: Vec2;
   initialSize?: Size;
+  position?: Vec2;
+  size?: Size;
   minSize?: Size;
   draggable?: boolean;
   resizable?: boolean;
   closable?: boolean;
   onClose?: () => void;
+  onFrameChange?: (frame: PanelFrame) => void;
   className?: string;
   headerClassName?: string;
   bodyClassName?: string;
   headerActions?: React.ReactNode;
   style?: React.CSSProperties;
-  storageKey?: string;
 };
 
 const DEFAULT_POSITION: Vec2 = { x: 160, y: 160 };
 const DEFAULT_SIZE: Size = { width: 640, height: 400 };
 const DEFAULT_MIN_SIZE: Size = { width: 260, height: 180 };
-const STORAGE_PREFIX = "generic-panel:";
 
 /**
  * Renders a movable, resizable panel with an optional title, header actions, and persistent position/size.
@@ -39,17 +43,19 @@ const STORAGE_PREFIX = "generic-panel:";
  * @param children - Panel body content.
  * @param initialPosition - Position used when there is no persisted state.
  * @param initialSize - Size used when there is no persisted state.
+ * @param position - Controlled position for the panel when managed by a parent container.
+ * @param size - Controlled size for the panel when managed by a parent container.
  * @param minSize - Minimum allowed size when resizing.
  * @param draggable - If `true`, the panel can be dragged by its header.
  * @param resizable - If `true`, the panel can be resized via the resize handle.
  * @param closable - If `true`, a close button is shown in the header.
  * @param onClose - Called when the close button is clicked.
+ * @param onFrameChange - Called whenever the panel's position or size changes.
  * @param className - Additional class for the root element.
  * @param headerClassName - Additional class for the header element.
  * @param bodyClassName - Additional class for the body element.
  * @param headerActions - Additional elements rendered to the right side of the header.
  * @param style - Inline styles applied to the root element.
- * @param storageKey - If provided, position and size are persisted under `generic-panel:{storageKey}`; falsy disables persistence.
  * @returns The rendered panel element.
  */
 export function GenericPanel({
@@ -57,38 +63,29 @@ export function GenericPanel({
   children,
   initialPosition = DEFAULT_POSITION,
   initialSize = DEFAULT_SIZE,
+  position: controlledPosition,
+  size: controlledSize,
   minSize = DEFAULT_MIN_SIZE,
   draggable = true,
   resizable = true,
   closable = true,
   onClose,
+  onFrameChange,
   className,
   headerClassName,
   bodyClassName,
   headerActions,
   style,
-  storageKey,
 }: GenericPanelProps) {
-  const persistedState = useMemo(() => {
-    if (!storageKey) {
-      return null;
-    }
-    try {
-      const raw = readStorageValue(`${STORAGE_PREFIX}${storageKey}`);
-      if (!raw) return null;
-      return JSON.parse(raw) as {
-        position?: Vec2;
-        size?: Size;
-      } | null;
-    } catch {
-      return null;
-    }
-  }, [storageKey]);
-
-  const [position, setPosition] = useState<Vec2>(
-    persistedState?.position ?? initialPosition
+  const initialFrame = useMemo(
+    () => ({
+      position: controlledPosition ?? initialPosition,
+      size: controlledSize ?? initialSize,
+    }),
+    [controlledPosition, controlledSize, initialPosition, initialSize]
   );
-  const [size, setSize] = useState<Size>(persistedState?.size ?? initialSize);
+  const [position, setPosition] = useState<Vec2>(initialFrame.position);
+  const [size, setSize] = useState<Size>(initialFrame.size);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   function clamp(value: number, min: number, max?: number) {
@@ -113,6 +110,19 @@ export function GenericPanel({
       y: clamp(pos.y, 0, maxY),
     };
   }
+
+  const applyFrame = React.useCallback(
+    (nextPosition: Vec2, nextSize: Size) => {
+      setPosition(nextPosition);
+      setSize(nextSize);
+      onFrameChange?.({
+        position: nextPosition,
+        size: nextSize,
+      });
+    },
+    [onFrameChange]
+  );
+
   function handleDragStart(event: React.MouseEvent) {
     if (!draggable) return;
     event.preventDefault();
@@ -127,10 +137,13 @@ export function GenericPanel({
     const maxY = Math.max(0, (viewportSize.height || height) - height);
 
     function move(ev: MouseEvent) {
-      setPosition({
+      applyFrame(
+        {
         x: clamp(startPos.x + (ev.clientX - startX), 0, maxX),
         y: clamp(startPos.y + (ev.clientY - startY), 0, maxY),
-      });
+        },
+        size
+      );
     }
 
     const up = () => {
@@ -149,7 +162,7 @@ export function GenericPanel({
     const startY = event.clientY;
     const startSize = { ...size };
     function move(ev: MouseEvent) {
-      setSize({
+      applyFrame(position, {
         width: Math.max(minSize.width, startSize.width + (ev.clientX - startX)),
         height: Math.max(
           minSize.height,
@@ -217,46 +230,14 @@ export function GenericPanel({
   );
 
   useEffect(() => {
-    if (!storageKey) {
-      return;
-    }
-    try {
-      const payload = JSON.stringify({ position, size });
-      setStorageValue(`${STORAGE_PREFIX}${storageKey}`, payload);
-    } catch {
-      /* ignore */
-    }
-  }, [position, size, storageKey]);
+    setPosition(controlledPosition ?? initialPosition);
+  }, [controlledPosition, initialPosition]);
 
   useEffect(() => {
-    if (!storageKey) {
-      setPosition(initialPosition);
-      setSize(initialSize);
-      return;
-    }
-    const raw = readStorageValue(`${STORAGE_PREFIX}${storageKey}`);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.position) {
-          setPosition(parsed.position);
-        }
-        if (parsed?.size) {
-          setSize(parsed.size);
-        }
-        return;
-      } catch {
-        /* ignore */
-      }
-    }
-    setPosition(initialPosition);
-    setSize(initialSize);
+    setSize(controlledSize ?? initialSize);
   }, [
-    storageKey,
-    initialPosition.x,
-    initialPosition.y,
-    initialSize.width,
-    initialSize.height,
+    controlledSize,
+    initialSize,
   ]);
 
   return panelNode;

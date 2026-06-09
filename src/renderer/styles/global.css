@@ -67,7 +67,7 @@ body {
   background-color: var(--app-surface-highlight);
 }
 
-.workspace-loading {
+.workbench-loading {
   padding: 1rem;
   text-align: center;
   color: var(--app-text-primary);

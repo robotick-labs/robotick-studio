@@ -6,18 +6,15 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import type { WorkspaceConfig } from "./services/AppConfigService";
-import { WorkspacesConfig } from "./services/AppConfigService";
-import { WorkspaceView } from "./components/workspaces/WorkspaceView";
+import { useAppConfig } from "./services/AppConfigService";
+import { WorkbenchView } from "./components/workbenches/WorkbenchView";
 import { reportViewDiagnostics } from "./utils/viewDiagnostics";
 import { useProjectContext } from "./data-sources/launcher/internal/ProjectContext";
-import { loadRememberedWorkspacePath } from "./utils/workspaceMemory";
+import { loadRememberedWorkbenchPath } from "./utils/workbenchMemory";
 import {
   getWindowScope,
   isPrimaryWindowSession,
 } from "./utils/windowSession";
-
-export const resolvedWorkspaces = WorkspacesConfig;
 
 export function shouldForceHomeRedirect(
   pathname: string,
@@ -28,18 +25,19 @@ export function shouldForceHomeRedirect(
 }
 
 export function AppRoutes() {
+  const { workbenches } = useAppConfig();
   return (
     <>
-      <ProjectWorkspaceSync />
+      <ProjectWorkbenchSync />
       <Routes>
-        <Route path="/" element={<DefaultWorkspaceRedirect />} />
-        {resolvedWorkspaces.map((workspace) => (
+        <Route path="/" element={<DefaultWorkbenchRedirect />} />
+        {workbenches.map((workbench) => (
           <Route
-            key={workspace.id}
-            path={workspace.path}
+            key={workbench.id}
+            path={workbench.path}
             element={
-              <React.Suspense fallback={<WorkspaceFallback />}>
-                <WorkspaceView workspace={workspace} />
+              <React.Suspense fallback={<WorkbenchFallback />}>
+                <WorkbenchView workbench={workbench} />
               </React.Suspense>
             }
           />
@@ -50,13 +48,14 @@ export function AppRoutes() {
   );
 }
 
-function WorkspaceFallback() {
-  return <div className="workspace-loading">Loading…</div>;
+function WorkbenchFallback() {
+  return <div className="workbench-loading">Loading…</div>;
 }
 
 function NotFound() {
   const location = useLocation();
-  const fallbackHome = getFallbackWorkspacePath();
+  const { workbenches } = useAppConfig();
+  const fallbackHome = getFallbackWorkbenchPath(workbenches);
   const protocol =
     typeof window !== "undefined" ? window.location.protocol : undefined;
   const shouldForceHome = shouldForceHomeRedirect(location.pathname, protocol);
@@ -81,51 +80,85 @@ function NotFound() {
   );
 }
 
-function getFallbackWorkspacePath(): string {
-  return resolvedWorkspaces[0]?.path ?? "/home";
+function getFallbackWorkbenchPath(
+  workbenches: Array<{ path: string }>
+): string {
+  return workbenches[0]?.path ?? "/home";
 }
 
-function resolveRememberedWorkspace(projectPath: string | undefined): string {
-  const remembered = loadRememberedWorkspacePath(projectPath, {
+function resolveRememberedWorkbench(
+  projectPath: string | undefined,
+  workbenches: Array<{ path: string }>
+): string {
+  const remembered = loadRememberedWorkbenchPath(projectPath, {
     windowScope: getWindowScope(),
     isPrimaryWindow: isPrimaryWindowSession(),
   });
   if (
     remembered &&
-    resolvedWorkspaces.some((workspace) => workspace.path === remembered)
+    workbenches.some((workbench) => workbench.path === remembered)
   ) {
     return remembered;
   }
-  return getFallbackWorkspacePath();
+  return getFallbackWorkbenchPath(workbenches);
 }
 
-function DefaultWorkspaceRedirect() {
+function loadValidRememberedWorkbench(
+  projectPath: string | undefined,
+  workbenches: Array<{ path: string }>
+): string | null {
+  const remembered = loadRememberedWorkbenchPath(projectPath, {
+    windowScope: getWindowScope(),
+    isPrimaryWindow: isPrimaryWindowSession(),
+  });
+  if (
+    remembered &&
+    workbenches.some((workbench) => workbench.path === remembered)
+  ) {
+    return remembered;
+  }
+  return null;
+}
+
+function DefaultWorkbenchRedirect() {
   const { projectPath } = useProjectContext();
-  const target = resolveRememberedWorkspace(projectPath);
+  const { workbenches } = useAppConfig();
+  const target = resolveRememberedWorkbench(projectPath, workbenches);
   return <Navigate to={target} replace />;
 }
 
 /**
- * Synchronizes the current route to the remembered workspace for the active project when the project changes.
+ * Synchronizes the current route to the remembered workbench for the active project when the project changes.
  *
- * Reads the active project from project context and, if it differs from the previous project, resolves the remembered workspace path for that project and navigates to it using a replace navigation when the current pathname is different.
+ * Reads the active project from project context and, if it differs from the previous project, resolves the remembered workbench path for that project and navigates to it using a replace navigation when the current pathname is different.
  */
-function ProjectWorkspaceSync() {
+function ProjectWorkbenchSync() {
   const { projectPath } = useProjectContext();
+  const { workbenches, loading } = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
   const previousProject = React.useRef<string | undefined>(undefined);
 
   React.useEffect(() => {
-    if (previousProject.current === projectPath) {
+    if (loading) {
+      return;
+    }
+    const projectChanged = previousProject.current !== projectPath;
+    const currentPathIsValid = workbenches.some(
+      (workbench) => workbench.path === location.pathname
+    );
+    if (!projectChanged && currentPathIsValid) {
       return;
     }
     previousProject.current = projectPath;
-    const target = resolveRememberedWorkspace(projectPath);
+    const rememberedTarget = loadValidRememberedWorkbench(projectPath, workbenches);
+    const target =
+      rememberedTarget ??
+      (currentPathIsValid ? location.pathname : getFallbackWorkbenchPath(workbenches));
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }
-  }, [projectPath, location.pathname, navigate]);
+  }, [loading, projectPath, location.pathname, navigate, workbenches]);
 
   return null;
 }

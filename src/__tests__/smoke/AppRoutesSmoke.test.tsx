@@ -2,14 +2,14 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { mockWorkspaceView, TestLauncherProviders } from "../helpers/mocks";
+import { mockWorkbenchView, TestLauncherProviders } from "../helpers/mocks";
 
-mockWorkspaceView();
+mockWorkbenchView();
 
 import { AppRoutes } from "../../renderer/Router";
 
 describe("AppRoutes smoke test", () => {
-  it("renders the Home workspace when navigating to the root path", async () => {
+  it("renders the Home workbench when navigating to the root path", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
@@ -24,7 +24,7 @@ describe("AppRoutes smoke test", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(container.innerHTML).toContain('data-testid="workspace-home"');
+    expect(container.innerHTML).toContain('data-testid="workbench-home"');
 
     await act(async () => {
       root.unmount();

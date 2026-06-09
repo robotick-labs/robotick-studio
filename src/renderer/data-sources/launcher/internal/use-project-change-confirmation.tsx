@@ -2,18 +2,31 @@ import React, { useState } from "react";
 import { useProjectContext } from "./ProjectContext";
 import { useLauncherContext } from "./LauncherContext";
 import { GenericDialog } from "../../../components/dialog/GenericDialog";
+import type { ProjectSelectionIssue } from "./launcher-interface";
 
 export function useProjectChangeConfirmation() {
-  const { projectPath, setProjectPath } = useProjectContext();
+  const { projectPath, selectProjectPath } = useProjectContext();
   const { status, stop } = useLauncherContext();
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [selectionIssue, setSelectionIssue] =
+    useState<ProjectSelectionIssue | null>(null);
+
+  const applyProjectChange = async (nextPath: string) => {
+    const result = await selectProjectPath(nextPath);
+    if (!result.accepted) {
+      setSelectionIssue(result.issue);
+      return false;
+    }
+    setSelectionIssue(null);
+    return true;
+  };
 
   const requestProjectChange = (nextPath: string) => {
     if (!nextPath || nextPath === projectPath) return;
     if (status === "stopped") {
-      setProjectPath(nextPath);
+      void applyProjectChange(nextPath);
       return;
     }
     setPendingPath(nextPath);
@@ -25,7 +38,7 @@ export function useProjectChangeConfirmation() {
     setError(null);
     try {
       await stop();
-      setProjectPath(pendingPath);
+      await applyProjectChange(pendingPath);
       setPendingPath(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -65,6 +78,34 @@ export function useProjectChangeConfirmation() {
           onClick: confirmChange,
           variant: "primary",
           disabled: isStopping,
+        },
+      ]}
+    />
+  ) : selectionIssue ? (
+    <GenericDialog
+      title={
+        selectionIssue.type === "locked"
+          ? "Project already open"
+          : "Unable to switch project"
+      }
+      message={
+        <>
+          {selectionIssue.message}
+          {selectionIssue.pid ? (
+            <>
+              <br />
+              Owner PID: <code>{selectionIssue.pid}</code>
+            </>
+          ) : null}
+        </>
+      }
+      onClose={() => setSelectionIssue(null)}
+      actions={[
+        {
+          label: "Okay",
+          onClick: () => setSelectionIssue(null),
+          variant: "primary",
+          autoFocus: true,
         },
       ]}
     />

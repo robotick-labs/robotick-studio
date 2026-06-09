@@ -186,3 +186,19 @@ jobs:
 
       - name: Run electron tests
         run: npx vitest --run --project electron
+
+  test-e2e:
+    name: test-e2e
+    runs-on: ubuntu-latest
+    needs: verify-build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test setup
+        uses: ./.github/actions/test-setup
+
+      - name: Run Playwright Electron e2e tests
+        run: xvfb-run -a npm run test:e2e -- tests/e2e/project-selection.spec.ts

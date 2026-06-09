@@ -20,7 +20,10 @@ export interface RobotickWindowControls {
   readonly maximize: () => void;
   readonly restore: () => void;
   readonly close: () => void;
-  readonly createWindow?: (seedUrl?: string, scope?: string) => Promise<void>;
+  readonly createWindow?: (
+    projectPath?: string,
+    scope?: string
+  ) => Promise<void>;
   readonly getChildWindowScopes?: () => Promise<string[]>;
   readonly toggleMaximize: () => void;
   readonly showSystemMenu?: (x: number, y: number) => void;
@@ -36,6 +39,22 @@ export interface RobotickStorage {
   readonly clear?: () => void;
 }
 
+export interface RobotickStudioPersistence {
+  readonly readStudioDocument: (projectPath: string) => Promise<string | null>;
+  readonly ensureStudioDocument: (projectPath: string) => Promise<void>;
+  readonly writeStudioDocument: (
+    projectPath: string,
+    content: string
+  ) => Promise<void>;
+  readonly deleteChildWindow?: (
+    projectPath: string,
+    windowId: string
+  ) => Promise<boolean>;
+  readonly onDocumentChanged?: (
+    callback: (projectPath: string) => void
+  ) => () => void;
+}
+
 export interface RobotickStudioProcessStats {
   readonly cpuPercent: number;
   readonly memoryMb: number;
@@ -45,11 +64,53 @@ export interface RobotickStudioProcess {
   readonly getStats: () => Promise<RobotickStudioProcessStats>;
 }
 
+export interface RobotickProjectSelectionIssue {
+  readonly type: "locked" | "error";
+  readonly projectPath: string;
+  readonly instanceName?: string;
+  readonly pid?: number;
+  readonly message: string;
+}
+
+export interface RobotickProjectSelectionState {
+  readonly currentProjectPath: string;
+  readonly bootstrapIssue: RobotickProjectSelectionIssue | null;
+}
+
+export interface RobotickProjectSelectionResult {
+  readonly accepted: boolean;
+  readonly currentProjectPath: string;
+  readonly issue: RobotickProjectSelectionIssue | null;
+}
+
+export interface RobotickProjectLockStatus {
+  readonly projectPath: string;
+  readonly state: "available" | "current" | "locked";
+  readonly instanceName?: string;
+  readonly pid?: number;
+  readonly message?: string;
+}
+
+export interface RobotickProjectSelection {
+  readonly getState: () => Promise<RobotickProjectSelectionState>;
+  readonly setProject: (
+    projectPath: string
+  ) => Promise<RobotickProjectSelectionResult>;
+  readonly getLockStatuses: (
+    projectPaths: string[]
+  ) => Promise<{ statuses: RobotickProjectLockStatus[] }>;
+  readonly onStateChanged?: (
+    callback: (state: RobotickProjectSelectionState) => void
+  ) => () => void;
+}
+
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
   readonly storage?: RobotickStorage;
+  readonly studioPersistence?: RobotickStudioPersistence;
+  readonly projectSelection?: RobotickProjectSelection;
   [key: string]: unknown;
 }
 

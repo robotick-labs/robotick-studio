@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Project } from "../../../data-sources/launcher";
 import {
-  buildNamespacedKey,
-  createPanelInstanceId,
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
-import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelInstance,
+  usePanelSettings,
+} from "../../workbenches/PanelInstanceContext";
 
 const useProjectContext = Project.Context.use;
 
@@ -31,119 +30,253 @@ const MODEL_SORT_OPTIONS: ReadonlyArray<{ value: ModelSortKey; label: string }> 
   { value: "model_path", label: "Model Path" },
 ];
 
-export default function ModelsPage() {
-  const { projectPath } = useProjectContext();
-  const panelInstance = usePanelInstance();
-  const fallbackPanelIdRef = useRef<string | null>(null);
-  if (!panelInstance.panelId) {
-    fallbackPanelIdRef.current ??= createPanelInstanceId();
+type GraphViewport = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type ModelsViewState = {
+  edgeVisibilityMode: EdgeVisibilityMode;
+  remoteConnectionVisibility?: RemoteConnectionVisibility;
+  selectedNodeId: string | null;
+  showPropertyPanel?: boolean;
+  collapsedModelIds?: string[];
+};
+
+type ModelsPageSettings = {
+  viewport?: GraphViewport;
+  viewState: ModelsViewState;
+  modelSortKey: ModelSortKey;
+};
+
+function defaultModelsViewState(): ModelsViewState {
+  return {
+    edgeVisibilityMode: "selected-model",
+    remoteConnectionVisibility: "hidden",
+    selectedNodeId: null,
+    showPropertyPanel: true,
+    collapsedModelIds: [],
+  };
+}
+
+function defaultModelsPageSettings(): ModelsPageSettings {
+  return {
+    viewState: defaultModelsViewState(),
+    modelSortKey: "model_path",
+  };
+}
+
+function parseViewportValue(raw: unknown): GraphViewport | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
   }
+  const parsed = raw as Partial<GraphViewport>;
+  const x = Number(parsed.x);
+  const y = Number(parsed.y);
+  const width = Number(parsed.width);
+  const height = Number(parsed.height);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function parseCollapsedModelIdsValue(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  return raw.filter((id): id is string => typeof id === "string");
+}
+
+function parseModelsViewStateValue(raw: unknown): ModelsViewState | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const parsed = raw as Partial<ModelsViewState> | null;
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+  const edgeVisibilityMode = parsed.edgeVisibilityMode;
+  const remoteConnectionVisibility = parsed.remoteConnectionVisibility;
+  const selectedNodeId =
+    typeof parsed.selectedNodeId === "string" ? parsed.selectedNodeId : null;
+  const collapsedModelIds = parseCollapsedModelIdsValue(parsed.collapsedModelIds);
+  const showPropertyPanel =
+    typeof parsed.showPropertyPanel === "boolean"
+      ? parsed.showPropertyPanel
+      : undefined;
+  if (
+    edgeVisibilityMode !== "none" &&
+    edgeVisibilityMode !== "selected-node" &&
+    edgeVisibilityMode !== "selected-model" &&
+    edgeVisibilityMode !== "expanded-models" &&
+    edgeVisibilityMode !== "all"
+  ) {
+    return null;
+  }
+  return {
+    edgeVisibilityMode,
+    remoteConnectionVisibility:
+      remoteConnectionVisibility === "visible" ? "visible" : "hidden",
+    selectedNodeId,
+    showPropertyPanel,
+    collapsedModelIds,
+  };
+}
+
+function parseModelSortKeyValue(raw: unknown): ModelSortKey {
+  return raw === "telemetry_port" || raw === "model_name" || raw === "model_path"
+    ? raw
+    : "model_path";
+}
+
+function sanitizeModelsPageSettings(value: unknown): ModelsPageSettings {
+  const defaults = defaultModelsPageSettings();
+  if (!value || typeof value !== "object") {
+    return defaults;
+  }
+  const data = value as Partial<ModelsPageSettings>;
+  const viewState = parseModelsViewStateValue(data.viewState) ?? defaults.viewState;
+  return {
+    viewport: parseViewportValue(data.viewport) ?? undefined,
+    viewState: {
+      edgeVisibilityMode: viewState.edgeVisibilityMode,
+      remoteConnectionVisibility:
+        viewState.remoteConnectionVisibility ?? "hidden",
+      selectedNodeId: viewState.selectedNodeId,
+      showPropertyPanel: viewState.showPropertyPanel ?? true,
+      collapsedModelIds: viewState.collapsedModelIds ?? [],
+    },
+    modelSortKey: parseModelSortKeyValue(data.modelSortKey),
+  };
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function modelsViewStateEqual(
+  left: ModelsViewState,
+  right: ModelsViewState,
+): boolean {
+  return (
+    left.edgeVisibilityMode === right.edgeVisibilityMode &&
+    (left.remoteConnectionVisibility ?? "hidden") ===
+      (right.remoteConnectionVisibility ?? "hidden") &&
+    left.selectedNodeId === right.selectedNodeId &&
+    (left.showPropertyPanel ?? true) === (right.showPropertyPanel ?? true) &&
+    arraysEqual(left.collapsedModelIds ?? [], right.collapsedModelIds ?? [])
+  );
+}
+
+export const modelsPagePersistence = definePanelPersistence<ModelsPageSettings>({
+  schemaVersion: 1,
+  defaults: defaultModelsPageSettings(),
+  sanitize: sanitizeModelsPageSettings,
+});
+
+export function ModelsPage() {
+  const { projectPath } = useProjectContext();
+  const { workbenchId, panelId } = usePanelInstance();
+  const [settings, updateSettings] = usePanelSettings(modelsPagePersistence);
+  const settingsRef = useRef(settings);
+  const updateSettingsRef = useRef(updateSettings);
   const graphRef = useRef<SVGSVGElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-  const panelIdentifier =
-    panelInstance.panelId ?? fallbackPanelIdRef.current ?? "default";
-  const viewportStorageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        "robotick-studio.models.viewport",
-        workspaceIdentifier,
-        panelIdentifier,
-        projectPath ?? "no-project"
-      ),
-    [panelIdentifier, projectPath, workspaceIdentifier]
-  );
-  const panelViewStateStorageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        "robotick-studio.models.view-state",
-        workspaceIdentifier,
-        panelIdentifier,
-        projectPath ?? "no-project"
-      ),
-    [panelIdentifier, projectPath, workspaceIdentifier]
-  );
+  const workbenchIdentifier = workbenchId ?? "workbench";
+  const panelIdentifier = panelId ?? "default";
   const selectionScopeKey = useMemo(
     () =>
-      `models:${workspaceIdentifier}:${panelIdentifier}:${projectPath ?? "no-project"}`,
-    [panelIdentifier, projectPath, workspaceIdentifier]
+      `models:${workbenchIdentifier}:${panelIdentifier}:${projectPath ?? "no-project"}`,
+    [panelIdentifier, projectPath, workbenchIdentifier]
   );
-  const initialViewState = useMemo(
-    () => readModelsViewState(panelViewStateStorageKey),
-    [panelViewStateStorageKey]
-  );
-  const modelSortStorageKey = useMemo(
-    () =>
-      buildNamespacedKey(
-        "robotick-studio.models.sort",
-        workspaceIdentifier,
-        panelIdentifier,
-        projectPath ?? "no-project"
-      ),
-    [panelIdentifier, projectPath, workspaceIdentifier]
-  );
-  const [modelSortKey, setModelSortKey] = useState<ModelSortKey>(() =>
-    readModelSortKey(modelSortStorageKey)
-  );
-  const [edgeVisibilityMode, setEdgeVisibilityMode] =
-    useState<EdgeVisibilityMode>(
-      initialViewState?.edgeVisibilityMode ?? "selected-model"
-    );
-  const [remoteConnectionVisibility, setRemoteConnectionVisibility] =
-    useState<RemoteConnectionVisibility>(
-      initialViewState?.remoteConnectionVisibility ?? "hidden"
-    );
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
-    initialViewState?.selectedNodeId ?? null
-  );
-  const [collapsedModelIds, setCollapsedModelIds] = useState<string[]>(
-    () =>
-      initialViewState?.collapsedModelIds ??
-      readCollapsedModelIds(
-        buildNamespacedKey(
-          "robotick-studio.models.collapsed",
-          workspaceIdentifier,
-          panelIdentifier,
-          projectPath ?? "no-project"
-        )
-      ) ??
-      []
-  );
+  const viewState = settings.viewState;
+  const modelSortKey = settings.modelSortKey;
+  const edgeVisibilityMode = viewState.edgeVisibilityMode;
+  const remoteConnectionVisibility =
+    viewState.remoteConnectionVisibility ?? "hidden";
+  const selectedNodeId = viewState.selectedNodeId;
+  const collapsedModelIds = viewState.collapsedModelIds ?? [];
   const [collapseStateInitialized, setCollapseStateInitialized] = useState(false);
-  const [showPropertyPanel, setShowPropertyPanel] = useState(
-    initialViewState?.showPropertyPanel ?? true
-  );
+  const showPropertyPanel = viewState.showPropertyPanel ?? true;
   const graphApiRef = useRef<NodeGraphAPI | null>(null);
 
   useEffect(() => {
-    const stored = readModelsViewState(panelViewStateStorageKey);
-    setEdgeVisibilityMode(stored?.edgeVisibilityMode ?? "selected-model");
-    setRemoteConnectionVisibility(stored?.remoteConnectionVisibility ?? "hidden");
-    setSelectedNodeId(stored?.selectedNodeId ?? null);
-    setShowPropertyPanel(stored?.showPropertyPanel ?? true);
-  }, [panelViewStateStorageKey]);
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
-    setModelSortKey(readModelSortKey(modelSortStorageKey));
-  }, [modelSortStorageKey]);
+    updateSettingsRef.current = updateSettings;
+  }, [updateSettings]);
 
-  useEffect(() => {
-    const stored = readModelsViewState(panelViewStateStorageKey);
-    const legacyCollapsed = readCollapsedModelIds(
-      buildNamespacedKey(
-        "robotick-studio.models.collapsed",
-        workspaceIdentifier,
-        panelIdentifier,
-        projectPath ?? "no-project"
-      )
-    );
-    setCollapsedModelIds(stored?.collapsedModelIds ?? legacyCollapsed ?? []);
-  }, [
-    panelIdentifier,
-    panelViewStateStorageKey,
-    projectPath,
-    workspaceIdentifier,
-  ]);
+  const replaceViewState = React.useCallback(
+    (
+      next:
+        | ModelsViewState
+        | ((current: ModelsViewState) => ModelsViewState)
+    ) => {
+      const current = settingsRef.current.viewState;
+      const resolved = typeof next === "function" ? next(current) : next;
+      const normalized: ModelsViewState = {
+        ...resolved,
+        remoteConnectionVisibility:
+          resolved.remoteConnectionVisibility ?? "hidden",
+        showPropertyPanel: resolved.showPropertyPanel ?? true,
+        collapsedModelIds: resolved.collapsedModelIds ?? [],
+      };
+      if (modelsViewStateEqual(current, normalized)) {
+        return;
+      }
+      updateSettings({
+        viewState: normalized,
+      });
+    },
+    [updateSettings]
+  );
+
+  const setSelectedNodeId = React.useCallback(
+    (nodeId: string | null) => {
+      replaceViewState((current) => ({
+        ...current,
+        selectedNodeId: nodeId,
+      }));
+    },
+    [replaceViewState]
+  );
+
+  const setCollapsedModelIds = React.useCallback(
+    (
+      next:
+        | string[]
+        | ((current: string[]) => string[])
+    ) => {
+      replaceViewState((current) => ({
+        ...current,
+        collapsedModelIds:
+          typeof next === "function"
+            ? next(current.collapsedModelIds ?? [])
+            : next,
+      }));
+    },
+    [replaceViewState]
+  );
 
   useEffect(() => {
     const graphEl = graphRef.current;
@@ -172,17 +305,8 @@ export default function ModelsPage() {
         if (disposed) return;
 
         const allModelIds = store.getModelIds();
-        const storedState = readModelsViewState(panelViewStateStorageKey);
-        const storedCollapsed =
-          storedState?.collapsedModelIds ??
-          readCollapsedModelIds(
-            buildNamespacedKey(
-              "robotick-studio.models.collapsed",
-              workspaceIdentifier,
-              panelIdentifier,
-              projectPath ?? "no-project"
-            )
-          );
+        const storedState = settingsRef.current.viewState;
+        const storedCollapsed = storedState?.collapsedModelIds;
         const initialCollapsed =
           storedCollapsed == null
             ? allModelIds
@@ -218,28 +342,32 @@ export default function ModelsPage() {
           }
         );
         graphApiRef.current = graphApi;
+        await graphApi.refreshLayout();
+        if (disposed) return;
         panelApi = initPropertyPanel(
           panelElement,
           store,
           selectionScopeKey,
           projectPath
         );
-        const storedViewport = readViewport(viewportStorageKey);
-        if (storedViewport) {
-          setViewBox(graphElement, storedViewport);
-        } else {
-          const defaultViewport = computeDefaultViewport(graphElement);
-          if (defaultViewport) {
-            setViewBox(graphElement, defaultViewport);
-          }
+        const storedViewport = settingsRef.current.viewport;
+        const defaultViewport = computeDefaultViewport(graphElement);
+        const selectedNode =
+          selectedNodeId ? graphApi.getDoc().getNode(selectedNodeId) : null;
+        const initialViewport =
+          storedViewport && viewportContainsNode(storedViewport, selectedNode)
+            ? storedViewport
+            : defaultViewport ?? storedViewport ?? null;
+        if (initialViewport) {
+          setViewBox(graphElement, initialViewport);
         }
         disposeViewportControls = attachViewportControls(
           graphElement,
-          (viewport) => writeViewport(viewportStorageKey, viewport)
+          (viewport) => updateSettingsRef.current({ viewport })
         );
-        const initialViewport = getViewBox(graphElement);
-        if (initialViewport) {
-          writeViewport(viewportStorageKey, initialViewport);
+        const appliedViewport = getViewBox(graphElement);
+        if (appliedViewport) {
+          updateSettingsRef.current({ viewport: appliedViewport });
         }
 
         const prevDispose = disposeViewportControls;
@@ -264,32 +392,20 @@ export default function ModelsPage() {
       resetDom(graphElement, panelElement);
     };
   }, [
-    panelIdentifier,
-    panelViewStateStorageKey,
     projectPath,
     selectionScopeKey,
-    viewportStorageKey,
     modelSortKey,
-    workspaceIdentifier,
   ]);
 
   useEffect(() => {
-    writeModelsViewState(panelViewStateStorageKey, {
-      edgeVisibilityMode,
-      remoteConnectionVisibility,
-      selectedNodeId,
-      showPropertyPanel,
-      ...(collapseStateInitialized ? { collapsedModelIds } : {}),
-    });
-  }, [
-    collapseStateInitialized,
-    collapsedModelIds,
-    edgeVisibilityMode,
-    panelViewStateStorageKey,
-    remoteConnectionVisibility,
-    showPropertyPanel,
-    selectedNodeId,
-  ]);
+    if (!collapseStateInitialized) {
+      return;
+    }
+    replaceViewState((current) => ({
+      ...current,
+      collapsedModelIds,
+    }));
+  }, [collapseStateInitialized, collapsedModelIds, replaceViewState]);
 
   useEffect(() => {
     editorSelectionStore.setSelection(selectedNodeId, selectionScopeKey);
@@ -321,10 +437,6 @@ export default function ModelsPage() {
     });
   }, [collapsedModelIds, edgeVisibilityMode, remoteConnectionVisibility]);
 
-  useEffect(() => {
-    setStorageValue(modelSortStorageKey, modelSortKey);
-  }, [modelSortKey, modelSortStorageKey]);
-
   return (
     <div className={styles.layout}>
       <div className={styles.mainPanel}>
@@ -333,7 +445,12 @@ export default function ModelsPage() {
           type="button"
           aria-label={showPropertyPanel ? "Hide properties panel" : "Show properties panel"}
           title={showPropertyPanel ? "Hide properties panel" : "Show properties panel"}
-          onClick={() => setShowPropertyPanel((value) => !value)}
+          onClick={() =>
+            replaceViewState((current) => ({
+              ...current,
+              showPropertyPanel: !(current.showPropertyPanel ?? true),
+            }))
+          }
         >
           {showPropertyPanel ? "›" : "‹"}
         </button>
@@ -345,7 +462,10 @@ export default function ModelsPage() {
               id="models-edge-visibility"
               value={edgeVisibilityMode}
               onChange={(event) =>
-                setEdgeVisibilityMode(event.target.value as EdgeVisibilityMode)
+                replaceViewState((current) => ({
+                  ...current,
+                  edgeVisibilityMode: event.target.value as EdgeVisibilityMode,
+                }))
               }
             >
               <option value="none">None</option>
@@ -359,9 +479,11 @@ export default function ModelsPage() {
               id="models-remote-connections"
               value={remoteConnectionVisibility}
               onChange={(event) =>
-                setRemoteConnectionVisibility(
-                  event.target.value as RemoteConnectionVisibility
-                )
+                replaceViewState((current) => ({
+                  ...current,
+                  remoteConnectionVisibility:
+                    event.target.value as RemoteConnectionVisibility,
+                }))
               }
             >
               <option value="hidden">Hidden</option>
@@ -374,7 +496,9 @@ export default function ModelsPage() {
               id="models-model-sort"
               value={modelSortKey}
               onChange={(event) =>
-                setModelSortKey(event.target.value as ModelSortKey)
+                updateSettings({
+                  modelSortKey: event.target.value as ModelSortKey,
+                })
               }
             >
               {MODEL_SORT_OPTIONS.map((option) => (
@@ -407,25 +531,7 @@ function resetDom(
     graphEl.innerHTML = "<defs></defs>";
     graphEl.removeAttribute("viewBox");
   }
-  if (panelEl) {
-    panelEl.innerHTML = "";
-  }
 }
-
-type GraphViewport = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type ModelsViewState = {
-  edgeVisibilityMode: EdgeVisibilityMode;
-  remoteConnectionVisibility?: RemoteConnectionVisibility;
-  selectedNodeId: string | null;
-  showPropertyPanel?: boolean;
-  collapsedModelIds?: string[];
-};
 
 const MOUSE_BUTTON = {
   LEFT: 0,
@@ -685,133 +791,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function readViewport(storageKey: string): GraphViewport | null {
-  const raw = readStorageValue(storageKey);
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<GraphViewport> | null;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    const x = Number(parsed.x);
-    const y = Number(parsed.y);
-    const width = Number(parsed.width);
-    const height = Number(parsed.height);
-    if (
-      !Number.isFinite(x) ||
-      !Number.isFinite(y) ||
-      !Number.isFinite(width) ||
-      !Number.isFinite(height) ||
-      width <= 0 ||
-      height <= 0
-    ) {
-      return null;
-    }
-    return { x, y, width, height };
-  } catch {
-    return null;
-  }
-}
-
-function writeViewport(storageKey: string, viewport: GraphViewport): void {
-  setStorageValue(storageKey, JSON.stringify(viewport));
-}
-
-function readCollapsedModelIds(storageKey: string): string[] | null {
-  const raw = readStorageValue(storageKey);
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed.filter((id): id is string => typeof id === "string");
-  } catch {
-    return null;
-  }
-}
-
-function readModelsViewState(storageKey: string): ModelsViewState | null {
-  const raw = readStorageValue(storageKey);
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<ModelsViewState> | null;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    const edgeVisibilityMode = parsed.edgeVisibilityMode;
-    const remoteConnectionVisibility = parsed.remoteConnectionVisibility;
-    const selectedNodeId =
-      typeof parsed.selectedNodeId === "string" ? parsed.selectedNodeId : null;
-    const collapsedModelIds = Array.isArray(parsed.collapsedModelIds)
-      ? parsed.collapsedModelIds.filter(
-          (id): id is string => typeof id === "string"
-        )
-      : undefined;
-    const showPropertyPanel =
-      typeof parsed.showPropertyPanel === "boolean"
-        ? parsed.showPropertyPanel
-        : undefined;
-    if (
-      edgeVisibilityMode !== "none" &&
-      edgeVisibilityMode !== "selected-node" &&
-      edgeVisibilityMode !== "selected-model" &&
-      edgeVisibilityMode !== "expanded-models" &&
-      edgeVisibilityMode !== "all"
-    ) {
-      return null;
-    }
-    return {
-      edgeVisibilityMode,
-      remoteConnectionVisibility:
-        remoteConnectionVisibility === "visible" ? "visible" : "hidden",
-      selectedNodeId,
-      showPropertyPanel,
-      collapsedModelIds,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeModelsViewState(storageKey: string, state: ModelsViewState): void {
-  const existing = readModelsViewState(storageKey);
-  const payload: ModelsViewState = {
-    edgeVisibilityMode: state.edgeVisibilityMode,
-    remoteConnectionVisibility: state.remoteConnectionVisibility ?? "hidden",
-    selectedNodeId: state.selectedNodeId,
-  };
-  if (state.showPropertyPanel !== undefined) {
-    payload.showPropertyPanel = state.showPropertyPanel;
-  } else if (existing?.showPropertyPanel !== undefined) {
-    payload.showPropertyPanel = existing.showPropertyPanel;
-  }
-  if (state.collapsedModelIds !== undefined) {
-    payload.collapsedModelIds = state.collapsedModelIds;
-  } else if (existing?.collapsedModelIds !== undefined) {
-    payload.collapsedModelIds = existing.collapsedModelIds;
-  }
-  setStorageValue(storageKey, JSON.stringify(payload));
-}
-
-function readModelSortKey(storageKey: string): ModelSortKey {
-  const value = readStorageValue(storageKey);
-  if (
-    value === "telemetry_port" ||
-    value === "model_name" ||
-    value === "model_path"
-  ) {
-    return value;
-  }
-  return "model_path";
-}
-
 function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
   const DEFAULT_VIEWBOX_WIDTH = 1500;
   const bounds = svg.getBBox();
@@ -833,3 +812,38 @@ function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
 
   return { x, y, width, height };
 }
+
+function viewportContainsNode(
+  viewport: GraphViewport,
+  node:
+    | {
+        x?: number;
+        y?: number;
+        w?: number;
+        h?: number;
+      }
+    | null
+    | undefined
+): boolean {
+  if (
+    !node ||
+    typeof node.x !== "number" ||
+    typeof node.y !== "number" ||
+    typeof node.w !== "number" ||
+    typeof node.h !== "number"
+  ) {
+    return true;
+  }
+  return (
+    node.x >= viewport.x &&
+    node.y >= viewport.y &&
+    node.x + node.w <= viewport.x + viewport.width &&
+    node.y + node.h <= viewport.y + viewport.height
+  );
+}
+export const contribution = defineStudioPanel({
+  component: ModelsPage,
+  persistence: modelsPagePersistence,
+});
+
+export default ModelsPage;

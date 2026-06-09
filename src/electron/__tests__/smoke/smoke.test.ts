@@ -3,6 +3,9 @@ import {
   bootstrapElectron,
   type BrowserWindowConstructor,
 } from "../../main/bootstrap";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 type BrowserWindowMock = {
   setMenuBarVisibility: ReturnType<typeof vi.fn>;
@@ -115,18 +118,24 @@ const createElectronMocks = () => {
   };
 };
 
-const bootstrapWithMocks = async (env?: string) => {
+const bootstrapWithMocks = async (
+  env?: string | Record<string, string>
+) => {
   const mocks = createElectronMocks();
+  const resolvedEnv =
+    typeof env === "string"
+      ? { ELECTRON_DEV: env }
+      : env ?? {};
   await bootstrapElectron({
     app: mocks.app,
     BrowserWindow: mocks.BrowserWindow as BrowserWindowConstructor,
     Menu: mocks.Menu as unknown as typeof import("electron").Menu,
     ipcMain: mocks.ipcMain as unknown as import("electron").IpcMain,
-    env: env ? { ELECTRON_DEV: env } : {},
+    env: resolvedEnv,
     platform: "linux",
   });
 
-  return { ...mocks, env };
+  return { ...mocks, env: resolvedEnv };
 };
 
 beforeEach(() => {
@@ -138,6 +147,14 @@ beforeEach(() => {
     }),
   );
 });
+
+function createWritableProjectPath() {
+  return path.join(
+    os.tmpdir(),
+    `robotick-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    "barr-e.project.yaml"
+  );
+}
 
 describe("electron launch paths", () => {
   it("enables dev tooling and loads the dev server when ELECTRON_DEV=1", async () => {
@@ -228,17 +245,152 @@ describe("electron launch paths", () => {
     await handler?.(invokeEvent, {
       command: "createWindow",
       scope: "child-preset-a",
-      seedUrl: "http://localhost:5173/#/dev",
+      projectPath: createWritableProjectPath(),
     });
     expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
 
     await handler?.(invokeEvent, {
       command: "createWindow",
       scope: "child-preset-a",
-      seedUrl: "http://localhost:5173/#/dev",
+      projectPath: createWritableProjectPath(),
     });
     expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
     expect(mocks.windows[1].focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("allocates a fresh child scope for new windows when persisted child windows already exist", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-child-scope-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const projectYamlPath = path.join(projectDir, "barr-e.project.yaml");
+    fs.mkdirSync(path.join(projectDir, "studio"), { recursive: true });
+    fs.writeFileSync(projectYamlPath, "name: Barr-E\n", "utf-8");
+    fs.writeFileSync(
+      path.join(projectDir, "studio", "studio.yaml"),
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: barr-e-studio",
+        "windows:",
+        "  - id: main",
+        '    label: "Main Window"',
+        "    windowRole: main",
+        "    defaultWorkbenchId: home",
+        "    workbenches: []",
+        "  - id: child-window-1",
+        '    label: "Existing Child"',
+        "    windowRole: child",
+        "    defaultWorkbenchId: new-workbench",
+        "    workbenches: []",
+      ].join("\n"),
+      "utf-8"
+    );
+
+    try {
+      const mocks = await bootstrapWithMocks();
+      const handler = mocks.ipcHandleHandlers.get("robotick-window-command");
+      expect(handler).toBeDefined();
+
+      const invokeEvent = { sender: {} };
+      await handler?.(invokeEvent, {
+        command: "createWindow",
+        projectPath: projectYamlPath,
+      });
+
+      expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
+      expect(mocks.BrowserWindow.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            additionalArguments: expect.arrayContaining([
+              "--robotick-window-scope=child-window-2",
+            ]),
+          }),
+        })
+      );
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a bootstrap project lock conflict through project selection state", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-locked-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const lockDir = path.join(projectDir, "studio");
+    fs.mkdirSync(lockDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(lockDir, "studio.lock"),
+      JSON.stringify(
+        {
+          pid: process.ppid,
+          instanceName: "studio-parent",
+          projectPath: projectDir,
+        },
+        null,
+        2
+      ),
+      "utf-8"
+    );
+
+    try {
+      const mocks = await bootstrapWithMocks({
+        ROBOTICK_PROJECT_DIR: projectDir,
+      });
+      const handler = mocks.ipcHandleHandlers.get(
+        "robotick-project-selection:get-state"
+      );
+      expect(handler).toBeDefined();
+
+      const state = await handler?.();
+      expect(state).toEqual(
+        expect.objectContaining({
+          currentProjectPath: "",
+          bootstrapIssue: expect.objectContaining({
+            type: "locked",
+            projectPath: projectDir,
+          }),
+        })
+      );
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts renderer project-selection requests using a project yaml path and locks the containing project", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-project-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const projectYamlPath = path.join(projectDir, "barr-e.project.yaml");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(projectYamlPath, "name: Barr-E\n", "utf-8");
+
+    try {
+      const mocks = await bootstrapWithMocks();
+      const setHandler = mocks.ipcHandleHandlers.get(
+        "robotick-project-selection:set"
+      );
+      expect(setHandler).toBeDefined();
+
+      const result = await setHandler?.(undefined, {
+        projectPath: projectYamlPath,
+      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          accepted: true,
+          currentProjectPath: projectYamlPath,
+          issue: null,
+        })
+      );
+      expect(
+        fs.existsSync(path.join(projectDir, "studio", "studio.lock"))
+      ).toBe(true);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 
   it("close command only closes target window and does not quit app", async () => {
