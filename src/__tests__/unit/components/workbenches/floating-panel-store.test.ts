@@ -4,7 +4,7 @@ import {
   getFloatingPanels,
   spawnFloatingPanel,
   updateFloatingPanel,
-} from "../../../../renderer/components/workspaces/floating-panels/floating-panel-store";
+} from "../../../../renderer/components/workbenches/floating-panels/floating-panel-store";
 
 describe("floating-panel-store", () => {
   const scope = "test-scope";

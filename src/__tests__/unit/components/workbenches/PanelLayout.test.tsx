@@ -52,7 +52,7 @@ vi.mock("../../../../renderer/services/EditorRegistry", () => {
   };
 });
 
-vi.mock("../../../../renderer/components/workspaces/floating-panels", () => ({
+vi.mock("../../../../renderer/components/workbenches/floating-panels", () => ({
   FloatingPanelLayer: () => <div data-testid="floating-layer" />,
   FloatingPanelsScopeProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
@@ -88,13 +88,13 @@ vi.mock(
   () => contextMenuModule,
 );
 
-import { PanelLayout } from "../../../../renderer/components/workspaces/PanelLayout";
+import { PanelLayout } from "../../../../renderer/components/workbenches/PanelLayout";
 import { useContextMenu } from "../../../../renderer/components/context-menu/ContextMenuProvider";
 import { __mockEntries } from "../../../../renderer/services/EditorRegistry";
 import {
   definePanelPersistence,
   usePanelSettings,
-} from "../../../../renderer/components/workspaces/PanelInstanceContext";
+} from "../../../../renderer/components/workbenches/PanelInstanceContext";
 
 class MemoryStudioPersistenceStore {
   files = new Map<string, string>();
@@ -113,19 +113,19 @@ function readStudioDocument(store: MemoryStudioPersistenceStore): any | null {
   return raw ? parse(raw) : null;
 }
 
-function readWorkbench(store: MemoryStudioPersistenceStore, workspaceId: string) {
+function readWorkbench(store: MemoryStudioPersistenceStore, workbenchId: string) {
   const windows = readStudioDocument(store)?.windows ?? [];
   return windows
     .flatMap((window: { workbenches?: Array<{ id?: string }> }) => window.workbenches ?? [])
-    .find((workbench: { id?: string }) => workbench.id === workspaceId);
+    .find((workbench: { id?: string }) => workbench.id === workbenchId);
 }
 
 function readLayout(
   store: MemoryStudioPersistenceStore,
-  workspaceId: string,
+  workbenchId: string,
   layoutId: string
 ) {
-  return readWorkbench(store, workspaceId)?.layouts?.find(
+  return readWorkbench(store, workbenchId)?.layouts?.find(
     (layout: { id?: string }) => layout.id === layoutId
   );
 }
@@ -210,8 +210,8 @@ describe("PanelLayout context menu", () => {
     act(() => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -241,14 +241,14 @@ describe("PanelLayout context menu", () => {
   it("does not load or write legacy layout state when no project is selected", async () => {
     projectContextState.projectPath = null as unknown as string;
     window.localStorage.setItem(
-      "workspace-layout-tabs:main:workspace",
+      "workbench-layout-tabs:main:workbench",
       JSON.stringify({
         tabs: [{ id: "legacy", name: "Legacy Layout" }],
         activeTabId: "legacy",
       })
     );
     window.localStorage.setItem(
-      "panelLayout:main:workspace:legacy",
+      "panelLayout:main:workbench:legacy",
       JSON.stringify({
         id: "legacy-panel",
         kind: "leaf",
@@ -262,15 +262,15 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Mock Workspace | Default");
+    expect(container.textContent).toContain("Mock Workbench | Default");
     expect(container.textContent).not.toContain("Legacy Layout");
     expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
 
@@ -287,14 +287,14 @@ describe("PanelLayout context menu", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Mock Workspace | New Layout 2");
-    expect(window.localStorage.getItem("workspace-layout-tabs:main:workspace")).toBe(
+    expect(container.textContent).toContain("Mock Workbench | New Layout 2");
+    expect(window.localStorage.getItem("workbench-layout-tabs:main:workbench")).toBe(
       JSON.stringify({
         tabs: [{ id: "legacy", name: "Legacy Layout" }],
         activeTabId: "legacy",
       })
     );
-    expect(window.localStorage.getItem("panelLayout:main:workspace:legacy")).toBe(
+    expect(window.localStorage.getItem("panelLayout:main:workbench:legacy")).toBe(
       JSON.stringify({
         id: "legacy-panel",
         kind: "leaf",
@@ -315,8 +315,8 @@ describe("PanelLayout context menu", () => {
       registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="animation-editor"
         />
       );
@@ -329,8 +329,8 @@ describe("PanelLayout context menu", () => {
       registryState.missingEditorIds = new Set(["animation-editor"]);
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="animation-editor"
         />
       );
@@ -372,22 +372,22 @@ describe("PanelLayout context menu", () => {
     });
   });
 
-  it("adds workspace layout tabs and persists a per-tab panel layout key", async () => {
+  it("adds workbench layout tabs and persists a per-tab panel layout key", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Mock Workspace | Default");
+    expect(container.textContent).toContain("Mock Workbench | Default");
     const addTab = container.querySelector(
       "button[aria-label='Create layout tab']"
     );
@@ -403,21 +403,21 @@ describe("PanelLayout context menu", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Mock Workspace | New Layout 2");
-    const workbench = readWorkbench(studioStore, "workspace");
+    expect(container.textContent).toContain("Mock Workbench | New Layout 2");
+    const workbench = readWorkbench(studioStore, "workbench");
     expect(workbench?.layouts).toHaveLength(2);
     expect(workbench?.defaultLayoutId).toBe(workbench?.layouts?.[1]?.id);
     const defaultLayout = readLayout(
       studioStore,
-      "workspace",
-      "main:workspace:default"
+      "workbench",
+      "main:workbench:default"
     );
-    expect(defaultLayout?.label).toBe("Mock Workspace | Default");
+    expect(defaultLayout?.label).toBe("Mock Workbench | Default");
     const nextLayoutId = workbench?.layouts?.[1]?.id;
     expect(nextLayoutId).toBeTruthy();
 
     await vi.waitFor(() => {
-      expect(readLayout(studioStore, "workspace", nextLayoutId)).not.toBeNull();
+      expect(readLayout(studioStore, "workbench", nextLayoutId)).not.toBeNull();
     });
 
     act(() => {
@@ -442,8 +442,8 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="settings-editor"
         />
       );
@@ -467,7 +467,7 @@ describe("PanelLayout context menu", () => {
 
     expect(editor?.textContent).toBe("outputs.alpha");
     expect(
-      readLayout(studioStore, "workspace", "main:workspace:default")?.dock
+      readLayout(studioStore, "workbench", "main:workbench:default")?.dock
     ).toMatchObject({
       nodeType: "panel",
       editorId: "settings-editor",
@@ -498,8 +498,8 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="settings-editor"
         />
       );
@@ -538,7 +538,7 @@ describe("PanelLayout context menu", () => {
 
     const defaultTab = Array.from(
       container.querySelectorAll<HTMLElement>("[role='button']")
-    ).find((button) => button.textContent?.includes("Mock Workspace | Default"));
+    ).find((button) => button.textContent?.includes("Mock Workbench | Default"));
     expect(defaultTab).not.toBeNull();
 
     await act(async () => {
@@ -558,7 +558,7 @@ describe("PanelLayout context menu", () => {
 
     const newLayoutTab = Array.from(
       container.querySelectorAll<HTMLElement>("[role='button']")
-    ).find((button) => button.textContent?.includes("Mock Workspace | New Layout 2"));
+    ).find((button) => button.textContent?.includes("Mock Workbench | New Layout 2"));
     expect(newLayoutTab).not.toBeNull();
 
     await act(async () => {
@@ -599,8 +599,8 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="settings-editor"
         />
       );
@@ -651,7 +651,7 @@ describe("PanelLayout context menu", () => {
 
     expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
     expect(
-      readLayout(studioStore, "workspace", "main:workspace:default")?.dock
+      readLayout(studioStore, "workbench", "main:workbench:default")?.dock
     ).toMatchObject({
       nodeType: "panel",
       editorId: "mock-editor",
@@ -663,15 +663,15 @@ describe("PanelLayout context menu", () => {
     });
   });
 
-  it("renames workspace layout tabs inline", async () => {
+  it("renames workbench layout tabs inline", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -681,7 +681,7 @@ describe("PanelLayout context menu", () => {
     const defaultTab = Array.from(
       container.querySelectorAll("[role='button']")
     ).find(
-      (button) => button.textContent?.includes("Mock Workspace | Default")
+      (button) => button.textContent?.includes("Mock Workbench | Default")
     );
     expect(defaultTab).not.toBeNull();
 
@@ -725,8 +725,8 @@ describe("PanelLayout context menu", () => {
     expect(container.textContent).toContain("Auditory Work");
     const defaultLayout = readLayout(
       studioStore,
-      "workspace",
-      "main:workspace:default"
+      "workbench",
+      "main:workbench:default"
     );
     expect(defaultLayout?.label).toBe("Auditory Work");
 
@@ -735,15 +735,15 @@ describe("PanelLayout context menu", () => {
     });
   });
 
-  it("reorders workspace layout tabs by dragging and persists the order", async () => {
+  it("reorders workbench layout tabs by dragging and persists the order", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -767,10 +767,10 @@ describe("PanelLayout context menu", () => {
       container.querySelectorAll<HTMLElement>("[role='button']")
     );
     const defaultTab = tabsBefore.find(
-      (button) => button.textContent?.includes("Mock Workspace | Default")
+      (button) => button.textContent?.includes("Mock Workbench | Default")
     );
     const layoutTwoTab = tabsBefore.find(
-      (button) => button.textContent?.includes("Mock Workspace | New Layout 2")
+      (button) => button.textContent?.includes("Mock Workbench | New Layout 2")
     );
     expect(defaultTab).not.toBeNull();
     expect(layoutTwoTab).not.toBeNull();
@@ -819,27 +819,27 @@ describe("PanelLayout context menu", () => {
     });
     getDefaultTabRect.mockRestore();
 
-    const workbench = readWorkbench(studioStore, "workspace");
+    const workbench = readWorkbench(studioStore, "workbench");
     const layoutIds = workbench?.layouts?.map((layout: { id: string }) => layout.id);
     expect(layoutIds).toHaveLength(2);
-    expect(layoutIds?.[0]).toMatch(/^main:workspace:/);
-    expect(layoutIds?.[0]).not.toBe("main:workspace:default");
-    expect(layoutIds?.[1]).toBe("main:workspace:default");
+    expect(layoutIds?.[0]).toMatch(/^main:workbench:/);
+    expect(layoutIds?.[0]).not.toBe("main:workbench:default");
+    expect(layoutIds?.[1]).toBe("main:workbench:default");
 
     act(() => {
       root.unmount();
     });
   });
 
-  it("confirms before closing a workspace layout tab and persists removal", async () => {
+  it("confirms before closing a workbench layout tab and persists removal", async () => {
     const container = document.createElement("div");
     const root = createRoot(container);
 
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -860,7 +860,7 @@ describe("PanelLayout context menu", () => {
     });
 
     const closeButton = container.querySelector(
-      "button[aria-label='Close layout tab Mock Workspace | New Layout 2']"
+      "button[aria-label='Close layout tab Mock Workbench | New Layout 2']"
     );
     expect(closeButton).not.toBeNull();
 
@@ -875,7 +875,7 @@ describe("PanelLayout context menu", () => {
     });
 
     expect(container.textContent).toContain("Close layout tab?");
-    const workbenchBeforeCancel = readWorkbench(studioStore, "workspace");
+    const workbenchBeforeCancel = readWorkbench(studioStore, "workbench");
     expect(workbenchBeforeCancel?.layouts).toHaveLength(2);
 
     const cancelButton = Array.from(container.querySelectorAll("button")).find(
@@ -893,10 +893,10 @@ describe("PanelLayout context menu", () => {
     });
 
     expect(container.textContent).not.toContain("Close layout tab?");
-    expect(readWorkbench(studioStore, "workspace")?.layouts).toHaveLength(2);
+    expect(readWorkbench(studioStore, "workbench")?.layouts).toHaveLength(2);
 
     const closeButtonAfterCancel = container.querySelector(
-      "button[aria-label='Close layout tab Mock Workspace | New Layout 2']"
+      "button[aria-label='Close layout tab Mock Workbench | New Layout 2']"
     );
     expect(closeButtonAfterCancel).not.toBeNull();
 
@@ -924,11 +924,11 @@ describe("PanelLayout context menu", () => {
       await Promise.resolve();
     });
 
-    const workbenchAfterClose = readWorkbench(studioStore, "workspace");
+    const workbenchAfterClose = readWorkbench(studioStore, "workbench");
     expect(
       workbenchAfterClose?.layouts?.map((layout: { id: string }) => layout.id)
-    ).toEqual(["main:workspace:default"]);
-    expect(workbenchAfterClose?.defaultLayoutId).toBe("main:workspace:default");
+    ).toEqual(["main:workbench:default"]);
+    expect(workbenchAfterClose?.defaultLayoutId).toBe("main:workbench:default");
 
     act(() => {
       root.unmount();
@@ -944,8 +944,8 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -977,8 +977,8 @@ describe("PanelLayout context menu", () => {
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -1009,14 +1009,14 @@ windows:
   - id: main
     label: Main Window
     windowRole: main
-    defaultWorkbenchId: workspace
+    defaultWorkbenchId: workbench
     workbenches:
-      - id: workspace
-        label: workspace
-        defaultLayoutId: main:workspace:default
+      - id: workbench
+        label: workbench
+        defaultLayoutId: main:workbench:default
         layouts:
-          - id: main:workspace:default
-            label: Mock Workspace | Default
+          - id: main:workbench:default
+            label: Mock Workbench | Default
             dock:
               nodeType: panel
               panelId: leaf-1
@@ -1030,8 +1030,8 @@ windows:
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );
@@ -1040,7 +1040,7 @@ windows:
 
     expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
     expect(
-      readLayout(studioStore, "workspace", "main:workspace:default")?.dock?.editorId
+      readLayout(studioStore, "workbench", "main:workbench:default")?.dock?.editorId
     ).toBe("animation-editor");
 
     registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
@@ -1049,8 +1049,8 @@ windows:
     await act(async () => {
       root.render(
         <PanelLayout
-          workspaceId="workspace"
-          workspaceLabel="Mock Workspace"
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
           defaultEditorId="mock-editor"
         />
       );

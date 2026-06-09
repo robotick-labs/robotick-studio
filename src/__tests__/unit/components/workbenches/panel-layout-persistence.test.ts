@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyWorkspaceLayoutState,
-  loadWorkspaceLayoutState,
+  applyWorkbenchLayoutState,
+  loadWorkbenchLayoutState,
   type PersistedPanelNode,
-} from "../../../../renderer/components/workspaces/panel-layout-persistence";
+} from "../../../../renderer/components/workbenches/panel-layout-persistence";
 
 describe("panel-layout-persistence floating panels", () => {
   it("writes floating panel settings and frame into the active layout resource", () => {
@@ -14,9 +14,9 @@ describe("panel-layout-persistence floating panels", () => {
       settings: { selectedField: "outputs.alpha" },
     };
 
-    const model = applyWorkspaceLayoutState({
-      workspaceId: "remote-control",
-      workspaceLabel: "Remote Control",
+    const model = applyWorkbenchLayoutState({
+      workbenchId: "remote-control",
+      workbenchLabel: "Remote Control",
       windowScope: "main",
       tabs: [
         {
@@ -71,7 +71,7 @@ describe("panel-layout-persistence floating panels", () => {
   });
 
   it("loads floating panel settings and frame back from the studio document", () => {
-    const state = loadWorkspaceLayoutState({
+    const state = loadWorkbenchLayoutState({
       model: {
         resourceType: "studio_document",
         schemaVersion: 1,
@@ -120,8 +120,8 @@ describe("panel-layout-persistence floating panels", () => {
           },
         ],
       },
-      workspaceId: "remote-control",
-      workspaceLabel: "Remote Control",
+      workbenchId: "remote-control",
+      workbenchLabel: "Remote Control",
       windowScope: "main",
       fallbackEditorId: "mock-editor",
       allowedEditors: new Set(["mock-editor", "remote-control"]),

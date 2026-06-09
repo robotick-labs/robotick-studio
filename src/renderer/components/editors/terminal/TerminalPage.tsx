@@ -5,7 +5,7 @@ import {
   definePanelPersistence,
   defineStudioPanel,
   usePanelSettings,
-} from "../../workspaces/PanelInstanceContext";
+} from "../../workbenches/PanelInstanceContext";
 import styles from "./TerminalPage.module.css";
 
 type TerminalPanelSettings = {

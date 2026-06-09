@@ -27,10 +27,10 @@ import {
   type StudioPersistenceModel,
 } from "../../services/studio-persistence";
 import {
-  applyWorkspaceLayoutState,
+  applyWorkbenchLayoutState,
   buildLayoutResourceId,
   findLayoutResource,
-  loadWorkspaceLayoutState,
+  loadWorkbenchLayoutState,
   panelNodeFromResource,
   type PersistedPanelNode,
 } from "./panel-layout-persistence";
@@ -53,7 +53,7 @@ type PanelSplitNode = {
 type PanelNode = PanelLeafNode | PanelSplitNode;
 
 const STORAGE_PREFIX = "panelLayout:";
-const LAYOUT_TABS_STORAGE_PREFIX = "workspace-layout-tabs:";
+const LAYOUT_TABS_STORAGE_PREFIX = "workbench-layout-tabs:";
 const DEFAULT_WINDOW_SCOPE = "main";
 const DEFAULT_LAYOUT_TAB_ID = "default";
 const DEFAULT_LAYOUT_TAB_NAME = "Default";
@@ -64,8 +64,8 @@ const PANEL_CONTEXT_MENU_TAP_MAX_MS = 100;
 const PANEL_RMB_GESTURE_SUPPRESS_SELECTOR = "[data-suppress-panel-rmb-menu='active']";
 
 type PanelLayoutProps = {
-  workspaceId: string;
-  workspaceLabel?: string;
+  workbenchId: string;
+  workbenchLabel?: string;
   defaultEditorId: string;
   allowedEditors?: string[];
   windowScope?: string;
@@ -76,14 +76,14 @@ type EditorOption = {
   label: string;
 };
 
-type WorkspaceLayoutTab = {
+type WorkbenchLayoutTab = {
   id: string;
   name: string;
 };
 
-type WorkspaceLayoutTabsState = {
+type WorkbenchLayoutTabsState = {
   storageKey: string;
-  tabs: WorkspaceLayoutTab[];
+  tabs: WorkbenchLayoutTab[];
   activeTabId: string;
 };
 
@@ -124,42 +124,42 @@ function clampRatio(value: number) {
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
 }
 
-function getLayoutTabsStorageKey(windowScope: string, workspaceId: string) {
-  return `${LAYOUT_TABS_STORAGE_PREFIX}${windowScope}:${workspaceId}`;
+function getLayoutTabsStorageKey(windowScope: string, workbenchId: string) {
+  return `${LAYOUT_TABS_STORAGE_PREFIX}${windowScope}:${workbenchId}`;
 }
 
 function getPanelLayoutStorageKey(
   windowScope: string,
-  workspaceId: string,
+  workbenchId: string,
   layoutTabId: string
 ) {
-  return `${STORAGE_PREFIX}${windowScope}:${workspaceId}:${layoutTabId}`;
+  return `${STORAGE_PREFIX}${windowScope}:${workbenchId}:${layoutTabId}`;
 }
 
 function getFloatingPanelScope(
   windowScope: string,
-  workspaceId: string,
+  workbenchId: string,
   layoutTabId: string
 ) {
-  return `${windowScope}:${workspaceId}:${layoutTabId}`;
+  return `${windowScope}:${workbenchId}:${layoutTabId}`;
 }
 
-function getDefaultLayoutTabName(workspaceLabel?: string): string {
-  const label = workspaceLabel?.trim();
+function getDefaultLayoutTabName(workbenchLabel?: string): string {
+  const label = workbenchLabel?.trim();
   return label
     ? `${label} | ${DEFAULT_LAYOUT_TAB_NAME}`
     : DEFAULT_LAYOUT_TAB_NAME;
 }
 
-function createDefaultLayoutTab(workspaceLabel?: string): WorkspaceLayoutTab {
+function createDefaultLayoutTab(workbenchLabel?: string): WorkbenchLayoutTab {
   return {
     id: DEFAULT_LAYOUT_TAB_ID,
-    name: getDefaultLayoutTabName(workspaceLabel),
+    name: getDefaultLayoutTabName(workbenchLabel),
   };
 }
 
-function getNewLayoutTabName(index: number, workspaceLabel?: string): string {
-  const label = workspaceLabel?.trim();
+function getNewLayoutTabName(index: number, workbenchLabel?: string): string {
+  const label = workbenchLabel?.trim();
   return label ? `${label} | New Layout ${index}` : `New Layout ${index}`;
 }
 
@@ -348,15 +348,15 @@ function updateSplitRatio(
 }
 
 /**
- * Render a workspace-scoped, persistent panel layout that hosts editor instances and provides splitting, resizing, assignment, closing, maximizing, and floating-panel operations.
+ * Render a workbench-scoped, persistent panel layout that hosts editor instances and provides splitting, resizing, assignment, closing, maximizing, and floating-panel operations.
  *
- * The component loads and persists the layout per `workspaceId`, enforces `allowedEditors` when provided, and exposes interactive behaviors (split, assign editor, close, resize splits, toggle maximize, reset layout, and spawn floating panels) via UI controls and a context menu.
+ * The component loads and persists the layout per `workbenchId`, enforces `allowedEditors` when provided, and exposes interactive behaviors (split, assign editor, close, resize splits, toggle maximize, reset layout, and spawn floating panels) via UI controls and a context menu.
  *
  * @returns The React element for the panel layout UI
  */
 export function PanelLayout({
-  workspaceId,
-  workspaceLabel,
+  workbenchId,
+  workbenchLabel,
   defaultEditorId,
   allowedEditors,
   windowScope = DEFAULT_WINDOW_SCOPE,
@@ -403,13 +403,13 @@ export function PanelLayout({
     : editorEntries[0].id;
 
   const layoutTabsStorageKey = React.useMemo(
-    () => getLayoutTabsStorageKey(windowScope, workspaceId),
-    [windowScope, workspaceId]
+    () => getLayoutTabsStorageKey(windowScope, workbenchId),
+    [windowScope, workbenchId]
   );
   const [layoutTabsState, setLayoutTabsState] =
-    React.useState<WorkspaceLayoutTabsState>(() => ({
+    React.useState<WorkbenchLayoutTabsState>(() => ({
       storageKey: layoutTabsStorageKey,
-      tabs: [createDefaultLayoutTab(workspaceLabel)],
+      tabs: [createDefaultLayoutTab(workbenchLabel)],
       activeTabId: DEFAULT_LAYOUT_TAB_ID,
     }));
   const activeLayoutTabId =
@@ -417,21 +417,21 @@ export function PanelLayout({
       ? layoutTabsState.activeTabId
       : DEFAULT_LAYOUT_TAB_ID;
   const activeLayoutResourceId = React.useMemo(
-    () => buildLayoutResourceId(windowScope, workspaceId, activeLayoutTabId),
-    [activeLayoutTabId, windowScope, workspaceId]
+    () => buildLayoutResourceId(windowScope, workbenchId, activeLayoutTabId),
+    [activeLayoutTabId, windowScope, workbenchId]
   );
   const visibleLayoutTabs =
     layoutTabsState.storageKey === layoutTabsStorageKey
       ? layoutTabsState.tabs
-      : [createDefaultLayoutTab(workspaceLabel)];
+      : [createDefaultLayoutTab(workbenchLabel)];
   const panelLayoutStorageKey = React.useMemo(
     () =>
-      getPanelLayoutStorageKey(windowScope, workspaceId, activeLayoutTabId),
-    [windowScope, workspaceId, activeLayoutTabId]
+      getPanelLayoutStorageKey(windowScope, workbenchId, activeLayoutTabId),
+    [windowScope, workbenchId, activeLayoutTabId]
   );
   const floatingPanelScope = React.useMemo(
-    () => getFloatingPanelScope(windowScope, workspaceId, activeLayoutTabId),
-    [windowScope, workspaceId, activeLayoutTabId]
+    () => getFloatingPanelScope(windowScope, workbenchId, activeLayoutTabId),
+    [windowScope, workbenchId, activeLayoutTabId]
   );
   const [floatingPanelsState, setFloatingPanelsState] = React.useState<
     StudioFloatingPanelInstance[]
@@ -477,7 +477,7 @@ export function PanelLayout({
     position: "before" | "after";
   } | null>(null);
   const [layoutTabPendingClose, setLayoutTabPendingClose] =
-    React.useState<WorkspaceLayoutTab | null>(null);
+    React.useState<WorkbenchLayoutTab | null>(null);
   const draggingLayoutTabIdRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     layoutTabsStateRef.current = layoutTabsState;
@@ -506,20 +506,20 @@ export function PanelLayout({
     const currentTabs =
       currentTabsState.storageKey === layoutTabsStorageKey
         ? currentTabsState.tabs
-        : [createDefaultLayoutTab(workspaceLabel)];
+        : [createDefaultLayoutTab(workbenchLabel)];
     const currentActiveTabId =
       currentTabsState.storageKey === layoutTabsStorageKey
         ? currentTabsState.activeTabId
         : DEFAULT_LAYOUT_TAB_ID;
-    const nextModel = applyWorkspaceLayoutState({
+    const nextModel = applyWorkbenchLayoutState({
       model: resourceModelRef.current,
-      workspaceId,
-      workspaceLabel,
+      workbenchId,
+      workbenchLabel,
       windowScope,
       tabs: currentTabs.map((tab) => ({
         id: tab.id,
         name: tab.name,
-        layoutId: buildLayoutResourceId(windowScope, workspaceId, tab.id),
+        layoutId: buildLayoutResourceId(windowScope, workbenchId, tab.id),
       })),
       activeTabId: currentActiveTabId,
       layoutNode: layoutStateRef.current.node as PersistedPanelNode,
@@ -538,16 +538,16 @@ export function PanelLayout({
     studioPersistenceEnabled,
     studioPersistenceStore,
     windowScope,
-    workspaceId,
-    workspaceLabel,
+    workbenchId,
+    workbenchLabel,
   ]);
 
   const hydrateActiveLayout = React.useCallback(
     (tabId: string, model = resourceModelRef.current) => {
-      const layoutId = buildLayoutResourceId(windowScope, workspaceId, tabId);
+      const layoutId = buildLayoutResourceId(windowScope, workbenchId, tabId);
       const activeLayout = findLayoutResource(
         model,
-        workspaceId,
+        workbenchId,
         windowScope,
         layoutId
       );
@@ -565,12 +565,12 @@ export function PanelLayout({
       const nextFloatingPanels = activeLayout?.floatingPanels ?? [];
       setFloatingPanelsState(nextFloatingPanels);
       replaceFloatingPanels(
-        getFloatingPanelScope(windowScope, workspaceId, tabId),
+        getFloatingPanelScope(windowScope, workbenchId, tabId),
         toFloatingPanelRecords(nextFloatingPanels)
       );
       setMaximizedPanelId(null);
     },
-    [allowedIdSet, fallbackEditorId, windowScope, workspaceId]
+    [allowedIdSet, fallbackEditorId, windowScope, workbenchId]
   );
   React.useEffect(() => {
     let cancelled = false;
@@ -578,23 +578,23 @@ export function PanelLayout({
     setPersistenceLoaded(false);
 
     if (!studioPersistenceEnabled || !projectPath || !studioPersistenceStore) {
-      const nextTabs: WorkspaceLayoutTabsState = {
+      const nextTabs: WorkbenchLayoutTabsState = {
         storageKey: layoutTabsStorageKey,
-        tabs: [createDefaultLayoutTab(workspaceLabel)],
+        tabs: [createDefaultLayoutTab(workbenchLabel)],
         activeTabId: DEFAULT_LAYOUT_TAB_ID,
       };
       setLayoutTabsState(nextTabs);
       setLayoutState({
         storageKey: getPanelLayoutStorageKey(
           windowScope,
-          workspaceId,
+          workbenchId,
           DEFAULT_LAYOUT_TAB_ID
         ),
         node: createLeaf(fallbackEditorId),
       });
       setFloatingPanelsState([]);
       replaceFloatingPanels(
-        getFloatingPanelScope(windowScope, workspaceId, DEFAULT_LAYOUT_TAB_ID),
+        getFloatingPanelScope(windowScope, workbenchId, DEFAULT_LAYOUT_TAB_ID),
         []
       );
       setMaximizedPanelId(null);
@@ -610,28 +610,28 @@ export function PanelLayout({
         if (cancelled) {
           return;
         }
-        const workspaceState = loadWorkspaceLayoutState({
+        const workbenchState = loadWorkbenchLayoutState({
           model: loaded.model,
-          workspaceId,
-          workspaceLabel,
+          workbenchId,
+          workbenchLabel,
           windowScope,
           fallbackEditorId,
           allowedEditors: allowedIdSet,
           createPanelId: generatePanelId,
         });
-        resourceModelRef.current = workspaceState.model;
+        resourceModelRef.current = workbenchState.model;
         setLayoutTabsState({
           storageKey: layoutTabsStorageKey,
-          tabs: workspaceState.tabs.map((tab) => ({
+          tabs: workbenchState.tabs.map((tab) => ({
             id: tab.id,
             name: tab.name,
           })),
-          activeTabId: workspaceState.activeTabId,
+          activeTabId: workbenchState.activeTabId,
         });
         setLayoutState({
-          storageKey: workspaceState.activeLayout.id,
+          storageKey: workbenchState.activeLayout.id,
           node: panelNodeFromResource(
-            workspaceState.activeLayout,
+            workbenchState.activeLayout,
             fallbackEditorId,
             allowedIdSet,
             generatePanelId
@@ -639,13 +639,13 @@ export function PanelLayout({
         });
         const nextScope = getFloatingPanelScope(
           windowScope,
-          workspaceId,
-          workspaceState.activeTabId
+          workbenchId,
+          workbenchState.activeTabId
         );
-        setFloatingPanelsState(workspaceState.floatingPanels);
+        setFloatingPanelsState(workbenchState.floatingPanels);
         replaceFloatingPanels(
           nextScope,
-          toFloatingPanelRecords(workspaceState.floatingPanels)
+          toFloatingPanelRecords(workbenchState.floatingPanels)
         );
         setMaximizedPanelId(null);
         persistenceHydratingRef.current = false;
@@ -670,8 +670,8 @@ export function PanelLayout({
     studioPersistenceEnabled,
     studioPersistenceStore,
     windowScope,
-    workspaceLabel,
-    workspaceId,
+    workbenchLabel,
+    workbenchId,
   ]);
 
   React.useEffect(() => {
@@ -707,7 +707,7 @@ export function PanelLayout({
     }
     const activeLayout = findLayoutResource(
       resourceModelRef.current,
-      workspaceId,
+      workbenchId,
       windowScope,
       activeLayoutResourceId
     );
@@ -752,15 +752,15 @@ export function PanelLayout({
     if (!studioPersistenceEnabled || !projectPath || !studioPersistenceStore) {
       return;
     }
-    const nextModel = applyWorkspaceLayoutState({
+    const nextModel = applyWorkbenchLayoutState({
       model: resourceModelRef.current,
-      workspaceId,
-      workspaceLabel,
+      workbenchId,
+      workbenchLabel,
       windowScope,
       tabs: visibleLayoutTabs.map((tab) => ({
         id: tab.id,
         name: tab.name,
-        layoutId: buildLayoutResourceId(windowScope, workspaceId, tab.id),
+        layoutId: buildLayoutResourceId(windowScope, workbenchId, tab.id),
       })),
       activeTabId: activeLayoutTabId,
       layoutNode: layoutState.node as PersistedPanelNode,
@@ -784,8 +784,8 @@ export function PanelLayout({
     studioPersistenceStore,
     visibleLayoutTabs,
     windowScope,
-    workspaceId,
-    workspaceLabel,
+    workbenchId,
+    workbenchLabel,
   ]);
 
   React.useEffect(() => {
@@ -938,7 +938,7 @@ export function PanelLayout({
       const nextIndex = current.tabs.length + 1;
       const tab = {
         id,
-        name: getNewLayoutTabName(nextIndex, workspaceLabel),
+        name: getNewLayoutTabName(nextIndex, workbenchLabel),
       };
       return {
         ...current,
@@ -947,19 +947,19 @@ export function PanelLayout({
       };
     });
     setLayoutState({
-      storageKey: buildLayoutResourceId(windowScope, workspaceId, id),
+      storageKey: buildLayoutResourceId(windowScope, workbenchId, id),
       node: createLeaf(fallbackEditorId),
     });
     setFloatingPanelsState([]);
-    replaceFloatingPanels(getFloatingPanelScope(windowScope, workspaceId, id), []);
+    replaceFloatingPanels(getFloatingPanelScope(windowScope, workbenchId, id), []);
     setMaximizedPanelId(null);
   }, [
     fallbackEditorId,
     layoutTabsStorageKey,
     persistCurrentLayoutSnapshot,
     windowScope,
-    workspaceId,
-    workspaceLabel,
+    workbenchId,
+    workbenchLabel,
   ]);
 
   const commitLayoutTabRename = React.useCallback(() => {
@@ -991,7 +991,7 @@ export function PanelLayout({
   }, []);
 
   const handleCloseLayoutTab = React.useCallback(
-    (tab: WorkspaceLayoutTab) => {
+    (tab: WorkbenchLayoutTab) => {
       if (visibleLayoutTabs.length <= 1) {
         return;
       }
@@ -1177,7 +1177,7 @@ export function PanelLayout({
   return (
     <FloatingPanelsScopeProvider scope={floatingPanelScope}>
       <div className={styles.panelLayoutShell}>
-        <div className={styles.layoutTabs} aria-label="Workspace layout tabs">
+        <div className={styles.layoutTabs} aria-label="Workbench layout tabs">
           {visibleLayoutTabs.map((tab) => {
             const isActive =
               layoutTabsState.storageKey === layoutTabsStorageKey &&
@@ -1310,7 +1310,7 @@ export function PanelLayout({
             onToggleMaximize={onToggleMaximize}
             onSplit={onSplit}
             onResizeSplit={onResizeSplit}
-            workspaceId={workspaceId}
+            workbenchId={workbenchId}
           />
         </div>
       </div>
@@ -1372,7 +1372,7 @@ type PanelNodeViewProps = {
     ratio: number
   ) => void;
   onResizeSplit: (splitId: string, ratio: number) => void;
-  workspaceId: string;
+  workbenchId: string;
 };
 
 /**
@@ -1389,7 +1389,7 @@ type PanelNodeViewProps = {
  * @param onToggleMaximize - Callback to toggle maximize/restore for a panel.
  * @param onSplit - Callback to split a leaf panel into two panes.
  * @param onResizeSplit - Callback invoked when a split's ratio changes.
- * @param workspaceId - Identifier for the current workspace scope.
+ * @param workbenchId - Identifier for the current workbench scope.
  * @returns A React element that renders the given `node` and its child panes.
  */
 function PanelNodeView({
@@ -1404,7 +1404,7 @@ function PanelNodeView({
   onToggleMaximize,
   onSplit,
   onResizeSplit,
-  workspaceId,
+  workbenchId,
 }: PanelNodeViewProps) {
   const splitContainerRef = React.useRef<HTMLDivElement | null>(null);
   if (node.kind === "split") {
@@ -1441,7 +1441,7 @@ function PanelNodeView({
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
-              workspaceId={workspaceId}
+              workbenchId={workbenchId}
             />
           </div>
         )}
@@ -1477,7 +1477,7 @@ function PanelNodeView({
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
-              workspaceId={workspaceId}
+              workbenchId={workbenchId}
             />
           </div>
         )}
@@ -1498,7 +1498,7 @@ function PanelNodeView({
       onToggleMaximize={onToggleMaximize}
       onSplit={onSplit}
       isMaximized={maximizedPanelId === node.id}
-      workspaceId={workspaceId}
+      workbenchId={workbenchId}
     />
   );
 }
@@ -1593,7 +1593,7 @@ type PanelLeafProps = {
     ratio: number
   ) => void;
   isMaximized: boolean;
-  workspaceId: string;
+  workbenchId: string;
 };
 
 /**
@@ -1607,7 +1607,7 @@ type PanelLeafProps = {
  * @param onToggleMaximize - Called with (panelId) to toggle maximize/restore for this panel.
  * @param onSplit - Called with (panelId, direction, ratio) when a split is committed via drag.
  * @param isMaximized - Whether this panel is currently maximized.
- * @param workspaceId - Workspace scope used for panel instance context.
+ * @param workbenchId - Workbench scope used for panel instance context.
  * @returns A React element representing the interactive leaf panel.
  */
 function PanelLeaf({
@@ -1621,7 +1621,7 @@ function PanelLeaf({
   onToggleMaximize,
   onSplit,
   isMaximized,
-  workspaceId,
+  workbenchId,
 }: PanelLeafProps) {
   const { getEditorEntry } = useEditorRegistry();
   const panelRef = React.useRef<HTMLDivElement | null>(null);
@@ -1763,7 +1763,7 @@ function PanelLeaf({
   return (
     <PanelInstanceProvider
       panelId={node.id}
-      workspaceId={workspaceId}
+      workbenchId={workbenchId}
       editorId={node.editorId}
       settings={node.settings ?? {}}
       setSettings={handleSetPanelSettings}

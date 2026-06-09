@@ -15,7 +15,7 @@ vi.mock("../../../../renderer/components/header/ProjectPicker", () => ({
 }));
 vi.mock("../../../../renderer/services/AppConfigService", () => ({
   useAppConfig: () => ({
-    workspaces: [
+    workbenches: [
       {
         id: "home",
         path: "/home",

@@ -20,12 +20,12 @@ describe("view diagnostics reporter", () => {
   });
 
   it("stores the latest view payload on window for runtime inspection", () => {
-    reportViewDiagnostics("workspace", { workspaceId: "home" });
+    reportViewDiagnostics("workbench", { workbenchId: "home" });
     const payload = getLastViewDiagnostics();
     expect(payload).toEqual({
-      view: "workspace",
+      view: "workbench",
       timestamp: new Date("2025-01-01T00:00:00Z").getTime(),
-      data: { workspaceId: "home" },
+      data: { workbenchId: "home" },
     });
   });
 

@@ -26,15 +26,15 @@ vi.mock("../../../../../renderer/data-sources/launcher", () => ({
 }));
 
 import TerminalPage from "../../../../../renderer/components/editors/terminal/TerminalPage";
-import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 function PanelHost({
   panelId,
-  workspaceId,
+  workbenchId,
   children,
 }: {
   panelId: string;
-  workspaceId: string;
+  workbenchId: string;
   children: React.ReactNode;
 }) {
   const [settings, setSettings] = React.useState<Record<string, unknown>>({});
@@ -43,7 +43,7 @@ function PanelHost({
     <>
       <PanelInstanceProvider
         panelId={panelId}
-        workspaceId={workspaceId}
+        workbenchId={workbenchId}
         settings={settings}
         setSettings={setSettings}
         updateSettings={(partial) =>
@@ -83,10 +83,10 @@ describe("TerminalPage panel settings", () => {
     await act(async () => {
       root.render(
         <>
-          <PanelHost panelId="panel-a" workspaceId="workspace">
+          <PanelHost panelId="panel-a" workbenchId="workbench">
             <TerminalPage />
           </PanelHost>
-          <PanelHost panelId="panel-b" workspaceId="workspace">
+          <PanelHost panelId="panel-b" workbenchId="workbench">
             <TerminalPage />
           </PanelHost>
         </>
@@ -114,7 +114,7 @@ describe("TerminalPage panel settings", () => {
     ).toBe("{}");
     expect(
       window.localStorage.getItem(
-        "robotick-studio.terminal.panel.workspace.panel-a"
+        "robotick-studio.terminal.panel.workbench.panel-a"
       )
     ).toBeNull();
 
@@ -129,7 +129,7 @@ describe("TerminalPage panel settings", () => {
 
     await act(async () => {
       root.render(
-        <PanelHost panelId="panel-a" workspaceId="workspace">
+        <PanelHost panelId="panel-a" workbenchId="workbench">
           <TerminalPage />
         </PanelHost>
       );

@@ -5,7 +5,7 @@ import {
   defineStudioPanel,
   usePanelInstance,
   usePanelSettings,
-} from "../../workspaces/PanelInstanceContext";
+} from "../../workbenches/PanelInstanceContext";
 
 const useProjectContext = Project.Context.use;
 
@@ -194,18 +194,18 @@ export const modelsPagePersistence = definePanelPersistence<ModelsPageSettings>(
 
 export function ModelsPage() {
   const { projectPath } = useProjectContext();
-  const { workspaceId, panelId } = usePanelInstance();
+  const { workbenchId, panelId } = usePanelInstance();
   const [settings, updateSettings] = usePanelSettings(modelsPagePersistence);
   const settingsRef = useRef(settings);
   const updateSettingsRef = useRef(updateSettings);
   const graphRef = useRef<SVGSVGElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const workspaceIdentifier = workspaceId ?? "workspace";
+  const workbenchIdentifier = workbenchId ?? "workbench";
   const panelIdentifier = panelId ?? "default";
   const selectionScopeKey = useMemo(
     () =>
-      `models:${workspaceIdentifier}:${panelIdentifier}:${projectPath ?? "no-project"}`,
-    [panelIdentifier, projectPath, workspaceIdentifier]
+      `models:${workbenchIdentifier}:${panelIdentifier}:${projectPath ?? "no-project"}`,
+    [panelIdentifier, projectPath, workbenchIdentifier]
   );
   const viewState = settings.viewState;
   const modelSortKey = settings.modelSortKey;

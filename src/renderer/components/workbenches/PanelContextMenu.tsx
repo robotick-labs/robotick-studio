@@ -52,7 +52,7 @@ export type PanelContextMenuProps = {
  * @param onAssign - Callback invoked to assign a tool: `(editorId) => void`
  * @param onToggleMaximize - Callback to toggle panel maximize state
  * @param onClosePanel - Callback to close the current panel
- * @param onResetLayout - Callback to reset the workspace layout (invoked after confirming reset)
+ * @param onResetLayout - Callback to reset the workbench layout (invoked after confirming reset)
  * @param onClose - Callback to close the context menu
  * @param onCreateFloatingPanel - Callback to create a floating panel; receives optional `editorId`
  * @param showSplit - Whether split actions are shown (default `true`)
@@ -298,7 +298,7 @@ export function PanelContextMenu({
         <div onClick={(event) => event.stopPropagation()}>
           <GenericDialog
             title="Reset layout?"
-            message="This will restore the default workspace layout. Any custom panel arrangement will be lost."
+            message="This will restore the default workbench layout. Any custom panel arrangement will be lost."
             onClose={() => setConfirmResetOpen(false)}
             actions={[
               { label: "Cancel", onClick: () => setConfirmResetOpen(false) },

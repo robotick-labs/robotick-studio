@@ -30,7 +30,7 @@ import {
   definePanelPersistence,
   defineStudioPanel,
   usePanelSettings,
-} from "../../../workspaces/PanelInstanceContext";
+} from "../../../workbenches/PanelInstanceContext";
 
 type PanelSettings = {
   telemetryBaseUrl?: string;

@@ -13,7 +13,7 @@ vi.mock(
 );
 
 import TelemetryPage from "../../../../renderer/components/editors/telemetry/TelemetryPage";
-import { PanelInstanceProvider } from "../../../../renderer/components/workspaces/PanelInstanceContext";
+import { PanelInstanceProvider } from "../../../../renderer/components/workbenches/PanelInstanceContext";
 
 function PanelHost({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = React.useState<Record<string, unknown>>({});
@@ -22,7 +22,7 @@ function PanelHost({ children }: { children: React.ReactNode }) {
     <>
       <PanelInstanceProvider
         panelId="panel-a"
-        workspaceId="workspace"
+        workbenchId="workbench"
         settings={settings}
         setSettings={setSettings}
         updateSettings={(partial) =>

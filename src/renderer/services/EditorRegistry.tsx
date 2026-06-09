@@ -6,7 +6,7 @@ import {
 import { useProjectContext } from "../data-sources/launcher/internal/ProjectContext";
 import type { EditorConfig } from "./AppConfigService";
 import { EditorsConfig } from "./AppConfigService";
-import type { StudioPanelContribution } from "../components/workspaces/PanelInstanceContext";
+import type { StudioPanelContribution } from "../components/workbenches/PanelInstanceContext";
 
 type EditorComponent = React.LazyExoticComponent<
   React.ComponentType<Record<string, never>>

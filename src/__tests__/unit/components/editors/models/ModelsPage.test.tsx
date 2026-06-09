@@ -67,7 +67,7 @@ vi.mock("../../../../../renderer/data-sources/launcher", async () => {
 });
 
 import ModelsPage from "../../../../../renderer/components/editors/models/ModelsPage";
-import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 function PanelHost({
   children,
@@ -91,7 +91,7 @@ function PanelHost({
     <>
       <PanelInstanceProvider
         panelId="models-panel"
-        workspaceId="workspace"
+        workbenchId="workbench"
         editorId="models"
         settings={settings}
         setSettings={setPanelSettings}

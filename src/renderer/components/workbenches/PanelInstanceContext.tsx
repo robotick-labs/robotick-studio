@@ -18,7 +18,7 @@ export type StudioPanelContribution<
 
 export type PanelInstanceValue = {
   panelId?: string;
-  workspaceId?: string;
+  workbenchId?: string;
   editorId?: string;
   settings: PanelSettingsRecord;
   setSettings: (settings: PanelSettingsRecord) => void;
@@ -40,7 +40,7 @@ export type PanelInstanceProviderProps = PanelInstanceValue & {
 
 export function PanelInstanceProvider({
   panelId,
-  workspaceId,
+  workbenchId,
   editorId,
   settings,
   setSettings,
@@ -51,7 +51,7 @@ export function PanelInstanceProvider({
     <PanelInstanceContext.Provider
       value={{
         panelId,
-        workspaceId,
+        workbenchId,
         editorId,
         settings,
         setSettings,

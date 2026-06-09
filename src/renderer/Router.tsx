@@ -6,18 +6,18 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import type { WorkspaceConfig } from "./services/AppConfigService";
-import { WorkspacesConfig } from "./services/AppConfigService";
-import { WorkspaceView } from "./components/workspaces/WorkspaceView";
+import type { WorkbenchConfig } from "./services/AppConfigService";
+import { WorkbenchesConfig } from "./services/AppConfigService";
+import { WorkbenchView } from "./components/workbenches/WorkbenchView";
 import { reportViewDiagnostics } from "./utils/viewDiagnostics";
 import { useProjectContext } from "./data-sources/launcher/internal/ProjectContext";
-import { loadRememberedWorkspacePath } from "./utils/workspaceMemory";
+import { loadRememberedWorkbenchPath } from "./utils/workbenchMemory";
 import {
   getWindowScope,
   isPrimaryWindowSession,
 } from "./utils/windowSession";
 
-export const resolvedWorkspaces = WorkspacesConfig;
+export const resolvedWorkbenches = WorkbenchesConfig;
 
 export function shouldForceHomeRedirect(
   pathname: string,
@@ -30,16 +30,16 @@ export function shouldForceHomeRedirect(
 export function AppRoutes() {
   return (
     <>
-      <ProjectWorkspaceSync />
+      <ProjectWorkbenchSync />
       <Routes>
-        <Route path="/" element={<DefaultWorkspaceRedirect />} />
-        {resolvedWorkspaces.map((workspace) => (
+        <Route path="/" element={<DefaultWorkbenchRedirect />} />
+        {resolvedWorkbenches.map((workbench) => (
           <Route
-            key={workspace.id}
-            path={workspace.path}
+            key={workbench.id}
+            path={workbench.path}
             element={
-              <React.Suspense fallback={<WorkspaceFallback />}>
-                <WorkspaceView workspace={workspace} />
+              <React.Suspense fallback={<WorkbenchFallback />}>
+                <WorkbenchView workbench={workbench} />
               </React.Suspense>
             }
           />
@@ -50,13 +50,13 @@ export function AppRoutes() {
   );
 }
 
-function WorkspaceFallback() {
-  return <div className="workspace-loading">Loading…</div>;
+function WorkbenchFallback() {
+  return <div className="workbench-loading">Loading…</div>;
 }
 
 function NotFound() {
   const location = useLocation();
-  const fallbackHome = getFallbackWorkspacePath();
+  const fallbackHome = getFallbackWorkbenchPath();
   const protocol =
     typeof window !== "undefined" ? window.location.protocol : undefined;
   const shouldForceHome = shouldForceHomeRedirect(location.pathname, protocol);
@@ -81,36 +81,36 @@ function NotFound() {
   );
 }
 
-function getFallbackWorkspacePath(): string {
-  return resolvedWorkspaces[0]?.path ?? "/home";
+function getFallbackWorkbenchPath(): string {
+  return resolvedWorkbenches[0]?.path ?? "/home";
 }
 
-function resolveRememberedWorkspace(projectPath: string | undefined): string {
-  const remembered = loadRememberedWorkspacePath(projectPath, {
+function resolveRememberedWorkbench(projectPath: string | undefined): string {
+  const remembered = loadRememberedWorkbenchPath(projectPath, {
     windowScope: getWindowScope(),
     isPrimaryWindow: isPrimaryWindowSession(),
   });
   if (
     remembered &&
-    resolvedWorkspaces.some((workspace) => workspace.path === remembered)
+    resolvedWorkbenches.some((workbench) => workbench.path === remembered)
   ) {
     return remembered;
   }
-  return getFallbackWorkspacePath();
+  return getFallbackWorkbenchPath();
 }
 
-function DefaultWorkspaceRedirect() {
+function DefaultWorkbenchRedirect() {
   const { projectPath } = useProjectContext();
-  const target = resolveRememberedWorkspace(projectPath);
+  const target = resolveRememberedWorkbench(projectPath);
   return <Navigate to={target} replace />;
 }
 
 /**
- * Synchronizes the current route to the remembered workspace for the active project when the project changes.
+ * Synchronizes the current route to the remembered workbench for the active project when the project changes.
  *
- * Reads the active project from project context and, if it differs from the previous project, resolves the remembered workspace path for that project and navigates to it using a replace navigation when the current pathname is different.
+ * Reads the active project from project context and, if it differs from the previous project, resolves the remembered workbench path for that project and navigates to it using a replace navigation when the current pathname is different.
  */
-function ProjectWorkspaceSync() {
+function ProjectWorkbenchSync() {
   const { projectPath } = useProjectContext();
   const location = useLocation();
   const navigate = useNavigate();
@@ -121,7 +121,7 @@ function ProjectWorkspaceSync() {
       return;
     }
     previousProject.current = projectPath;
-    const target = resolveRememberedWorkspace(projectPath);
+    const target = resolveRememberedWorkbench(projectPath);
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }

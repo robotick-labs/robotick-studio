@@ -8,8 +8,8 @@ import type {
   ITelemetryStruct,
   ITelemetryWorkload,
 } from "../../../../../renderer/data-sources/telemetry";
-import { FloatingPanelsScopeProvider } from "../../../../../renderer/components/workspaces/floating-panels";
-import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
+import { FloatingPanelsScopeProvider } from "../../../../../renderer/components/workbenches/floating-panels";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 const telemetryModel = vi.hoisted(() => ({
   current: null as ITelemetryModel | null,
@@ -116,7 +116,7 @@ function renderViewer(root: ReturnType<typeof createRoot>) {
     return (
       <PanelInstanceProvider
         panelId="test-panel"
-        workspaceId="test-workspace"
+        workbenchId="test-workbench"
         editorId="telemetry-tree"
         settings={settings}
         setSettings={setSettings}

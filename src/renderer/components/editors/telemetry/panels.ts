@@ -1,7 +1,7 @@
 import {
   spawnFloatingPanel,
   type FloatingPanelSpawnConfig,
-} from "../../workspaces/floating-panels";
+} from "../../workbenches/floating-panels";
 
 export type TelemetryPanelSettings = {
   telemetryBaseUrl?: string;

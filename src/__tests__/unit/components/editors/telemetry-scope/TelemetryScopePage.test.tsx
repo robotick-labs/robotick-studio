@@ -53,16 +53,16 @@ vi.mock("../../../../../renderer/data-sources/telemetry", async () => {
 });
 
 import TelemetryScopePage from "../../../../../renderer/components/editors/telemetry-scope/TelemetryScopePage";
-import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
+import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 function PanelHost({
   panelId,
-  workspaceId,
+  workbenchId,
   initialSettings = {},
   children,
 }: {
   panelId: string;
-  workspaceId: string;
+  workbenchId: string;
   initialSettings?: Record<string, unknown>;
   children: React.ReactNode;
 }) {
@@ -74,7 +74,7 @@ function PanelHost({
     <>
       <PanelInstanceProvider
         panelId={panelId}
-        workspaceId={workspaceId}
+        workbenchId={workbenchId}
         settings={settings}
         setSettings={setSettings}
         updateSettings={(partial) =>
@@ -182,7 +182,7 @@ describe("TelemetryScopePage restore", () => {
         root.render(
           <PanelHost
             panelId="panel-a"
-            workspaceId="workspace"
+            workbenchId="workbench"
             initialSettings={initialSettings}
           >
             <TelemetryScopePage />
@@ -243,7 +243,7 @@ describe("TelemetryScopePage restore", () => {
         root.render(
           <PanelHost
             panelId="panel-a"
-            workspaceId="workspace"
+            workbenchId="workbench"
             initialSettings={initialSettings}
           >
             <TelemetryScopePage />

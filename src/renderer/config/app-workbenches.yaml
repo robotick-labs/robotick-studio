@@ -1,5 +1,5 @@
-# Top-level workspace configuration (YAML)
-workspaces:
+# Top-level workbench configuration (YAML)
+workbenches:
   - id: home
     path: /home
     label: Home

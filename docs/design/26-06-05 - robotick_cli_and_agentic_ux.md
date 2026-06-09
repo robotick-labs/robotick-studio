@@ -61,7 +61,7 @@ Current human usage is based on repo scripts and the Studio UI:
 - Studio project picker
 - Studio profile picker
 - launcher start/stop controls
-- Studio work areas currently named workspaces in the codebase, such as `Remote Control`, `Telemetry`, `Models`, `Project`, and `Terminal`
+- Studio work areas currently named workbenches in the codebase, such as `Remote Control`, `Telemetry`, `Models`, `Project`, and `Terminal`
 
 The functional surface exists. The missing piece is a stable operational contract behind it.
 

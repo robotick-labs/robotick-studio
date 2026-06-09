@@ -12,7 +12,7 @@ import {
   definePanelPersistence,
   defineStudioPanel,
   usePanelSettings,
-} from "../../workspaces/PanelInstanceContext";
+} from "../../workbenches/PanelInstanceContext";
 import styles from "./TelemetryScopePage.module.css";
 
 type ModelOption = {

@@ -128,7 +128,7 @@ export function RemoteControlPage() {
           ...(viewerModule.config ?? {}),
           viewerType,
           projectPath,
-          workspaceId: panelInstance.workspaceId,
+          workbenchId: panelInstance.workbenchId,
           panelId: panelInstance.panelId,
           selectedStream: settings.selectedStream,
           onSelectedStreamChange: (selectedStream: string) =>
@@ -164,7 +164,7 @@ export function RemoteControlPage() {
     };
   }, [
     panelInstance.panelId,
-    panelInstance.workspaceId,
+    panelInstance.workbenchId,
     projectPath,
     settings.selectedStream,
     status,

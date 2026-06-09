@@ -2,7 +2,7 @@ import React from "react";
 import {
   PanelContextMenu,
   type PanelContextMenuProps,
-} from "../workspaces/PanelContextMenu";
+} from "../workbenches/PanelContextMenu";
 import { HeaderContextMenu } from "../header/HeaderContextMenu";
 
 type PanelMenuRequest = Omit<PanelContextMenuProps, "onClose">;

@@ -138,7 +138,7 @@ export interface ModelConfig {
 export interface ViewerConfig {
   container?: HTMLElement | null; // DOM parent; defaults to document.body
   projectPath?: string;
-  workspaceId?: string;
+  workbenchId?: string;
   panelId?: string;
   selectedStream?: string;
   onSelectedStreamChange?: (selectedStream: string) => void;

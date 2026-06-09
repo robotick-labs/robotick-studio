@@ -3,7 +3,7 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 
-import { PanelContextMenu } from "../../../../renderer/components/workspaces/PanelContextMenu";
+import { PanelContextMenu } from "../../../../renderer/components/workbenches/PanelContextMenu";
 
 describe("PanelContextMenu assign submenu", () => {
   const baseProps = {

@@ -3,7 +3,7 @@
 ### Goals
 - Allow any workspace body to be subdivided into multiple panels that can each host any tool.
 - Keep the split mechanic simple and repeatable so users quickly build muscle memory.
-- Ensure every arrangement is persistable per-workspace so the IDE opens exactly as it was left.
+- Ensure every arrangement is persistable per-workbench so the IDE opens exactly as it was left.
 - Provide a lightweight way to detach panels so users can float tools across displays or keep them visible while navigating other areas.
 
 ### Panel behaviors
@@ -28,7 +28,7 @@
 
 ### Floating panels
 - The panel context menu exposes `Create Floating Panel`, which calls `spawnFloatingPanel` with the current editor so you can duplicate any tool into its own mode, optionally passing `initialPosition`, `initialSize`, or `minSize` hints.
-- Floating windows render through `FloatingPanelLayer`, which portals a `GenericPanel` per record and listens to `floating-panel-store`; dragging, resizing, and closing use `GenericPanel` so each floating panel saves its bounds under `generic-panel:floating-panel:<workspaceId>:<panelId>`, while the overall list persists via `floating-panels:<workspaceId>`.
+- Floating windows render through `FloatingPanelLayer`, which portals a `GenericPanel` per record and listens to `floating-panel-store`; dragging, resizing, and closing use `GenericPanel` so each floating panel saves its bounds under `generic-panel:floating-panel:<workbenchId>:<panelId>`, while the overall list persists via `floating-panels:<workbenchId>`.
 - Each floating window still surfaces an `Assign Tool…` dropdown (rendered outside the workbench grid) and reuses `PanelContextMenu` for duplicating the window (`Split…` buttons act as “duplicate”) plus the same close action, but it hides the float/maximize/reset entries since those don’t apply.
 - Editors rendered inside a floating panel can call `useFloatingPanel()` to update `title`, `settings`, or call `close()`, keeping metadata tied to that panel instead of the grid.
 - Closing a floating panel simply removes it from the `floating-panel-store`; docking back into the grid is not implemented yet, so the regular layout stays unchanged when a floating window lives or dies.
@@ -39,13 +39,13 @@
 - Menu items display their shortcuts (e.g., `Split Horizontally (Shift+Alt+H)`) to reinforce learnability.
 
 ### Persistence
-- Each workspace tracks its panel tree (split orientation, relative sizes, assigned tools).
-- Persist the serialized layout in `localStorage` using a key such as `panelLayout:<workspaceId>` so every workspace restores exactly how it was left across reloads.
-- When switching workspaces, restore the saved layout; initial defaults can define common setups (single panel for new workspaces, or curated layouts for “Remote Control,” “Telemetry,” etc.).
+- Each workbench tracks its panel tree (split orientation, relative sizes, assigned tools).
+- Persist the serialized layout in `localStorage` using a key such as `panelLayout:<workbenchId>` so every workbench restores exactly how it was left across reloads.
+- When switching workbenches, restore the saved layout; initial defaults can define common setups (single panel for new workspaces, or curated layouts for “Remote Control,” “Telemetry,” etc.).
 
 ### Editor registry
 - A new `src/renderer/config/app-editors.yaml` lists every available editor along with the module path that renders it.
-- Workspace entries in `app-workspaces.yaml` reference these editor IDs (rather than raw module paths) so layouts can mix-and-match any registered editor.
+- Workbench entries in `app-workbenches.yaml` reference these editor IDs (rather than raw module paths) so layouts can mix-and-match any registered editor.
 - The panel selector shows this editor list, and assigning a panel simply swaps which editor ID it points to.
 
 ### Future considerations

@@ -161,11 +161,11 @@ function formatStudioProcessStats(stats: RobotickStudioProcessStats): string {
  *
  * When running in standalone mode without a native window frame, registers a contextmenu handler on the document that opens the header's context menu at the click coordinates unless the event target is inside an interactive element.
  *
- * @returns The header element containing the logo, workspace-grouped navigation links, pickers/controls, and conditional window controls.
+ * @returns The header element containing the logo, workbench-grouped navigation links, pickers/controls, and conditional window controls.
  */
 export function AppHeader() {
-  const { workspaces } = useAppConfig();
-  const grouped = useMemo(() => groupWorkspaces(workspaces), [workspaces]);
+  const { workbenches } = useAppConfig();
+  const grouped = useMemo(() => groupWorkbenches(workbenches), [workbenches]);
   const location = useLocation();
   const isStandalone = isStandaloneElectron();
   const [usesNativeFrame, setUsesNativeFrame] = useState<boolean>(() =>
@@ -235,17 +235,17 @@ export function AppHeader() {
       (await window.robotick?.windowControls?.getChildWindowScopes?.()) ?? [];
     setActiveChildWindowScopes(new Set(scopes));
   }, []);
-  const isWorkspacePathActive = (workspacePath: string) => {
-    if (!workspacePath) {
+  const isWorkbenchPathActive = (workbenchPath: string) => {
+    if (!workbenchPath) {
       return false;
     }
-    if (workspacePath === "/") {
+    if (workbenchPath === "/") {
       return location.pathname === "/";
     }
     const normalized =
-      workspacePath.endsWith("/") && workspacePath !== "/"
-        ? workspacePath.slice(0, -1)
-        : workspacePath;
+      workbenchPath.endsWith("/") && workbenchPath !== "/"
+        ? workbenchPath.slice(0, -1)
+        : workbenchPath;
     return (
       location.pathname === normalized ||
       location.pathname.startsWith(`${normalized}/`)
@@ -253,7 +253,7 @@ export function AppHeader() {
   };
   const isGroupActive = (
     group: { id: string; path: string; label: string }[]
-  ) => group.some((workspace) => isWorkspacePathActive(workspace.path));
+  ) => group.some((workbench) => isWorkbenchPathActive(workbench.path));
   const leftMenuActive = isGroupActive([
     ...grouped.projectSelect,
     ...grouped.dev,
@@ -577,7 +577,7 @@ export function AppHeader() {
       <nav
         className={[styles.nav, noDragClass].filter(Boolean).join(" ")}
         role="navigation"
-        aria-label="Workspace navigation"
+        aria-label="Workbench navigation"
       >
         <div className={styles.mobileMenuToggle} data-window-interactive="true">
           <button
@@ -658,7 +658,7 @@ export function AppHeader() {
             ]
               .filter(Boolean)
               .join(" ")}
-            aria-label="Open workspace tools menu"
+            aria-label="Open workbench tools menu"
                 aria-expanded={rightMenuOpen}
                 aria-haspopup="true"
                 onClick={toggleRightMenu}
@@ -853,25 +853,25 @@ export function AppHeader() {
 }
 
 function renderLinks(
-  workspaces: { id: string; path: string; label: string }[],
+  workbenches: { id: string; path: string; label: string }[],
   onNavigate?: () => void
 ) {
-  if (!workspaces.length) return null;
-  return workspaces.map((workspace) => (
+  if (!workbenches.length) return null;
+  return workbenches.map((workbench) => (
     <NavLink
-      key={workspace.id}
-      to={workspace.path}
+      key={workbench.id}
+      to={workbench.path}
       className={navClassName}
       onClick={onNavigate}
       data-window-interactive="true"
     >
-      {workspace.label}
+      {workbench.label}
     </NavLink>
   ));
 }
 
-function groupWorkspaces(
-  workspaces: { id: string; path: string; label: string; group: string }[]
+function groupWorkbenches(
+  workbenches: { id: string; path: string; label: string; group: string }[]
 ) {
   const groups = {
     projectSelect: [] as { id: string; path: string; label: string }[],
@@ -879,19 +879,19 @@ function groupWorkspaces(
     test: [] as { id: string; path: string; label: string }[],
     help: [] as { id: string; path: string; label: string }[],
   };
-  for (const workspace of workspaces) {
-    switch (workspace.group) {
+  for (const workbench of workbenches) {
+    switch (workbench.group) {
       case "project-select":
-        groups.projectSelect.push(workspace);
+        groups.projectSelect.push(workbench);
         break;
       case "dev":
-        groups.dev.push(workspace);
+        groups.dev.push(workbench);
         break;
       case "test":
-        groups.test.push(workspace);
+        groups.test.push(workbench);
         break;
       case "help":
-        groups.help.push(workspace);
+        groups.help.push(workbench);
         break;
       default:
         break;

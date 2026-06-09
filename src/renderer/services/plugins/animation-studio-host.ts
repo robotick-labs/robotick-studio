@@ -14,13 +14,13 @@ export type { ITelemetryField, ITelemetryModel, LayoutWritableInput } from "../.
 export type {
   PanelPersistenceDefinition,
   StudioPanelContribution,
-} from "../../components/workspaces/PanelInstanceContext";
+} from "../../components/workbenches/PanelInstanceContext";
 export {
   definePanelPersistence,
   defineStudioPanel,
   usePanelInstance,
   usePanelSettings,
-} from "../../components/workspaces/PanelInstanceContext";
+} from "../../components/workbenches/PanelInstanceContext";
 export {
   buildNamespacedKey,
   readStorageValue,

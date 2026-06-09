@@ -1,8 +1,8 @@
 import React, { createContext, useContext } from "react";
-import workspacesSource from "../config/app-workspaces.yaml?raw";
+import workbenchesSource from "../config/app-workbenches.yaml?raw";
 import editorsSource from "../config/app-editors.yaml?raw";
 
-type WorkspaceGroup = "project-select" | "dev" | "test" | "help";
+type WorkbenchGroup = "project-select" | "dev" | "test" | "help";
 
 export type EditorConfig = {
   id: string;
@@ -10,16 +10,16 @@ export type EditorConfig = {
   module: string;
 };
 
-export type WorkspaceConfig = {
+export type WorkbenchConfig = {
   id: string;
   path: string;
   label: string;
-  group: WorkspaceGroup;
+  group: WorkbenchGroup;
   editor: string;
 };
 
 export type AppConfig = {
-  workspaces: WorkspaceConfig[];
+  workbenches: WorkbenchConfig[];
   editors: EditorConfig[];
 };
 
@@ -89,12 +89,12 @@ function parseYamlEditors(raw: string): EditorConfig[] {
   });
 }
 
-function parseYamlWorkspaces(raw: string): WorkspaceConfig[] {
-  const entries = parseYamlList(raw, "workspaces");
-  const workspaces: WorkspaceConfig[] = [];
+function parseYamlWorkbenches(raw: string): WorkbenchConfig[] {
+  const entries = parseYamlList(raw, "workbenches");
+  const workbenches: WorkbenchConfig[] = [];
   for (const entry of entries) {
-    const workspace = entry as Partial<WorkspaceConfig>;
-    const required: (keyof WorkspaceConfig)[] = [
+    const workbench = entry as Partial<WorkbenchConfig>;
+    const required: (keyof WorkbenchConfig)[] = [
       "id",
       "path",
       "label",
@@ -102,19 +102,19 @@ function parseYamlWorkspaces(raw: string): WorkspaceConfig[] {
       "editor",
     ];
     for (const key of required) {
-      if (!workspace[key]) {
-        throw new Error(`Workspace '${workspace.id ?? "unknown"}' missing ${key}`);
+      if (!workbench[key]) {
+        throw new Error(`Workbench '${workbench.id ?? "unknown"}' missing ${key}`);
       }
     }
-    workspaces.push(workspace as WorkspaceConfig);
+    workbenches.push(workbench as WorkbenchConfig);
   }
-  return workspaces;
+  return workbenches;
 }
 
 function loadConfig(): AppConfig {
-  const workspaces = parseYamlWorkspaces(workspacesSource);
+  const workbenches = parseYamlWorkbenches(workbenchesSource);
   const editors = parseYamlEditors(editorsSource);
-  return { workspaces, editors };
+  return { workbenches, editors };
 }
 
 const config = loadConfig();
@@ -133,5 +133,5 @@ export const useAppConfig = (): AppConfig => {
   return useContext(AppConfigContext);
 };
 
-export const WorkspacesConfig = config.workspaces;
+export const WorkbenchesConfig = config.workbenches;
 export const EditorsConfig = config.editors;

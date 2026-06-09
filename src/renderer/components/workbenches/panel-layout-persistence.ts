@@ -28,36 +28,36 @@ export type PersistedPanelNode =
   | PersistedPanelLeafNode
   | PersistedPanelSplitNode;
 
-export type PersistedWorkspaceLayoutTab = {
+export type PersistedWorkbenchLayoutTab = {
   id: string;
   name: string;
   layoutId: string;
 };
 
-export type PersistedWorkspaceLayoutState = {
+export type PersistedWorkbenchLayoutState = {
   model: StudioPersistenceModel;
-  tabs: PersistedWorkspaceLayoutTab[];
+  tabs: PersistedWorkbenchLayoutTab[];
   activeTabId: string;
   activeLayout: StudioLayoutResource;
   floatingPanels: StudioFloatingPanelInstance[];
 };
 
-type LoadWorkspaceLayoutOptions = {
+type LoadWorkbenchLayoutOptions = {
   model?: StudioPersistenceModel | null;
-  workspaceId: string;
-  workspaceLabel?: string;
+  workbenchId: string;
+  workbenchLabel?: string;
   windowScope: string;
   fallbackEditorId: string;
   allowedEditors: Set<string>;
   createPanelId: () => string;
 };
 
-type ApplyWorkspaceLayoutOptions = {
+type ApplyWorkbenchLayoutOptions = {
   model?: StudioPersistenceModel | null;
-  workspaceId: string;
-  workspaceLabel?: string;
+  workbenchId: string;
+  workbenchLabel?: string;
   windowScope: string;
-  tabs: PersistedWorkspaceLayoutTab[];
+  tabs: PersistedWorkbenchLayoutTab[];
   activeTabId: string;
   layoutNode: PersistedPanelNode;
   floatingPanels: StudioFloatingPanelInstance[];
@@ -109,8 +109,8 @@ function cloneModel(model?: StudioPersistenceModel | null): StudioPersistenceMod
   };
 }
 
-function getDefaultLayoutTabName(workspaceLabel?: string): string {
-  const label = workspaceLabel?.trim();
+function getDefaultLayoutTabName(workbenchLabel?: string): string {
+  const label = workbenchLabel?.trim();
   return label
     ? `${label} | ${DEFAULT_LAYOUT_TAB_NAME}`
     : DEFAULT_LAYOUT_TAB_NAME;
@@ -118,23 +118,23 @@ function getDefaultLayoutTabName(workspaceLabel?: string): string {
 
 export function buildLayoutResourceId(
   windowScope: string,
-  workspaceId: string,
+  workbenchId: string,
   layoutTabId: string
 ): string {
-  return `${windowScope}:${workspaceId}:${layoutTabId}`;
+  return `${windowScope}:${workbenchId}:${layoutTabId}`;
 }
 
 function createDefaultLayoutResource(
-  workspaceId: string,
-  workspaceLabel: string | undefined,
+  workbenchId: string,
+  workbenchLabel: string | undefined,
   windowScope: string,
   fallbackEditorId: string,
   createPanelId: () => string
 ): StudioLayoutResource {
   const panelId = createPanelId();
   return {
-    id: buildLayoutResourceId(windowScope, workspaceId, DEFAULT_LAYOUT_TAB_ID),
-    label: getDefaultLayoutTabName(workspaceLabel),
+    id: buildLayoutResourceId(windowScope, workbenchId, DEFAULT_LAYOUT_TAB_ID),
+    label: getDefaultLayoutTabName(workbenchLabel),
     dock: {
       nodeType: "panel",
       panelId,
@@ -157,31 +157,31 @@ function findWindowResource(
 
 function findWorkbenchResource(
   model: StudioPersistenceModel,
-  workspaceId: string,
+  workbenchId: string,
   windowScope: string
 ): StudioWorkbenchResource | undefined {
   return findWindowResource(model, windowScope)?.workbenches.find(
-    (entry) => entry.id === workspaceId
+    (entry) => entry.id === workbenchId
   );
 }
 
 export function findLayoutResource(
   model: StudioPersistenceModel | null | undefined,
-  workspaceId: string,
+  workbenchId: string,
   windowScope: string,
   layoutId: string
 ): StudioLayoutResource | undefined {
   if (!model) {
     return undefined;
   }
-  return findWorkbenchResource(model, workspaceId, windowScope)?.layouts.find(
+  return findWorkbenchResource(model, workbenchId, windowScope)?.layouts.find(
     (layout) => layout.id === layoutId
   );
 }
 
 function ensureWorkbenchWindow(
   model: StudioPersistenceModel,
-  workspaceId: string,
+  workbenchId: string,
   windowScope: string
 ) {
   const targetWindowId = getWindowId(windowScope);
@@ -192,20 +192,20 @@ function ensureWorkbenchWindow(
       id: targetWindowId,
       label: windowRole === "main" ? "Main Window" : "Studio Window",
       windowRole,
-      defaultWorkbenchId: workspaceId,
+      defaultWorkbenchId: workbenchId,
       workbenches: [],
     };
     model.windows.push(window);
   }
   if (!window.defaultWorkbenchId) {
-    window.defaultWorkbenchId = workspaceId;
+    window.defaultWorkbenchId = workbenchId;
   }
 
-  let workbench = window.workbenches.find((entry) => entry.id === workspaceId);
+  let workbench = window.workbenches.find((entry) => entry.id === workbenchId);
   if (!workbench) {
     workbench = {
-      id: workspaceId,
-      label: workspaceId,
+      id: workbenchId,
+      label: workbenchId,
       defaultLayoutId: undefined,
       layouts: [],
     };
@@ -299,24 +299,24 @@ function tabIdFromLayoutId(layoutId: string): string {
   return layoutId.split(":").slice(-1)[0] || DEFAULT_LAYOUT_TAB_ID;
 }
 
-export function loadWorkspaceLayoutState({
+export function loadWorkbenchLayoutState({
   model,
-  workspaceId,
-  workspaceLabel,
+  workbenchId,
+  workbenchLabel,
   windowScope,
   fallbackEditorId,
   allowedEditors,
   createPanelId,
-}: LoadWorkspaceLayoutOptions): PersistedWorkspaceLayoutState {
+}: LoadWorkbenchLayoutOptions): PersistedWorkbenchLayoutState {
   const nextModel = cloneModel(model);
-  ensureWorkbenchWindow(nextModel, workspaceId, windowScope);
-  const workbench = findWorkbenchResource(nextModel, workspaceId, windowScope)!;
+  ensureWorkbenchWindow(nextModel, workbenchId, windowScope);
+  const workbench = findWorkbenchResource(nextModel, workbenchId, windowScope)!;
 
   if (workbench.layouts.length === 0) {
     workbench.layouts.push(
       createDefaultLayoutResource(
-        workspaceId,
-        workspaceLabel,
+        workbenchId,
+        workbenchLabel,
         windowScope,
         fallbackEditorId,
         createPanelId
@@ -327,7 +327,7 @@ export function loadWorkspaceLayoutState({
   const orderedLayouts = workbench.layouts;
   const tabs = orderedLayouts.map((layout) => ({
     id: tabIdFromLayoutId(layout.id),
-    name: layout.label || getDefaultLayoutTabName(workspaceLabel),
+    name: layout.label || getDefaultLayoutTabName(workbenchLabel),
     layoutId: layout.id,
   }));
 
@@ -352,30 +352,30 @@ export function loadWorkspaceLayoutState({
   };
 }
 
-export function applyWorkspaceLayoutState({
+export function applyWorkbenchLayoutState({
   model,
-  workspaceId,
-  workspaceLabel,
+  workbenchId,
+  workbenchLabel,
   windowScope,
   tabs,
   activeTabId,
   layoutNode,
   floatingPanels,
   fallbackEditorId,
-}: ApplyWorkspaceLayoutOptions): StudioPersistenceModel {
+}: ApplyWorkbenchLayoutOptions): StudioPersistenceModel {
   const nextModel = cloneModel(model);
-  ensureWorkbenchWindow(nextModel, workspaceId, windowScope);
-  const workbench = findWorkbenchResource(nextModel, workspaceId, windowScope)!;
+  ensureWorkbenchWindow(nextModel, workbenchId, windowScope);
+  const workbench = findWorkbenchResource(nextModel, workbenchId, windowScope)!;
   const previousById = new Map(workbench.layouts.map((layout) => [layout.id, layout]));
 
   workbench.layouts = tabs.map((tab) => {
-    const layoutId = buildLayoutResourceId(windowScope, workspaceId, tab.id);
+    const layoutId = buildLayoutResourceId(windowScope, workbenchId, tab.id);
     const previous = previousById.get(layoutId);
     const previousDock =
       previous?.dock ??
       createDefaultLayoutResource(
-        workspaceId,
-        workspaceLabel,
+        workbenchId,
+        workbenchLabel,
         windowScope,
         fallbackEditorId,
         () => `panel-${tab.id}`
@@ -401,7 +401,7 @@ export function applyWorkspaceLayoutState({
 
   workbench.defaultLayoutId = buildLayoutResourceId(
     windowScope,
-    workspaceId,
+    workbenchId,
     activeTabId
   );
 

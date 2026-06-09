@@ -9,7 +9,7 @@ import { ProjectData } from "../../../../data-sources/launcher";
 import {
   useTelemetryStream,
 } from "../../../../data-sources/telemetry";
-import { useFloatingPanelsScope } from "../../../workspaces/floating-panels";
+import { useFloatingPanelsScope } from "../../../workbenches/floating-panels";
 import {
   ITelemetryField,
   ITelemetryModel,
@@ -17,12 +17,12 @@ import {
   ITelemetryWorkload,
 } from "../../../../data-sources/telemetry";
 import styles from "./TelemetryTreeViewer.module.css";
-import panelMenuStyles from "../../../workspaces/PanelLayout.module.css";
+import panelMenuStyles from "../../../workbenches/PanelLayout.module.css";
 import {
   defineStudioPanel,
   definePanelPersistence,
   usePanelSettings,
-} from "../../../workspaces/PanelInstanceContext";
+} from "../../../workbenches/PanelInstanceContext";
 import { migrateSelectionToStableIds } from "../utils/persisted-selection-migration";
 import {
   deriveWorkloadStats,
@@ -136,7 +136,7 @@ export const telemetryTreeViewerPersistence =
 /**
  * Render a telemetry tree viewer UI that lets the user select a model, workload, section, and field filter and browse hierarchical telemetry fields.
  *
- * Persists per-panel and per-workspace viewer preferences and uses the selected telemetry model to populate the displayed tree.
+ * Persists per-panel and per-workbench viewer preferences and uses the selected telemetry model to populate the displayed tree.
  *
  * @returns The React element tree for the telemetry tree viewer.
  */

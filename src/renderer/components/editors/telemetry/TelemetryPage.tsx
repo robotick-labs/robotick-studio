@@ -10,7 +10,7 @@ import {
   definePanelPersistence,
   defineStudioPanel,
   usePanelSettings,
-} from "../../workspaces/PanelInstanceContext";
+} from "../../workbenches/PanelInstanceContext";
 
 const MODEL_SORT_OPTIONS: ReadonlyArray<{
   value: ModelSortKey;
