@@ -4,7 +4,6 @@ import { EngineModel } from "./types";
 import {
   TelemetryModel,
   type TelemetryModelPersistedState,
-  urlToId,
 } from "./TelemetryModel";
 import {
   Project,
@@ -86,7 +85,7 @@ export function TelemetryApp({
   modelSortKey?: ModelSortKey;
   modelStates?: Record<string, TelemetryModelPersistedState>;
   onModelStateChange?: (
-    modelStorageId: string,
+    modelId: string,
     updater:
       | TelemetryModelPersistedState
       | ((
@@ -217,17 +216,16 @@ export function TelemetryApp({
 
   return (
     <>
-      {engineModels.map((model, index) => {
+      {engineModels.map((model) => {
         const modelKey = `${model.instanceURL ?? "unknown"}|${model.modelPath}`;
-        const modelStorageId = `${urlToId(model.instanceURL)}-${urlToId(model.modelPath)}`;
+        const modelId = model.modelId?.trim();
         return (
           <TelemetryModel
             key={modelKey}
             model={model}
-            index={index}
-            persistedState={modelStates[modelStorageId]}
+            persistedState={modelId ? modelStates[modelId] : undefined}
             onPersistedStateChange={(updater) =>
-              onModelStateChange?.(modelStorageId, updater)
+              modelId ? onModelStateChange?.(modelId, updater) : undefined
             }
           />
         );

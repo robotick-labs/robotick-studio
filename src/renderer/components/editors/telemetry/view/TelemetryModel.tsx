@@ -93,20 +93,17 @@ function compareWorkloads(
  *
  * When expanded, subscribes to the model's telemetry stream, displays process and workloads
  * memory usage, and renders a table of workload telemetry. Expansion state defaults to
- * open for the first four models when no panel-owned state has been saved yet.
+ * collapsed when no panel-owned state has been saved yet.
  *
  * @param model - The engine model to display telemetry for.
- * @param index - The zero-based index of this model in the list; used to determine the default expanded state.
  * @returns The rendered telemetry UI for the provided model.
  */
 export function TelemetryModel({
   model,
-  index,
   persistedState,
   onPersistedStateChange,
 }: {
   model: EngineModel;
-  index: number;
   persistedState?: TelemetryModelPersistedState;
   onPersistedStateChange?: (
     updater:
@@ -117,7 +114,7 @@ export function TelemetryModel({
   ) => void;
 }) {
   const MAX_UI_SAMPLE_RATE_HZ = 10;
-  const isExpanded = persistedState?.isExpanded ?? index < 4;
+  const isExpanded = persistedState?.isExpanded ?? false;
   const workloadSortKey = persistedState?.workloadSortKey ?? "none";
   const telemetryPushRateHz = model.telemetryPushRateHz;
   const effectiveSampleRateHz = telemetryPushRateHz ?? 20;

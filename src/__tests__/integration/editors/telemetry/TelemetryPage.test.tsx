@@ -6,8 +6,36 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 vi.mock(
   "../../../../renderer/components/editors/telemetry/view/TelemetryApp",
   () => ({
-    TelemetryApp: ({ modelSortKey }: { modelSortKey: string }) => (
-      <div data-testid="telemetry-app" data-model-sort-key={modelSortKey} />
+    TelemetryApp: ({
+      modelSortKey,
+      onModelStateChange,
+    }: {
+      modelSortKey: string;
+      onModelStateChange?: (
+        modelId: string,
+        updater: Record<string, unknown>,
+      ) => void;
+    }) => (
+      <div data-testid="telemetry-app" data-model-sort-key={modelSortKey}>
+        <button
+          type="button"
+          data-testid="expand-model"
+          onClick={() =>
+            onModelStateChange?.("barr_e_expression_model_F5C33C27", {
+              isExpanded: true,
+            })
+          }
+        />
+        <button
+          type="button"
+          data-testid="collapse-model"
+          onClick={() =>
+            onModelStateChange?.("barr_e_expression_model_F5C33C27", {
+              isExpanded: false,
+            })
+          }
+        />
+      </div>
     ),
   }),
 );
@@ -102,6 +130,38 @@ describe("TelemetryPage", () => {
     expect(
       tree.container.querySelector("[data-testid='panel-settings']")?.textContent
     ).toContain('"modelSortKey":"model_name"');
+
+    tree.unmount();
+  });
+
+  it("persists telemetry model state by canonical model id and omits default collapsed entries", () => {
+    const tree = render(
+      <PanelHost>
+        <TelemetryPage />
+      </PanelHost>
+    );
+
+    act(() => {
+      tree.container
+        .querySelector("[data-testid='expand-model']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      tree.container.querySelector("[data-testid='panel-settings']")?.textContent
+    ).toContain(
+      '"models":[{"id":"barr_e_expression_model_F5C33C27","isExpanded":true}]'
+    );
+
+    act(() => {
+      tree.container
+        .querySelector("[data-testid='collapse-model']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      tree.container.querySelector("[data-testid='panel-settings']")?.textContent
+    ).toContain('"models":[]');
 
     tree.unmount();
   });

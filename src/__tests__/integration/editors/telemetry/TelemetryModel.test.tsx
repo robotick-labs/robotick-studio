@@ -88,7 +88,6 @@ describe("TelemetryModel", () => {
           telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
-        index={10}
       />
     );
 
@@ -156,7 +155,6 @@ describe("TelemetryModel", () => {
               telemetryPushRateHz: 10,
               fieldConnectionHints: {},
             }}
-            index={10}
             persistedState={persistedState}
             onPersistedStateChange={(updater) =>
               setPersistedState((current) =>
@@ -249,7 +247,6 @@ describe("TelemetryModel", () => {
           telemetryPushRateHz: 10,
           fieldConnectionHints: {},
         }}
-        index={10}
         persistedState={{ isExpanded: true }}
       />
     );

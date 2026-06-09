@@ -26,7 +26,11 @@ const RMB_PAN_DRAG_THRESHOLD_PX = 4;
 
 type TelemetryPageSettings = {
   modelSortKey: ModelSortKey;
-  models: Record<string, TelemetryModelPersistedState>;
+  models: PersistedTelemetryModelState[];
+};
+
+type PersistedTelemetryModelState = TelemetryModelPersistedState & {
+  id: string;
 };
 
 function isTelemetryModelSortKey(value: unknown): value is ModelSortKey {
@@ -55,30 +59,40 @@ export const telemetryPagePersistence =
     schemaVersion: 1,
     defaults: {
       modelSortKey: "telemetry_port",
-      models: {},
+      models: [],
     },
     sanitize(value) {
       const input =
         value && typeof value === "object"
           ? (value as Partial<TelemetryPageSettings>)
           : {};
-      const models = Object.entries(input.models ?? {}).reduce<
-        Record<string, TelemetryModelPersistedState>
-      >((acc, [key, entry]) => {
-        if (!entry || typeof entry !== "object") {
-          return acc;
-        }
-        const next = entry as TelemetryModelPersistedState;
-        acc[key] = {
-          ...(typeof next.isExpanded === "boolean"
-            ? { isExpanded: next.isExpanded }
-            : {}),
-          ...(isTelemetryWorkloadSortKey(next.workloadSortKey)
-            ? { workloadSortKey: next.workloadSortKey }
-            : {}),
-        };
-        return acc;
-      }, {});
+      const models = Array.isArray(input.models)
+        ? input.models.reduce<PersistedTelemetryModelState[]>((acc, entry) => {
+            if (!entry || typeof entry !== "object") {
+              return acc;
+            }
+            const next = entry as Partial<PersistedTelemetryModelState>;
+            const id = typeof next.id === "string" ? next.id.trim() : "";
+            if (!id) {
+              return acc;
+            }
+            const sanitized: PersistedTelemetryModelState = { id };
+            if (next.isExpanded === true) {
+              sanitized.isExpanded = true;
+            }
+            if (isTelemetryWorkloadSortKey(next.workloadSortKey)) {
+              sanitized.workloadSortKey = next.workloadSortKey;
+            }
+            if (
+              sanitized.isExpanded === undefined &&
+              sanitized.workloadSortKey === undefined
+            ) {
+              return acc;
+            }
+            acc.push(sanitized);
+            return acc;
+          }, [])
+        : [];
       return {
         modelSortKey: isTelemetryModelSortKey(input.modelSortKey)
           ? input.modelSortKey
@@ -91,6 +105,13 @@ export const telemetryPagePersistence =
 export function TelemetryPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [settings, updateSettings] = usePanelSettings(telemetryPagePersistence);
+  const modelStates = React.useMemo(
+    () =>
+      Object.fromEntries(
+        settings.models.map(({ id, ...persistedState }) => [id, persistedState]),
+      ) as Record<string, TelemetryModelPersistedState>,
+    [settings.models],
+  );
   const panListenersRef = useRef<{
     mousemove: (event: MouseEvent) => void;
     mouseup: (event: MouseEvent) => void;
@@ -112,23 +133,33 @@ export function TelemetryPage() {
 
   const updateModelState = React.useCallback(
     (
-      modelStorageId: string,
+      modelId: string,
       updater:
         | TelemetryModelPersistedState
         | ((
             current: TelemetryModelPersistedState
           ) => TelemetryModelPersistedState)
     ) => {
-      const current = settings.models[modelStorageId] ?? {};
+      const current = modelStates[modelId] ?? {};
       const resolved = typeof updater === "function" ? updater(current) : updater;
+      const normalized: TelemetryModelPersistedState = {
+        ...(resolved.isExpanded === true ? { isExpanded: true } : {}),
+        ...(isTelemetryWorkloadSortKey(resolved.workloadSortKey)
+          ? { workloadSortKey: resolved.workloadSortKey }
+          : {}),
+      };
+      const nextModels = settings.models.filter((entry) => entry.id !== modelId);
+      if (
+        normalized.isExpanded !== undefined ||
+        normalized.workloadSortKey !== undefined
+      ) {
+        nextModels.push({ id: modelId, ...normalized });
+      }
       updateSettings({
-        models: {
-          ...settings.models,
-          [modelStorageId]: resolved,
-        },
+        models: nextModels,
       });
     },
-    [settings.models, updateSettings]
+    [modelStates, settings.models, updateSettings]
   );
 
   const findScrollElement = (start: EventTarget | null): HTMLElement | null => {
@@ -285,7 +316,7 @@ export function TelemetryPage() {
       <div className={styles.tableContainer}>
         <TelemetryApp
           modelSortKey={modelSortKey}
-          modelStates={settings.models}
+          modelStates={modelStates}
           onModelStateChange={updateModelState}
         />
       </div>
