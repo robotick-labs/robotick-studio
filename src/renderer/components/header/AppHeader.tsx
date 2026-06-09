@@ -100,6 +100,10 @@ export function AppHeader() {
   const [activeChildWindowScopes, setActiveChildWindowScopes] = useState<
     Set<string>
   >(new Set<string>());
+  const [childWindowPendingDeleteId, setChildWindowPendingDeleteId] =
+    useState<string | null>(null);
+  const [optimisticDeletedChildWindowIds, setOptimisticDeletedChildWindowIds] =
+    useState<Set<string>>(() => new Set<string>());
   useEffect(() => {
     // Ensure we re-check once after hydration so we pick up the preload bridge
     // even if the first render happened before window.robotick was available.
@@ -121,6 +125,7 @@ export function AppHeader() {
   const windowPresetPanelRef = useRef<HTMLDivElement | null>(null);
   const childWindowNameInputRef = useRef<HTMLInputElement | null>(null);
   const childWindowRenameCommitInFlightRef = useRef(false);
+  const childWindowDeleteCommitInFlightRef = useRef(false);
   const [isRenamingChildWindow, setIsRenamingChildWindow] = useState(false);
   const [childWindowNameDraft, setChildWindowNameDraft] = useState("");
   const [optimisticChildWindowLabel, setOptimisticChildWindowLabel] = useState<{
@@ -135,8 +140,13 @@ export function AppHeader() {
     .join(" ");
   const { showHeaderMenu } = useContextMenu();
   const childWindows = useMemo(
-    () => windows.filter((window) => window.windowRole === "child"),
-    [windows]
+    () =>
+      windows.filter(
+        (window) =>
+          window.windowRole === "child" &&
+          !optimisticDeletedChildWindowIds.has(window.id)
+      ),
+    [optimisticDeletedChildWindowIds, windows]
   );
   const refreshActiveChildWindowScopes = useCallback(async () => {
     const scopes =
@@ -177,7 +187,7 @@ export function AppHeader() {
   }, []);
 
   useEffect(() => {
-    if (!leftMenuOpen && !rightMenuOpen) {
+    if (!leftMenuOpen && !rightMenuOpen && !windowPresetMenuOpen) {
       return;
     }
     const handlePointerDown = (event: MouseEvent) => {
@@ -326,6 +336,7 @@ export function AppHeader() {
     if (typeof window === "undefined") {
       return;
     }
+    setWindowPresetMenuOpen(false);
     window.robotick?.windowControls?.createWindow?.(projectPath);
     void refreshActiveChildWindowScopes();
   };
@@ -353,6 +364,62 @@ export function AppHeader() {
     window.robotick?.windowControls?.createWindow?.(projectPath, windowId);
     void refreshActiveChildWindowScopes();
   };
+  const requestDeleteChildWindow = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, windowId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (activeChildWindowScopes.has(windowId)) {
+        return;
+      }
+      setChildWindowPendingDeleteId(windowId);
+    },
+    [activeChildWindowScopes]
+  );
+  const cancelDeleteChildWindow = useCallback(() => {
+    setChildWindowPendingDeleteId(null);
+  }, []);
+  const confirmDeleteChildWindow = useCallback(
+    async (windowId: string) => {
+      if (
+        childWindowDeleteCommitInFlightRef.current ||
+        activeChildWindowScopes.has(windowId)
+      ) {
+        return;
+      }
+      const studioPersistenceStore = getBrowserStudioPersistenceStore();
+      if (!projectPath || !studioPersistenceStore) {
+        setChildWindowPendingDeleteId(null);
+        return;
+      }
+      childWindowDeleteCommitInFlightRef.current = true;
+      try {
+        const loaded = await loadStudioPersistence(projectPath, studioPersistenceStore);
+        const nextWindows = loaded.model.windows.filter(
+          (entry) => !(entry.id === windowId && entry.windowRole === "child")
+        );
+        if (nextWindows.length === loaded.model.windows.length) {
+          setChildWindowPendingDeleteId(null);
+          return;
+        }
+        await writeStudioDocument(projectPath, studioPersistenceStore, {
+          ...loaded.model,
+          windows: nextWindows,
+        });
+        setOptimisticDeletedChildWindowIds((current) => {
+          const next = new Set(current);
+          next.add(windowId);
+          return next;
+        });
+        setChildWindowPendingDeleteId(null);
+        void refreshActiveChildWindowScopes();
+      } catch (error) {
+        console.warn("[AppHeader] Failed to delete child window", error);
+      } finally {
+        childWindowDeleteCommitInFlightRef.current = false;
+      }
+    },
+    [activeChildWindowScopes, projectPath, refreshActiveChildWindowScopes]
+  );
   const activeChildWindow = useMemo(
     () => childWindows.find((window) => window.id === currentWindowScope) ?? null,
     [childWindows, currentWindowScope]
@@ -637,6 +704,57 @@ export function AppHeader() {
                             : ""}
                         </span>
                       </button>
+                      <div className={styles.windowPresetActions}>
+                        <button
+                          type="button"
+                          className={styles.windowPresetIconButton}
+                          aria-label={`Delete ${childWindow.label}`}
+                          title={
+                            activeChildWindowScopes.has(childWindow.id)
+                              ? "Close this child window before deleting it"
+                              : `Delete ${childWindow.label}`
+                          }
+                          disabled={activeChildWindowScopes.has(childWindow.id)}
+                          onClick={(event) =>
+                            requestDeleteChildWindow(event, childWindow.id)
+                          }
+                        >
+                          ×
+                          <span className={styles.windowPresetIconButtonLabel}>
+                            Delete
+                          </span>
+                        </button>
+                      </div>
+                      {childWindowPendingDeleteId === childWindow.id ? (
+                        <div className={styles.windowPresetDeleteConfirm}>
+                          <div className={styles.windowPresetDeleteConfirmText}>
+                            Delete {childWindow.label} from this Studio
+                            document?
+                          </div>
+                          <div
+                            className={styles.windowPresetDeleteConfirmActions}
+                          >
+                            <button
+                              type="button"
+                              className={styles.windowPresetDeleteConfirmButton}
+                              onClick={cancelDeleteChildWindow}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                styles.windowPresetDeleteConfirmButtonDanger
+                              }
+                              onClick={() =>
+                                void confirmDeleteChildWindow(childWindow.id)
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
