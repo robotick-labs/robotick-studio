@@ -44,8 +44,23 @@
   background: rgba(150, 255, 150, 0.1);
 }
 
+.locked {
+  border-color: rgba(255, 164, 103, 0.8);
+  background: rgba(255, 164, 103, 0.08);
+}
+
+.locked:hover {
+  background: rgba(255, 164, 103, 0.14);
+}
+
 .selected {
   background: rgba(150, 255, 150, 0.1);
+}
+
+.lockStatus {
+  margin-top: 10px;
+  color: #ffcf9d;
+  font-size: 0.95rem;
 }
 
 .selectedIndicator {

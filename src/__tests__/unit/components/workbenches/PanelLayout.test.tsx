@@ -99,22 +99,37 @@ import {
 class MemoryStudioPersistenceStore {
   files = new Map<string, string>();
 
-  async readStudioDocument(_projectPath: string) {
-    return this.files.get("studio/studio.yaml") ?? null;
+  private getKey(projectPath: string) {
+    return `${projectPath}:studio/studio.yaml`;
   }
 
-  async writeStudioDocument(_projectPath: string, content: string) {
-    this.files.set("studio/studio.yaml", content);
+  async readStudioDocument(projectPath: string) {
+    return this.files.get(this.getKey(projectPath)) ?? null;
+  }
+
+  async ensureStudioDocument(_projectPath: string) {
+    return;
+  }
+
+  async writeStudioDocument(projectPath: string, content: string) {
+    this.files.set(this.getKey(projectPath), content);
   }
 }
 
-function readStudioDocument(store: MemoryStudioPersistenceStore): any | null {
-  const raw = store.files.get("studio/studio.yaml");
+function readStudioDocument(
+  store: MemoryStudioPersistenceStore,
+  projectPath = projectContextState.projectPath
+): any | null {
+  const raw = store.files.get(`${projectPath}:studio/studio.yaml`);
   return raw ? parse(raw) : null;
 }
 
-function readWorkbench(store: MemoryStudioPersistenceStore, workbenchId: string) {
-  const windows = readStudioDocument(store)?.windows ?? [];
+function readWorkbench(
+  store: MemoryStudioPersistenceStore,
+  workbenchId: string,
+  projectPath = projectContextState.projectPath
+) {
+  const windows = readStudioDocument(store, projectPath)?.windows ?? [];
   return windows
     .flatMap((window: { workbenches?: Array<{ id?: string }> }) => window.workbenches ?? [])
     .find((workbench: { id?: string }) => workbench.id === workbenchId);
@@ -123,9 +138,10 @@ function readWorkbench(store: MemoryStudioPersistenceStore, workbenchId: string)
 function readLayout(
   store: MemoryStudioPersistenceStore,
   workbenchId: string,
-  layoutId: string
+  layoutId: string,
+  projectPath = projectContextState.projectPath
 ) {
-  return readWorkbench(store, workbenchId)?.layouts?.find(
+  return readWorkbench(store, workbenchId, projectPath)?.layouts?.find(
     (layout: { id?: string }) => layout.id === layoutId
   );
 }
@@ -655,7 +671,6 @@ describe("PanelLayout context menu", () => {
     ).toMatchObject({
       nodeType: "panel",
       editorId: "mock-editor",
-      settings: {},
     });
 
     act(() => {
@@ -729,6 +744,102 @@ describe("PanelLayout context menu", () => {
       "main:workbench:default"
     );
     expect(defaultLayout?.label).toBe("Auditory Work");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("reloads from the newly selected project without leaking the previous project's layout state", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const projectA = "/repo/robots/barr-e/barr-e.project.yaml";
+    const projectB = "/repo/robots/tim-e/tim-e.project.yaml";
+
+    registryState.entries = [
+      {
+        id: "settings-editor",
+        label: "Settings Editor",
+        module: "settings-module",
+        Component: SettingsEditor,
+        source: "builtin",
+      },
+    ];
+
+    projectContextState.projectPath = projectA;
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const projectAEditor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(projectAEditor?.textContent).toBe("empty");
+
+    await act(async () => {
+      projectAEditor?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(projectAEditor?.textContent).toBe("outputs.alpha");
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default", projectA)?.dock
+    ).toMatchObject({
+      nodeType: "panel",
+      editorId: "settings-editor",
+      settings: {
+        selectedField: "outputs.alpha",
+      },
+    });
+
+    projectContextState.projectPath = projectB;
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const projectBEditor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(projectBEditor?.textContent).toBe("empty");
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default", projectB)?.dock
+    ).toMatchObject({
+      nodeType: "panel",
+      editorId: "settings-editor",
+    });
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default", projectB)?.dock
+        ?.settings
+    ).toBeUndefined();
+
+    expect(
+      readLayout(studioStore, "workbench", "main:workbench:default", projectA)?.dock
+    ).toMatchObject({
+      nodeType: "panel",
+      editorId: "settings-editor",
+      settings: {
+        selectedField: "outputs.alpha",
+      },
+    });
 
     act(() => {
       root.unmount();
@@ -1000,7 +1111,7 @@ describe("PanelLayout context menu", () => {
     const root = createRoot(container);
 
     studioStore.files.set(
-      "studio/studio.yaml",
+      `${projectContextState.projectPath}:studio/studio.yaml`,
       `
 resourceType: studio_document
 schemaVersion: 1

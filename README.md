@@ -12,3 +12,10 @@ Robotick Studio is the Electron shell and supporting services that wrap the `rob
 - `npm run dev` / `npm run build` / `npm run preview` — work with the renderer web IDE directly.
 - `npm run build:electron` / `npm run electron` — compile the Electron code and start Robotick Studio.
 - `npm run test` — runs both renderer and Electron vitest suites.
+
+## Studio document model
+
+- Project-backed durable Studio state lives in `robots/<project>/studio/studio.yaml`.
+- Electron main owns that canonical document and session coordination; renderer windows operate through the shared bridge rather than owning separate project documents.
+- `workspace` still means the checkout/runtime/root concept; `workbench` means a Studio UI surface such as `remote-control` or `telemetry`.
+- See [docs/studio-document.md](./docs/studio-document.md) for the ownership boundary and what intentionally remains runtime/session-only state.

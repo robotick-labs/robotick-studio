@@ -1,5 +1,5 @@
 import {
-  createEmptyStudioPersistenceModel,
+  createSeedStudioPersistenceModel,
   hasStudioDocument,
   loadStudioDocument,
 } from "./resources";
@@ -15,7 +15,7 @@ export async function loadStudioPersistence(
     return { source: "canonical", model: document };
   }
   return {
-    source: "empty",
-    model: createEmptyStudioPersistenceModel(projectPath),
+    source: "seed",
+    model: createSeedStudioPersistenceModel(projectPath),
   };
 }

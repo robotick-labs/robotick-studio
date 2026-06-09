@@ -6,8 +6,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import type { WorkbenchConfig } from "./services/AppConfigService";
-import { WorkbenchesConfig } from "./services/AppConfigService";
+import { useAppConfig } from "./services/AppConfigService";
 import { WorkbenchView } from "./components/workbenches/WorkbenchView";
 import { reportViewDiagnostics } from "./utils/viewDiagnostics";
 import { useProjectContext } from "./data-sources/launcher/internal/ProjectContext";
@@ -16,8 +15,6 @@ import {
   getWindowScope,
   isPrimaryWindowSession,
 } from "./utils/windowSession";
-
-export const resolvedWorkbenches = WorkbenchesConfig;
 
 export function shouldForceHomeRedirect(
   pathname: string,
@@ -28,12 +25,13 @@ export function shouldForceHomeRedirect(
 }
 
 export function AppRoutes() {
+  const { workbenches } = useAppConfig();
   return (
     <>
       <ProjectWorkbenchSync />
       <Routes>
         <Route path="/" element={<DefaultWorkbenchRedirect />} />
-        {resolvedWorkbenches.map((workbench) => (
+        {workbenches.map((workbench) => (
           <Route
             key={workbench.id}
             path={workbench.path}
@@ -56,7 +54,8 @@ function WorkbenchFallback() {
 
 function NotFound() {
   const location = useLocation();
-  const fallbackHome = getFallbackWorkbenchPath();
+  const { workbenches } = useAppConfig();
+  const fallbackHome = getFallbackWorkbenchPath(workbenches);
   const protocol =
     typeof window !== "undefined" ? window.location.protocol : undefined;
   const shouldForceHome = shouldForceHomeRedirect(location.pathname, protocol);
@@ -81,27 +80,33 @@ function NotFound() {
   );
 }
 
-function getFallbackWorkbenchPath(): string {
-  return resolvedWorkbenches[0]?.path ?? "/home";
+function getFallbackWorkbenchPath(
+  workbenches: Array<{ path: string }>
+): string {
+  return workbenches[0]?.path ?? "/home";
 }
 
-function resolveRememberedWorkbench(projectPath: string | undefined): string {
+function resolveRememberedWorkbench(
+  projectPath: string | undefined,
+  workbenches: Array<{ path: string }>
+): string {
   const remembered = loadRememberedWorkbenchPath(projectPath, {
     windowScope: getWindowScope(),
     isPrimaryWindow: isPrimaryWindowSession(),
   });
   if (
     remembered &&
-    resolvedWorkbenches.some((workbench) => workbench.path === remembered)
+    workbenches.some((workbench) => workbench.path === remembered)
   ) {
     return remembered;
   }
-  return getFallbackWorkbenchPath();
+  return getFallbackWorkbenchPath(workbenches);
 }
 
 function DefaultWorkbenchRedirect() {
   const { projectPath } = useProjectContext();
-  const target = resolveRememberedWorkbench(projectPath);
+  const { workbenches } = useAppConfig();
+  const target = resolveRememberedWorkbench(projectPath, workbenches);
   return <Navigate to={target} replace />;
 }
 
@@ -112,6 +117,7 @@ function DefaultWorkbenchRedirect() {
  */
 function ProjectWorkbenchSync() {
   const { projectPath } = useProjectContext();
+  const { workbenches } = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
   const previousProject = React.useRef<string | undefined>(undefined);
@@ -121,11 +127,11 @@ function ProjectWorkbenchSync() {
       return;
     }
     previousProject.current = projectPath;
-    const target = resolveRememberedWorkbench(projectPath);
+    const target = resolveRememberedWorkbench(projectPath, workbenches);
     if (location.pathname !== target) {
       navigate(target, { replace: true });
     }
-  }, [projectPath, location.pathname, navigate]);
+  }, [projectPath, location.pathname, navigate, workbenches]);
 
   return null;
 }

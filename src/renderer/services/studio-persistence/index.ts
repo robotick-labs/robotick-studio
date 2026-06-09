@@ -8,6 +8,7 @@ export type {
   StudioPersistenceLoadResult,
   StudioPersistenceModel,
   StudioPersistenceSource,
+  StudioWorkbenchGroup,
   StudioWindowResource,
   StudioWindowRole,
   StudioWorkbenchResource,
@@ -23,7 +24,10 @@ export type { StudioPersistenceStore } from "./store";
 export { getBrowserStudioPersistenceStore } from "./store";
 export {
   createEmptyStudioPersistenceModel,
+  createSeedStudioPersistenceModel,
+  createSeedStudioWindowResource,
   EMPTY_STUDIO_PERSISTENCE_MODEL,
+  getSeedStudioWorkbenches,
   hasStudioDocument,
   loadStudioDocument,
   writeStudioDocument,

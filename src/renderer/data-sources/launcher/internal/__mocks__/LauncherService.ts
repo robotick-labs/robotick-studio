@@ -54,6 +54,30 @@ export function createMockLauncherService(
       projectListeners.add(callback);
       return () => projectListeners.delete(callback);
     },
+    async requestProjectSelection(path: string) {
+      projectPath = path;
+      dispatchProjectChange(path);
+      return {
+        accepted: true,
+        currentProjectPath: path,
+        issue: null,
+      };
+    },
+    async getProjectSelectionState() {
+      return {
+        currentProjectPath: projectPath,
+        bootstrapIssue: null,
+      };
+    },
+    onProjectSelectionStateChanged() {
+      return () => {};
+    },
+    async fetchProjectLockStatuses(projectPaths: string[]) {
+      return projectPaths.map((projectPath) => ({
+        projectPath,
+        state: "available" as const,
+      }));
+    },
     setLauncherProfile(profile: string) {
       launcherProfile = profile;
       dispatchProfileChange(profile);

@@ -34,6 +34,8 @@ def create_workspace() -> Path:
                 "projects:",
                 "  barr-e:",
                 "    project_dir: robots/barr-e",
+                "  tim-e:",
+                "    project_dir: robots/tim-e",
             ]
         ),
         encoding="utf-8",
@@ -45,6 +47,10 @@ def create_workspace() -> Path:
     project_runner.parent.mkdir(parents=True, exist_ok=True)
     project_runner.write_text("#!/usr/bin/env bash\nsleep 30\n", encoding="utf-8")
     project_runner.chmod(0o755)
+    project_runner_two = root / "robots" / "tim-e" / "run-studio.sh"
+    project_runner_two.parent.mkdir(parents=True, exist_ok=True)
+    project_runner_two.write_text("#!/usr/bin/env bash\nsleep 30\n", encoding="utf-8")
+    project_runner_two.chmod(0o755)
     return root
 
 
@@ -93,6 +99,35 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
     assert launched["env"]["ROBOTICK_STUDIO_SELECTED_PROJECT"] == "barr-e"
 
 
+def test_open_studio_allows_same_project_to_launch_multiple_instances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_workspace()
+    monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
+    monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
+    monkeypatch.setattr("robotick_hub.studio.ensure_launcher", lambda _: None)
+    next_pid = iter([5678, 6789])
+
+    class FakeChild:
+        def __init__(self, pid: int):
+            self.pid = pid
+
+    monkeypatch.setattr(
+        "robotick_hub.studio.subprocess.Popen",
+        lambda *args, **kwargs: FakeChild(next(next_pid)),
+    )
+    monkeypatch.setattr(
+        "robotick_hub.studio.is_instance_alive",
+        lambda instance: instance.pid in {5678, 6789},
+    )
+
+    first = open_studio(workspace, project_name="barr-e")
+    second = open_studio(workspace, project_name="barr-e")
+
+    assert first["project_name"] == "barr-e"
+    assert second["project_name"] == "barr-e"
+
+
 def test_list_instances_cleans_stale_records(monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = create_workspace()
     record = StudioInstanceRecord(
@@ -117,6 +152,7 @@ def test_quit_instance_prefers_signal_fallback_when_no_control_endpoint(
         pid=3333,
         mode="dev",
         project_name="barr-e",
+        project_dir=str((workspace / "robots" / "barr-e").resolve()),
         started_at="2026-06-06T12:00:00+00:00",
     )
     write_instance_record(workspace, record)

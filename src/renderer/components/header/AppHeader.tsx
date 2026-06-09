@@ -10,102 +10,14 @@ import { LauncherControls } from "./LauncherControls";
 import { ProfilePicker } from "./ProfilePicker";
 import { ProjectPicker } from "./ProjectPicker";
 import { useAppConfig } from "../../services/AppConfigService";
+import { useProjectContext } from "../../data-sources/launcher/internal/ProjectContext";
 import { WindowControls } from "./WindowControls";
 import { isStandaloneElectron } from "../../utils/environment";
 import { addDocumentEventListener } from "../../utils/domEnvironment";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import type { RobotickStudioProcessStats } from "../../types/robotick-globals";
 import { isPrimaryWindowSession } from "../../utils/windowSession";
-import {
-  createPanelInstanceId,
-  readStorageValue,
-  setStorageValue,
-} from "../../services/storage";
 import styles from "./styles/AppHeader.module.css";
-
-type ChildWindowPreset = {
-  id: string;
-  name: string;
-  seedUrl: string;
-  scope: string;
-  createdAt: string;
-  updatedAt: string;
-  lastUsedAt?: string;
-};
-
-const CHILD_WINDOW_PRESETS_STORAGE_KEY = "studio.child-window-presets.v1";
-const NEW_PRESET_ID = "__new__";
-
-function loadChildWindowPresets(): ChildWindowPreset[] {
-  const raw = readStorageValue(CHILD_WINDOW_PRESETS_STORAGE_KEY);
-  if (!raw) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return null;
-        }
-        const typed = entry as Partial<ChildWindowPreset>;
-        if (
-          typeof typed.id !== "string" ||
-          typeof typed.name !== "string" ||
-          typeof typed.seedUrl !== "string" ||
-          typeof typed.createdAt !== "string" ||
-          typeof typed.updatedAt !== "string"
-        ) {
-          return null;
-        }
-        const basePreset = {
-          id: typed.id,
-          name: typed.name,
-          seedUrl: typed.seedUrl,
-          scope:
-            typeof typed.scope === "string" && typed.scope.trim().length > 0
-              ? typed.scope
-              : `child-preset-${typed.id}`,
-          createdAt: typed.createdAt,
-          updatedAt: typed.updatedAt,
-        };
-        if (typeof typed.lastUsedAt === "string") {
-          return { ...basePreset, lastUsedAt: typed.lastUsedAt };
-        }
-        return basePreset;
-      })
-      .filter((entry): entry is ChildWindowPreset => entry !== null);
-  } catch {
-    return [];
-  }
-}
-
-function persistChildWindowPresets(presets: ChildWindowPreset[]): void {
-  setStorageValue(CHILD_WINDOW_PRESETS_STORAGE_KEY, JSON.stringify(presets));
-}
-
-function nextDefaultPresetName(presets: ChildWindowPreset[]): string {
-  const used = new Set<number>();
-  const matcher = /^Child Window (\d+)$/;
-  for (const preset of presets) {
-    const match = matcher.exec(preset.name);
-    if (!match) {
-      continue;
-    }
-    const value = Number.parseInt(match[1], 10);
-    if (Number.isFinite(value) && value > 0) {
-      used.add(value);
-    }
-  }
-  let index = 1;
-  while (used.has(index)) {
-    index += 1;
-  }
-  return `Child Window ${index}`;
-}
 
 const navClassName = ({ isActive }: { isActive: boolean }) =>
   [styles.navLink, isActive ? styles.navLinkActive : ""]
@@ -164,7 +76,8 @@ function formatStudioProcessStats(stats: RobotickStudioProcessStats): string {
  * @returns The header element containing the logo, workbench-grouped navigation links, pickers/controls, and conditional window controls.
  */
 export function AppHeader() {
-  const { workbenches } = useAppConfig();
+  const { projectPath } = useProjectContext();
+  const { workbenches, windows } = useAppConfig();
   const grouped = useMemo(() => groupWorkbenches(workbenches), [workbenches]);
   const location = useLocation();
   const isStandalone = isStandaloneElectron();
@@ -179,37 +92,15 @@ export function AppHeader() {
   const [leftMenuOpen, setLeftMenuOpen] = useState(false);
   const [rightMenuOpen, setRightMenuOpen] = useState(false);
   const [windowPresetMenuOpen, setWindowPresetMenuOpen] = useState(false);
-  const [windowPresets, setWindowPresets] = useState<ChildWindowPreset[]>([]);
-  const [selectedWindowPresetId, setSelectedWindowPresetId] =
-    useState<string>(NEW_PRESET_ID);
   const [activeChildWindowScopes, setActiveChildWindowScopes] = useState<
     Set<string>
   >(new Set<string>());
-  const [isChildNameEditing, setIsChildNameEditing] = useState(false);
-  const [childNameDraft, setChildNameDraft] = useState("");
-  const [pendingDeletePresetId, setPendingDeletePresetId] = useState<
-    string | null
-  >(null);
   useEffect(() => {
     // Ensure we re-check once after hydration so we pick up the preload bridge
     // even if the first render happened before window.robotick was available.
     setUsesNativeFrame(getUsesNativeWindowFrame());
     setIsPrimaryWindow(isPrimaryWindowSession());
-    setWindowPresets(loadChildWindowPresets());
   }, []);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const next = loadChildWindowPresets();
-      const nextJson = JSON.stringify(next);
-      const currentJson = JSON.stringify(windowPresets);
-      if (nextJson !== currentJson) {
-        setWindowPresets(next);
-      }
-    }, 1000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [windowPresets]);
   const showWindowControls = isStandalone && !usesNativeFrame;
   const noDragClass = isStandalone ? styles.noDrag : "";
   const currentWindowScope =
@@ -230,6 +121,10 @@ export function AppHeader() {
     .filter(Boolean)
     .join(" ");
   const { showHeaderMenu } = useContextMenu();
+  const childWindows = useMemo(
+    () => windows.filter((window) => window.windowRole === "child"),
+    [windows]
+  );
   const refreshActiveChildWindowScopes = useCallback(async () => {
     const scopes =
       (await window.robotick?.windowControls?.getChildWindowScopes?.()) ?? [];
@@ -265,6 +160,7 @@ export function AppHeader() {
   const closeMenus = useCallback(() => {
     setLeftMenuOpen(false);
     setRightMenuOpen(false);
+    setWindowPresetMenuOpen(false);
   }, []);
 
   useEffect(() => {
@@ -299,7 +195,6 @@ export function AppHeader() {
         )
       ) {
         setWindowPresetMenuOpen(false);
-        setPendingDeletePresetId(null);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -414,45 +309,11 @@ export function AppHeader() {
   const handleNavigate = () => {
     closeMenus();
   };
-  const handleCreateWindow = (forceNew = false) => {
+  const handleCreateWindow = () => {
     if (typeof window === "undefined") {
       return;
     }
-    const now = new Date().toISOString();
-    const selectedPreset = forceNew
-      ? undefined
-      : windowPresets.find((preset) => preset.id === selectedWindowPresetId);
-    if (selectedPreset) {
-      const updatedPresets = windowPresets.map((preset) =>
-        preset.id === selectedPreset.id
-          ? { ...preset, lastUsedAt: now, updatedAt: now }
-          : preset
-      );
-      setWindowPresets(updatedPresets);
-      persistChildWindowPresets(updatedPresets);
-      window.robotick?.windowControls?.createWindow?.(
-        selectedPreset.seedUrl,
-        selectedPreset.scope
-      );
-      void refreshActiveChildWindowScopes();
-      return;
-    }
-    const seedUrl = window.location.href;
-    const presetId = createPanelInstanceId();
-    const newPreset: ChildWindowPreset = {
-      id: presetId,
-      name: nextDefaultPresetName(windowPresets),
-      seedUrl,
-      scope: `child-preset-${presetId}`,
-      createdAt: now,
-      updatedAt: now,
-      lastUsedAt: now,
-    };
-    const updatedPresets = [...windowPresets, newPreset];
-    setWindowPresets(updatedPresets);
-    setSelectedWindowPresetId(newPreset.id);
-    persistChildWindowPresets(updatedPresets);
-    window.robotick?.windowControls?.createWindow?.(seedUrl, newPreset.scope);
+    window.robotick?.windowControls?.createWindow?.(projectPath);
     void refreshActiveChildWindowScopes();
   };
   const selectedPresetLabel = "Child Windows";
@@ -460,103 +321,23 @@ export function AppHeader() {
     if (isPrimaryWindow) {
       return null;
     }
-    const match = windowPresets.find((preset) => preset.scope === currentWindowScope);
-    if (match?.name) {
-      return match.name;
+    const match = childWindows.find((window) => window.id === currentWindowScope);
+    if (match?.label) {
+      return match.label;
     }
     return "Studio Window";
-  }, [currentWindowScope, isPrimaryWindow, windowPresets]);
-  const childPreset = useMemo(
-    () => windowPresets.find((preset) => preset.scope === currentWindowScope) ?? null,
-    [currentWindowScope, windowPresets]
-  );
-  const toggleWindowPresetMenu = () => {
-    setWindowPresetMenuOpen((value) => {
-      if (value) {
-        setPendingDeletePresetId(null);
-      }
-      return !value;
-    });
-  };
-  const handleLaunchWindowPreset = (presetId: string) => {
-    setSelectedWindowPresetId(presetId);
+  }, [childWindows, currentWindowScope, isPrimaryWindow]);
+  const handleLaunchChildWindow = (windowId: string) => {
     setWindowPresetMenuOpen(false);
-    setPendingDeletePresetId(null);
-    if (presetId === NEW_PRESET_ID) {
-      handleCreateWindow(true);
-      return;
-    }
-    const preset = windowPresets.find((entry) => entry.id === presetId);
-    if (!preset) {
-      return;
-    }
-    const now = new Date().toISOString();
-    const updatedPresets = windowPresets.map((entry) =>
-      entry.id === preset.id
-        ? { ...entry, lastUsedAt: now, updatedAt: now }
-        : entry
-    );
-    setWindowPresets(updatedPresets);
-    persistChildWindowPresets(updatedPresets);
-    window.robotick?.windowControls?.createWindow?.(preset.seedUrl, preset.scope);
+    window.robotick?.windowControls?.createWindow?.(projectPath, windowId);
     void refreshActiveChildWindowScopes();
   };
-  const commitPresetRename = (presetId: string, nextNameRaw: string) => {
-    const nextName = nextNameRaw.trim();
-    const current = windowPresets.find((preset) => preset.id === presetId);
-    if (!current || !nextName || nextName === current.name) {
-      return;
-    }
-    const now = new Date().toISOString();
-    const updatedPresets = windowPresets.map((preset) =>
-      preset.id === presetId
-        ? { ...preset, name: nextName, updatedAt: now }
-        : preset
-    );
-    setWindowPresets(updatedPresets);
-    persistChildWindowPresets(updatedPresets);
-  };
-  const beginChildNameEdit = () => {
-    if (!childPreset) {
-      return;
-    }
-    setChildNameDraft(childPreset.name);
-    setIsChildNameEditing(true);
-  };
-  const commitChildNameEdit = () => {
-    if (!childPreset) {
-      setIsChildNameEditing(false);
-      setChildNameDraft("");
-      return;
-    }
-    commitPresetRename(childPreset.id, childNameDraft);
-    setIsChildNameEditing(false);
-    setChildNameDraft("");
-  };
-  const handleDeleteWindowPreset = (
-    event: React.MouseEvent<HTMLButtonElement>,
-    presetId: string
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const current = windowPresets.find((preset) => preset.id === presetId);
-    if (!current) {
-      return;
-    }
-    if (activeChildWindowScopes.has(current.scope)) {
-      return;
-    }
-    if (pendingDeletePresetId !== presetId) {
-      setPendingDeletePresetId(presetId);
-      return;
-    }
-    const updatedPresets = windowPresets.filter((preset) => preset.id !== presetId);
-    setWindowPresets(updatedPresets);
-    setPendingDeletePresetId(null);
-    if (selectedWindowPresetId === presetId) {
-      setSelectedWindowPresetId(NEW_PRESET_ID);
-    }
-    persistChildWindowPresets(updatedPresets);
+  const activeChildWindow = useMemo(
+    () => childWindows.find((window) => window.id === currentWindowScope) ?? null,
+    [childWindows, currentWindowScope]
+  );
+  const toggleWindowPresetMenu = () => {
+    setWindowPresetMenuOpen((value) => !value);
   };
 
   return (
@@ -698,7 +479,7 @@ export function AppHeader() {
               <button
                 type="button"
                 className={styles.windowPresetButton}
-                aria-label="Select window preset"
+                aria-label="Select child window"
                 aria-haspopup="menu"
                 aria-expanded={windowPresetMenuOpen}
                 onClick={toggleWindowPresetMenu}
@@ -720,22 +501,19 @@ export function AppHeader() {
                     <button
                       type="button"
                       className={styles.windowPresetSelectButton}
-                      onClick={() => handleLaunchWindowPreset(NEW_PRESET_ID)}
+                      onClick={handleCreateWindow}
                     >
                       <span className={styles.windowPresetName}>
                         New Child Window
                       </span>
                     </button>
                   </div>
-                  {windowPresets.map((preset) => (
+                  {childWindows.map((childWindow) => (
                     <div
-                      key={preset.id}
+                      key={childWindow.id}
                       className={[
                         styles.windowPresetMenuItem,
-                        selectedWindowPresetId === preset.id
-                          ? styles.windowPresetMenuItemActive
-                          : "",
-                        activeChildWindowScopes.has(preset.scope)
+                        activeChildWindowScopes.has(childWindow.id)
                           ? styles.windowPresetMenuItemOpen
                           : "",
                       ]
@@ -745,95 +523,30 @@ export function AppHeader() {
                       <button
                         type="button"
                         className={styles.windowPresetSelectButton}
-                        onClick={() => handleLaunchWindowPreset(preset.id)}
+                        onClick={() => handleLaunchChildWindow(childWindow.id)}
                       >
                         <span className={styles.windowPresetName}>
-                          {preset.name}
-                          {activeChildWindowScopes.has(preset.scope)
+                          {childWindow.label}
+                          {activeChildWindowScopes.has(childWindow.id)
                             ? " (Active)"
                             : ""}
                         </span>
                       </button>
-                      <span className={styles.windowPresetActions}>
-                        <button
-                          type="button"
-                          className={styles.windowPresetIconButton}
-                          aria-label={`Delete ${preset.name}`}
-                          disabled={activeChildWindowScopes.has(preset.scope)}
-                          onClick={(event) =>
-                            handleDeleteWindowPreset(event, preset.id)
-                          }
-                        >
-                          🗑
-                        </button>
-                      </span>
                     </div>
                   ))}
-                  {pendingDeletePresetId ? (
-                    <div className={styles.windowPresetDeleteConfirm}>
-                      <div className={styles.windowPresetDeleteConfirmText}>
-                        Delete preset "
-                        {windowPresets.find(
-                          (preset) => preset.id === pendingDeletePresetId
-                        )?.name ?? "this preset"}
-                        "? This cannot be undone.
-                      </div>
-                      <div className={styles.windowPresetDeleteConfirmActions}>
-                        <button
-                          type="button"
-                          className={styles.windowPresetDeleteConfirmButton}
-                          onClick={() => setPendingDeletePresetId(null)}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.windowPresetDeleteConfirmButtonDanger}
-                          onClick={(event) =>
-                            handleDeleteWindowPreset(event, pendingDeletePresetId)
-                          }
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
             </div>
           </>
         ) : null}
         {showWindowControls && !isPrimaryWindow && childWindowDisplayName ? (
-          isChildNameEditing ? (
-            <input
-              className={styles.childWindowNameInput}
-              data-window-interactive="true"
-              value={childNameDraft}
-              onChange={(event) => setChildNameDraft(event.target.value)}
-              onBlur={commitChildNameEdit}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  commitChildNameEdit();
-                  return;
-                }
-                if (event.key === "Escape") {
-                  setIsChildNameEditing(false);
-                  setChildNameDraft("");
-                }
-              }}
-              autoFocus
-            />
-          ) : (
-            <button
-              type="button"
-              className={styles.childWindowName}
-              data-window-interactive="true"
-              title="Click to rename"
-              onClick={beginChildNameEdit}
-            >
-              {childWindowDisplayName}
-            </button>
-          )
+          <span
+            className={styles.childWindowName}
+            data-window-interactive="true"
+            title={activeChildWindow?.label ?? childWindowDisplayName}
+          >
+            {childWindowDisplayName}
+          </span>
         ) : null}
         {showWindowControls && studioProcessStatsLabel ? (
           <span

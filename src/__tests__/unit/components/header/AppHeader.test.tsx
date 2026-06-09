@@ -24,8 +24,25 @@ vi.mock("../../../../renderer/services/AppConfigService", () => ({
         editor: "home",
       },
     ],
+    windows: [
+      {
+        id: "main",
+        label: "Main Window",
+        windowRole: "main",
+        defaultWorkbenchId: "home",
+        workbenches: [],
+      },
+    ],
   }),
 }));
+vi.mock(
+  "../../../../renderer/data-sources/launcher/internal/ProjectContext",
+  () => ({
+    useProjectContext: () => ({
+      projectPath: "/repo/robots/barr-e/barr-e.project.yaml",
+    }),
+  })
+);
 
 const electronModule = vi.hoisted(() => ({
   isStandaloneElectron: vi.fn(),
@@ -67,6 +84,8 @@ function setRobotickEnvironment({
         maximize: vi.fn(),
         restore: vi.fn(),
         close: vi.fn(),
+        createWindow: vi.fn(),
+        getChildWindowScopes: vi.fn().mockResolvedValue([]),
         toggleMaximize: vi.fn(),
         onStateChange: vi.fn(() => () => {}),
       }
@@ -164,7 +183,7 @@ describe("AppHeader", () => {
       '[data-testid="window-controls"]'
     )?.parentElement;
     const presetSelector = container.querySelector(
-      'button[aria-label="Select window preset"]'
+      'button[aria-label="Select child window"]'
     );
     const stats = container.querySelector('[data-testid="studio-process-stats"]');
     expect(headerRight?.firstElementChild).toBe(

@@ -103,6 +103,8 @@ export const Project = {
     useModels: LauncherReact.ProjectReactHooks.useModels, // Derived model descriptors
     useChangeConfirmation:
       LauncherReact.ProjectReactHooks.useChangeConfirmation, // “Are you sure?” helper
+    useLockStatuses:
+      LauncherReact.ProjectReactHooks.useLockStatuses, // Project lock ownership for UI surfaces
   },
 };
 
@@ -150,10 +152,14 @@ export const RemoteControl = {
  */
 export type {
   LauncherStatus,
+  ProjectLockStatus,
   ProjectModelDescriptor,
   ProjectSettingsSummary,
 } from "./internal/react-api";
 export type {
+  ProjectSelectionIssue,
+  ProjectSelectionResult,
+  ProjectSelectionState,
   WorkloadsRegistryEntry,
   WorkloadsRegistryField,
   WorkloadsRegistryResponse,

@@ -21,6 +21,10 @@ class MemoryStudioPersistenceStore implements StudioPersistenceStore {
     return this.files.get(getStudioDocumentRelativePath()) ?? null;
   }
 
+  async ensureStudioDocument(_projectPath: string): Promise<void> {
+    return;
+  }
+
   async writeStudioDocument(
     _projectPath: string,
     content: string
@@ -122,14 +126,16 @@ describe("studioPersistence", () => {
     expect(written).toContain("layouts:");
   });
 
-  it("ignores missing studio.yaml when no canonical document is present", async () => {
+  it("falls back to the bundled seed when no canonical document is present", async () => {
     const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
     const store = new MemoryStudioPersistenceStore();
 
     const loaded = await loadStudioPersistence(projectPath, store);
 
-    expect(loaded.source).toBe("empty");
-    expect(loaded.model).toEqual(createEmptyStudioPersistenceModel(projectPath));
+    expect(loaded.source).toBe("seed");
+    expect(loaded.model.resourceType).toBe("studio_document");
+    expect(loaded.model.windows[0]?.id).toBe("main");
+    expect(loaded.model.windows[0]?.workbenches.length).toBeGreaterThan(0);
     expect(store.files.size).toBe(0);
   });
 });

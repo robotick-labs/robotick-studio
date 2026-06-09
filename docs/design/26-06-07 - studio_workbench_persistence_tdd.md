@@ -174,11 +174,8 @@ const persistence = definePanelPersistence<TelemetryTreeSettings>({
       workloadId:
         typeof input.workloadId === "string" ? input.workloadId : undefined,
       workloadName:
-        typeof input.workloadName === "string"
-          ? input.workloadName
-          : undefined,
-      fieldPath:
-        typeof input.fieldPath === "string" ? input.fieldPath : "",
+        typeof input.workloadName === "string" ? input.workloadName : undefined,
+      fieldPath: typeof input.fieldPath === "string" ? input.fieldPath : "",
       dataKind:
         input.dataKind === "inputs" ||
         input.dataKind === "outputs" ||
@@ -190,7 +187,7 @@ const persistence = definePanelPersistence<TelemetryTreeSettings>({
       expandedPaths: Array.isArray(input.expandedPaths?.paths)
         ? {
             paths: input.expandedPaths.paths.filter(
-              (path): path is string => typeof path === "string"
+              (path): path is string => typeof path === "string",
             ),
           }
         : { paths: [] },
@@ -199,8 +196,7 @@ const persistence = definePanelPersistence<TelemetryTreeSettings>({
 });
 
 function TelemetryTreeViewer() {
-  const [settings, updateSettings] =
-    usePanelSettings<TelemetryTreeSettings>();
+  const [settings, updateSettings] = usePanelSettings<TelemetryTreeSettings>();
 
   // Ordinary React state remains transient.
   const [treeContextMenu, setTreeContextMenu] = React.useState(null);
@@ -292,45 +288,45 @@ Known legacy sources:
 
 #### Legacy/local persisted state inventory
 
-| Current key/file | Owning code | Value shape |
-| --- | --- | --- |
-| `.studio/renderer-storage.json` | `src/electron/main/bootstrap.ts`, `src/electron/main/renderer-storage.ts` | JSON object mapping string keys to string values |
-| `workbench-layout-tabs:{windowScope}:{workbenchId}` | `src/renderer/components/workbenches/PanelLayout.tsx` | JSON object: `{ tabs: Array<{ id, name }>, activeTabId }` |
-| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}` | `src/renderer/components/workbenches/PanelLayout.tsx` | Recursive JSON panel tree with `leaf` and `split` nodes |
-| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}` | `src/renderer/components/workbenches/floating-panels/floating-panel-store.ts` | JSON array of `{ id, editorId, title?, settings, initialPosition?, initialSize?, minSize? }` |
-| `generic-panel:{storageKey}` for floating panel bounds | `src/renderer/components/dialog/GenericPanel.tsx` | JSON object: `{ position, size }` |
-| `studio.child-window-presets.v1` | `src/renderer/components/header/AppHeader.tsx` | JSON array of `{ id, name, seedUrl, scope, createdAt, updatedAt, lastUsedAt? }` |
-| `robotick:last-workbench:*` | `src/renderer/utils/workbenchMemory.ts` | String workbench route/path |
-| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy `robotick-studio.terminal.filter`, `.wrapText`, `.autoScroll` | `src/renderer/components/editors/terminal/TerminalPage.tsx` | JSON object: `{ filter, wrapText, autoScroll }` or legacy scalar keys |
-| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}` | `src/renderer/components/editors/telemetry-scope/TelemetryScopePage.tsx` | JSON object for scope panel settings and trace configuration |
-| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}` | `src/renderer/components/editors/telemetry/image-viewer/TelemetryImageViewer.tsx` | Scalar string selections for model/workload/field |
-| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}` | `src/renderer/components/editors/telemetry/tree-viewer/TelemetryTreeViewer.tsx` | Scalar string selections plus JSON expanded-paths preference |
-| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}` | `src/renderer/components/editors/models/ModelsPage.tsx` | JSON viewport/view-state payloads, JSON string arrays, and scalar sort key |
-| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | `src/renderer/components/viewer/streaming-image/viewer-streaming-image.ts` | Scalar selected stream id |
-| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback | `plugins/remote-control/src/components/remote-controls/RemoteControlsPanel.tsx` | JSON object keyed by stick/trigger control name to selected mode id |
-| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*` | `plugins/remote-control/src/components/RcSubtitlesOverlay.tsx` | JSON normalized position payload and collapsed boolean |
-| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys | `src/renderer/components/editors/telemetry/TelemetryPage.tsx`, `TelemetryModel.tsx` | Scalar strings and booleans |
+| Current key/file                                                                                                                       | Owning code                                                                                                     | Value shape                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `.studio/renderer-storage.json`                                                                                                        | `src/electron/main/bootstrap.ts`, `src/electron/main/renderer-storage.ts`                                       | JSON object mapping string keys to string values                                                            |
+| `robots/<project>/studio/studio.yaml`                                                                                                  | `src/electron/main/studio-persistence.ts`, `src/renderer/services/studio-persistence/*`, `studio.template.yaml` | Canonical `studio_document` YAML seeded from the bundled template and merged per window by the main process |
+| `workbench-layout-tabs:{windowScope}:{workbenchId}`                                                                                    | `src/renderer/components/workbenches/PanelLayout.tsx`                                                           | JSON object: `{ tabs: Array<{ id, name }>, activeTabId }`                                                   |
+| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}`                                                                                | `src/renderer/components/workbenches/PanelLayout.tsx`                                                           | Recursive JSON panel tree with `leaf` and `split` nodes                                                     |
+| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}`                                                                            | `src/renderer/components/workbenches/floating-panels/floating-panel-store.ts`                                   | JSON array of `{ id, editorId, title?, settings, initialPosition?, initialSize?, minSize? }`                |
+| `generic-panel:{storageKey}` for floating panel bounds                                                                                 | `src/renderer/components/dialog/GenericPanel.tsx`                                                               | JSON object: `{ position, size }`                                                                           |
+| `robotick:last-workbench:*`                                                                                                            | `src/renderer/utils/workbenchMemory.ts`                                                                         | String workbench route/path                                                                                 |
+| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy `robotick-studio.terminal.filter`, `.wrapText`, `.autoScroll`     | `src/renderer/components/editors/terminal/TerminalPage.tsx`                                                     | JSON object: `{ filter, wrapText, autoScroll }` or legacy scalar keys                                       |
+| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}`                                                                        | `src/renderer/components/editors/telemetry-scope/TelemetryScopePage.tsx`                                        | JSON object for scope panel settings and trace configuration                                                |
+| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}`                                                            | `src/renderer/components/editors/telemetry/image-viewer/TelemetryImageViewer.tsx`                               | Scalar string selections for model/workload/field                                                           |
+| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}`                                                             | `src/renderer/components/editors/telemetry/tree-viewer/TelemetryTreeViewer.tsx`                                 | Scalar string selections plus JSON expanded-paths preference                                                |
+| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}`          | `src/renderer/components/editors/models/ModelsPage.tsx`                                                         | JSON viewport/view-state payloads, JSON string arrays, and scalar sort key                                  |
+| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | `src/renderer/components/viewer/streaming-image/viewer-streaming-image.ts`                                      | Scalar selected stream id                                                                                   |
+| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback  | `plugins/remote-control/src/components/remote-controls/RemoteControlsPanel.tsx`                                 | JSON object keyed by stick/trigger control name to selected mode id                                         |
+| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*`                                                                           | `plugins/remote-control/src/components/RcSubtitlesOverlay.tsx`                                                  | JSON normalized position payload and collapsed boolean                                                      |
+| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys                                        | `src/renderer/components/editors/telemetry/TelemetryPage.tsx`, `TelemetryModel.tsx`                             | Scalar strings and booleans                                                                                 |
 
 #### Legacy-source classification
 
-| Current key/file | Persistence decision | Notes |
-| --- | --- | --- |
-| `.studio/renderer-storage.json` | Not saved as project state | Legacy source only; no forward migration. |
-| `workbench-layout-tabs:{windowScope}:{workbenchId}` | Not saved as project state | Legacy source only; replaced by the new Studio document layout model. |
-| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}` | Not saved as project state | Legacy source only; replaced by inline `dock` in the new Studio document. |
-| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}` | Not saved as project state | Legacy source only; replaced by inline `floatingPanels` in the new Studio document. |
-| `generic-panel:{storageKey}` for floating panel bounds | Not saved as project state | Legacy source only; replaced by inline floating-panel `frame` data in the new Studio document. |
-| `studio.child-window-presets.v1` | Not saved as project state | Legacy source only; replaced by explicit `windows[]` entries in the new Studio document. |
-| `robotick:last-workbench:*` | Not saved as project state | Useful UX memory, but not a shared project asset. |
-| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy terminal scalar keys | Not saved as project state | Legacy source only; terminal state should be re-established through the new Studio document model. |
-| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}` | Not saved as project state | Legacy source only; telemetry-scope state should be re-established through the new Studio document model. |
-| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}` | Not saved as project state | Legacy source only; viewer selections should be re-established through the new Studio document model. |
-| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}` | Not saved as project state | Legacy source only; tree selections should be re-established through the new Studio document model. |
-| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}` | Not saved as project state | Legacy source only; models editor state should be re-established through the new Studio document model. |
-| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | Not saved as project state | Legacy source only; selected-stream state should be re-established through the new Studio document model. |
-| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback | Not saved as project state | Legacy source only; remote-control mode selection should be re-established through the new Studio document model. |
-| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*` | Not saved as project state | Legacy source only; subtitle overlay placement/collapse state should be re-established through the new Studio document model. |
-| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys | Not saved as project state | Legacy source only; superseded by the new Studio document direction. |
+| Current key/file                                                                                                                       | Persistence decision               | Notes                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `.studio/renderer-storage.json`                                                                                                        | Not saved as project state         | Legacy source only; no forward migration.                                                                                                |
+| `robots/<project>/studio/studio.yaml`                                                                                                  | Defines first-class resource files | Canonical Studio session document seeded from `studio.template.yaml`; main-process persistence merges per-window updates into this file. |
+| `workbench-layout-tabs:{windowScope}:{workbenchId}`                                                                                    | Not saved as project state         | Legacy source only; replaced by the new Studio document layout model.                                                                    |
+| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}`                                                                                | Not saved as project state         | Legacy source only; replaced by inline `dock` in the new Studio document.                                                                |
+| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}`                                                                            | Not saved as project state         | Legacy source only; replaced by inline `floatingPanels` in the new Studio document.                                                      |
+| `generic-panel:{storageKey}` for floating panel bounds                                                                                 | Not saved as project state         | Legacy source only; replaced by inline floating-panel `frame` data in the new Studio document.                                           |
+| `robotick:last-workbench:*`                                                                                                            | Not saved as project state         | Useful UX memory, but not a shared project asset.                                                                                        |
+| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy terminal scalar keys                                              | Not saved as project state         | Legacy source only; terminal state should be re-established through the new Studio document model.                                       |
+| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}`                                                                        | Not saved as project state         | Legacy source only; telemetry-scope state should be re-established through the new Studio document model.                                |
+| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}`                                                            | Not saved as project state         | Legacy source only; viewer selections should be re-established through the new Studio document model.                                    |
+| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}`                                                             | Not saved as project state         | Legacy source only; tree selections should be re-established through the new Studio document model.                                      |
+| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}`          | Not saved as project state         | Legacy source only; models editor state should be re-established through the new Studio document model.                                  |
+| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | Not saved as project state         | Legacy source only; selected-stream state should be re-established through the new Studio document model.                                |
+| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback  | Not saved as project state         | Legacy source only; remote-control mode selection should be re-established through the new Studio document model.                        |
+| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*`                                                                           | Not saved as project state         | Legacy source only; subtitle overlay placement/collapse state should be re-established through the new Studio document model.            |
+| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys                                        | Not saved as project state         | Legacy source only; superseded by the new Studio document direction.                                                                     |
 
 Classification legend:
 
@@ -343,22 +339,22 @@ Classification legend:
 
 #### Canonical mapping
 
-| Current key/file | Canonical target | Notes |
-| --- | --- | --- |
-| `workbench-layout-tabs:{windowScope}:{workbenchId}` | `studio_document.windows[].workbenches[].layouts[]` ordering, `defaultLayoutId`, and layout `label` | Tab ids stay layout ids within the owning workbench instance; tab names become layout labels. |
-| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}` | `studio_document.windows[].workbenches[].layouts[].dock` | Docked panel tree stays layout-owned, but docked panel definitions are inline rather than separated behind panel-instance ids. |
-| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}` | `studio_document.windows[].workbenches[].layouts[].floatingPanels` | Floating panel records remain layout-owned inline instance definitions. |
-| `generic-panel:{storageKey}` for floating panel bounds | `studio_document.windows[].workbenches[].layouts[].floatingPanels[].frame` | Merge panel frame geometry into the owning floating panel record. |
-| `studio.child-window-presets.v1` | `studio_document.windows[]` | Preset rows should materialize as explicit window entries in the document. |
-| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy terminal scalar keys | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Per-panel terminal settings remain attached to the owning inline panel instance. |
-| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}` | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Scope-panel traces/settings remain attached to the owning inline panel instance. |
-| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}` | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Viewer selection remains panel-instance state. |
-| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}` | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Tree selections and expanded paths remain panel-instance state. |
-| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}` | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Models editor viewport/view state remains panel-instance state. |
-| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Keep selected-stream state attached to the concrete viewer/panel instance in MVP. |
-| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Remote-control mode selections belong to the owning remote-control panel instance. |
-| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*` | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | Subtitle overlay position/collapse state belongs to the owning remote-control panel instance. |
-| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings` | If these settings are kept at all, they should be normalized under explicit panel/layout ownership rather than preserved in their current global key shape. |
+| Current key/file                                                                                                                       | Canonical target                                                                                    | Notes                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workbench-layout-tabs:{windowScope}:{workbenchId}`                                                                                    | `studio_document.windows[].workbenches[].layouts[]` ordering, `defaultLayoutId`, and layout `label` | Tab ids stay layout ids within the owning workbench instance; tab names become layout labels.                                                               |
+| `panelLayout:{windowScope}:{workbenchId}:{layoutTabId}`                                                                                | `studio_document.windows[].workbenches[].layouts[].dock`                                            | Docked panel tree stays layout-owned, but docked panel definitions are inline rather than separated behind panel-instance ids.                              |
+| `floating-panels:{windowScope}:{workbenchId}:{layoutTabId}`                                                                            | `studio_document.windows[].workbenches[].layouts[].floatingPanels`                                  | Floating panel records remain layout-owned inline instance definitions.                                                                                     |
+| `generic-panel:{storageKey}` for floating panel bounds                                                                                 | `studio_document.windows[].workbenches[].layouts[].floatingPanels[].frame`                          | Merge panel frame geometry into the owning floating panel record.                                                                                           |
+| `studio.child-window-presets.v1`                                                                                                       | `studio_document.windows[]`                                                                         | Preset rows should materialize as explicit window entries in the document.                                                                                  |
+| `robotick-studio.terminal.panel.{workbenchId}.{panelId}` plus legacy terminal scalar keys                                              | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Per-panel terminal settings remain attached to the owning inline panel instance.                                                                            |
+| `robotick-studio.telemetry-scope.panel.{workbenchId}.{panelId}`                                                                        | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Scope-panel traces/settings remain attached to the owning inline panel instance.                                                                            |
+| `robotick-studio.telemetry.image.*` namespaced by `{workbenchId}.{panelId}`                                                            | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Viewer selection remains panel-instance state.                                                                                                              |
+| `robotick-studio.telemetry.tree.*` namespaced by `{workbenchId}.{panelId}`                                                             | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Tree selections and expanded paths remain panel-instance state.                                                                                             |
+| `robotick-studio.models.viewport`, `.view-state`, `.sort`, `.collapsed` namespaced by `{workbenchId}.{panelId}.{projectPath}`          | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Models editor viewport/view state remains panel-instance state.                                                                                             |
+| `robotick.streaming-image.selected-stream.{projectPath}.{workbenchId}.{panelId}.{sourceSignature}` with legacy project-scoped fallback | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Keep selected-stream state attached to the concrete viewer/panel instance in MVP.                                                                           |
+| `robotick.remote-controls.selected-modes.{projectPath}.{workbenchId}.{panelId}.{configSignature}` with legacy project-scoped fallback  | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Remote-control mode selections belong to the owning remote-control panel instance.                                                                          |
+| `robotick-studio.rc.subtitles.position.*` and `.collapsed.*`                                                                           | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | Subtitle overlay position/collapse state belongs to the owning remote-control panel instance.                                                               |
+| `telemetry-model-sort`, `telemetry-expanded-*`, and other standalone editor `localStorage` keys                                        | `studio_document.windows[].workbenches[].layouts[].dock.settings` or `floatingPanels[].settings`    | If these settings are kept at all, they should be normalized under explicit panel/layout ownership rather than preserved in their current global key shape. |
 
 ### Draft canonical YAML example
 
@@ -548,22 +544,25 @@ Implemented in:
   `app-workbenches.yaml` should be deleted in this phase rather than retained as a deprecated parallel source.
 - MVP decision:
   general create/read/update/delete operations for arbitrary workbench instances are not part of this MVP slice; Studio uses the seeded default workbench set for now.
-- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
-- [ ] Define the canonical default top-level workbench/navigation set inside that seed document so bootstrap, routing, and header/menu presentation all derive from one source.
-- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
-- [ ] Route header/menu default workbench discovery through the active Studio document model and delete `app-workbenches.yaml` rather than keeping a deprecated parallel source for that surface.
-- [ ] Keep the seeded default workbench set fixed for MVP rather than introducing general workbench-instance CRUD while the bootstrap/navigation/multi-window model is still settling.
-- [ ] Produce a small design note and implementation contract for a Studio-session persistence authority that owns read/modify/write coordination for `studio/studio.yaml` across all windows in one app session.
-- [ ] Decide explicitly whether MVP will land that centralized session persistence authority now, or instead temporarily split persistence to one file per durable window while keeping one Studio session model.
-- [ ] If centralized session coordination is the chosen MVP path, route child-window persistence writes through that single owner and stop treating each renderer window as the authoritative owner of a whole-document snapshot.
-- [ ] If one-file-per-window is the chosen MVP path, define the deterministic file layout, ownership boundaries, and bootstrap/update rules so windows cannot overwrite each other's durable state.
-- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` using the same seeded default window/workbench template rather than implicitly cloning an existing window, covered by focused fixture and renderer tests.
-- [ ] Add focused regression tests covering two windows in one Studio session mutating different window-owned state without losing each other's changes.
-- [ ] Once that coordination model is chosen and implemented, add focused multi-workbench / child-window persistence isolation tests for panel settings, active workbench/layout selection, window-owned floating-panel frame state, and bootstrap-derived header/menu workbench availability.
-- [ ] Add a follow-up MVP/near-term decision note for separate app processes opening the same project, even if the first shipped behavior is only a warning or unsupported-state guard.
+- [x] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
+- [x] Define the canonical default top-level workbench/navigation set inside that seed document so bootstrap, routing, and header/menu presentation all derive from one source.
+- [x] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
+- [x] Route header/menu default workbench discovery through the active Studio document model and delete `app-workbenches.yaml` rather than keeping a deprecated parallel source for that surface.
+- [x] Keep the seeded default workbench set fixed for MVP rather than introducing general workbench-instance CRUD while the bootstrap/navigation/multi-window model is still settling.
+- [x] Produce a small design note and implementation contract for a Studio-session persistence authority that owns read/modify/write coordination for `studio/studio.yaml` across all windows in one app session.
+- [x] Decide explicitly whether MVP will land that centralized session persistence authority now, or instead temporarily split persistence to one file per durable window while keeping one Studio session model.
+- [x] If centralized session coordination is the chosen MVP path, route child-window persistence writes through that single owner and stop treating each renderer window as the authoritative owner of a whole-document snapshot.
+- [x] Reject the one-file-per-window MVP path for now and keep one canonical `studio/studio.yaml` document owned by the single-session main-process merge coordinator.
+- [x] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` using the same seeded default window/workbench template rather than implicitly cloning an existing window, covered by focused fixture and renderer tests.
+- [x] Add focused regression tests covering two windows in one Studio session mutating different window-owned state without losing each other's changes.
+- [x] Once that coordination model is chosen and implemented, add focused multi-workbench / child-window persistence isolation tests for panel settings, active workbench/layout selection, window-owned floating-panel frame state, and bootstrap-derived header/menu workbench availability.
+- [x] Add a follow-up MVP/near-term decision note for separate app processes opening the same project, even if the first shipped behavior is only a warning or unsupported-state guard.
 
 Result:
-The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, the remote-control plugin now keeps its selected stream/control-mode/subtitles overlay state inside the owning panel settings, floating-panel frame data now round-trips through `floatingPanels[].frame`, and the shipped Studio surface now consistently uses `workbench` terminology. Remaining MVP work is now one combined completion slice: land the builtin seed/default-definition, derive default navigation/workbench presentation from that document, and harden coordinated child-window persistence/creation around the same bootstrap model.
+The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, the remote-control plugin now keeps its selected stream/control-mode/subtitles overlay state inside the owning panel settings, floating-panel frame data now round-trips through `floatingPanels[].frame`, and the shipped Studio surface now consistently uses `workbench` terminology. Bootstrap/navigation/multi-window ownership is now also aligned: the bundled `studio.template.yaml` seeds first project initialization, header/menu workbench discovery comes from the active Studio document, `app-workbenches.yaml` is gone, child-window creation appends seeded `windows[]` entries to the canonical document, and the main process now owns per-window merge coordination for one Studio session.
+
+Cross-process project dedupe note:
+the current MVP now treats project-instance locking as a Studio main-process concern rather than a hub concern. On boot and on later in-app project switches, Electron claims `robots/<project>/studio/studio.lock` for the currently selected project, releases the old lock when the app changes project, exposes lock ownership state to renderers so the picker/home surfaces can show locked projects clearly, and rejects CLI-boot or in-app switch requests for projects already owned by another live Studio process with an explicit user-facing prompt. The hub remains responsible for launching Studio, not for deciding project ownership.
 
 Implemented in:
 
@@ -576,26 +575,48 @@ Implemented in:
 - `plugins/remote-control/src/components/remote-controls/RemoteControlsPanel.tsx`
 - `plugins/remote-control/src/components/RcSubtitlesOverlay.tsx`
 - `src/electron/main/studio-persistence.ts`
+- `src/electron/main/project-locks.ts`
 - `src/electron/preload/preload.ts`
+- `src/renderer/data-sources/launcher/internal/launcher-interface.ts`
+- `src/renderer/data-sources/launcher/internal/ProjectContext.tsx`
+- `src/renderer/data-sources/launcher/internal/use-project-change-confirmation.tsx`
+- `src/renderer/data-sources/launcher/internal/use-project-lock-statuses.ts`
+- `src/renderer/components/header/ProjectPicker.tsx`
+- `src/renderer/components/editors/home/HomePage.tsx`
 - `src/__tests__/unit/services/studioPersistence.test.ts`
 - `src/__tests__/unit/components/workbenches/PanelLayout.test.tsx`
+- `src/__tests__/unit/components/workbenches/panel-layout-persistence.test.ts`
 - `src/__tests__/unit/components/workbenches/floating-panel-store.test.ts`
 - `src/__tests__/unit/components/editors/telemetry/TelemetryTreeViewer.test.tsx`
+- `src/electron/__tests__/unit/project-locks.test.ts`
+- `src/electron/__tests__/smoke/smoke.test.ts`
+- `docs/studio-document.md`
+- `README.md`
 
-### User testing and iteration (UX, robustness)
+### My remaining work
 
-- [ ] Review generated `studio/studio.yaml` assets from real project sessions and prune noisy default-only state where it makes the saved document feel cache-like.
-- [ ] Tighten save/load robustness around project switching, child windows, and unexpected editor availability changes, with focused regression tests for each case.
-- [ ] Refine persisted panel/viewer settings so the saved Studio document stays intentional and inspectable rather than becoming a dump of transient UI state.
-- [ ] Keep reassessing whether MVP usage still justifies one `studio/studio.yaml` per project or whether a per-window file split has become the more proportionate storage boundary.
-
-Result:
-Real project usage feeds back into the canonical resource model so the saved `studio/` assets become cleaner, more robust, and more predictable.
-
-### Documentation and follow-up
-
-- [ ] Produce project documentation describing `studio/studio.yaml`, its ownership boundaries, and what deliberately remains runtime/session-only state.
-- [ ] Keep documenting the boundary where `workspace` still means the separate checkout/runtime root or workspace CLI surface, distinct from Studio workbenches.
+- [x] Tighten save/load robustness around project switching and unexpected editor availability changes, with focused regression tests covering project-local document reloads and editor fallback sanitization.
+- [x] Refine persisted panel/viewer settings so the saved Studio document stays intentional and inspectable rather than becoming a dump of transient UI state.
+- [x] Produce project documentation describing `studio/studio.yaml`, its ownership boundaries, and what deliberately remains runtime/session-only state.
+- [x] Keep documenting the boundary where `workspace` still means the separate checkout/runtime root or workspace CLI surface, distinct from Studio workbenches.
 
 Result:
-The resource model is documented for users/reviewers, and the rename cleanup remains scoped separately from the Studio document rewrite.
+this implementation pass leaves `studio/studio.yaml` cleaner and better documented, with focused coverage for project switching and unavailable-editor fallback behavior.
+
+### Your manual testing
+
+- Review generated `studio/studio.yaml` assets from real project sessions and flag noisy default-only state or anything that still feels cache-like rather than document-like.
+- Exercise project switching and child-window flows in real usage and flag any save/load oddities, stale navigation state, or cross-window drift.
+- Exercise sessions where expected editors/plugins are unavailable and flag where fallback behavior is confusing or under-specified.
+
+Result:
+real usage should confirm that Electron owns the shared Studio document/session model cleanly, and that renderers behave like stable views onto that state rather than loosely coordinated mini-apps.
+
+### Future work
+
+- Keep reassessing whether one `studio/studio.yaml` per project still feels proportionate in practice, or whether real usage suggests a future per-window file split.
+- If Studio eventually supports richer multi-process collaboration on one project, evolve the current hard lock into a more explicit policy with control APIs, conflict handling, or intentional handoff rather than ad-hoc last-writer behavior.
+- Continue moving Studio toward the broader architecture where Electron owns modular documents and shared session services, and renderers become thinner views/controllers over that shared state.
+
+Result:
+future work remains clearly separated from the current implementation cleanup and your manual verification pass.

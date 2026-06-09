@@ -24,6 +24,7 @@ class StudioInstanceRecord(BaseModel):
     mode: str
     log_path: str | None = None
     project_name: str | None = None
+    project_dir: str | None = None
     started_at: str
     control_endpoint: str | None = None
 
@@ -252,6 +253,7 @@ def get_instance(workspace_root: str | Path, instance_name: str) -> dict[str, ob
         return None
     if not is_instance_alive(instance):
         reap_instance_process_group(instance)
+        release_project_lock(instance.project_dir)
         remove_instance_record(workspace_root, instance.name)
         return None
     return summarize_instance(instance)
@@ -401,6 +403,11 @@ def open_studio(
     selected_project_dir, selected_project = resolve_project_selection(
         workspace_root, manifest, project_name
     )
+    selected_project_root = (
+        str((Path(workspace_root) / selected_project_dir).resolve())
+        if selected_project_dir is not None
+        else None
+    )
     launch_script = resolve_studio_runner_path(workspace_root, manifest)
     env = create_studio_launch_env(
         workspace_root,
@@ -436,6 +443,7 @@ def open_studio(
         mode=env["ROBOTICK_STUDIO_MODE"],
         log_path=str(log_path),
         project_name=selected_project,
+        project_dir=selected_project_root,
         started_at=datetime.now(timezone.utc).isoformat(),
         control_endpoint=None,
     )
@@ -498,5 +506,6 @@ def quit_instance(workspace_root: str | Path, instance_name: str) -> tuple[bool,
             summarize_instance(record),
         )
     except OSError:
+        release_project_lock(record.project_dir)
         remove_instance_record(workspace_root, record.name)
         return False, f"Unable to quit {record.name}. It may already have exited.", summarize_instance(record)

@@ -67,6 +67,15 @@ type ApplyWorkbenchLayoutOptions = {
 const DEFAULT_LAYOUT_TAB_ID = "default";
 const DEFAULT_LAYOUT_TAB_NAME = "Default";
 
+function cloneSettings(
+  settings?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  if (!settings) {
+    return undefined;
+  }
+  return Object.keys(settings).length > 0 ? { ...settings } : undefined;
+}
+
 function cloneDockNode(node: StudioDockNode): StudioDockNode {
   if (node.nodeType === "panel") {
     return {
@@ -74,7 +83,7 @@ function cloneDockNode(node: StudioDockNode): StudioDockNode {
       panelId: node.panelId,
       editorId: node.editorId,
       label: node.label,
-      settings: node.settings ? { ...node.settings } : undefined,
+      settings: cloneSettings(node.settings),
     };
   }
   return {
@@ -100,7 +109,7 @@ function cloneModel(model?: StudioPersistenceModel | null): StudioPersistenceMod
           dock: cloneDockNode(layout.dock),
           floatingPanels: layout.floatingPanels?.map((panel) => ({
             ...panel,
-            settings: panel.settings ? { ...panel.settings } : undefined,
+            settings: cloneSettings(panel.settings),
             frame: { ...panel.frame },
           })),
         })),
@@ -182,7 +191,8 @@ export function findLayoutResource(
 function ensureWorkbenchWindow(
   model: StudioPersistenceModel,
   workbenchId: string,
-  windowScope: string
+  windowScope: string,
+  workbenchLabel?: string
 ) {
   const targetWindowId = getWindowId(windowScope);
   const windowRole = windowScope === "main" ? "main" : "child";
@@ -205,11 +215,14 @@ function ensureWorkbenchWindow(
   if (!workbench) {
     workbench = {
       id: workbenchId,
-      label: workbenchId,
+      label: workbenchLabel?.trim() || workbenchId,
       defaultLayoutId: undefined,
       layouts: [],
     };
     window.workbenches.push(workbench);
+  }
+  if (!workbench.label) {
+    workbench.label = workbenchLabel?.trim() || workbenchId;
   }
 }
 
@@ -219,6 +232,73 @@ function toAllowedEditor(
   allowedEditors: Set<string>
 ) {
   return allowedEditors.has(editorId) ? editorId : fallbackEditorId;
+}
+
+function sanitizeDockNode(
+  node: StudioDockNode,
+  fallbackEditorId: string,
+  allowedEditors: Set<string>,
+  createPanelId: () => string
+): StudioDockNode {
+  if (node.nodeType === "panel") {
+    const nextEditorId = toAllowedEditor(
+      node.editorId ?? fallbackEditorId,
+      fallbackEditorId,
+      allowedEditors
+    );
+    const editorChanged = nextEditorId !== node.editorId;
+    return {
+      nodeType: "panel",
+      panelId: node.panelId || createPanelId(),
+      editorId: nextEditorId,
+      label: editorChanged ? undefined : node.label,
+      settings: editorChanged ? undefined : cloneSettings(node.settings),
+    };
+  }
+  return {
+    nodeType: "split",
+    direction: node.direction,
+    ratio: node.ratio,
+    children: [
+      sanitizeDockNode(
+        node.children[0],
+        fallbackEditorId,
+        allowedEditors,
+        createPanelId
+      ),
+      sanitizeDockNode(
+        node.children[1],
+        fallbackEditorId,
+        allowedEditors,
+        createPanelId
+      ),
+    ],
+  };
+}
+
+function sanitizeFloatingPanels(
+  panels: StudioFloatingPanelInstance[] | undefined,
+  fallbackEditorId: string,
+  allowedEditors: Set<string>
+): StudioFloatingPanelInstance[] | undefined {
+  if (!panels || panels.length === 0) {
+    return undefined;
+  }
+  return panels.map((panel) => {
+    const nextEditorId = toAllowedEditor(
+      panel.editorId ?? fallbackEditorId,
+      fallbackEditorId,
+      allowedEditors
+    );
+    const editorChanged = nextEditorId !== panel.editorId;
+    return {
+      id: panel.id,
+      editorId: nextEditorId,
+      label: editorChanged ? undefined : panel.label,
+      settings: editorChanged ? undefined : cloneSettings(panel.settings),
+      frame: { ...panel.frame },
+    };
+  });
 }
 
 export function panelNodeFromResource(
@@ -237,7 +317,7 @@ export function panelNodeFromResource(
           fallbackEditorId,
           allowedEditors
         ),
-        settings: node.settings ? { ...node.settings } : {},
+        settings: cloneSettings(node.settings),
       };
     }
     return {
@@ -276,12 +356,12 @@ function buildDockNode(
 ): StudioDockNode {
   if (node.kind === "leaf") {
     const previous = previousPanels.get(node.id);
-      return {
+    return {
       nodeType: "panel",
       panelId: node.id,
       editorId: node.editorId,
       label: previous?.editorId === node.editorId ? previous.label : undefined,
-      settings: node.settings ? { ...node.settings } : undefined,
+      settings: cloneSettings(node.settings),
     };
   }
   return {
@@ -309,7 +389,7 @@ export function loadWorkbenchLayoutState({
   createPanelId,
 }: LoadWorkbenchLayoutOptions): PersistedWorkbenchLayoutState {
   const nextModel = cloneModel(model);
-  ensureWorkbenchWindow(nextModel, workbenchId, windowScope);
+  ensureWorkbenchWindow(nextModel, workbenchId, windowScope, workbenchLabel);
   const workbench = findWorkbenchResource(nextModel, workbenchId, windowScope)!;
 
   if (workbench.layouts.length === 0) {
@@ -323,6 +403,22 @@ export function loadWorkbenchLayoutState({
       )
     );
   }
+
+  workbench.layouts = workbench.layouts.map((layout) => ({
+    ...layout,
+    label: layout.label || getDefaultLayoutTabName(workbenchLabel),
+    dock: sanitizeDockNode(
+      layout.dock,
+      fallbackEditorId,
+      allowedEditors,
+      createPanelId
+    ),
+    floatingPanels: sanitizeFloatingPanels(
+      layout.floatingPanels,
+      fallbackEditorId,
+      allowedEditors
+    ),
+  }));
 
   const orderedLayouts = workbench.layouts;
   const tabs = orderedLayouts.map((layout) => ({
@@ -364,7 +460,7 @@ export function applyWorkbenchLayoutState({
   fallbackEditorId,
 }: ApplyWorkbenchLayoutOptions): StudioPersistenceModel {
   const nextModel = cloneModel(model);
-  ensureWorkbenchWindow(nextModel, workbenchId, windowScope);
+  ensureWorkbenchWindow(nextModel, workbenchId, windowScope, workbenchLabel);
   const workbench = findWorkbenchResource(nextModel, workbenchId, windowScope)!;
   const previousById = new Map(workbench.layouts.map((layout) => [layout.id, layout]));
 
@@ -390,12 +486,16 @@ export function applyWorkbenchLayoutState({
       dock,
       floatingPanels:
         tab.id === activeTabId && floatingPanels.length > 0
-          ? floatingPanels
+          ? floatingPanels.map((panel) => ({
+              ...panel,
+              settings: cloneSettings(panel.settings),
+              frame: { ...panel.frame },
+            }))
           : previous?.floatingPanels?.map((panel) => ({
               ...panel,
-              settings: panel.settings ? { ...panel.settings } : undefined,
+              settings: cloneSettings(panel.settings),
               frame: { ...panel.frame },
-            })) ?? [],
+            })) ?? undefined,
     };
   });
 

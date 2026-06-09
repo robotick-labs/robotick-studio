@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useMemo } from "react";
 import type {
+  ProjectLockStatus,
   ProjectModelDescriptor,
+  ProjectSelectionResult,
+  ProjectSelectionState,
   WorkloadsRegistryResponse,
 } from "./launcher-interface";
 import currentProject from "./launcher-interface";
@@ -18,6 +21,12 @@ export interface LauncherService {
   setProjectPath(path: string): void;
   getProjectPath(): string;
   onProjectChanged(callback: (path: string) => void): () => void;
+  requestProjectSelection(path: string): Promise<ProjectSelectionResult>;
+  getProjectSelectionState(): Promise<ProjectSelectionState>;
+  onProjectSelectionStateChanged(
+    callback: (state: ProjectSelectionState) => void
+  ): () => void;
+  fetchProjectLockStatuses(projectPaths: string[]): Promise<ProjectLockStatus[]>;
 
   setLauncherProfile(profile: string): void;
   getLauncherProfile(): string;

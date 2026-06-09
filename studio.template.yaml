@@ -1,0 +1,107 @@
+resourceType: studio_document
+schemaVersion: 1
+id: studio
+windows:
+  - id: main
+    label: Main Window
+    windowRole: main
+    defaultWorkbenchId: home
+    workbenches:
+      - id: home
+        path: /home
+        label: Home
+        group: project-select
+        defaultEditorId: home
+        defaultLayoutId: main:home:default
+        layouts:
+          - id: main:home:default
+            label: Home | Default
+            dock:
+              nodeType: panel
+              panelId: panel-home
+              editorId: home
+            floatingPanels: []
+      - id: project
+        path: /project
+        label: Project
+        group: dev
+        defaultEditorId: project
+        defaultLayoutId: main:project:default
+        layouts:
+          - id: main:project:default
+            label: Project | Default
+            dock:
+              nodeType: panel
+              panelId: panel-project
+              editorId: project
+            floatingPanels: []
+      - id: models
+        path: /models
+        label: Models
+        group: dev
+        defaultEditorId: models
+        defaultLayoutId: main:models:default
+        layouts:
+          - id: main:models:default
+            label: Models | Default
+            dock:
+              nodeType: panel
+              panelId: panel-models
+              editorId: models
+            floatingPanels: []
+      - id: remote-control
+        path: /remote-control
+        label: Remote Control
+        group: test
+        defaultEditorId: remote-control
+        defaultLayoutId: main:remote-control:default
+        layouts:
+          - id: main:remote-control:default
+            label: Remote Control | Default
+            dock:
+              nodeType: panel
+              panelId: panel-remote-control
+              editorId: remote-control
+            floatingPanels: []
+      - id: telemetry
+        path: /telemetry
+        label: Telemetry
+        group: test
+        defaultEditorId: telemetry
+        defaultLayoutId: main:telemetry:default
+        layouts:
+          - id: main:telemetry:default
+            label: Telemetry | Default
+            dock:
+              nodeType: panel
+              panelId: panel-telemetry
+              editorId: telemetry
+            floatingPanels: []
+      - id: terminal
+        path: /terminal
+        label: Terminal
+        group: test
+        defaultEditorId: terminal
+        defaultLayoutId: main:terminal:default
+        layouts:
+          - id: main:terminal:default
+            label: Terminal | Default
+            dock:
+              nodeType: panel
+              panelId: panel-terminal
+              editorId: terminal
+            floatingPanels: []
+      - id: help
+        path: /help
+        label: Help
+        group: help
+        defaultEditorId: help
+        defaultLayoutId: main:help:default
+        layouts:
+          - id: main:help:default
+            label: Help | Default
+            dock:
+              nodeType: panel
+              panelId: panel-help
+              editorId: help
+            floatingPanels: []

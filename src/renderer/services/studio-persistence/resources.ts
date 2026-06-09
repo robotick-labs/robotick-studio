@@ -1,4 +1,5 @@
 import { parse, stringify } from "yaml";
+import studioSeedSource from "../../../../studio.template.yaml?raw";
 import { STUDIO_PERSISTENCE_SCHEMA_VERSION } from "./constants";
 import { getStudioProjectDirectory } from "./paths";
 import type { StudioPersistenceStore } from "./store";
@@ -7,6 +8,7 @@ import type {
   StudioFloatingPanelInstance,
   StudioLayoutResource,
   StudioPersistenceModel,
+  StudioWorkbenchGroup,
   StudioWindowResource,
   StudioWorkbenchResource,
 } from "./types";
@@ -17,6 +19,15 @@ function deriveStudioDocumentId(projectPath: string): string {
     .split(/[\\/]/)
     .pop();
   return projectDirectory ? `${projectDirectory}-studio` : "studio";
+}
+
+function isWorkbenchGroup(value: unknown): value is StudioWorkbenchGroup {
+  return (
+    value === "project-select" ||
+    value === "dev" ||
+    value === "test" ||
+    value === "help"
+  );
 }
 
 export function createEmptyStudioPersistenceModel(
@@ -104,7 +115,11 @@ function isWorkbenchResource(value: unknown): value is StudioWorkbenchResource {
   return (
     isObject(value) &&
     typeof value.id === "string" &&
+    (value.path === undefined || typeof value.path === "string") &&
     typeof value.label === "string" &&
+    (value.group === undefined || isWorkbenchGroup(value.group)) &&
+    (value.defaultEditorId === undefined ||
+      typeof value.defaultEditorId === "string") &&
     (value.defaultLayoutId === undefined ||
       typeof value.defaultLayoutId === "string") &&
     Array.isArray(value.layouts) &&
@@ -174,7 +189,10 @@ function normalizeWorkbench(
 ): StudioWorkbenchResource {
   return {
     id: workbench.id,
+    path: workbench.path,
     label: workbench.label,
+    group: workbench.group,
+    defaultEditorId: workbench.defaultEditorId,
     defaultLayoutId: workbench.defaultLayoutId,
     layouts: workbench.layouts.map((layout) => normalizeLayout(layout)),
   };
@@ -201,6 +219,87 @@ function normalizeStudioDocument(
     id: model.id,
     windows: model.windows.map((window) => normalizeWindow(window)),
   };
+}
+
+let bundledStudioSeedTemplate: StudioPersistenceModel | null = null;
+
+function getBundledStudioSeedTemplate(): StudioPersistenceModel {
+  if (bundledStudioSeedTemplate) {
+    return bundledStudioSeedTemplate;
+  }
+  const parsed = parse(studioSeedSource);
+  if (!isStudioDocument(parsed)) {
+    throw new Error("Bundled Studio seed document is invalid");
+  }
+  bundledStudioSeedTemplate = normalizeStudioDocument(parsed);
+  return bundledStudioSeedTemplate;
+}
+
+function cloneWorkbench(workbench: StudioWorkbenchResource): StudioWorkbenchResource {
+  return normalizeWorkbench(workbench);
+}
+
+export function createSeedStudioWindowResource(
+  windowId: string,
+  windowRole: "main" | "child"
+): StudioWindowResource {
+  const seed = getBundledStudioSeedTemplate();
+  const seedWindow = seed.windows[0];
+  if (!seedWindow) {
+    throw new Error("Bundled Studio seed document does not define a main window");
+  }
+
+  if (windowRole === "main") {
+    return {
+      id: windowId,
+      label: seedWindow.label,
+      windowRole: "main",
+      defaultWorkbenchId: seedWindow.defaultWorkbenchId,
+      workbenches: seedWindow.workbenches.map((workbench) =>
+        cloneWorkbench(workbench)
+      ),
+    };
+  }
+
+  const defaultWorkbench =
+    seedWindow.workbenches.find(
+      (workbench) => workbench.id === seedWindow.defaultWorkbenchId
+    ) ?? seedWindow.workbenches[0];
+  if (!defaultWorkbench) {
+    throw new Error("Bundled Studio seed document does not define a default workbench");
+  }
+
+  return {
+    id: windowId,
+    label: "Studio Window",
+    windowRole: "child",
+    defaultWorkbenchId: defaultWorkbench.id,
+    workbenches: [cloneWorkbench(defaultWorkbench)],
+  };
+}
+
+export function createSeedStudioPersistenceModel(
+  projectPath?: string
+): StudioPersistenceModel {
+  const seed = getBundledStudioSeedTemplate();
+  return {
+    resourceType: "studio_document",
+    schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+    id: projectPath ? deriveStudioDocumentId(projectPath) : seed.id,
+    windows: seed.windows.map((window) => ({
+      id: window.id,
+      label: window.label,
+      windowRole: window.windowRole,
+      defaultWorkbenchId: window.defaultWorkbenchId,
+      workbenches: window.workbenches.map((workbench) =>
+        cloneWorkbench(workbench)
+      ),
+    })),
+  };
+}
+
+export function getSeedStudioWorkbenches(): StudioWorkbenchResource[] {
+  return createSeedStudioPersistenceModel().windows[0]?.workbenches ?? [];
 }
 
 export async function loadStudioDocument(

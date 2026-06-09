@@ -3,7 +3,19 @@ import os from "os";
 import path from "path";
 import { screen } from "electron";
 import { registerRendererStorage } from "./renderer-storage";
-import { registerStudioPersistence } from "./studio-persistence";
+import {
+  ensureChildWindowInDocument,
+  registerStudioPersistence,
+} from "./studio-persistence";
+import {
+  acquireProjectLock,
+  type ProjectLockOwner,
+  type ProjectSelectionIssue,
+  readProjectLockStatus,
+  releaseProjectLock,
+  resolveProjectLockDirectory,
+  resolveProjectPath,
+} from "./project-locks";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -132,6 +144,17 @@ type RendererErrorPayload = {
 type StudioProcessStats = {
   cpuPercent: number;
   memoryMb: number;
+};
+
+type ProjectSelectionState = {
+  currentProjectPath: string;
+  bootstrapIssue: ProjectSelectionIssue | null;
+};
+
+type ProjectSelectionResult = {
+  accepted: boolean;
+  currentProjectPath: string;
+  issue: ProjectSelectionIssue | null;
 };
 
 type ElectronAppMetric = {
@@ -910,7 +933,7 @@ export async function bootstrapElectron({
   const projectRootEnv =
     env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
   const resolvedProjectRoot = projectRootEnv
-    ? path.resolve(projectRootEnv)
+    ? resolveProjectLockDirectory(projectRootEnv)
     : undefined;
   const storageDir = resolvedProjectRoot
     ? path.join(resolvedProjectRoot, ".studio")
@@ -921,10 +944,15 @@ export async function bootstrapElectron({
       : undefined;
   if (ipcMain) {
     registerRendererStorage(ipcMain, storageFile);
-    registerStudioPersistence(ipcMain);
+    registerStudioPersistence(ipcMain, BrowserWindow);
   }
 
   const useNativeFrame = env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  const projectLockOwner: ProjectLockOwner = {
+    pid: process.pid,
+    instanceName:
+      env.ROBOTICK_STUDIO_INSTANCE_NAME?.trim() || `studio-${process.pid}`,
+  };
   console.log(
     `[Bootstrap] Window frame mode: ${useNativeFrame ? "native" : "custom"}`
   );
@@ -933,7 +961,7 @@ export async function bootstrapElectron({
     console.log("[Bootstrap] CESIUM_TOKEN detected.");
   }
   const desiredCwd =
-    env.ROBOTICK_PROJECT_DIR || env.ROBOTICK_WORKSPACE_ROOT;
+    env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot;
   const isSmokeTest = env.ROBOTICK_SMOKE_TEST === "1";
   const isHubManaged = env.ROBOTICK_STUDIO_MANAGED_BY_HUB === "1";
   const skipSmokeWindowControlsCheck =
@@ -990,6 +1018,116 @@ export async function bootstrapElectron({
   >();
   const openChildScopes = new Set<string>();
   const windowByScope = new Map<string, BrowserWindowInstance>();
+  const requestedBootstrapProjectPath =
+    env.ROBOTICK_PROJECT_DIR?.trim().length
+      ? resolveProjectPath(env.ROBOTICK_PROJECT_DIR)
+      : "";
+  let currentProjectPath = "";
+  let bootstrapProjectIssue: ProjectSelectionIssue | null = null;
+
+  const getProjectSelectionState = (): ProjectSelectionState => ({
+    currentProjectPath,
+    bootstrapIssue: bootstrapProjectIssue,
+  });
+
+  const broadcastProjectSelectionState = () => {
+    const payload = getProjectSelectionState();
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed?.()) {
+        continue;
+      }
+      win.webContents.send("robotick-project-selection:changed", payload);
+    }
+  };
+
+  const requestProjectSelection = (
+    projectPath: string,
+    options: { bootstrap?: boolean } = {}
+  ): ProjectSelectionResult => {
+    const normalizedPath = projectPath.trim()
+      ? resolveProjectPath(projectPath)
+      : "";
+
+    if (!normalizedPath) {
+      if (currentProjectPath) {
+        releaseProjectLock(currentProjectPath, projectLockOwner);
+      }
+      currentProjectPath = "";
+      if (options.bootstrap) {
+        bootstrapProjectIssue = null;
+      }
+      broadcastProjectSelectionState();
+      return {
+        accepted: true,
+        currentProjectPath,
+        issue: null,
+      };
+    }
+
+    if (normalizedPath === currentProjectPath) {
+      return {
+        accepted: true,
+        currentProjectPath,
+        issue: null,
+      };
+    }
+
+    try {
+      acquireProjectLock(normalizedPath, projectLockOwner);
+    } catch (error) {
+      const issue: ProjectSelectionIssue =
+        error instanceof Error && "issue" in error
+          ? ((error as { issue?: ProjectSelectionIssue }).issue ?? {
+              type: "error",
+              projectPath: normalizedPath,
+              message: error.message,
+            })
+          : {
+              type: "error",
+              projectPath: normalizedPath,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Studio could not switch to the requested project.",
+            };
+      console.error("[Bootstrap] Project selection failed", issue, error);
+      if (options.bootstrap) {
+        bootstrapProjectIssue = issue;
+        currentProjectPath = "";
+        broadcastProjectSelectionState();
+      }
+      return {
+        accepted: false,
+        currentProjectPath,
+        issue,
+      };
+    }
+
+    const previousProjectPath = currentProjectPath;
+    currentProjectPath = normalizedPath;
+    bootstrapProjectIssue = null;
+    if (previousProjectPath && previousProjectPath !== normalizedPath) {
+      releaseProjectLock(previousProjectPath, projectLockOwner);
+    }
+    broadcastProjectSelectionState();
+    return {
+      accepted: true,
+      currentProjectPath,
+      issue: null,
+    };
+  };
+
+  if (requestedBootstrapProjectPath) {
+    const initialSelection = requestProjectSelection(requestedBootstrapProjectPath, {
+      bootstrap: true,
+    });
+    if (!initialSelection.accepted && initialSelection.issue) {
+      console.warn(
+        "[Bootstrap] Initial project lock unavailable",
+        initialSelection.issue
+      );
+    }
+  }
 
   const getWindowStateForScope = (scope: string): WindowState => {
     const scopedState = windowStateStore.windows[scope];
@@ -1160,7 +1298,7 @@ export async function bootstrapElectron({
   let createWindow: (options?: {
     scope?: string;
     isPrimary?: boolean;
-    seedUrl?: string;
+    projectPath?: string;
   }) => BrowserWindowInstance;
 
   const showSystemMenu = (
@@ -1199,7 +1337,7 @@ export async function bootstrapElectron({
   const windowController = (
     command: string,
     target: BrowserWindowInstance,
-    payload?: { x?: number; y?: number; seedUrl?: string; scope?: string }
+    payload?: { x?: number; y?: number; projectPath?: string; scope?: string }
   ) => {
     switch (command) {
       case "minimize":
@@ -1232,10 +1370,24 @@ export async function bootstrapElectron({
           existing.focus?.();
           break;
         }
+        if (payload?.projectPath) {
+          return ensureChildWindowInDocument(payload.projectPath, scope).then(
+            () => {
+              createWindow({
+                scope,
+                isPrimary: false,
+                projectPath: payload.projectPath,
+              });
+              return {
+                isMaximized: target.isMaximized(),
+              };
+            }
+          );
+        }
         createWindow({
           scope,
           isPrimary: false,
-          seedUrl: payload?.seedUrl,
+          projectPath: payload?.projectPath,
         });
         break;
       }
@@ -1289,7 +1441,7 @@ export async function bootstrapElectron({
       (
         event: IpcMainInvokeEvent,
         payload:
-          | { command: string; x?: number; y?: number; seedUrl?: string; scope?: string }
+          | { command: string; x?: number; y?: number; projectPath?: string; scope?: string }
           | undefined
       ) => {
         const target = resolveBrowserWindowFromEvent(event);
@@ -1305,12 +1457,39 @@ export async function bootstrapElectron({
         return windowController(payload.command, target, payload);
       }
     );
+    ipcMain.handle("robotick-project-selection:get-state", () =>
+      getProjectSelectionState()
+    );
+    ipcMain.handle(
+      "robotick-project-selection:set",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: { projectPath?: string } | undefined
+      ) => requestProjectSelection(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-project-selection:lock-statuses",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: { projectPaths?: string[] } | undefined
+      ) => ({
+        statuses: (Array.isArray(payload?.projectPaths)
+          ? payload.projectPaths
+          : []
+        )
+          .filter((projectPath): projectPath is string => typeof projectPath === "string")
+          .map((projectPath) => readProjectLockStatus(projectPath, projectLockOwner)),
+      })
+    );
     ipcMain.handle("robotick-studio-process-stats", () =>
       sampleStudioProcessStats(app)
     );
   }
 
   const shutdown = (code = 0) => {
+    if (currentProjectPath) {
+      releaseProjectLock(currentProjectPath, projectLockOwner);
+    }
     if (app.exit) {
       app.exit(code);
     } else {
@@ -1356,6 +1535,9 @@ export async function bootstrapElectron({
     if (isHubManaged && !closingNotificationSent) {
       closingNotificationSent = true;
       void notifyHubAppClosing(env, "studio");
+    }
+    if (currentProjectPath) {
+      releaseProjectLock(currentProjectPath, projectLockOwner);
     }
     notifyRenderersAppQuitting();
     closeAllWindowsForQuit();
@@ -1465,9 +1647,7 @@ export async function bootstrapElectron({
       });
     });
 
-    if (typeof options?.seedUrl === "string" && options.seedUrl.length > 0) {
-      win.loadURL(options.seedUrl);
-    } else if (env.ELECTRON_DEV === "1") {
+    if (env.ELECTRON_DEV === "1") {
       void resolveDevServerUrl().then((url) => {
         win.loadURL(url);
       });

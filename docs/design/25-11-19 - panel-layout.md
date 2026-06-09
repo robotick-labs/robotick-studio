@@ -1,7 +1,7 @@
 ## Panel Layout – Split & Assign UX
 
 ### Goals
-- Allow any workspace body to be subdivided into multiple panels that can each host any tool.
+- Allow any workbench body to be subdivided into multiple panels that can each host any tool.
 - Keep the split mechanic simple and repeatable so users quickly build muscle memory.
 - Ensure every arrangement is persistable per-workbench so the IDE opens exactly as it was left.
 - Provide a lightweight way to detach panels so users can float tools across displays or keep them visible while navigating other areas.
@@ -40,12 +40,13 @@
 
 ### Persistence
 - Each workbench tracks its panel tree (split orientation, relative sizes, assigned tools).
-- Persist the serialized layout in `localStorage` using a key such as `panelLayout:<workbenchId>` so every workbench restores exactly how it was left across reloads.
+- Historical note:
+  the original draft described pure `localStorage` persistence. The current implementation seeds and persists canonical layouts inside `robots/<project>/studio/studio.yaml`, with renderer-local keys used only as legacy migration sources.
 - When switching workbenches, restore the saved layout; initial defaults can define common setups (single panel for new workspaces, or curated layouts for “Remote Control,” “Telemetry,” etc.).
 
 ### Editor registry
 - A new `src/renderer/config/app-editors.yaml` lists every available editor along with the module path that renders it.
-- Workbench entries in `app-workbenches.yaml` reference these editor IDs (rather than raw module paths) so layouts can mix-and-match any registered editor.
+- Seeded workbench entries in `studio.template.yaml` reference these editor IDs (rather than raw module paths) so layouts can mix-and-match any registered editor.
 - The panel selector shows this editor list, and assigning a panel simply swaps which editor ID it points to.
 
 ### Future considerations

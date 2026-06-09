@@ -1,6 +1,11 @@
 import { STUDIO_PERSISTENCE_SCHEMA_VERSION } from "./constants";
 
 export type StudioWindowRole = "main" | "child";
+export type StudioWorkbenchGroup =
+  | "project-select"
+  | "dev"
+  | "test"
+  | "help";
 
 export type StudioPanelFrame = {
   x: number;
@@ -45,7 +50,10 @@ export type StudioLayoutResource = {
 
 export type StudioWorkbenchResource = {
   id: string;
+  path?: string;
   label: string;
+  group?: StudioWorkbenchGroup;
+  defaultEditorId?: string;
   defaultLayoutId?: string;
   layouts: StudioLayoutResource[];
 };
@@ -67,7 +75,7 @@ export type StudioDocument = {
 
 export type StudioPersistenceModel = StudioDocument;
 
-export type StudioPersistenceSource = "canonical" | "empty";
+export type StudioPersistenceSource = "canonical" | "seed";
 
 export type StudioPersistenceLoadResult = {
   source: StudioPersistenceSource;
