@@ -3,6 +3,7 @@ import http from "http";
 import os from "os";
 import path from "path";
 import fs from "fs";
+import { parse } from "yaml";
 
 type ProjectFixture = {
   key: string;
@@ -164,6 +165,39 @@ test.describe("Studio project selection", () => {
     await expect(conflictDialog).toContainText("studio-e2e-lock-owner");
   });
 
+  test("renaming a child window persists across refresh", async () => {
+    environment = await createTestEnvironment();
+    const { app, window } = await launchStudio(environment, {
+      project: environment.projects.barr,
+      instanceName: "studio-e2e-child-rename",
+    });
+
+    const childWindow = await openChildWindow(app, window);
+    const renameTrigger = childWindow.getByLabel("Rename child window");
+    await expect(renameTrigger).toContainText("Studio Window");
+
+    await renameTrigger.click();
+    const renameInput = childWindow.getByLabel("Rename child window");
+    await expect(renameInput).toBeVisible();
+    await renameInput.fill("Diagnostics Window");
+    await renameInput.press("Enter");
+
+    await expect(renameTrigger).toContainText("Diagnostics Window");
+    await expect
+      .poll(() => readChildWindowLabel(environment!.projects.barr.dir))
+      .toBe("Diagnostics Window");
+    await childWindow.waitForTimeout(2000);
+    expect(readChildWindowLabel(environment.projects.barr.dir)).toBe(
+      "Diagnostics Window"
+    );
+
+    await childWindow.reload();
+    await childWindow.waitForLoadState("domcontentloaded");
+    await expect(childWindow.getByLabel("Rename child window")).toContainText(
+      "Diagnostics Window"
+    );
+  });
+
   async function launchStudio(
     testEnvironment: TestEnvironment,
     options: {
@@ -199,6 +233,32 @@ test.describe("Studio project selection", () => {
     return { app, window };
   }
 });
+
+async function openChildWindow(
+  app: ElectronApplication,
+  window: Page
+): Promise<Page> {
+  const childWindowPromise = app.waitForEvent("window");
+  await window.getByLabel("Select child window").click();
+  await window.getByRole("button", { name: "New Child Window" }).click();
+  const childWindow = await childWindowPromise;
+  await childWindow.waitForLoadState("domcontentloaded");
+  await expect(childWindow.getByLabel("Rename child window")).toBeVisible();
+  return childWindow;
+}
+
+function readChildWindowLabel(projectDir: string): string | null {
+  const studioDocumentPath = path.join(projectDir, "studio", "studio.yaml");
+  const parsed = parse(fs.readFileSync(studioDocumentPath, "utf-8")) as {
+    windows?: Array<{
+      id?: string;
+      windowRole?: string;
+      label?: string;
+    }>;
+  };
+  const childWindow = parsed.windows?.find((entry) => entry.windowRole === "child");
+  return typeof childWindow?.label === "string" ? childWindow.label : null;
+}
 
 async function createTestEnvironment(): Promise<TestEnvironment> {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-e2e-"));

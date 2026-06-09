@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parse } from "yaml";
 
 vi.mock("../../../../renderer/components/header/LauncherControls", () => ({
   LauncherControls: () => <div data-testid="launcher-controls" />,
@@ -13,28 +14,11 @@ vi.mock("../../../../renderer/components/header/ProfilePicker", () => ({
 vi.mock("../../../../renderer/components/header/ProjectPicker", () => ({
   ProjectPicker: () => <div data-testid="project-picker" />,
 }));
-vi.mock("../../../../renderer/services/AppConfigService", () => ({
-  useAppConfig: () => ({
-    workbenches: [
-      {
-        id: "home",
-        path: "/home",
-        label: "Home",
-        group: "project-select",
-        editor: "home",
-      },
-    ],
-    windows: [
-      {
-        id: "main",
-        label: "Main Window",
-        windowRole: "main",
-        defaultWorkbenchId: "home",
-        workbenches: [],
-      },
-    ],
-  }),
+const appConfigModule = vi.hoisted(() => ({
+  useAppConfig: vi.fn(),
 }));
+
+vi.mock("../../../../renderer/services/AppConfigService", () => appConfigModule);
 vi.mock(
   "../../../../renderer/data-sources/launcher/internal/ProjectContext",
   () => ({
@@ -68,12 +52,22 @@ type RobotickEnvOptions = {
   usesNativeWindowFrame?: boolean;
   includeWindowControls?: boolean;
   studioProcessStats?: { cpuPercent: number; memoryMb: number };
+  windowScope?: string;
+  isPrimaryWindow?: boolean;
+  studioPersistence?: {
+    readStudioDocument: ReturnType<typeof vi.fn>;
+    ensureStudioDocument: ReturnType<typeof vi.fn>;
+    writeStudioDocument: ReturnType<typeof vi.fn>;
+  };
 };
 
 function setRobotickEnvironment({
   usesNativeWindowFrame = true,
   includeWindowControls = false,
   studioProcessStats,
+  windowScope = "primary",
+  isPrimaryWindow = true,
+  studioPersistence,
 }: RobotickEnvOptions = {}): void {
   if (typeof window === "undefined") {
     return;
@@ -95,8 +89,11 @@ function setRobotickEnvironment({
       isStandaloneApp: true,
       appTitle: "Robotick Studio",
       usesNativeWindowFrame,
+      windowScope,
+      isPrimaryWindow,
     },
     ...(windowControls ? { windowControls } : {}),
+    ...(studioPersistence ? { studioPersistence } : {}),
     ...(studioProcessStats
       ? {
           studioProcess: {
@@ -107,6 +104,67 @@ function setRobotickEnvironment({
   };
 }
 
+function getDefaultAppConfig() {
+  return {
+    workbenches: [
+      {
+        id: "home",
+        path: "/home",
+        label: "Home",
+        group: "project-select",
+        editor: "home",
+      },
+    ],
+    windows: [
+      {
+        id: "main",
+        label: "Main Window",
+        windowRole: "main",
+        defaultWorkbenchId: "home",
+        workbenches: [],
+      },
+    ],
+    editors: [],
+    loading: false,
+    source: "canonical",
+  };
+}
+
+const studioDocumentWithChildWindow = `
+resourceType: studio_document
+schemaVersion: 1
+id: barr-e-studio
+windows:
+  - id: main
+    label: Main Window
+    windowRole: main
+    defaultWorkbenchId: home
+    workbenches:
+      - id: home
+        label: Home
+        layouts:
+          - id: main:home:default
+            label: Default
+            dock:
+              nodeType: panel
+              panelId: main-home
+              editorId: home
+  - id: child-telemetry
+    label: Telemetry Window
+    windowRole: child
+    defaultWorkbenchId: telemetry
+    workbenches:
+      - id: telemetry
+        label: Telemetry
+        layouts:
+          - id: child-telemetry:telemetry:default
+            label: Default
+            dock:
+              nodeType: panel
+              panelId: child-telemetry-panel
+              editorId: telemetry
+`;
+
 describe("AppHeader", () => {
   let contextMenuHandlers: {
     showPanelMenu: ReturnType<typeof vi.fn>;
@@ -115,6 +173,7 @@ describe("AppHeader", () => {
 
   beforeEach(() => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(false);
+    appConfigModule.useAppConfig.mockReturnValue(getDefaultAppConfig());
     contextMenuHandlers = {
       showPanelMenu: vi.fn(),
       showHeaderMenu: vi.fn(),
@@ -229,6 +288,109 @@ describe("AppHeader", () => {
       x: 42,
       y: 64,
     });
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("renames a child window title through studio document persistence", async () => {
+    (isStandaloneElectron as vi.Mock).mockReturnValue(true);
+    let writtenContent = "";
+    const studioPersistence = {
+      readStudioDocument: vi.fn(async () => studioDocumentWithChildWindow),
+      ensureStudioDocument: vi.fn(async () => undefined),
+      writeStudioDocument: vi.fn(async (_projectPath: string, content: string) => {
+        writtenContent = content;
+      }),
+    };
+    appConfigModule.useAppConfig.mockReturnValue({
+      ...getDefaultAppConfig(),
+      windows: [
+        ...getDefaultAppConfig().windows,
+        {
+          id: "child-telemetry",
+          label: "Telemetry Window",
+          windowRole: "child",
+          defaultWorkbenchId: "telemetry",
+          workbenches: [],
+        },
+      ],
+    });
+    setRobotickEnvironment({
+      usesNativeWindowFrame: false,
+      includeWindowControls: true,
+      windowScope: "child-telemetry",
+      isPrimaryWindow: false,
+      studioPersistence,
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      );
+      await Promise.resolve();
+    });
+
+    const title = container.querySelector(
+      "[aria-label='Rename child window']"
+    ) as HTMLElement | null;
+    expect(title?.textContent).toBe("Telemetry Window");
+
+    await act(async () => {
+      title?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const input = container.querySelector(
+      "input[aria-label='Rename child window']"
+    ) as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set?.call(input, "Diagnostics Window");
+      input.dispatchEvent(
+        new Event("input", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      expect(studioPersistence.writeStudioDocument).toHaveBeenCalledTimes(1);
+    });
+    const parsed = parse(writtenContent) as {
+      windows: { id: string; label: string }[];
+    };
+    expect(
+      parsed.windows.find((window) => window.id === "child-telemetry")?.label
+    ).toBe("Diagnostics Window");
+    expect(container.textContent).toContain("Diagnostics Window");
 
     act(() => {
       root.unmount();

@@ -15,6 +15,11 @@ import { WindowControls } from "./WindowControls";
 import { isStandaloneElectron } from "../../utils/environment";
 import { addDocumentEventListener } from "../../utils/domEnvironment";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
+import {
+  getBrowserStudioPersistenceStore,
+  loadStudioPersistence,
+  writeStudioDocument,
+} from "../../services/studio-persistence";
 import type { RobotickStudioProcessStats } from "../../types/robotick-globals";
 import { isPrimaryWindowSession } from "../../utils/windowSession";
 import styles from "./styles/AppHeader.module.css";
@@ -114,6 +119,14 @@ export function AppHeader() {
   const rightMenuPanelRef = useRef<HTMLDivElement | null>(null);
   const windowPresetButtonRef = useRef<HTMLButtonElement | null>(null);
   const windowPresetPanelRef = useRef<HTMLDivElement | null>(null);
+  const childWindowNameInputRef = useRef<HTMLInputElement | null>(null);
+  const childWindowRenameCommitInFlightRef = useRef(false);
+  const [isRenamingChildWindow, setIsRenamingChildWindow] = useState(false);
+  const [childWindowNameDraft, setChildWindowNameDraft] = useState("");
+  const [optimisticChildWindowLabel, setOptimisticChildWindowLabel] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
   const headerClassName = [
     styles.header,
     isStandalone ? styles.headerStandalone : "",
@@ -321,12 +334,20 @@ export function AppHeader() {
     if (isPrimaryWindow) {
       return null;
     }
+    if (optimisticChildWindowLabel?.id === currentWindowScope) {
+      return optimisticChildWindowLabel.label;
+    }
     const match = childWindows.find((window) => window.id === currentWindowScope);
     if (match?.label) {
       return match.label;
     }
     return "Studio Window";
-  }, [childWindows, currentWindowScope, isPrimaryWindow]);
+  }, [
+    childWindows,
+    currentWindowScope,
+    isPrimaryWindow,
+    optimisticChildWindowLabel,
+  ]);
   const handleLaunchChildWindow = (windowId: string) => {
     setWindowPresetMenuOpen(false);
     window.robotick?.windowControls?.createWindow?.(projectPath, windowId);
@@ -336,6 +357,90 @@ export function AppHeader() {
     () => childWindows.find((window) => window.id === currentWindowScope) ?? null,
     [childWindows, currentWindowScope]
   );
+  useEffect(() => {
+    if (
+      optimisticChildWindowLabel &&
+      optimisticChildWindowLabel.id !== currentWindowScope
+    ) {
+      setOptimisticChildWindowLabel(null);
+    }
+  }, [currentWindowScope, optimisticChildWindowLabel]);
+  useEffect(() => {
+    if (!isRenamingChildWindow) {
+      return;
+    }
+    childWindowNameInputRef.current?.focus();
+    childWindowNameInputRef.current?.select();
+  }, [isRenamingChildWindow]);
+  const beginChildWindowRename = useCallback(() => {
+    if (!activeChildWindow || !childWindowDisplayName) {
+      return;
+    }
+    setChildWindowNameDraft(childWindowDisplayName);
+    setIsRenamingChildWindow(true);
+  }, [activeChildWindow, childWindowDisplayName]);
+  const cancelChildWindowRename = useCallback(() => {
+    setIsRenamingChildWindow(false);
+    setChildWindowNameDraft(childWindowDisplayName ?? "");
+  }, [childWindowDisplayName]);
+  const commitChildWindowRename = useCallback(async () => {
+    if (childWindowRenameCommitInFlightRef.current) {
+      return;
+    }
+    const nextLabel = childWindowNameDraft.trim();
+    if (!activeChildWindow || !childWindowDisplayName || !nextLabel) {
+      cancelChildWindowRename();
+      return;
+    }
+    if (nextLabel === activeChildWindow.label) {
+      setIsRenamingChildWindow(false);
+      return;
+    }
+    const studioPersistenceStore = getBrowserStudioPersistenceStore();
+    if (!projectPath || !studioPersistenceStore) {
+      cancelChildWindowRename();
+      return;
+    }
+    childWindowRenameCommitInFlightRef.current = true;
+    try {
+      const loaded = await loadStudioPersistence(projectPath, studioPersistenceStore);
+      let renamed = false;
+      const nextModel = {
+        ...loaded.model,
+        windows: loaded.model.windows.map((entry) => {
+          if (entry.id !== activeChildWindow.id) {
+            return entry;
+          }
+          renamed = true;
+          return {
+            ...entry,
+            label: nextLabel,
+          };
+        }),
+      };
+      if (!renamed) {
+        cancelChildWindowRename();
+        return;
+      }
+      await writeStudioDocument(projectPath, studioPersistenceStore, nextModel);
+      setOptimisticChildWindowLabel({
+        id: activeChildWindow.id,
+        label: nextLabel,
+      });
+      setChildWindowNameDraft(nextLabel);
+      setIsRenamingChildWindow(false);
+    } catch (error) {
+      console.warn("[AppHeader] Failed to rename child window", error);
+    } finally {
+      childWindowRenameCommitInFlightRef.current = false;
+    }
+  }, [
+    activeChildWindow,
+    cancelChildWindowRename,
+    childWindowDisplayName,
+    childWindowNameDraft,
+    projectPath,
+  ]);
   const toggleWindowPresetMenu = () => {
     setWindowPresetMenuOpen((value) => !value);
   };
@@ -540,13 +645,47 @@ export function AppHeader() {
           </>
         ) : null}
         {showWindowControls && !isPrimaryWindow && childWindowDisplayName ? (
-          <span
-            className={styles.childWindowName}
-            data-window-interactive="true"
-            title={activeChildWindow?.label ?? childWindowDisplayName}
-          >
-            {childWindowDisplayName}
-          </span>
+          isRenamingChildWindow ? (
+            <input
+              ref={childWindowNameInputRef}
+              className={styles.childWindowNameInput}
+              data-window-interactive="true"
+              aria-label="Rename child window"
+              value={childWindowNameDraft}
+              onChange={(event) => setChildWindowNameDraft(event.target.value)}
+              onBlur={() => {
+                void commitChildWindowRename();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void commitChildWindowRename();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelChildWindowRename();
+                }
+              }}
+            />
+          ) : (
+            <span
+              className={styles.childWindowName}
+              data-window-interactive="true"
+              title={activeChildWindow?.label ?? childWindowDisplayName}
+              role="button"
+              tabIndex={0}
+              aria-label="Rename child window"
+              onClick={beginChildWindowRename}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  beginChildWindowRename();
+                }
+              }}
+            >
+              {childWindowDisplayName}
+            </span>
+          )
         ) : null}
         {showWindowControls && studioProcessStatsLabel ? (
           <span

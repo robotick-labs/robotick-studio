@@ -742,6 +742,29 @@ export function PanelLayout({
   ]);
 
   React.useEffect(() => {
+    if (!studioPersistenceEnabled || !projectPath || !studioPersistenceStore) {
+      return;
+    }
+    if (!studioPersistenceStore.onDocumentChanged) {
+      return;
+    }
+    return studioPersistenceStore.onDocumentChanged((changedProjectPath) => {
+      if (changedProjectPath !== projectPath) {
+        return;
+      }
+      void loadStudioPersistence(projectPath, studioPersistenceStore).then(
+        (loaded) => {
+          resourceModelRef.current = loaded.model;
+        }
+      );
+    });
+  }, [
+    projectPath,
+    studioPersistenceEnabled,
+    studioPersistenceStore,
+  ]);
+
+  React.useEffect(() => {
     if (
       !persistenceLoaded ||
       registryLoading ||
