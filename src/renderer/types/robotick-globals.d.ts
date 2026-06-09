@@ -46,6 +46,10 @@ export interface RobotickStudioPersistence {
     projectPath: string,
     content: string
   ) => Promise<void>;
+  readonly deleteChildWindow?: (
+    projectPath: string,
+    windowId: string
+  ) => Promise<boolean>;
   readonly onDocumentChanged?: (
     callback: (projectPath: string) => void
   ) => () => void;

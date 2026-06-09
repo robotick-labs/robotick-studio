@@ -62,6 +62,7 @@ type RobotickEnvOptions = {
     readStudioDocument: ReturnType<typeof vi.fn>;
     ensureStudioDocument: ReturnType<typeof vi.fn>;
     writeStudioDocument: ReturnType<typeof vi.fn>;
+    deleteChildWindow?: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -465,15 +466,13 @@ describe("AppHeader", () => {
     container.remove();
   });
 
-  it("deletes an inactive child window from the studio document", async () => {
+  it("requests Electron to delete an inactive child window from the studio document", async () => {
     (isStandaloneElectron as vi.Mock).mockReturnValue(true);
-    let writtenContent = "";
     const studioPersistence = {
       readStudioDocument: vi.fn(async () => studioDocumentWithChildWindow),
       ensureStudioDocument: vi.fn(async () => undefined),
-      writeStudioDocument: vi.fn(async (_projectPath: string, content: string) => {
-        writtenContent = content;
-      }),
+      writeStudioDocument: vi.fn(async () => undefined),
+      deleteChildWindow: vi.fn(async () => true),
     };
     appConfigModule.useAppConfig.mockReturnValue({
       ...getDefaultAppConfig(),
@@ -550,14 +549,12 @@ describe("AppHeader", () => {
     });
 
     await vi.waitFor(() => {
-      expect(studioPersistence.writeStudioDocument).toHaveBeenCalledTimes(1);
+      expect(studioPersistence.deleteChildWindow).toHaveBeenCalledWith(
+        "/repo/robots/barr-e/barr-e.project.yaml",
+        "child-telemetry"
+      );
     });
-    const parsed = parse(writtenContent) as {
-      windows: { id: string; windowRole: string }[];
-    };
-    expect(parsed.windows.some((window) => window.id === "child-telemetry")).toBe(
-      false
-    );
+    expect(studioPersistence.writeStudioDocument).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("Telemetry Window");
 
     act(() => {

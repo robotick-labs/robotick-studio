@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createSeedStudioDocument,
+  deleteChildWindowFromDocument,
   ensureChildWindowInDocument,
   ensureStudioDocument,
   getStudioDocumentPath,
@@ -69,6 +70,35 @@ describe("studio-persistence main helpers", () => {
       defaultEditorId: "home",
       defaultLayoutId: "child-telemetry:new-workbench:default",
     });
+  });
+
+  it("deletes a child window from the canonical document on disk", async () => {
+    const projectDir = createTempProjectDir();
+
+    await ensureStudioDocument(projectDir);
+    await ensureChildWindowInDocument(projectDir, "child-telemetry");
+    const deleted = await deleteChildWindowFromDocument(
+      projectDir,
+      "child-telemetry"
+    );
+    const filePath = getStudioDocumentPath(projectDir);
+    const written = readStudioDocument(filePath);
+
+    expect(deleted).toBe(true);
+    expect(written).toContain("id: main");
+    expect(written).not.toContain("id: child-telemetry");
+  });
+
+  it("does not delete the main window through child-window deletion", async () => {
+    const projectDir = createTempProjectDir();
+
+    await ensureStudioDocument(projectDir);
+    const deleted = await deleteChildWindowFromDocument(projectDir, "main");
+    const filePath = getStudioDocumentPath(projectDir);
+    const written = readStudioDocument(filePath);
+
+    expect(deleted).toBe(false);
+    expect(written).toContain("id: main");
   });
 
   it("merges only the submitted window into the current canonical document", () => {

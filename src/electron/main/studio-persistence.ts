@@ -391,6 +391,29 @@ export async function listChildWindowIdsInDocument(
     .map((window) => window.id);
 }
 
+export async function deleteChildWindowFromDocument(
+  projectPath: string,
+  windowId: string
+): Promise<boolean> {
+  const normalizedWindowId = windowId.trim();
+  if (!normalizedWindowId) {
+    return false;
+  }
+  const current = await ensureStudioDocument(projectPath);
+  const nextWindows = current.windows.filter(
+    (window) =>
+      !(window.id === normalizedWindowId && window.windowRole === "child")
+  );
+  if (nextWindows.length === current.windows.length) {
+    return false;
+  }
+  await writeStudioDocumentToDisk(projectPath, {
+    ...current,
+    windows: nextWindows,
+  });
+  return true;
+}
+
 function notifyDocumentChanged(
   BrowserWindow: BrowserWindowConstructor,
   projectPath: string
@@ -441,6 +464,20 @@ export function registerStudioPersistence(
       const merged = mergeWindowIntoDocument(current, parsed, payload.windowScope);
       await writeStudioDocumentToDisk(payload.projectPath, merged);
       notifyDocumentChanged(BrowserWindow, payload.projectPath);
+    }
+  );
+
+  ipcMain.handle(
+    "robotick-studio-persistence:delete-child-window",
+    async (_event, payload: { projectPath: string; windowId: string }) => {
+      const deleted = await deleteChildWindowFromDocument(
+        payload.projectPath,
+        payload.windowId
+      );
+      if (deleted) {
+        notifyDocumentChanged(BrowserWindow, payload.projectPath);
+      }
+      return { deleted };
     }
   );
 }

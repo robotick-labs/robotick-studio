@@ -387,24 +387,20 @@ export function AppHeader() {
         return;
       }
       const studioPersistenceStore = getBrowserStudioPersistenceStore();
-      if (!projectPath || !studioPersistenceStore) {
+      if (!projectPath || !studioPersistenceStore?.deleteChildWindow) {
         setChildWindowPendingDeleteId(null);
         return;
       }
       childWindowDeleteCommitInFlightRef.current = true;
       try {
-        const loaded = await loadStudioPersistence(projectPath, studioPersistenceStore);
-        const nextWindows = loaded.model.windows.filter(
-          (entry) => !(entry.id === windowId && entry.windowRole === "child")
+        const deleted = await studioPersistenceStore.deleteChildWindow(
+          projectPath,
+          windowId
         );
-        if (nextWindows.length === loaded.model.windows.length) {
+        if (!deleted) {
           setChildWindowPendingDeleteId(null);
           return;
         }
-        await writeStudioDocument(projectPath, studioPersistenceStore, {
-          ...loaded.model,
-          windows: nextWindows,
-        });
         setOptimisticDeletedChildWindowIds((current) => {
           const next = new Set(current);
           next.add(windowId);

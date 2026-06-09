@@ -281,6 +281,14 @@ const expose = () => {
         windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
       }) as Promise<void>;
     },
+    deleteChildWindow(projectPath: string, windowId: string): Promise<boolean> {
+      return ipcRenderer
+        .invoke("robotick-studio-persistence:delete-child-window", {
+          projectPath,
+          windowId,
+        })
+        .then((response) => Boolean(response?.deleted));
+    },
     onDocumentChanged(callback: (projectPath: string) => void): () => void {
       const listener = (
         _event: unknown,

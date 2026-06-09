@@ -2,6 +2,10 @@ export type StudioPersistenceStore = {
   readStudioDocument: (projectPath: string) => Promise<string | null>;
   ensureStudioDocument: (projectPath: string) => Promise<void>;
   writeStudioDocument: (projectPath: string, content: string) => Promise<void>;
+  deleteChildWindow?: (
+    projectPath: string,
+    windowId: string
+  ) => Promise<boolean>;
   onDocumentChanged?: (
     callback: (projectPath: string) => void
   ) => () => void;
