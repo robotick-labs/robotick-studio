@@ -342,6 +342,8 @@ export function ModelsPage() {
           }
         );
         graphApiRef.current = graphApi;
+        await graphApi.refreshLayout();
+        if (disposed) return;
         panelApi = initPropertyPanel(
           panelElement,
           store,
@@ -349,21 +351,18 @@ export function ModelsPage() {
           projectPath
         );
         const storedViewport = settingsRef.current.viewport;
-        if (storedViewport) {
-          setViewBox(graphElement, storedViewport);
-        } else {
-          const defaultViewport = computeDefaultViewport(graphElement);
-          if (defaultViewport) {
-            setViewBox(graphElement, defaultViewport);
-          }
+        const defaultViewport = computeDefaultViewport(graphElement);
+        const initialViewport = defaultViewport ?? storedViewport ?? null;
+        if (initialViewport) {
+          setViewBox(graphElement, initialViewport);
         }
         disposeViewportControls = attachViewportControls(
           graphElement,
           (viewport) => updateSettingsRef.current({ viewport })
         );
-        const initialViewport = getViewBox(graphElement);
-        if (initialViewport) {
-          updateSettingsRef.current({ viewport: initialViewport });
+        const appliedViewport = getViewBox(graphElement);
+        if (appliedViewport) {
+          updateSettingsRef.current({ viewport: appliedViewport });
         }
 
         const prevDispose = disposeViewportControls;
@@ -808,7 +807,6 @@ function computeDefaultViewport(svg: SVGSVGElement): GraphViewport | null {
 
   return { x, y, width, height };
 }
-
 export const contribution = defineStudioPanel({
   component: ModelsPage,
   persistence: modelsPagePersistence,

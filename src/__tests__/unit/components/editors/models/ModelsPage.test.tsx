@@ -6,10 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const initNodeGraphMock = vi.hoisted(() =>
   vi.fn(() => ({
     dispose: vi.fn(),
+    refreshLayout: vi.fn(async () => {}),
     setModelSortKey: vi.fn(),
     setCollapsedModelIds: vi.fn(),
     setDisplayOptions: vi.fn(),
-    getDoc: () => ({ sections: [] }),
+    getDoc: () => ({
+      sections: [],
+      getNode: () => undefined,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    }),
   })),
 );
 const initPropertyPanelMock = vi.hoisted(() =>
@@ -64,8 +69,14 @@ vi.mock("../../../../../renderer/data-sources/launcher", async () => {
 import ModelsPage from "../../../../../renderer/components/editors/models/ModelsPage";
 import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
 
-function PanelHost({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = React.useState<Record<string, unknown>>({});
+function PanelHost({
+  children,
+  initialSettings = {},
+}: {
+  children: React.ReactNode;
+  initialSettings?: Record<string, unknown>;
+}) {
+  const [settings, setSettings] = React.useState<Record<string, unknown>>(initialSettings);
   const setPanelSettings = React.useCallback(
     (nextSettings: Record<string, unknown>) => setSettings(nextSettings),
     [],
@@ -150,6 +161,70 @@ describe("ModelsPage", () => {
 
     expect(initNodeGraphMock).toHaveBeenCalledTimes(1);
     expect(initPropertyPanelMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("replaces a stored viewport that does not include the selected node", async () => {
+    initNodeGraphMock.mockReturnValueOnce({
+      dispose: vi.fn(),
+      refreshLayout: vi.fn(async () => {}),
+      setModelSortKey: vi.fn(),
+      setCollapsedModelIds: vi.fn(),
+      setDisplayOptions: vi.fn(),
+      getDoc: () => ({
+        sections: [],
+        getNode: () => ({
+          id: "model-a:__model__",
+          x: 1200,
+          y: 80,
+          w: 160,
+          h: 40,
+        }),
+        bounds: () => ({ x: 0, y: 0, w: 1600, h: 300 }),
+      }),
+    });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelHost
+          initialSettings={{
+            viewState: {
+              edgeVisibilityMode: "selected-model",
+              remoteConnectionVisibility: "hidden",
+              selectedNodeId: "model-a:__model__",
+              showPropertyPanel: true,
+              collapsedModelIds: [],
+            },
+            modelSortKey: "model_path",
+            viewport: {
+              x: -400,
+              y: -400,
+              width: 300,
+              height: 300,
+            },
+          }}
+        >
+          <ModelsPage />
+        </PanelHost>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector("[data-testid='settings']")?.textContent,
+    ).toContain("\"width\":1500");
+    expect(
+      container.querySelector("[data-testid='settings']")?.textContent,
+    ).not.toContain("\"width\":300");
 
     act(() => {
       root.unmount();
