@@ -25,6 +25,17 @@ Current direction:
 - Use one coherent project Studio document for now.
 - Split into multiple documents later only if readability or ownership boundaries clearly justify it.
 - If splitting is introduced later, it must be a deterministic serializer policy, not an ad hoc runtime side effect.
+- One file per window is a plausible future split boundary if real MVP usage shows that a single project Studio document is becoming too large or noisy.
+- Keep weighing single-document vs per-window files during MVP based on inspectability, reviewability, and implementation complexity rather than committing to an early split.
+
+Window initialization direction:
+
+- Fresh project Studio state is bootstrapped from one builtin Studio seed document.
+- Creating a child window does not clone the current main window or another existing project window by default.
+- The MVP child-window behavior should create a fresh minimal window inside the existing project Studio document.
+- That fresh minimal window should typically contain one workbench instance, one default layout, and one default panel.
+- Future window-creation modes may include `Create Empty`, `Create Default`, and `Create Clone`, but MVP should standardize only one default path.
+- MVP default should be `Create Default`, meaning a fresh minimal window initialized from the standard default window template shape.
 
 ### Resource model
 
@@ -90,6 +101,7 @@ Relationship model:
 - Existing split `studio/` JSON resources are superseded rather than migrated.
 - Existing legacy renderer/local-storage Studio state is superseded rather than migrated.
 - Fresh project Studio state should be bootstrapped from the builtin Studio document.
+- Child-window creation should append a new fresh window entry to the existing project Studio document rather than cloning an existing window unless a future explicit clone mode is introduced.
 - Broad shipped-surface `workspace -> workbench` cleanup belongs in a follow-up pass unless needed by the new Studio document rollout.
 
 Known legacy sources:
@@ -299,6 +311,7 @@ Implemented in:
 - [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
 - [ ] Produce loader/hydrator logic that reads `studio/studio.yaml` and hydrates the in-memory Studio model without reconstructing hidden default workbench/layout resources.
 - [ ] Switch renderer persistence writeback from split JSON resources to `studio/studio.yaml`, preserving existing behavior coverage with updated tests.
+- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` without implicitly cloning an existing window, covered by focused fixture and renderer tests.
 - [ ] Remove split-resource readers/writers and other superseded compatibility-only persistence code once the single-document path is fully covered by tests.
 
 Result:
@@ -315,6 +328,7 @@ Implemented in:
 - [ ] Review generated `studio/studio.yaml` assets from real project sessions and prune noisy default-only state where it makes the saved document feel cache-like.
 - [ ] Tighten save/load robustness around project switching, child windows, and unexpected editor availability changes, with focused regression tests for each case.
 - [ ] Refine persisted panel/viewer settings so the saved Studio document stays intentional and inspectable rather than becoming a dump of transient UI state.
+- [ ] Keep reassessing whether MVP usage still justifies one `studio/studio.yaml` per project or whether a per-window file split has become the more proportionate storage boundary.
 
 Result:
 Real project usage feeds back into the canonical resource model so the saved `studio/` assets become cleaner, more robust, and more predictable.
