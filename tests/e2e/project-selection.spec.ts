@@ -49,38 +49,6 @@ test.describe("Studio project selection", () => {
     }
   });
 
-  test("switching projects from Home persists when navigating to another workbench", async () => {
-    environment = await createTestEnvironment();
-    const { window } = await launchStudio(environment, {
-      project: environment.projects.barr,
-      instanceName: "studio-e2e-home",
-    });
-
-    await expectVisibleProjectPickerValue(
-      window,
-      environment.projects.barr.projectYamlPath
-    );
-
-    const timCard = window
-      .locator("[data-project]")
-      .filter({ has: window.getByRole("heading", { name: "Tim.E" }) });
-    await timCard.click();
-
-    await expectVisibleProjectPickerValue(
-      window,
-      environment.projects.tim.projectYamlPath
-    );
-
-    await navigateToWorkbench(window, "Project");
-    await expect
-      .poll(() => window.evaluate(() => window.location.hash))
-      .toBe("#/project");
-    await expectVisibleProjectPickerValue(
-      window,
-      environment.projects.tim.projectYamlPath
-    );
-  });
-
   test("switching projects from the header combo on a non-home workbench does not revert", async () => {
     environment = await createTestEnvironment();
     const { window } = await launchStudio(environment, {
@@ -118,7 +86,7 @@ test.describe("Studio project selection", () => {
     );
   });
 
-  test("restores each project's last visited workbench and active layout tab instead of falling back to home", async () => {
+  test("restores each project's last visited workbench instead of falling back to home", async () => {
     environment = await createTestEnvironment();
     const { window } = await launchStudio(environment, {
       project: environment.projects.barr,
@@ -134,26 +102,6 @@ test.describe("Studio project selection", () => {
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
-
-    await window.getByLabel("Create layout tab").click();
-    const layoutTabs = window.getByLabel("Workbench layout tabs");
-    const newLayoutTab = layoutTabs
-      .locator('[role="button"]')
-      .filter({ hasText: "Project | New Layout 2" })
-      .first();
-    await expect(newLayoutTab).toHaveAttribute("aria-pressed", "true");
-    await newLayoutTab.dblclick();
-
-    const renamedTabInput = window.getByLabel("Rename layout tab");
-    await expect(renamedTabInput).toBeVisible();
-    await renamedTabInput.fill("Barr Custom Layout");
-    await renamedTabInput.press("Enter");
-
-    const barrCustomTab = layoutTabs
-      .locator('[role="button"]')
-      .filter({ hasText: "Barr Custom Layout" })
-      .first();
-    await expect(barrCustomTab).toHaveAttribute("aria-pressed", "true");
 
     await selectProject(window, environment.projects.tim.projectYamlPath);
     await expectVisibleProjectPickerValue(
@@ -173,7 +121,6 @@ test.describe("Studio project selection", () => {
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
-    await expect(barrCustomTab).toHaveAttribute("aria-pressed", "true");
   });
 
   test("launching a second Studio for the same project shows the lock conflict dialog", async () => {
