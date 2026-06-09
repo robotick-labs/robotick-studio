@@ -13,6 +13,7 @@ export type PersistedPanelLeafNode = {
   id: string;
   kind: "leaf";
   editorId: string;
+  settings?: Record<string, unknown>;
 };
 
 export type PersistedPanelSplitNode = {
@@ -236,6 +237,7 @@ export function panelNodeFromResource(
           fallbackEditorId,
           allowedEditors
         ),
+        settings: node.settings ? { ...node.settings } : {},
       };
     }
     return {
@@ -274,13 +276,12 @@ function buildDockNode(
 ): StudioDockNode {
   if (node.kind === "leaf") {
     const previous = previousPanels.get(node.id);
-    return {
+      return {
       nodeType: "panel",
       panelId: node.id,
       editorId: node.editorId,
       label: previous?.editorId === node.editorId ? previous.label : undefined,
-      settings:
-        previous?.editorId === node.editorId ? previous.settings : undefined,
+      settings: node.settings ? { ...node.settings } : undefined,
     };
   }
   return {

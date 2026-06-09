@@ -13,6 +13,28 @@ vi.mock(
 );
 
 import TelemetryPage from "../../../../renderer/components/editors/telemetry/TelemetryPage";
+import { PanelInstanceProvider } from "../../../../renderer/components/workspaces/PanelInstanceContext";
+
+function PanelHost({ children }: { children: React.ReactNode }) {
+  const [settings, setSettings] = React.useState<Record<string, unknown>>({});
+
+  return (
+    <>
+      <PanelInstanceProvider
+        panelId="panel-a"
+        workspaceId="workspace"
+        settings={settings}
+        setSettings={setSettings}
+        updateSettings={(partial) =>
+          setSettings((current) => ({ ...current, ...partial }))
+        }
+      >
+        {children}
+      </PanelInstanceProvider>
+      <div data-testid="panel-settings">{JSON.stringify(settings)}</div>
+    </>
+  );
+}
 
 function render(node: React.ReactElement) {
   const container = document.createElement("div");
@@ -35,8 +57,12 @@ describe("TelemetryPage", () => {
     localStorage.clear();
   });
 
-  it("shows the panel-level model sort control beside the title and passes it through", () => {
-    const tree = render(<TelemetryPage />);
+  it("shows the panel-level model sort control beside the title and persists it through panel settings", () => {
+    const tree = render(
+      <PanelHost>
+        <TelemetryPage />
+      </PanelHost>
+    );
 
     expect(tree.container.textContent).toContain("Workload Telemetry");
     expect(tree.container.textContent).toContain("Sort models by:");
@@ -73,7 +99,9 @@ describe("TelemetryPage", () => {
         .querySelector("[data-testid='telemetry-app']")
         ?.getAttribute("data-model-sort-key"),
     ).toBe("model_name");
-    expect(localStorage.getItem("telemetry-model-sort")).toBe("model_name");
+    expect(
+      tree.container.querySelector("[data-testid='panel-settings']")?.textContent
+    ).toContain('"modelSortKey":"model_name"');
 
     tree.unmount();
   });

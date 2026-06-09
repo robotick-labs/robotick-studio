@@ -89,7 +89,7 @@ export function FloatingPanelLayer({
   };
 
   const handleAssign = (panelId: string, editorId: string) => {
-    updateFloatingPanel(scope, panelId, { editorId });
+    updateFloatingPanel(scope, panelId, { editorId, settings: {} });
   };
 
   const handleClose = (panelId: string) => {
@@ -208,13 +208,29 @@ function FloatingPanelWindow({
   const selectRef = useRef<HTMLSelectElement | null>(null);
   const Component = entry.Component;
   const handleEditorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    updateFloatingPanel(scope, panel.id, { editorId: event.target.value });
+    updateFloatingPanel(scope, panel.id, {
+      editorId: event.target.value,
+      settings: {},
+    });
     setSelectorOpen(false);
   };
   const closeSelector = () => setSelectorOpen(false);
 
   return (
-    <PanelInstanceProvider panelId={panel.id} workspaceId={scope}>
+    <PanelInstanceProvider
+      panelId={panel.id}
+      workspaceId={scope}
+      editorId={panel.editorId}
+      settings={panel.settings}
+      setSettings={(settings) =>
+        updateFloatingPanel(scope, panel.id, { settings })
+      }
+      updateSettings={(partial) =>
+        updateFloatingPanel(scope, panel.id, {
+          settings: { ...panel.settings, ...partial },
+        })
+      }
+    >
       <FloatingPanelContext.Provider
         value={{
           scope,

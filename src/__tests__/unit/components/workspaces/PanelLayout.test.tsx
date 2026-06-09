@@ -91,6 +91,10 @@ vi.mock(
 import { PanelLayout } from "../../../../renderer/components/workspaces/PanelLayout";
 import { useContextMenu } from "../../../../renderer/components/context-menu/ContextMenuProvider";
 import { __mockEntries } from "../../../../renderer/services/EditorRegistry";
+import {
+  definePanelPersistence,
+  usePanelSettings,
+} from "../../../../renderer/components/workspaces/PanelInstanceContext";
 
 class MemoryStudioPersistenceStore {
   files = new Map<string, string>();
@@ -110,9 +114,10 @@ function readStudioDocument(store: MemoryStudioPersistenceStore): any | null {
 }
 
 function readWorkbench(store: MemoryStudioPersistenceStore, workspaceId: string) {
-  return readStudioDocument(store)?.windows?.[0]?.workbenches?.find(
-    (workbench: { id?: string }) => workbench.id === workspaceId
-  );
+  const windows = readStudioDocument(store)?.windows ?? [];
+  return windows
+    .flatMap((window: { workbenches?: Array<{ id?: string }> }) => window.workbenches ?? [])
+    .find((workbench: { id?: string }) => workbench.id === workspaceId);
 }
 
 function readLayout(
@@ -142,6 +147,39 @@ const mockEntries = __mockEntries as {
     source: "plugin";
   };
 };
+
+const settingsEditorPersistence = definePanelPersistence<{
+  selectedField: string;
+}>({
+  schemaVersion: 1,
+  defaults: {
+    selectedField: "",
+  },
+  sanitize(value) {
+    const input =
+      value && typeof value === "object"
+        ? (value as { selectedField?: unknown })
+        : {};
+    return {
+      selectedField:
+        typeof input.selectedField === "string" ? input.selectedField : "",
+    };
+  },
+});
+
+function SettingsEditor() {
+  const [settings, updateSettings] = usePanelSettings(settingsEditorPersistence);
+
+  return (
+    <button
+      type="button"
+      data-testid="settings-editor"
+      onClick={() => updateSettings({ selectedField: "outputs.alpha" })}
+    >
+      {settings.selectedField || "empty"}
+    </button>
+  );
+}
 
 describe("PanelLayout context menu", () => {
   let showPanelMenu: ReturnType<typeof vi.fn>;
@@ -380,6 +418,244 @@ describe("PanelLayout context menu", () => {
 
     await vi.waitFor(() => {
       expect(readLayout(studioStore, "workspace", nextLayoutId)).not.toBeNull();
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("persists per-panel settings into the studio document", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    registryState.entries = [
+      {
+        id: "settings-editor",
+        label: "Settings Editor",
+        module: "settings-module",
+        Component: SettingsEditor,
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const editor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(editor?.textContent).toBe("empty");
+
+    await act(async () => {
+      editor?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(editor?.textContent).toBe("outputs.alpha");
+    expect(
+      readLayout(studioStore, "workspace", "main:workspace:default")?.dock
+    ).toMatchObject({
+      nodeType: "panel",
+      editorId: "settings-editor",
+      settings: {
+        selectedField: "outputs.alpha",
+      },
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps same-editor settings isolated across layouts", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    registryState.entries = [
+      {
+        id: "settings-editor",
+        label: "Settings Editor",
+        module: "settings-module",
+        Component: SettingsEditor,
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const addTab = container.querySelector(
+      "button[aria-label='Create layout tab']"
+    );
+    expect(addTab).not.toBeNull();
+
+    await act(async () => {
+      addTab?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const activeEditor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(activeEditor?.textContent).toBe("empty");
+
+    await act(async () => {
+      activeEditor?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const defaultTab = Array.from(
+      container.querySelectorAll<HTMLElement>("[role='button']")
+    ).find((button) => button.textContent?.includes("Mock Workspace | Default"));
+    expect(defaultTab).not.toBeNull();
+
+    await act(async () => {
+      defaultTab?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const restoredDefaultEditor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(restoredDefaultEditor?.textContent).toBe("empty");
+
+    const newLayoutTab = Array.from(
+      container.querySelectorAll<HTMLElement>("[role='button']")
+    ).find((button) => button.textContent?.includes("Mock Workspace | New Layout 2"));
+    expect(newLayoutTab).not.toBeNull();
+
+    await act(async () => {
+      newLayoutTab?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const restoredNewLayoutEditor = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(restoredNewLayoutEditor?.textContent).toBe("outputs.alpha");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears per-panel settings when the editor assignment changes", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    registryState.entries = [
+      {
+        id: "settings-editor",
+        label: "Settings Editor",
+        module: "settings-module",
+        Component: SettingsEditor,
+        source: "builtin",
+      },
+      mockEntries.mockEntry,
+    ];
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workspaceId="workspace"
+          workspaceLabel="Mock Workspace"
+          defaultEditorId="settings-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const settingsButton = container.querySelector(
+      "[data-testid='settings-editor']"
+    ) as HTMLButtonElement | null;
+    expect(settingsButton).not.toBeNull();
+
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const selectorButton = container.querySelector(
+      "button[aria-label='Open editor selector']"
+    );
+    expect(selectorButton).not.toBeNull();
+
+    await act(async () => {
+      selectorButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    const selector = container.querySelector(
+      "select"
+    ) as HTMLSelectElement | null;
+    expect(selector).not.toBeNull();
+
+    await act(async () => {
+      if (!selector) return;
+      selector.value = "mock-editor";
+      selector.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
+    expect(
+      readLayout(studioStore, "workspace", "main:workspace:default")?.dock
+    ).toMatchObject({
+      nodeType: "panel",
+      editorId: "mock-editor",
+      settings: {},
     });
 
     act(() => {

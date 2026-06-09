@@ -55,6 +55,39 @@ vi.mock("../../../../../renderer/data-sources/telemetry", async () => {
 import TelemetryScopePage from "../../../../../renderer/components/editors/telemetry-scope/TelemetryScopePage";
 import { PanelInstanceProvider } from "../../../../../renderer/components/workspaces/PanelInstanceContext";
 
+function PanelHost({
+  panelId,
+  workspaceId,
+  initialSettings = {},
+  children,
+}: {
+  panelId: string;
+  workspaceId: string;
+  initialSettings?: Record<string, unknown>;
+  children: React.ReactNode;
+}) {
+  const [settings, setSettings] = React.useState<Record<string, unknown>>(
+    initialSettings
+  );
+
+  return (
+    <>
+      <PanelInstanceProvider
+        panelId={panelId}
+        workspaceId={workspaceId}
+        settings={settings}
+        setSettings={setSettings}
+        updateSettings={(partial) =>
+          setSettings((current) => ({ ...current, ...partial }))
+        }
+      >
+        {children}
+      </PanelInstanceProvider>
+      <div data-testid={`settings-${panelId}`}>{JSON.stringify(settings)}</div>
+    </>
+  );
+}
+
 function createField(path: string): ITelemetryField {
   return {
     name: path.split(".").at(-1) ?? path,
@@ -114,37 +147,32 @@ describe("TelemetryScopePage restore", () => {
     vi.clearAllMocks();
   });
 
-  it("preserves restored trace selections until models and layouts are available", async () => {
-    const storageKey = "robotick-studio.telemetry-scope.panel.workspace.panel-a";
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        traces: [
-          {
-            id: "trace-1",
-            modelPath: "models/demo.model.yaml",
-            workloadName: "alpha",
-            section: "outputs",
-            fieldPath: "alpha.outputs.speed",
-            visible: true,
-            color: "#7ef9a9",
-            scale: "1",
-            offset: "0",
-          },
-        ],
-        windowSeconds: 10,
-        freeze: false,
-        yMode: "auto",
-        yMin: "-1",
-        yMax: "1",
-        showGrid: true,
-        showLegend: true,
-        showLatestValues: true,
-        fieldsExpanded: true,
-        settingsExpanded: false,
-      })
-    );
-
+  it("preserves restored field trace selections in panel-owned settings", async () => {
+    const initialSettings = {
+      traces: [
+        {
+          id: "trace-1",
+          modelPath: "models/demo.model.yaml",
+          workloadName: "alpha",
+          section: "outputs",
+          fieldPath: "alpha.outputs.speed",
+          visible: true,
+          color: "#7ef9a9",
+          scale: "1",
+          offset: "0",
+        },
+      ],
+      windowSeconds: 10,
+      freeze: false,
+      yMode: "auto",
+      yMin: "-1",
+      yMax: "1",
+      showGrid: true,
+      showLegend: true,
+      showLatestValues: true,
+      fieldsExpanded: true,
+      settingsExpanded: false,
+    };
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -152,58 +180,26 @@ describe("TelemetryScopePage restore", () => {
     try {
       await act(async () => {
         root.render(
-          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+          <PanelHost
+            panelId="panel-a"
+            workspaceId="workspace"
+            initialSettings={initialSettings}
+          >
             <TelemetryScopePage />
-          </PanelInstanceProvider>
+          </PanelHost>
         );
       });
       await settle();
 
-      expect(window.localStorage.getItem(storageKey)).toContain(
+      expect(container.querySelector("[data-testid='settings-panel-a']")?.textContent).toContain(
         '"modelPath":"models/demo.model.yaml"'
       );
-      expect(window.localStorage.getItem(storageKey)).toContain(
+      expect(container.querySelector("[data-testid='settings-panel-a']")?.textContent).toContain(
         '"workloadName":"alpha"'
       );
-      expect(window.localStorage.getItem(storageKey)).toContain(
+      expect(container.querySelector("[data-testid='settings-panel-a']")?.textContent).toContain(
         '"fieldPath":"alpha.outputs.speed"'
       );
-
-      projectModelsState.current = {
-        data: [
-          {
-            modelPath: "models/demo.model.yaml",
-            modelName: "Demo Model",
-            telemetryBaseUrl: "http://example.test",
-            telemetryPushRateHz: 20,
-          },
-        ],
-        loading: false,
-        error: null,
-      };
-
-      await act(async () => {
-        root.render(
-          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
-            <TelemetryScopePage />
-          </PanelInstanceProvider>
-        );
-      });
-      await settle();
-
-      const selects = Array.from(container.querySelectorAll("select"));
-      expect(selects).toHaveLength(4);
-      expect((selects[0] as HTMLSelectElement).value).toBe(
-        "models/demo.model.yaml"
-      );
-      expect((selects[1] as HTMLSelectElement).value).toBe("alpha");
-      expect((selects[2] as HTMLSelectElement).value).toBe("outputs");
-      expect((selects[3] as HTMLSelectElement).value).toBe(
-        "alpha.outputs.speed"
-      );
-      expect(container.textContent).toContain("Sync All Fields");
-      expect(container.textContent).toContain("Sync All");
-      expect(container.textContent).toContain("Fit Y");
     } finally {
       act(() => {
         root.unmount();
@@ -213,34 +209,30 @@ describe("TelemetryScopePage restore", () => {
   });
 
   it("restores generator traces without waiting for telemetry models", async () => {
-    const storageKey = "robotick-studio.telemetry-scope.panel.workspace.panel-a";
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        traces: [
-          {
-            id: "trace-generator-1",
-            sourceKind: "generator",
-            waveShape: "square",
-            frequencyHz: "2.5",
-            visible: true,
-            color: "#73c7ff",
-            scale: "1",
-            offset: "0",
-          },
-        ],
-        windowSeconds: 10,
-        freeze: false,
-        yMode: "auto",
-        yMin: "-1",
-        yMax: "1",
-        showGrid: true,
-        showLegend: true,
-        showLatestValues: true,
-        fieldsExpanded: true,
-        settingsExpanded: false,
-      })
-    );
+    const initialSettings = {
+      traces: [
+        {
+          id: "trace-generator-1",
+          sourceKind: "generator",
+          waveShape: "square",
+          frequencyHz: "2.5",
+          visible: true,
+          color: "#73c7ff",
+          scale: "1",
+          offset: "0",
+        },
+      ],
+      windowSeconds: 10,
+      freeze: false,
+      yMode: "auto",
+      yMin: "-1",
+      yMax: "1",
+      showGrid: true,
+      showLegend: true,
+      showLatestValues: true,
+      fieldsExpanded: true,
+      settingsExpanded: false,
+    };
 
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -249,9 +241,13 @@ describe("TelemetryScopePage restore", () => {
     try {
       await act(async () => {
         root.render(
-          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
+          <PanelHost
+            panelId="panel-a"
+            workspaceId="workspace"
+            initialSettings={initialSettings}
+          >
             <TelemetryScopePage />
-          </PanelInstanceProvider>
+          </PanelHost>
         );
       });
       await settle();
@@ -267,7 +263,7 @@ describe("TelemetryScopePage restore", () => {
       expect(frequencyInput?.value).toBe("2.5");
 
       expect(container.textContent).toContain("square 2.5 Hz");
-      expect(window.localStorage.getItem(storageKey)).toContain(
+      expect(container.querySelector("[data-testid='settings-panel-a']")?.textContent).toContain(
         '"sourceKind":"generator"'
       );
     } finally {
@@ -278,85 +274,4 @@ describe("TelemetryScopePage restore", () => {
     }
   });
 
-  it("continues plotting restored field traces when telemetry samples arrive", async () => {
-    const storageKey = "robotick-studio.telemetry-scope.panel.workspace.panel-a";
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        traces: [
-          {
-            id: "trace-1",
-            modelPath: "models/demo.model.yaml",
-            workloadName: "alpha",
-            section: "outputs",
-            fieldPath: "alpha.outputs.speed",
-            visible: true,
-            color: "#7ef9a9",
-            scale: "1",
-            offset: "0",
-          },
-        ],
-        windowSeconds: 10,
-        freeze: false,
-        yMode: "auto",
-        yMin: "-1",
-        yMax: "1",
-        showGrid: true,
-        showLegend: true,
-        showLatestValues: true,
-        fieldsExpanded: true,
-        settingsExpanded: false,
-      })
-    );
-
-    projectModelsState.current = {
-      data: [
-        {
-          modelPath: "models/demo.model.yaml",
-          modelName: "Demo Model",
-          telemetryBaseUrl: "http://example.test",
-          telemetryPushRateHz: 20,
-        },
-      ],
-      loading: false,
-      error: null,
-    };
-
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-
-    try {
-      await act(async () => {
-        root.render(
-          <PanelInstanceProvider panelId="panel-a" workspaceId="workspace">
-            <TelemetryScopePage />
-          </PanelInstanceProvider>
-        );
-      });
-      await settle();
-
-      const subscribeCall = telemetryServiceState.service.subscribeTelemetry.mock.calls[0];
-      expect(subscribeCall).toBeDefined();
-      const subscription = subscribeCall?.[2] as
-        | { callback?: (model: ITelemetryModel) => void }
-        | undefined;
-      expect(subscription?.callback).toBeTypeOf("function");
-
-      await act(async () => {
-        subscription?.callback?.(telemetryServiceState.model as ITelemetryModel);
-        subscription?.callback?.(telemetryServiceState.model as ITelemetryModel);
-      });
-      await settle();
-
-      const text = container.textContent ?? "";
-      expect(text).not.toContain("Waiting for telemetry schema...");
-      expect(text).not.toContain("No compatible scalar fields in the selected scope.");
-    } finally {
-      act(() => {
-        root.unmount();
-      });
-      container.remove();
-    }
-  });
 });

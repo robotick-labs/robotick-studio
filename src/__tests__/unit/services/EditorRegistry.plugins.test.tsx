@@ -107,6 +107,26 @@ describe("EditorRegistry plugin discovery", () => {
     expect(screen.getByTestId("editor-ids").textContent).not.toContain("animation-editor");
   });
 
+  it("exposes external plugin editors when the project declares the plugin", async () => {
+    fetchProjectSettingsDataMock.mockResolvedValue({
+      tooling: {
+        studio_plugins: [{ id: "robotick-animation" }],
+      },
+    });
+
+    render(
+      <EditorRegistryProvider>
+        <RegistryProbe />
+      </EditorRegistryProvider>
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-ids").textContent).toContain(
+        "animation-editor"
+      )
+    );
+  });
+
   it("loads bootstrapped project settings from the launcher service", async () => {
     const launcherService = {
       getProjectPath: () => "/tmp/barr-e.project.yaml",

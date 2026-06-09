@@ -124,7 +124,10 @@ export function updateFloatingPanel(
     ...next,
     id: current.id,
     editorId,
-    settings: { ...current.settings, ...(next.settings ?? {}) },
+    settings:
+      next.settings !== undefined
+        ? { ...next.settings }
+        : { ...current.settings },
   };
   notify(scope);
 }

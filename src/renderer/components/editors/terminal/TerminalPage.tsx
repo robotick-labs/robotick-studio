@@ -2,11 +2,10 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react"
 import { AnsiUp } from "ansi_up";
 import { terminalLogService } from "../../../data-sources/launcher";
 import {
-  buildNamespacedKey,
-  readStorageValue,
-  setStorageValue,
-} from "../../../services/storage";
-import { usePanelInstance } from "../../workspaces/PanelInstanceContext";
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelSettings,
+} from "../../workspaces/PanelInstanceContext";
 import styles from "./TerminalPage.module.css";
 
 type TerminalPanelSettings = {
@@ -21,95 +20,42 @@ const DEFAULT_TERMINAL_PANEL_SETTINGS: TerminalPanelSettings = {
   autoScroll: true,
 };
 
-const LEGACY_STORAGE_KEYS = {
-  filter: "robotick-studio.terminal.filter",
-  wrapText: "robotick-studio.terminal.wrapText",
-  autoScroll: "robotick-studio.terminal.autoScroll",
-} as const;
+export const terminalPagePersistence =
+  definePanelPersistence<TerminalPanelSettings>({
+    schemaVersion: 1,
+    defaults: DEFAULT_TERMINAL_PANEL_SETTINGS,
+    sanitize(value) {
+      const input =
+        value && typeof value === "object"
+          ? (value as Partial<TerminalPanelSettings>)
+          : {};
+      return {
+        filter:
+          typeof input.filter === "string"
+            ? input.filter
+            : DEFAULT_TERMINAL_PANEL_SETTINGS.filter,
+        wrapText:
+          typeof input.wrapText === "boolean"
+            ? input.wrapText
+            : DEFAULT_TERMINAL_PANEL_SETTINGS.wrapText,
+        autoScroll:
+          typeof input.autoScroll === "boolean"
+            ? input.autoScroll
+            : DEFAULT_TERMINAL_PANEL_SETTINGS.autoScroll,
+      };
+    },
+  });
 
-function readLegacyBoolean(key: string, fallback: boolean): boolean {
-  const raw = readStorageValue(key);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return fallback;
-}
-
-function readTerminalPanelSettings(storageKey: string): TerminalPanelSettings {
-  const legacyFallback = {
-    filter:
-      readStorageValue(LEGACY_STORAGE_KEYS.filter) ??
-      DEFAULT_TERMINAL_PANEL_SETTINGS.filter,
-    wrapText: readLegacyBoolean(
-      LEGACY_STORAGE_KEYS.wrapText,
-      DEFAULT_TERMINAL_PANEL_SETTINGS.wrapText
-    ),
-    autoScroll: readLegacyBoolean(
-      LEGACY_STORAGE_KEYS.autoScroll,
-      DEFAULT_TERMINAL_PANEL_SETTINGS.autoScroll
-    ),
-  };
-  try {
-    const raw = readStorageValue(storageKey);
-    if (!raw) {
-      return legacyFallback;
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return legacyFallback;
-    }
-    const data = parsed as Record<string, unknown>;
-    return {
-      filter:
-        typeof data.filter === "string" ? data.filter : legacyFallback.filter,
-      wrapText:
-        typeof data.wrapText === "boolean"
-          ? data.wrapText
-          : legacyFallback.wrapText,
-      autoScroll:
-        typeof data.autoScroll === "boolean"
-          ? data.autoScroll
-          : legacyFallback.autoScroll,
-    };
-  } catch {
-    return legacyFallback;
-  }
-}
-
-function writeTerminalPanelSettings(
-  storageKey: string,
-  settings: TerminalPanelSettings
-) {
-  setStorageValue(storageKey, JSON.stringify(settings));
-}
-
-export default function TerminalPage() {
+export function TerminalPage() {
   const [, forceRefresh] = useReducer((count) => count + 1, 0);
   const containerRef = useRef<HTMLDivElement>(null);
   const ansiUpRef = useRef<AnsiUp | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
-  const panelInstance = usePanelInstance();
-  const workspaceIdentifier = panelInstance.workspaceId ?? "workspace";
-  const panelIdentifier = panelInstance.panelId ?? "default";
-  const storageKey = buildNamespacedKey(
-    "robotick-studio.terminal.panel",
-    workspaceIdentifier,
-    panelIdentifier
-  );
-  const [settings, setSettings] = useState<TerminalPanelSettings>(() =>
-    readTerminalPanelSettings(storageKey)
-  );
+  const [settings, updateSettings] = usePanelSettings(terminalPagePersistence);
 
   useEffect(() => {
     ansiUpRef.current = new AnsiUp();
   }, []);
-
-  useEffect(() => {
-    setSettings(readTerminalPanelSettings(storageKey));
-  }, [storageKey]);
-
-  useEffect(() => {
-    writeTerminalPanelSettings(storageKey, settings);
-  }, [settings, storageKey]);
 
   useEffect(() => {
     return terminalLogService.subscribe(() => forceRefresh());
@@ -118,16 +64,14 @@ export default function TerminalPage() {
   const messages = terminalLogService.getMessages();
   const { filter, wrapText, autoScroll } = settings;
   const clearOnRun = terminalLogService.getClearOnRun();
-  const updateSettings = (partial: Partial<TerminalPanelSettings>) => {
-    setSettings((current) => ({ ...current, ...partial }));
-  };
 
   useLayoutEffect(() => {
     if (!autoScroll) return;
     if (!containerRef.current) return;
 
     queueMicrotask(() => {
-      const el = containerRef.current!;
+      const el = containerRef.current;
+      if (!el) return;
       el.scrollTop = el.scrollHeight;
     });
   }, [messages, filter, autoScroll]);
@@ -226,3 +170,10 @@ export default function TerminalPage() {
     </div>
   );
 }
+
+export const contribution = defineStudioPanel({
+  component: TerminalPage,
+  persistence: terminalPagePersistence,
+});
+
+export default TerminalPage;

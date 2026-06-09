@@ -6,10 +6,21 @@ import {
 import { useProjectContext } from "../data-sources/launcher/internal/ProjectContext";
 import type { EditorConfig } from "./AppConfigService";
 import { EditorsConfig } from "./AppConfigService";
+import type { StudioPanelContribution } from "../components/workspaces/PanelInstanceContext";
 
 type EditorComponent = React.LazyExoticComponent<
   React.ComponentType<Record<string, never>>
 >;
+
+function isStudioPanelContribution(
+  value: unknown
+): value is StudioPanelContribution {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as { component?: unknown };
+  return typeof candidate.component === "function";
+}
 
 export type EditorEntry = EditorConfig & {
   Component: EditorComponent;
@@ -107,16 +118,24 @@ function resolveBuiltinModuleLoader(modulePath: string) {
 
 function createLazyComponent(
   loader: () => Promise<unknown>,
-  exportName = "default"
+  exportName = "default",
+  fallbackContributionExport?: string
 ): EditorComponent {
   return React.lazy(async () => {
     const loaded = (await loader()) as Record<string, unknown>;
-    const resolved = loaded[exportName];
+    const preferred =
+      fallbackContributionExport && loaded[fallbackContributionExport]
+        ? loaded[fallbackContributionExport]
+        : undefined;
+    const resolved = preferred ?? loaded[exportName];
     if (!resolved) {
       throw new Error(`Editor module is missing export '${exportName}'.`);
     }
+    const component = isStudioPanelContribution(resolved)
+      ? resolved.component
+      : (resolved as React.ComponentType<Record<string, never>>);
     return {
-      default: resolved as React.ComponentType<Record<string, never>>,
+      default: component,
     };
   });
 }
@@ -224,7 +243,7 @@ function buildBuiltinEditorEntries(): EditorEntry[] {
     }
     return {
       ...editor,
-      Component: createLazyComponent(loader),
+      Component: createLazyComponent(loader, "default", "contribution"),
       source: "builtin" as const,
     };
   });

@@ -468,36 +468,52 @@ Implemented in:
 
 ### Document-model migration
 
+#### 1. Canonical document foundation
+
 - [x] Produce a `studio_document` schema, TypeScript contracts, and fixture examples that replace the current split `studio_window` / `studio_workbench` / `studio_layout` top-level resource model.
 - [x] Produce a deterministic YAML loader/serializer for `studio_document`, with round-trip tests against representative fixtures and stable ordering.
-- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
-- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
 - [x] Produce loader/hydrator logic that reads `studio/studio.yaml` and hydrates the in-memory Studio model without reconstructing hidden default workbench/layout resources.
 - [x] Switch renderer persistence writeback from split JSON resources to `studio/studio.yaml`, preserving existing behavior coverage with updated tests.
-- [ ] Migrate editor/viewer durable state that still writes through legacy `localStorage` keys into panel-owned `settings` within `studio/studio.yaml`, staying within the persisted-state inventory defined in this doc.
-- [ ] Remove legacy `localStorage` writes for any editor/viewer state that is now represented by panel-owned `settings` in the Studio document.
-- [ ] Produce one editor-facing panel settings API for both docked and floating panels, and export that API for plugin authors.
-- [ ] Replace floating-only settings access with the shared panel settings API so floating is only a container/placement concern.
-- [ ] Produce a small `defineStudioPanel` or equivalent contribution helper so a panel entry-point file can declare its component, persistence defaults, validation/sanitization, and future capabilities in one place.
-- [ ] Update plugin editor loading so a manifest `componentExport` may resolve either to a plain React component or to a panel contribution object, while keeping plugin index files as generic export surfaces.
-- [ ] Migrate builtin panels with durable state to the same panel entry-point contribution pattern where practical for MVP, starting with telemetry tree as the reference implementation.
-- [ ] Add per-editor persistence isolation tests proving that same-editor panels do not share state across panel instances, layouts, or windows.
-- [ ] Add editor-reassignment tests proving that incompatible persisted settings are dropped when a panel changes editor type.
-- [ ] Add dock/float transition tests proving that panel-owned settings survive container changes while floating-panel frame data remains container-owned.
-- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` without implicitly cloning an existing window, covered by focused fixture and renderer tests.
 - [x] Remove split-resource readers/writers and other superseded compatibility-only persistence code once the single-document path is fully covered by tests.
 
+#### 2. Panel persistence rollout
+
+- Clean-break rule for MVP:
+  once a panel/viewer is moved onto panel-owned Studio document settings, Studio should not keep legacy `localStorage` read/write shims for that state.
+
+- [x] Produce one editor-facing panel settings API for both docked and floating panels, and export that API for plugin authors.
+- [x] Replace floating-only settings access with the shared panel settings API so floating is only a container/placement concern.
+- [ ] Migrate the remaining durable editor/viewer state that still uses legacy `localStorage` keys into panel-owned `settings` within `studio/studio.yaml`, with `viewer-streaming-image` selected-stream state the main remaining MVP item from the current inventory.
+- [x] Remove legacy `localStorage` reads/writes for editor/viewer state that is now represented by panel-owned `settings` in the Studio document.
+- [x] Produce a small `defineStudioPanel` or equivalent contribution helper so a panel entry-point file can declare its component, persistence defaults, validation/sanitization, and future capabilities in one place.
+- [x] Update plugin editor loading so a manifest `componentExport` may resolve either to a plain React component or to a panel contribution object, while keeping plugin index files as generic export surfaces.
+- [x] Migrate builtin panels with durable state to the same panel entry-point contribution pattern where practical for MVP, using telemetry tree as the reference implementation and applying the same pattern across the current migrated builtin/plugin panels.
+- [x] Add per-editor persistence isolation tests proving that same-editor panels do not share state across panel instances or layout tabs.
+- [ ] Add multi-workbench / child-window persistence isolation tests once Studio write coordination is hardened for multiple simultaneous persistence owners.
+- [x] Add editor-reassignment tests proving that incompatible persisted settings are dropped when a panel changes editor type.
+- [ ] Add dock/float transition tests proving that panel-owned settings survive container changes while floating-panel frame data remains container-owned.
+
+#### 3. Bootstrap and completion
+
+- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
+- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
+- [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` without implicitly cloning an existing window, covered by focused fixture and renderer tests.
+
 Result:
-The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Remaining MVP work includes moving editor/viewer durable state off legacy `localStorage` keys and enforcing strict per-panel-instance ownership through tests, alongside builtin seed/default-definition ownership and explicit child-window creation behavior.
+The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, and regression tests cover document-backed panel settings, layout-tab isolation, plugin discovery, and editor reassignment clearing. Remaining MVP work is now narrower and more concrete: migrate the remaining streaming-image selected-stream state, add dock/float transition coverage, harden/write-test multi-workbench or child-window persistence coordination, and land builtin seed/default-definition plus explicit child-window creation behavior.
 
 Implemented in:
 
 - `src/renderer/services/studio-persistence/`
 - `src/renderer/components/workspaces/`
+- `src/renderer/components/editors/telemetry/tree-viewer/TelemetryTreeViewer.tsx`
+- `src/renderer/services/plugins/animation-studio-host.ts`
 - `src/electron/main/studio-persistence.ts`
 - `src/electron/preload/preload.ts`
 - `src/__tests__/unit/services/studioPersistence.test.ts`
 - `src/__tests__/unit/components/workspaces/PanelLayout.test.tsx`
+- `src/__tests__/unit/components/workspaces/floating-panel-store.test.ts`
+- `src/__tests__/unit/components/editors/telemetry/TelemetryTreeViewer.test.tsx`
 
 ### User testing and iteration (UX, robustness)
 

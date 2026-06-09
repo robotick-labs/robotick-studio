@@ -11,7 +11,16 @@ export type {
 export { useProjectContext } from "../../data-sources/launcher/internal/ProjectContext";
 export { useTelemetryService, useTelemetryStream } from "../../data-sources/telemetry";
 export type { ITelemetryField, ITelemetryModel, LayoutWritableInput } from "../../data-sources/telemetry";
-export { usePanelInstance } from "../../components/workspaces/PanelInstanceContext";
+export type {
+  PanelPersistenceDefinition,
+  StudioPanelContribution,
+} from "../../components/workspaces/PanelInstanceContext";
+export {
+  definePanelPersistence,
+  defineStudioPanel,
+  usePanelInstance,
+  usePanelSettings,
+} from "../../components/workspaces/PanelInstanceContext";
 export {
   buildNamespacedKey,
   readStorageValue,

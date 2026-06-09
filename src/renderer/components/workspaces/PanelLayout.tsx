@@ -39,6 +39,7 @@ type PanelLeafNode = {
   id: string;
   kind: "leaf";
   editorId: string;
+  settings?: Record<string, unknown>;
 };
 
 type PanelSplitNode = {
@@ -163,7 +164,7 @@ function getNewLayoutTabName(index: number, workspaceLabel?: string): string {
 }
 
 function createLeaf(editorId: string): PanelLeafNode {
-  return { id: generatePanelId(), kind: "leaf", editorId };
+  return { id: generatePanelId(), kind: "leaf", editorId, settings: {} };
 }
 
 function nodeContains(node: PanelNode, panelId: string): boolean {
@@ -411,6 +412,9 @@ export function PanelLayout({
     storageKey: panelLayoutStorageKey,
     node: createLeaf(fallbackEditorId),
   }));
+  const layoutTabsStateRef = React.useRef(layoutTabsState);
+  const layoutStateRef = React.useRef(layoutState);
+  const floatingPanelsStateRef = React.useRef(floatingPanelsState);
   const layout = layoutState.node;
   const currentLayoutStateKey = studioPersistenceEnabled
     ? activeLayoutResourceId
@@ -446,6 +450,99 @@ export function PanelLayout({
   const [layoutTabPendingClose, setLayoutTabPendingClose] =
     React.useState<WorkspaceLayoutTab | null>(null);
   const draggingLayoutTabIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    layoutTabsStateRef.current = layoutTabsState;
+  }, [layoutTabsState]);
+
+  React.useEffect(() => {
+    layoutStateRef.current = layoutState;
+  }, [layoutState]);
+
+  React.useEffect(() => {
+    floatingPanelsStateRef.current = floatingPanelsState;
+  }, [floatingPanelsState]);
+
+  const persistCurrentLayoutSnapshot = React.useCallback(() => {
+    if (
+      !persistenceLoaded ||
+      registryLoading ||
+      persistenceHydratingRef.current ||
+      !studioPersistenceEnabled ||
+      !projectPath ||
+      !studioPersistenceStore
+    ) {
+      return resourceModelRef.current;
+    }
+    const currentTabsState = layoutTabsStateRef.current;
+    const currentTabs =
+      currentTabsState.storageKey === layoutTabsStorageKey
+        ? currentTabsState.tabs
+        : [createDefaultLayoutTab(workspaceLabel)];
+    const currentActiveTabId =
+      currentTabsState.storageKey === layoutTabsStorageKey
+        ? currentTabsState.activeTabId
+        : DEFAULT_LAYOUT_TAB_ID;
+    const nextModel = applyWorkspaceLayoutState({
+      model: resourceModelRef.current,
+      workspaceId,
+      workspaceLabel,
+      windowScope,
+      tabs: currentTabs.map((tab) => ({
+        id: tab.id,
+        name: tab.name,
+        layoutId: buildLayoutResourceId(windowScope, workspaceId, tab.id),
+      })),
+      activeTabId: currentActiveTabId,
+      layoutNode: layoutStateRef.current.node as PersistedPanelNode,
+      floatingPanels: floatingPanelsStateRef.current,
+      fallbackEditorId,
+    });
+    resourceModelRef.current = nextModel;
+    void writeStudioDocument(projectPath, studioPersistenceStore, nextModel);
+    return nextModel;
+  }, [
+    fallbackEditorId,
+    layoutTabsStorageKey,
+    persistenceLoaded,
+    projectPath,
+    registryLoading,
+    studioPersistenceEnabled,
+    studioPersistenceStore,
+    windowScope,
+    workspaceId,
+    workspaceLabel,
+  ]);
+
+  const hydrateActiveLayout = React.useCallback(
+    (tabId: string, model = resourceModelRef.current) => {
+      const layoutId = buildLayoutResourceId(windowScope, workspaceId, tabId);
+      const activeLayout = findLayoutResource(
+        model,
+        workspaceId,
+        windowScope,
+        layoutId
+      );
+      setLayoutState({
+        storageKey: layoutId,
+        node: activeLayout
+          ? (panelNodeFromResource(
+              activeLayout,
+              fallbackEditorId,
+              allowedIdSet,
+              generatePanelId
+            ) as PanelNode)
+          : createLeaf(fallbackEditorId),
+      });
+      const nextFloatingPanels = activeLayout?.floatingPanels ?? [];
+      setFloatingPanelsState(nextFloatingPanels);
+      replaceFloatingPanels(
+        getFloatingPanelScope(windowScope, workspaceId, tabId),
+        toFloatingPanelRecords(nextFloatingPanels)
+      );
+      setMaximizedPanelId(null);
+    },
+    [allowedIdSet, fallbackEditorId, windowScope, workspaceId]
+  );
   React.useEffect(() => {
     let cancelled = false;
     persistenceHydratingRef.current = true;
@@ -706,9 +803,37 @@ export function PanelLayout({
       updateNode(current, panelId, (leaf) => ({
         ...leaf,
         editorId,
+        settings: {},
       }))
     );
   }, [setCurrentLayout]);
+
+  const onSetPanelSettings = React.useCallback(
+    (panelId: string, settings: Record<string, unknown>) => {
+      setCurrentLayout((current) =>
+        updateNode(current, panelId, (leaf) => ({
+          ...leaf,
+          settings: { ...settings },
+        }))
+      );
+    },
+    [setCurrentLayout]
+  );
+
+  const onUpdatePanelSettings = React.useCallback(
+    (panelId: string, partial: Record<string, unknown>) => {
+      setCurrentLayout((current) =>
+        updateNode(current, panelId, (leaf) => ({
+          ...leaf,
+          settings: {
+            ...(leaf.settings ?? {}),
+            ...partial,
+          },
+        }))
+      );
+    },
+    [setCurrentLayout]
+  );
 
   const onClosePanel = React.useCallback((panelId: string) => {
     setCurrentLayout((current) => {
@@ -745,6 +870,8 @@ export function PanelLayout({
 
   const handleSelectLayoutTab = React.useCallback(
     (tabId: string) => {
+      const nextModel = persistCurrentLayoutSnapshot();
+      hydrateActiveLayout(tabId, nextModel);
       setLayoutTabsState((current) => {
         if (
           current.storageKey !== layoutTabsStorageKey ||
@@ -758,15 +885,16 @@ export function PanelLayout({
         };
       });
     },
-    [layoutTabsStorageKey]
+    [hydrateActiveLayout, layoutTabsStorageKey, persistCurrentLayoutSnapshot]
   );
 
   const handleAddLayoutTab = React.useCallback(() => {
+    persistCurrentLayoutSnapshot();
+    const id = generateLayoutTabId();
     setLayoutTabsState((current) => {
       if (current.storageKey !== layoutTabsStorageKey) {
         return current;
       }
-      const id = generateLayoutTabId();
       const nextIndex = current.tabs.length + 1;
       const tab = {
         id,
@@ -778,7 +906,21 @@ export function PanelLayout({
         activeTabId: id,
       };
     });
-  }, [layoutTabsStorageKey, workspaceLabel]);
+    setLayoutState({
+      storageKey: buildLayoutResourceId(windowScope, workspaceId, id),
+      node: createLeaf(fallbackEditorId),
+    });
+    setFloatingPanelsState([]);
+    replaceFloatingPanels(getFloatingPanelScope(windowScope, workspaceId, id), []);
+    setMaximizedPanelId(null);
+  }, [
+    fallbackEditorId,
+    layoutTabsStorageKey,
+    persistCurrentLayoutSnapshot,
+    windowScope,
+    workspaceId,
+    workspaceLabel,
+  ]);
 
   const commitLayoutTabRename = React.useCallback(() => {
     setEditingLayoutTab((editing) => {
@@ -1123,6 +1265,8 @@ export function PanelLayout({
             editorOptions={editorOptions}
             onContextMenu={handleContextMenu}
             onAssign={onAssign}
+            onSetPanelSettings={onSetPanelSettings}
+            onUpdatePanelSettings={onUpdatePanelSettings}
             onToggleMaximize={onToggleMaximize}
             onSplit={onSplit}
             onResizeSplit={onResizeSplit}
@@ -1173,6 +1317,14 @@ type PanelNodeViewProps = {
     event: React.MouseEvent<HTMLDivElement>
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
+  onSetPanelSettings: (
+    panelId: string,
+    settings: Record<string, unknown>
+  ) => void;
+  onUpdatePanelSettings: (
+    panelId: string,
+    partial: Record<string, unknown>
+  ) => void;
   onToggleMaximize: (panelId: string) => void;
   onSplit: (
     panelId: string,
@@ -1207,6 +1359,8 @@ function PanelNodeView({
   editorOptions,
   onContextMenu,
   onAssign,
+  onSetPanelSettings,
+  onUpdatePanelSettings,
   onToggleMaximize,
   onSplit,
   onResizeSplit,
@@ -1235,13 +1389,15 @@ function PanelNodeView({
                 : { flex: 1 }
             }
           >
-            <PanelNodeView
+          <PanelNodeView
               node={node.children[0]}
               maximizedPanelId={maximizedPanelId}
               refreshByPanelId={refreshByPanelId}
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
+              onSetPanelSettings={onSetPanelSettings}
+              onUpdatePanelSettings={onUpdatePanelSettings}
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
@@ -1276,6 +1432,8 @@ function PanelNodeView({
               editorOptions={editorOptions}
               onContextMenu={onContextMenu}
               onAssign={onAssign}
+              onSetPanelSettings={onSetPanelSettings}
+              onUpdatePanelSettings={onUpdatePanelSettings}
               onToggleMaximize={onToggleMaximize}
               onSplit={onSplit}
               onResizeSplit={onResizeSplit}
@@ -1295,6 +1453,8 @@ function PanelNodeView({
       editorOptions={editorOptions}
       onContextMenu={onContextMenu}
       onAssign={onAssign}
+      onSetPanelSettings={onSetPanelSettings}
+      onUpdatePanelSettings={onUpdatePanelSettings}
       onToggleMaximize={onToggleMaximize}
       onSplit={onSplit}
       isMaximized={maximizedPanelId === node.id}
@@ -1378,6 +1538,14 @@ type PanelLeafProps = {
     event: React.MouseEvent<HTMLDivElement>
   ) => void;
   onAssign: (panelId: string, editorId: string) => void;
+  onSetPanelSettings: (
+    panelId: string,
+    settings: Record<string, unknown>
+  ) => void;
+  onUpdatePanelSettings: (
+    panelId: string,
+    partial: Record<string, unknown>
+  ) => void;
   onToggleMaximize: (panelId: string) => void;
   onSplit: (
     panelId: string,
@@ -1408,6 +1576,8 @@ function PanelLeaf({
   editorOptions,
   onContextMenu,
   onAssign,
+  onSetPanelSettings,
+  onUpdatePanelSettings,
   onToggleMaximize,
   onSplit,
   isMaximized,
@@ -1542,7 +1712,14 @@ function PanelLeaf({
   const Component = entry?.Component ?? null;
 
   return (
-    <PanelInstanceProvider panelId={node.id} workspaceId={workspaceId}>
+    <PanelInstanceProvider
+      panelId={node.id}
+      workspaceId={workspaceId}
+      editorId={node.editorId}
+      settings={node.settings ?? {}}
+      setSettings={(settings) => onSetPanelSettings(node.id, settings)}
+      updateSettings={(partial) => onUpdatePanelSettings(node.id, partial)}
+    >
       <div
         className={styles.panelLeaf}
         ref={panelRef}
