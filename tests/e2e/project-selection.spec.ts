@@ -88,7 +88,7 @@ test.describe("Studio project selection", () => {
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
 
-    await projectPicker.selectOption(environment.projects.tim.projectYamlPath);
+    await selectProject(window, environment.projects.tim.projectYamlPath);
 
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
     await expect
@@ -137,14 +137,14 @@ test.describe("Studio project selection", () => {
       .first();
     await expect(barrCustomTab).toHaveAttribute("aria-pressed", "true");
 
-    await projectPicker.selectOption(environment.projects.tim.projectYamlPath);
+    await selectProject(window, environment.projects.tim.projectYamlPath);
     await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
     await expect(window.getByRole("button", { name: /Save/ })).toBeVisible();
 
-    await projectPicker.selectOption(environment.projects.barr.projectYamlPath);
+    await selectProject(window, environment.projects.barr.projectYamlPath);
     await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
@@ -294,6 +294,28 @@ async function navigateToWorkbench(window: Page, label: string): Promise<void> {
   }
 
   throw new Error(`Could not find workbench navigation link for "${label}"`);
+}
+
+async function selectProject(window: Page, projectPath: string): Promise<void> {
+  const directPicker = window.getByLabel("Select project").first();
+  if (await directPicker.isVisible().catch(() => false)) {
+    await directPicker.selectOption(projectPath);
+    return;
+  }
+
+  const menuButton = window.getByRole("button", {
+    name: "Open project navigation menu",
+  });
+  if (await menuButton.isVisible().catch(() => false)) {
+    await menuButton.click();
+    const menu = window.getByRole("menu").first();
+    const menuPicker = menu.getByLabel("Select project").first();
+    await expect(menuPicker).toBeVisible();
+    await menuPicker.selectOption(projectPath);
+    return;
+  }
+
+  throw new Error(`Could not find a visible project picker for "${projectPath}"`);
 }
 
 function escapeRegExp(value: string): string {
