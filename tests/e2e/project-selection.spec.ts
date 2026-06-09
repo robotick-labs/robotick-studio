@@ -56,21 +56,29 @@ test.describe("Studio project selection", () => {
       instanceName: "studio-e2e-home",
     });
 
-    const projectPicker = window.getByLabel("Select project");
-    await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.barr.projectYamlPath
+    );
 
     const timCard = window
       .locator("[data-project]")
       .filter({ has: window.getByRole("heading", { name: "Tim.E" }) });
     await timCard.click();
 
-    await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.tim.projectYamlPath
+    );
 
     await navigateToWorkbench(window, "Project");
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
-    await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.tim.projectYamlPath
+    );
   });
 
   test("switching projects from the header combo on a non-home workbench does not revert", async () => {
@@ -80,8 +88,10 @@ test.describe("Studio project selection", () => {
       instanceName: "studio-e2e-header",
     });
 
-    const projectPicker = window.getByLabel("Select project");
-    await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.barr.projectYamlPath
+    );
 
     await navigateToWorkbench(window, "Project");
     await expect
@@ -90,7 +100,10 @@ test.describe("Studio project selection", () => {
 
     await selectProject(window, environment.projects.tim.projectYamlPath);
 
-    await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.tim.projectYamlPath
+    );
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
@@ -99,7 +112,10 @@ test.describe("Studio project selection", () => {
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/home");
-    await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.tim.projectYamlPath
+    );
   });
 
   test("restores each project's last visited workbench and active layout tab instead of falling back to home", async () => {
@@ -109,8 +125,10 @@ test.describe("Studio project selection", () => {
       instanceName: "studio-e2e-restore",
     });
 
-    const projectPicker = window.getByLabel("Select project");
-    await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.barr.projectYamlPath
+    );
 
     await navigateToWorkbench(window, "Project");
     await expect
@@ -138,14 +156,20 @@ test.describe("Studio project selection", () => {
     await expect(barrCustomTab).toHaveAttribute("aria-pressed", "true");
 
     await selectProject(window, environment.projects.tim.projectYamlPath);
-    await expect(projectPicker).toHaveValue(environment.projects.tim.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.tim.projectYamlPath
+    );
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
     await expect(window.getByRole("button", { name: /Save/ })).toBeVisible();
 
     await selectProject(window, environment.projects.barr.projectYamlPath);
-    await expect(projectPicker).toHaveValue(environment.projects.barr.projectYamlPath);
+    await expectVisibleProjectPickerValue(
+      window,
+      environment.projects.barr.projectYamlPath
+    );
     await expect
       .poll(() => window.evaluate(() => window.location.hash))
       .toBe("#/project");
@@ -158,7 +182,8 @@ test.describe("Studio project selection", () => {
       project: environment.projects.barr,
       instanceName: "studio-e2e-lock-owner",
     });
-    await expect(first.window.getByLabel("Select project")).toHaveValue(
+    await expectVisibleProjectPickerValue(
+      first.window,
       environment.projects.barr.projectYamlPath
     );
 
@@ -316,6 +341,29 @@ async function selectProject(window: Page, projectPath: string): Promise<void> {
   }
 
   throw new Error(`Could not find a visible project picker for "${projectPath}"`);
+}
+
+async function expectVisibleProjectPickerValue(
+  window: Page,
+  projectPath: string
+): Promise<void> {
+  const directPicker = window.getByLabel("Select project").first();
+  if (await directPicker.isVisible().catch(() => false)) {
+    await expect(directPicker).toHaveValue(projectPath);
+    return;
+  }
+
+  const menuButton = window.getByRole("button", {
+    name: "Open project navigation menu",
+  });
+  if (await menuButton.isVisible().catch(() => false)) {
+    await menuButton.click();
+    const menuPicker = window.getByRole("menu").first().getByLabel("Select project").first();
+    await expect(menuPicker).toHaveValue(projectPath);
+    return;
+  }
+
+  throw new Error(`Could not find a visible project picker for assertion "${projectPath}"`);
 }
 
 function escapeRegExp(value: string): string {
