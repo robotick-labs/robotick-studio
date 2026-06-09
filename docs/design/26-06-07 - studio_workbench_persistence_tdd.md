@@ -37,6 +37,17 @@ Window initialization direction:
 - Future window-creation modes may include `Create Empty`, `Create Default`, and `Create Clone`, but MVP should standardize only one default path.
 - MVP default should be `Create Default`, meaning a fresh minimal window initialized from the standard default window template shape.
 
+Session and multi-window ownership direction:
+
+- Child windows are part of one Studio session, not separate app instances.
+- Child windows should share only genuinely session-wide concerns such as project selection, launcher/editor/plugin context, and other explicitly centralized session services.
+- Durable UI state should remain window-owned by default.
+- A child window should not implicitly share another window's layout state, panel-instance settings, floating-panel frame state, or active workbench/layout selection unless a future feature models that sharing explicitly.
+- MVP should avoid the dangerous middle ground where multiple windows independently read, mutate, and rewrite one shared project document with no central coordination.
+- If Studio keeps one `studio/studio.yaml` per project during MVP, writes should be coordinated through one Studio-session persistence authority rather than relying on each renderer window to own an unsynchronized whole-document snapshot.
+- If that centralized document coordination is not landed soon enough, one-file-per-window remains a proportionate fallback because it reduces the write-collision domain while preserving the single-session mental model.
+- Separate app launches against the same project are a different risk from child windows within one Studio session; MVP does not need to solve multi-process collaborative editing, but should avoid making it silently unsafe by design.
+
 ### Resource model
 
 Core persisted resource type:
@@ -483,7 +494,7 @@ Implemented in:
 
 - [x] Produce one editor-facing panel settings API for both docked and floating panels, and export that API for plugin authors.
 - [x] Replace floating-only settings access with the shared panel settings API so floating is only a container/placement concern.
-- [ ] Migrate the remaining durable editor/viewer state that still uses legacy `localStorage` keys into panel-owned `settings` within `studio/studio.yaml`, with `viewer-streaming-image` selected-stream state the main remaining MVP item from the current inventory.
+- [ ] Migrate the remaining durable editor/viewer state that still uses legacy `localStorage` keys into panel-owned `settings` within `studio/studio.yaml`; at this point `viewer-streaming-image` selected-stream state is the main known remaining editor/viewer item from the current inventory.
 - [x] Remove legacy `localStorage` reads/writes for editor/viewer state that is now represented by panel-owned `settings` in the Studio document.
 - [x] Produce a small `defineStudioPanel` or equivalent contribution helper so a panel entry-point file can declare its component, persistence defaults, validation/sanitization, and future capabilities in one place.
 - [x] Update plugin editor loading so a manifest `componentExport` may resolve either to a plain React component or to a panel contribution object, while keeping plugin index files as generic export surfaces.
@@ -491,7 +502,41 @@ Implemented in:
 - [x] Add per-editor persistence isolation tests proving that same-editor panels do not share state across panel instances or layout tabs.
 - [ ] Add multi-workbench / child-window persistence isolation tests once Studio write coordination is hardened for multiple simultaneous persistence owners.
 - [x] Add editor-reassignment tests proving that incompatible persisted settings are dropped when a panel changes editor type.
+- [ ] Migrate floating-panel frame persistence out of `GenericPanel` `localStorage` and into `studio_document.windows[].workbenches[].layouts[].floatingPanels[].frame`, so floating container state follows the same durable project model as the rest of Studio persistence.
 - [ ] Add dock/float transition tests proving that panel-owned settings survive container changes while floating-panel frame data remains container-owned.
+
+#### 2.1. Comprehensive `workspace` -> `workbench` rename
+
+- Rename the shipped Studio surface from `workspace` / `workspaces` to `workbench` / `workbenches` in one clean pass rather than introducing mixed terminology.
+- Treat this as a clean-break refactor for MVP:
+  do not preserve compatibility aliases purely to support old internal naming.
+- Scope the rename across:
+  renderer component names, prop names, helper names, route/view names, config names, storage/memory helper names, tests, docs, and comments.
+- Include the route/config layer currently built around `WorkspaceView`, `app-workspaces.yaml`, and `AppConfigService`, so the user-facing navigation model matches the persisted `studio_document.windows[].workbenches[]` terminology.
+- Include panel/runtime identifiers such as `workspaceId` / `workspaceLabel` where they are really referring to the current workbench instance.
+- Include any Robotick CLI references that still expose or imply the old `workspace` terminology, so Studio and CLI vocabulary do not diverge.
+- Preserve the current persisted Studio document resource shape where it already uses `workbench` terminology; the point of this pass is to remove the renderer/runtime naming mismatch before further persistence behavior accretes around it.
+- [ ] Produce a complete rename map covering renderer, config, tests, docs, runtime helpers, and CLI touchpoints before editing files, so the pass can be executed comprehensively rather than piecemeal.
+- [ ] Rename the renderer/config/runtime surface from `workspace` to `workbench`, including component names, prop names, helper names, storage key names that are still renderer-owned, and route/config terminology.
+- [ ] Rename or relocate files/directories whose ownership is really `workbench`-scoped rather than `workspace`-scoped, where that improves clarity without gratuitous churn.
+- [ ] Update Robotick CLI and related docs/config references if they still expose Studio `workspace` terminology that should now be `workbench`.
+- [ ] Update tests, fixtures, and docs in the same pass so the new term is the only supported term in active Studio development.
+- [ ] Run a focused regression sweep covering routing/navigation, remembered last-opened workbench behavior, Studio document persistence, panel persistence, and plugin loading after the rename.
+
+#### 2.2. Multi-window persistence ownership
+
+- MVP decision:
+  child windows belong to one Studio session, but each window owns its own durable UI subtree by default.
+- MVP decision:
+  do not treat child windows as fully separate app instances.
+- MVP decision:
+  do not rely on independent renderer windows issuing unsynchronized whole-document writes to the same project Studio file as the long-term model.
+- [ ] Produce a small design note and implementation contract for a Studio-session persistence authority that owns read/modify/write coordination for `studio/studio.yaml` across all windows in one app session.
+- [ ] Decide explicitly whether MVP will land that centralized session persistence authority now, or instead temporarily split persistence to one file per durable window while keeping one Studio session model.
+- [ ] If centralized session coordination is the chosen MVP path, route child-window persistence writes through that single owner and stop treating each renderer window as the authoritative owner of a whole-document snapshot.
+- [ ] If one-file-per-window is the chosen MVP path, define the deterministic file layout, ownership boundaries, and bootstrap/update rules so windows cannot overwrite each other's durable state.
+- [ ] Add focused regression tests covering two windows in one Studio session mutating different window-owned state without losing each other's changes.
+- [ ] Add a follow-up MVP/near-term decision note for separate app processes opening the same project, even if the first shipped behavior is only a warning or unsupported-state guard.
 
 #### 3. Bootstrap and completion
 
@@ -500,7 +545,7 @@ Implemented in:
 - [ ] Produce child-window creation behavior that appends a fresh minimal default window to `studio/studio.yaml` without implicitly cloning an existing window, covered by focused fixture and renderer tests.
 
 Result:
-The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, and regression tests cover document-backed panel settings, layout-tab isolation, plugin discovery, and editor reassignment clearing. Remaining MVP work is now narrower and more concrete: migrate the remaining streaming-image selected-stream state, add dock/float transition coverage, harden/write-test multi-workbench or child-window persistence coordination, and land builtin seed/default-definition plus explicit child-window creation behavior.
+The current codebase now persists one coherent `studio/studio.yaml` document and no longer uses the temporary split-resource bridge. Panel persistence has also moved materially forward: docked and floating panels share one editor-facing `usePanelSettings` contract, builtin and plugin panels can declare persistence through `defineStudioPanel` next to their entry-point component, the migrated panels now follow a clean-break rule with no legacy `localStorage` compatibility shim for that state, and regression tests cover document-backed panel settings, layout-tab isolation, plugin discovery, and editor reassignment clearing. Remaining MVP work is now narrower and more concrete: migrate the remaining streaming-image selected-stream state, move floating-panel frame persistence off `GenericPanel` `localStorage`, add dock/float transition coverage, harden/write-test multi-workbench or child-window persistence coordination, and land builtin seed/default-definition plus explicit child-window creation behavior.
 
 Implemented in:
 
