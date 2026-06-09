@@ -72,6 +72,12 @@ type WritePayload = {
   windowScope?: string;
 };
 
+type RawStudioDockNode = Record<string, unknown>;
+type RawStudioLayout = Record<string, unknown>;
+type RawStudioWorkbench = Record<string, unknown>;
+type RawStudioWindow = Record<string, unknown>;
+type RawStudioDocument = Record<string, unknown>;
+
 const STUDIO_DOCUMENT_CHANNEL = "robotick-studio-persistence:changed";
 const STUDIO_TEMPLATE_PATH = path.resolve(
   __dirname,
@@ -190,6 +196,63 @@ function isWorkbench(value: unknown): value is StudioWorkbench {
   );
 }
 
+function isRawLayout(value: unknown): value is RawStudioLayout {
+  return (
+    isObject(value) &&
+    (value.id === undefined || typeof value.id === "string") &&
+    (value.label === undefined || typeof value.label === "string") &&
+    (value.dock === undefined || isDockNode(value.dock)) &&
+    (value.floatingPanels === undefined ||
+      (Array.isArray(value.floatingPanels) &&
+        value.floatingPanels.every((panel) => isFloatingPanel(panel))))
+  );
+}
+
+function isRawWorkbench(value: unknown): value is RawStudioWorkbench {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    (value.path === undefined || typeof value.path === "string") &&
+    typeof value.label === "string" &&
+    (value.group === undefined ||
+      value.group === "project-select" ||
+      value.group === "dev" ||
+      value.group === "test" ||
+      value.group === "help") &&
+    (value.defaultEditorId === undefined ||
+      typeof value.defaultEditorId === "string") &&
+    (value.defaultLayoutId === undefined ||
+      typeof value.defaultLayoutId === "string") &&
+    (value.layouts === undefined ||
+      (Array.isArray(value.layouts) &&
+        value.layouts.every((layout) => isRawLayout(layout))))
+  );
+}
+
+function isRawWindow(value: unknown): value is RawStudioWindow {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.label === "string" &&
+    (value.windowRole === "main" || value.windowRole === "child") &&
+    (value.defaultWorkbenchId === undefined ||
+      typeof value.defaultWorkbenchId === "string") &&
+    Array.isArray(value.workbenches) &&
+    value.workbenches.every((workbench) => isRawWorkbench(workbench))
+  );
+}
+
+function isRawStudioDocument(value: unknown): value is RawStudioDocument {
+  return (
+    isObject(value) &&
+    value.resourceType === "studio_document" &&
+    value.schemaVersion === 1 &&
+    typeof value.id === "string" &&
+    Array.isArray(value.windows) &&
+    value.windows.every((window) => isRawWindow(window))
+  );
+}
+
 function isWindow(value: unknown): value is StudioWindow {
   return (
     isObject(value) &&
@@ -226,17 +289,336 @@ function getBundledTemplate(): StudioDocument {
   }
   const raw = fs.readFileSync(STUDIO_TEMPLATE_PATH, "utf-8");
   const parsed = parse(raw);
-  if (!isStudioDocument(parsed)) {
+  if (!isRawStudioDocument(parsed)) {
     throw new Error("Bundled Studio template is invalid");
   }
-  bundledTemplate = parsed;
+  bundledTemplate = expandStudioDocument(parsed);
   return cloneDocument(bundledTemplate);
+}
+
+function cloneDockNode(node: StudioDockNode): StudioDockNode {
+  return JSON.parse(JSON.stringify(node)) as StudioDockNode;
+}
+
+function normalizeLayout(layout: StudioLayout): StudioLayout {
+  return {
+    id: layout.id,
+    label: layout.label,
+    dock: cloneDockNode(layout.dock),
+    ...(layout.floatingPanels && layout.floatingPanels.length > 0
+      ? {
+          floatingPanels: layout.floatingPanels.map((panel) => ({
+            id: panel.id,
+            editorId: panel.editorId,
+            ...(panel.label !== undefined ? { label: panel.label } : {}),
+            ...(panel.settings !== undefined
+              ? { settings: { ...panel.settings } }
+              : {}),
+            frame: { ...panel.frame },
+          })),
+        }
+      : {}),
+  };
+}
+
+function normalizeWorkbench(workbench: StudioWorkbench): StudioWorkbench {
+  return {
+    id: workbench.id,
+    ...(workbench.path !== undefined ? { path: workbench.path } : {}),
+    label: workbench.label,
+    ...(workbench.group !== undefined ? { group: workbench.group } : {}),
+    ...(workbench.defaultEditorId !== undefined
+      ? { defaultEditorId: workbench.defaultEditorId }
+      : {}),
+    ...(workbench.defaultLayoutId !== undefined
+      ? { defaultLayoutId: workbench.defaultLayoutId }
+      : {}),
+    layouts: workbench.layouts.map((layout) => normalizeLayout(layout)),
+  };
+}
+
+function normalizeWindow(window: StudioWindow): StudioWindow {
+  return {
+    id: window.id,
+    label: window.label,
+    windowRole: window.windowRole,
+    ...(window.defaultWorkbenchId !== undefined
+      ? { defaultWorkbenchId: window.defaultWorkbenchId }
+      : {}),
+    workbenches: window.workbenches.map((workbench) =>
+      normalizeWorkbench(workbench)
+    ),
+  };
+}
+
+function normalizeStudioDocument(document: StudioDocument): StudioDocument {
+  return {
+    resourceType: "studio_document",
+    schemaVersion: 1,
+    id: document.id,
+    windows: document.windows.map((window) => normalizeWindow(window)),
+  };
+}
+
+function buildDefaultLayoutId(windowId: string, workbenchId: string): string {
+  return `${windowId}:${workbenchId}:default`;
+}
+
+function buildDefaultWorkbenchPath(workbenchId: string): string {
+  return `/${workbenchId}`;
+}
+
+function buildDefaultLayoutLabel(workbenchLabel: string): string {
+  return `${workbenchLabel} | Default`;
+}
+
+function buildDefaultPanelId(workbenchId: string): string {
+  return `panel-${workbenchId}`;
+}
+
+function buildDefaultLayout(
+  window: Pick<StudioWindow, "id">,
+  workbench: Pick<StudioWorkbench, "id" | "label" | "defaultEditorId">
+): StudioLayout | null {
+  if (!workbench.defaultEditorId) {
+    return null;
+  }
+  return {
+    id: buildDefaultLayoutId(window.id, workbench.id),
+    label: buildDefaultLayoutLabel(workbench.label),
+    dock: {
+      nodeType: "panel",
+      panelId: buildDefaultPanelId(workbench.id),
+      editorId: workbench.defaultEditorId,
+    },
+  };
+}
+
+function normalizeRawLayout(layout: RawStudioLayout, fallback: StudioLayout): StudioLayout {
+  return normalizeLayout({
+    id:
+      typeof layout.id === "string" && layout.id.trim().length > 0
+        ? layout.id
+        : fallback.id,
+    label:
+      typeof layout.label === "string" && layout.label.trim().length > 0
+        ? layout.label
+        : fallback.label,
+    dock: isDockNode(layout.dock) ? layout.dock : fallback.dock,
+    floatingPanels:
+      Array.isArray(layout.floatingPanels) &&
+      layout.floatingPanels.every((panel) => isFloatingPanel(panel))
+        ? layout.floatingPanels
+        : fallback.floatingPanels,
+  });
+}
+
+function expandWorkbenchDefaults(
+  window: Pick<StudioWindow, "id">,
+  workbench: RawStudioWorkbench
+): StudioWorkbench | null {
+  const base: StudioWorkbench = {
+    id: workbench.id as string,
+    path:
+      typeof workbench.path === "string" && workbench.path.trim().length > 0
+        ? workbench.path
+        : buildDefaultWorkbenchPath(workbench.id as string),
+    label: workbench.label as string,
+    group:
+      workbench.group === "project-select" ||
+      workbench.group === "dev" ||
+      workbench.group === "test" ||
+      workbench.group === "help"
+        ? workbench.group
+        : undefined,
+    defaultEditorId:
+      typeof workbench.defaultEditorId === "string"
+        ? workbench.defaultEditorId
+        : undefined,
+    defaultLayoutId:
+      typeof workbench.defaultLayoutId === "string"
+        ? workbench.defaultLayoutId
+        : undefined,
+    layouts: [],
+  };
+  const fallbackLayout = buildDefaultLayout(window, base);
+  const rawLayouts = Array.isArray(workbench.layouts) ? workbench.layouts : [];
+  if (rawLayouts.length === 0) {
+    if (!fallbackLayout) {
+      return null;
+    }
+    return normalizeWorkbench({
+      ...base,
+      defaultLayoutId: fallbackLayout.id,
+      layouts: [fallbackLayout],
+    });
+  }
+  base.layouts = rawLayouts
+    .filter((layout): layout is RawStudioLayout => isRawLayout(layout))
+    .map((layout, index) =>
+      normalizeRawLayout(
+        layout,
+        fallbackLayout ?? {
+          id:
+            typeof layout.id === "string" && layout.id.trim().length > 0
+              ? layout.id
+              : buildDefaultLayoutId(window.id, `${base.id}-${index}`),
+          label:
+            typeof layout.label === "string" && layout.label.trim().length > 0
+              ? layout.label
+              : buildDefaultLayoutLabel(base.label),
+          dock:
+            isDockNode(layout.dock)
+              ? layout.dock
+              : {
+                  nodeType: "panel",
+                  panelId: buildDefaultPanelId(base.id),
+                  editorId: base.defaultEditorId ?? "home",
+                },
+        }
+      )
+    );
+  if (base.layouts.length === 0) {
+    return fallbackLayout
+      ? normalizeWorkbench({
+          ...base,
+          defaultLayoutId: fallbackLayout.id,
+          layouts: [fallbackLayout],
+        })
+      : null;
+  }
+  if (
+    !base.defaultLayoutId ||
+    !base.layouts.some((layout) => layout.id === base.defaultLayoutId)
+  ) {
+    base.defaultLayoutId = base.layouts[0]?.id;
+  }
+  return normalizeWorkbench(base);
+}
+
+function expandWindowDefaults(window: RawStudioWindow): StudioWindow {
+  const normalizedWindow: StudioWindow = {
+    id: window.id as string,
+    label: window.label as string,
+    windowRole: window.windowRole as "main" | "child",
+    defaultWorkbenchId:
+      typeof window.defaultWorkbenchId === "string"
+        ? window.defaultWorkbenchId
+        : undefined,
+    workbenches: [],
+  };
+  normalizedWindow.workbenches = (window.workbenches as unknown[])
+    .filter((workbench): workbench is RawStudioWorkbench => isRawWorkbench(workbench))
+    .map((workbench) => expandWorkbenchDefaults(normalizedWindow, workbench))
+    .filter((workbench): workbench is StudioWorkbench => workbench !== null);
+  if (
+    !normalizedWindow.defaultWorkbenchId ||
+    !normalizedWindow.workbenches.some(
+      (workbench) => workbench.id === normalizedWindow.defaultWorkbenchId
+    )
+  ) {
+    normalizedWindow.defaultWorkbenchId = normalizedWindow.workbenches[0]?.id;
+  }
+  return normalizeWindow(normalizedWindow);
+}
+
+function expandStudioDocument(document: RawStudioDocument): StudioDocument {
+  return normalizeStudioDocument({
+    resourceType: "studio_document",
+    schemaVersion: 1,
+    id: document.id as string,
+    windows: (document.windows as unknown[])
+      .filter((window): window is RawStudioWindow => isRawWindow(window))
+      .map((window) => expandWindowDefaults(window)),
+  });
+}
+
+function dockNodesEqual(left: StudioDockNode, right: StudioDockNode): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function layoutsEqual(left: StudioLayout, right: StudioLayout): boolean {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    dockNodesEqual(left.dock, right.dock) &&
+    JSON.stringify(left.floatingPanels ?? []) === JSON.stringify(right.floatingPanels ?? [])
+  );
+}
+
+function pruneLayoutDefaults(layout: StudioLayout, fallback: StudioLayout | null) {
+  if (fallback && layoutsEqual(layout, normalizeLayout(fallback))) {
+    return {};
+  }
+  return {
+    id: fallback && layout.id === fallback.id ? undefined : layout.id,
+    label: fallback && layout.label === fallback.label ? undefined : layout.label,
+    dock: fallback && dockNodesEqual(layout.dock, fallback.dock) ? undefined : layout.dock,
+    floatingPanels:
+      layout.floatingPanels && layout.floatingPanels.length > 0
+        ? layout.floatingPanels
+        : undefined,
+  };
+}
+
+function pruneWorkbenchDefaults(window: StudioWindow, workbench: StudioWorkbench) {
+  const fallbackLayout = buildDefaultLayout(window, workbench);
+  const defaultLayoutId = fallbackLayout?.id;
+  const hasOnlyDefaultLayout =
+    fallbackLayout &&
+    workbench.layouts.length === 1 &&
+    layoutsEqual(workbench.layouts[0]!, normalizeLayout(fallbackLayout)) &&
+    workbench.defaultLayoutId === defaultLayoutId;
+
+  return {
+    id: workbench.id,
+    path:
+      workbench.path === buildDefaultWorkbenchPath(workbench.id)
+        ? undefined
+        : workbench.path,
+    label: workbench.label,
+    group: workbench.group,
+    defaultEditorId: workbench.defaultEditorId,
+    defaultLayoutId:
+      hasOnlyDefaultLayout ||
+      (defaultLayoutId && workbench.defaultLayoutId === defaultLayoutId)
+        ? undefined
+        : workbench.defaultLayoutId,
+    layouts: hasOnlyDefaultLayout
+      ? undefined
+      : workbench.layouts.map((layout) =>
+          pruneLayoutDefaults(
+            layout,
+            fallbackLayout && layout.id === fallbackLayout.id ? fallbackLayout : null
+          )
+        ),
+  };
+}
+
+function pruneStudioDocument(document: StudioDocument) {
+  return {
+    resourceType: "studio_document",
+    schemaVersion: 1,
+    id: document.id,
+    windows: document.windows.map((window) => ({
+      id: window.id,
+      label: window.label,
+      windowRole: window.windowRole,
+      defaultWorkbenchId:
+        window.defaultWorkbenchId === window.workbenches[0]?.id
+          ? undefined
+          : window.defaultWorkbenchId,
+      workbenches: window.workbenches.map((workbench) =>
+        pruneWorkbenchDefaults(window, workbench)
+      ),
+    })),
+  };
 }
 
 export function createSeedStudioDocument(projectPath: string): StudioDocument {
   const template = getBundledTemplate();
   template.id = getStudioDocumentId(projectPath);
-  return template;
+  return normalizeStudioDocument(template);
 }
 
 function normalizeWindowScope(windowScope?: string): string {
@@ -291,7 +673,7 @@ async function writeFileAtomic(filePath: string, content: string): Promise<void>
 }
 
 function serializeStudioDocument(document: StudioDocument): string {
-  return stringify(document, {
+  return stringify(pruneStudioDocument(normalizeStudioDocument(document)), {
     lineWidth: 0,
     defaultStringType: "PLAIN",
     defaultKeyType: "PLAIN",
@@ -305,7 +687,7 @@ async function readStudioDocumentFromDisk(
   try {
     const raw = await fs.promises.readFile(filePath, "utf-8");
     const parsed = parse(raw);
-    return isStudioDocument(parsed) ? parsed : null;
+    return isRawStudioDocument(parsed) ? expandStudioDocument(parsed) : null;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
@@ -458,10 +840,14 @@ export function registerStudioPersistence(
     async (_event, payload: WritePayload) => {
       const current = await ensureStudioDocument(payload.projectPath);
       const parsed = parse(payload.content);
-      if (!isStudioDocument(parsed)) {
+      if (!isRawStudioDocument(parsed)) {
         throw new Error("Attempted to write invalid Studio document");
       }
-      const merged = mergeWindowIntoDocument(current, parsed, payload.windowScope);
+      const merged = mergeWindowIntoDocument(
+        current,
+        expandStudioDocument(parsed),
+        payload.windowScope
+      );
       await writeStudioDocumentToDisk(payload.projectPath, merged);
       notifyDocumentChanged(BrowserWindow, payload.projectPath);
     }

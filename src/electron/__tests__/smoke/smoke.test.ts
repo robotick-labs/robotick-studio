@@ -278,7 +278,7 @@ describe("electron launch paths", () => {
         "    windowRole: main",
         "    defaultWorkbenchId: home",
         "    workbenches: []",
-        "  - id: child-1",
+        "  - id: child-window-1",
         '    label: "Existing Child"',
         "    windowRole: child",
         "    defaultWorkbenchId: new-workbench",
@@ -303,7 +303,7 @@ describe("electron launch paths", () => {
         expect.objectContaining({
           webPreferences: expect.objectContaining({
             additionalArguments: expect.arrayContaining([
-              "--robotick-window-scope=child-2",
+              "--robotick-window-scope=child-window-2",
             ]),
           }),
         })

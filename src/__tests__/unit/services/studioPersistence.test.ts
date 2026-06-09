@@ -46,6 +46,7 @@ const canonicalModel: StudioPersistenceModel = {
       workbenches: [
         {
           id: "remote-control",
+          path: "/remote-control",
           label: "Remote Control",
           defaultLayoutId: "main:remote-control:default",
           layouts: [
@@ -58,7 +59,40 @@ const canonicalModel: StudioPersistenceModel = {
                 editorId: "terminal",
                 settings: { filter: "warning" },
               },
-              floatingPanels: [],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+const defaultCanonicalModel: StudioPersistenceModel = {
+  resourceType: "studio_document",
+  schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+  id: "barr-e-studio",
+  windows: [
+    {
+      id: "main",
+      label: "Main Window",
+      windowRole: "main",
+      defaultWorkbenchId: "remote-control",
+      workbenches: [
+        {
+          id: "remote-control",
+          path: "/remote-control",
+          label: "Remote Control",
+          defaultEditorId: "terminal",
+          defaultLayoutId: "main:remote-control:default",
+          layouts: [
+            {
+              id: "main:remote-control:default",
+              label: "Remote Control | Default",
+              dock: {
+                nodeType: "panel",
+                panelId: "panel-remote-control",
+                editorId: "terminal",
+              },
             },
           ],
         },
@@ -124,6 +158,105 @@ describe("studioPersistence", () => {
     expect(written).toContain("windows:");
     expect(written).toContain("workbenches:");
     expect(written).toContain("layouts:");
+  });
+
+  it("loads shorthand default workbenches to the same canonical model as explicit layouts", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+    store.files.set(
+      getStudioDocumentRelativePath(),
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: barr-e-studio",
+        "windows:",
+        "  - id: main",
+        "    label: Main Window",
+        "    windowRole: main",
+        "    defaultWorkbenchId: remote-control",
+        "    workbenches:",
+        "      - id: remote-control",
+        "        label: Remote Control",
+        "        defaultEditorId: terminal",
+      ].join("\n")
+    );
+
+    await expect(loadStudioDocument(projectPath, store)).resolves.toEqual(
+      defaultCanonicalModel
+    );
+  });
+
+  it("writes only the diff for default single-panel layouts", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+
+    await writeStudioDocument(projectPath, store, defaultCanonicalModel);
+
+    const written = store.files.get(getStudioDocumentRelativePath()) ?? "";
+    expect(written).toContain("defaultEditorId: terminal");
+    expect(written).not.toContain("path:");
+    expect(written).not.toContain("defaultLayoutId:");
+    expect(written).not.toContain("layouts:");
+    expect(written).not.toContain("panelId:");
+  });
+
+  it("preserves explicit layouts when they differ from defaults", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+    const customModel: StudioPersistenceModel = {
+      ...canonicalModel,
+      windows: [
+        {
+          ...canonicalModel.windows[0]!,
+          workbenches: [
+            {
+              ...canonicalModel.windows[0]!.workbenches[0]!,
+              layouts: [
+                {
+                  id: "main:remote-control:default",
+                  label: "Default",
+                  dock: {
+                    nodeType: "panel",
+                    panelId: "custom-panel",
+                    editorId: "terminal",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    await writeStudioDocument(projectPath, store, customModel);
+
+    const written = store.files.get(getStudioDocumentRelativePath()) ?? "";
+    expect(written).toContain("layouts:");
+    expect(written).toContain("panelId: custom-panel");
+  });
+
+  it("preserves non-default workbench paths", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+    const customPathModel: StudioPersistenceModel = {
+      ...defaultCanonicalModel,
+      windows: [
+        {
+          ...defaultCanonicalModel.windows[0]!,
+          workbenches: [
+            {
+              ...defaultCanonicalModel.windows[0]!.workbenches[0]!,
+              path: "/teleop",
+            },
+          ],
+        },
+      ],
+    };
+
+    await writeStudioDocument(projectPath, store, customPathModel);
+
+    const written = store.files.get(getStudioDocumentRelativePath()) ?? "";
+    expect(written).toContain("path: /teleop");
   });
 
   it("falls back to the bundled seed when no canonical document is present", async () => {

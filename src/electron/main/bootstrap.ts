@@ -187,7 +187,7 @@ const DEFAULT_WINDOW_STATE: WindowState = {
 };
 
 const PRIMARY_WINDOW_SCOPE = "primary";
-const CHILD_WINDOW_SCOPE_PREFIX = "child-";
+const CHILD_WINDOW_SCOPE_PREFIX = "child-window-";
 const WINDOW_SCOPE_ARG_PREFIX = "--robotick-window-scope=";
 const WINDOW_PRIMARY_ARG_PREFIX = "--robotick-window-primary=";
 

@@ -45,6 +45,48 @@ describe("studio-persistence main helpers", () => {
     expect(readStudioDocument(filePath)).toContain("resourceType: studio_document");
   });
 
+  it("expands shorthand workbench entries when ensuring an existing document", async () => {
+    const projectDir = createTempProjectDir();
+    const filePath = getStudioDocumentPath(projectDir);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        `id: ${path.basename(projectDir)}-studio`,
+        "windows:",
+        "  - id: main",
+        "    label: Main Window",
+        "    windowRole: main",
+        "    defaultWorkbenchId: home",
+        "    workbenches:",
+        "      - id: home",
+        "        label: Home",
+        "        group: project-select",
+        "        defaultEditorId: home",
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const document = await ensureStudioDocument(projectDir);
+
+    expect(document.windows[0]?.workbenches[0]).toMatchObject({
+      id: "home",
+      path: "/home",
+      defaultLayoutId: "main:home:default",
+    });
+    expect(document.windows[0]?.workbenches[0]?.layouts[0]).toMatchObject({
+      id: "main:home:default",
+      label: "Home | Default",
+      dock: {
+        nodeType: "panel",
+        panelId: "panel-home",
+        editorId: "home",
+      },
+    });
+  });
+
   it("adds a child window to the canonical document without disturbing the main window", async () => {
     const projectDir = createTempProjectDir();
 

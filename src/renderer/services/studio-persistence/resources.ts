@@ -13,6 +13,12 @@ import type {
   StudioWorkbenchResource,
 } from "./types";
 
+type RawStudioDockNode = Record<string, unknown>;
+type RawStudioLayoutResource = Record<string, unknown>;
+type RawStudioWorkbenchResource = Record<string, unknown>;
+type RawStudioWindowResource = Record<string, unknown>;
+type RawStudioPersistenceModel = Record<string, unknown>;
+
 function deriveStudioDocumentId(projectPath: string): string {
   const projectDirectory = getStudioProjectDirectory(projectPath)
     .replace(/[\\/]+$/, "")
@@ -127,6 +133,59 @@ function isWorkbenchResource(value: unknown): value is StudioWorkbenchResource {
   );
 }
 
+function isRawLayoutResource(value: unknown): value is RawStudioLayoutResource {
+  return (
+    isObject(value) &&
+    (value.id === undefined || typeof value.id === "string") &&
+    (value.label === undefined || typeof value.label === "string") &&
+    (value.dock === undefined || isDockNode(value.dock)) &&
+    (value.floatingPanels === undefined ||
+      (Array.isArray(value.floatingPanels) &&
+        value.floatingPanels.every((panel) => isFloatingPanel(panel))))
+  );
+}
+
+function isRawWorkbenchResource(value: unknown): value is RawStudioWorkbenchResource {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    (value.path === undefined || typeof value.path === "string") &&
+    typeof value.label === "string" &&
+    (value.group === undefined || isWorkbenchGroup(value.group)) &&
+    (value.defaultEditorId === undefined ||
+      typeof value.defaultEditorId === "string") &&
+    (value.defaultLayoutId === undefined ||
+      typeof value.defaultLayoutId === "string") &&
+    (value.layouts === undefined ||
+      (Array.isArray(value.layouts) &&
+        value.layouts.every((layout) => isRawLayoutResource(layout))))
+  );
+}
+
+function isRawWindowResource(value: unknown): value is RawStudioWindowResource {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.label === "string" &&
+    (value.windowRole === "main" || value.windowRole === "child") &&
+    (value.defaultWorkbenchId === undefined ||
+      typeof value.defaultWorkbenchId === "string") &&
+    Array.isArray(value.workbenches) &&
+    value.workbenches.every((workbench) => isRawWorkbenchResource(workbench))
+  );
+}
+
+function isRawStudioDocument(value: unknown): value is RawStudioPersistenceModel {
+  return (
+    isObject(value) &&
+    value.resourceType === "studio_document" &&
+    value.schemaVersion === STUDIO_PERSISTENCE_SCHEMA_VERSION &&
+    typeof value.id === "string" &&
+    Array.isArray(value.windows) &&
+    value.windows.every((window) => isRawWindowResource(window))
+  );
+}
+
 function isWindowResource(value: unknown): value is StudioWindowResource {
   return (
     isObject(value) &&
@@ -157,8 +216,8 @@ function cloneDockNode(node: StudioDockNode): StudioDockNode {
       nodeType: "panel",
       panelId: node.panelId,
       editorId: node.editorId,
-      label: node.label,
-      settings: node.settings ? { ...node.settings } : undefined,
+      ...(node.label !== undefined ? { label: node.label } : {}),
+      ...(node.settings !== undefined ? { settings: { ...node.settings } } : {}),
     };
   }
   return {
@@ -174,14 +233,179 @@ function normalizeLayout(layout: StudioLayoutResource): StudioLayoutResource {
     id: layout.id,
     label: layout.label,
     dock: cloneDockNode(layout.dock),
-    floatingPanels: layout.floatingPanels?.map((panel) => ({
-      id: panel.id,
-      editorId: panel.editorId,
-      label: panel.label,
-      settings: panel.settings ? { ...panel.settings } : undefined,
-      frame: { ...panel.frame },
-    })),
+    ...(layout.floatingPanels && layout.floatingPanels.length > 0
+      ? {
+          floatingPanels: layout.floatingPanels.map((panel) => ({
+            id: panel.id,
+            editorId: panel.editorId,
+            ...(panel.label !== undefined ? { label: panel.label } : {}),
+            ...(panel.settings !== undefined
+              ? { settings: { ...panel.settings } }
+              : {}),
+            frame: { ...panel.frame },
+          })),
+        }
+      : {}),
   };
+}
+
+function buildDefaultLayoutId(windowId: string, workbenchId: string): string {
+  return `${windowId}:${workbenchId}:default`;
+}
+
+function buildDefaultWorkbenchPath(workbenchId: string): string {
+  return `/${workbenchId}`;
+}
+
+function buildDefaultLayoutLabel(workbenchLabel: string): string {
+  return `${workbenchLabel} | Default`;
+}
+
+function buildDefaultPanelId(workbenchId: string): string {
+  return `panel-${workbenchId}`;
+}
+
+function buildDefaultLayout(
+  window: Pick<StudioWindowResource, "id">,
+  workbench: Pick<StudioWorkbenchResource, "id" | "label" | "defaultEditorId">
+): StudioLayoutResource | null {
+  if (!workbench.defaultEditorId) {
+    return null;
+  }
+  return {
+    id: buildDefaultLayoutId(window.id, workbench.id),
+    label: buildDefaultLayoutLabel(workbench.label),
+    dock: {
+      nodeType: "panel",
+      panelId: buildDefaultPanelId(workbench.id),
+      editorId: workbench.defaultEditorId,
+    },
+  };
+}
+
+function normalizeRawLayout(
+  layout: RawStudioLayoutResource,
+  fallback: StudioLayoutResource
+): StudioLayoutResource {
+  return normalizeLayout({
+    id:
+      typeof layout.id === "string" && layout.id.trim().length > 0
+        ? layout.id
+        : fallback.id,
+    label:
+      typeof layout.label === "string" && layout.label.trim().length > 0
+        ? layout.label
+        : fallback.label,
+    dock: isDockNode(layout.dock) ? layout.dock : fallback.dock,
+    floatingPanels:
+      Array.isArray(layout.floatingPanels) &&
+      layout.floatingPanels.every((panel) => isFloatingPanel(panel))
+        ? layout.floatingPanels
+        : fallback.floatingPanels,
+  });
+}
+
+function expandWorkbenchDefaults(
+  window: Pick<StudioWindowResource, "id">,
+  workbench: RawStudioWorkbenchResource
+): StudioWorkbenchResource | null {
+  const base: StudioWorkbenchResource = {
+    id: workbench.id as string,
+    path:
+      typeof workbench.path === "string" && workbench.path.trim().length > 0
+        ? workbench.path
+        : buildDefaultWorkbenchPath(workbench.id as string),
+    label: workbench.label as string,
+    group: isWorkbenchGroup(workbench.group) ? workbench.group : undefined,
+    defaultEditorId:
+      typeof workbench.defaultEditorId === "string"
+        ? workbench.defaultEditorId
+        : undefined,
+    defaultLayoutId:
+      typeof workbench.defaultLayoutId === "string"
+        ? workbench.defaultLayoutId
+        : undefined,
+    layouts: [],
+  };
+  const fallbackLayout = buildDefaultLayout(window, base);
+  const rawLayouts = Array.isArray(workbench.layouts) ? workbench.layouts : [];
+  if (rawLayouts.length === 0) {
+    if (!fallbackLayout) {
+      return null;
+    }
+    base.layouts = [fallbackLayout];
+    base.defaultLayoutId = fallbackLayout.id;
+    return normalizeWorkbench(base);
+  }
+  base.layouts = rawLayouts
+    .filter((layout): layout is RawStudioLayoutResource => isRawLayoutResource(layout))
+    .map((layout, index) =>
+      normalizeRawLayout(
+        layout,
+        fallbackLayout ?? {
+          id:
+            typeof layout.id === "string" && layout.id.trim().length > 0
+              ? layout.id
+              : buildDefaultLayoutId(window.id, `${base.id}-${index}`),
+          label:
+            typeof layout.label === "string" && layout.label.trim().length > 0
+              ? layout.label
+              : buildDefaultLayoutLabel(base.label),
+          dock:
+            isDockNode(layout.dock)
+              ? layout.dock
+              : {
+                  nodeType: "panel",
+                  panelId: buildDefaultPanelId(base.id),
+                  editorId: base.defaultEditorId ?? "home",
+                },
+        }
+      )
+    );
+  if (base.layouts.length === 0) {
+    return fallbackLayout
+      ? normalizeWorkbench({
+          ...base,
+          defaultLayoutId: fallbackLayout.id,
+          layouts: [fallbackLayout],
+        })
+      : null;
+  }
+  if (
+    !base.defaultLayoutId ||
+    !base.layouts.some((layout) => layout.id === base.defaultLayoutId)
+  ) {
+    base.defaultLayoutId = base.layouts[0]?.id;
+  }
+  return normalizeWorkbench(base);
+}
+
+function expandWindowDefaults(window: RawStudioWindowResource): StudioWindowResource {
+  const normalizedWindow: StudioWindowResource = {
+    id: window.id as string,
+    label: window.label as string,
+    windowRole: window.windowRole as "main" | "child",
+    defaultWorkbenchId:
+      typeof window.defaultWorkbenchId === "string"
+        ? window.defaultWorkbenchId
+        : undefined,
+    workbenches: [],
+  };
+  normalizedWindow.workbenches = (window.workbenches as unknown[])
+    .filter((workbench): workbench is RawStudioWorkbenchResource =>
+      isRawWorkbenchResource(workbench)
+    )
+    .map((workbench) => expandWorkbenchDefaults(normalizedWindow, workbench))
+    .filter((workbench): workbench is StudioWorkbenchResource => workbench !== null);
+  if (
+    !normalizedWindow.defaultWorkbenchId ||
+    !normalizedWindow.workbenches.some(
+      (workbench) => workbench.id === normalizedWindow.defaultWorkbenchId
+    )
+  ) {
+    normalizedWindow.defaultWorkbenchId = normalizedWindow.workbenches[0]?.id;
+  }
+  return normalizeWindow(normalizedWindow);
 }
 
 function normalizeWorkbench(
@@ -189,11 +413,15 @@ function normalizeWorkbench(
 ): StudioWorkbenchResource {
   return {
     id: workbench.id,
-    path: workbench.path,
+    ...(workbench.path !== undefined ? { path: workbench.path } : {}),
     label: workbench.label,
-    group: workbench.group,
-    defaultEditorId: workbench.defaultEditorId,
-    defaultLayoutId: workbench.defaultLayoutId,
+    ...(workbench.group !== undefined ? { group: workbench.group } : {}),
+    ...(workbench.defaultEditorId !== undefined
+      ? { defaultEditorId: workbench.defaultEditorId }
+      : {}),
+    ...(workbench.defaultLayoutId !== undefined
+      ? { defaultLayoutId: workbench.defaultLayoutId }
+      : {}),
     layouts: workbench.layouts.map((layout) => normalizeLayout(layout)),
   };
 }
@@ -203,7 +431,9 @@ function normalizeWindow(window: StudioWindowResource): StudioWindowResource {
     id: window.id,
     label: window.label,
     windowRole: window.windowRole,
-    defaultWorkbenchId: window.defaultWorkbenchId,
+    ...(window.defaultWorkbenchId !== undefined
+      ? { defaultWorkbenchId: window.defaultWorkbenchId }
+      : {}),
     workbenches: window.workbenches.map((workbench) =>
       normalizeWorkbench(workbench)
     ),
@@ -221,6 +451,118 @@ function normalizeStudioDocument(
   };
 }
 
+function expandStudioDocument(
+  model: RawStudioPersistenceModel
+): StudioPersistenceModel {
+  return normalizeStudioDocument({
+    resourceType: "studio_document",
+    schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+    id: model.id as string,
+    windows: (model.windows as unknown[])
+      .filter((window): window is RawStudioWindowResource => isRawWindowResource(window))
+      .map((window) => expandWindowDefaults(window)),
+  });
+}
+
+function dockNodesEqual(left: StudioDockNode, right: StudioDockNode): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function layoutsEqual(
+  left: StudioLayoutResource,
+  right: StudioLayoutResource
+): boolean {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    dockNodesEqual(left.dock, right.dock) &&
+    JSON.stringify(left.floatingPanels ?? []) === JSON.stringify(right.floatingPanels ?? [])
+  );
+}
+
+function pruneLayoutDefaults(
+  layout: StudioLayoutResource,
+  fallback: StudioLayoutResource | null
+): Record<string, unknown> {
+  if (fallback && layoutsEqual(layout, normalizeLayout(fallback))) {
+    return {};
+  }
+  return {
+    id: fallback && layout.id === fallback.id ? undefined : layout.id,
+    label: fallback && layout.label === fallback.label ? undefined : layout.label,
+    dock: fallback && dockNodesEqual(layout.dock, fallback.dock) ? undefined : layout.dock,
+    floatingPanels:
+      layout.floatingPanels && layout.floatingPanels.length > 0
+        ? layout.floatingPanels
+        : undefined,
+  };
+}
+
+function pruneWorkbenchDefaults(
+  window: StudioWindowResource,
+  workbench: StudioWorkbenchResource
+): Record<string, unknown> {
+  const fallbackLayout = buildDefaultLayout(window, workbench);
+  const defaultLayoutId = fallbackLayout?.id;
+  const hasOnlyDefaultLayout =
+    fallbackLayout &&
+    workbench.layouts.length === 1 &&
+    layoutsEqual(workbench.layouts[0]!, normalizeLayout(fallbackLayout)) &&
+    workbench.defaultLayoutId === defaultLayoutId;
+
+  const prunedLayouts = hasOnlyDefaultLayout
+    ? undefined
+    : workbench.layouts.map((layout) =>
+        pruneLayoutDefaults(
+          layout,
+          fallbackLayout && layout.id === fallbackLayout.id ? fallbackLayout : null
+        )
+      );
+
+  return {
+    id: workbench.id,
+    path:
+      workbench.path === buildDefaultWorkbenchPath(workbench.id)
+        ? undefined
+        : workbench.path,
+    label: workbench.label,
+    group: workbench.group,
+    defaultEditorId: workbench.defaultEditorId,
+    defaultLayoutId:
+      hasOnlyDefaultLayout ||
+      (defaultLayoutId && workbench.defaultLayoutId === defaultLayoutId)
+        ? undefined
+        : workbench.defaultLayoutId,
+    layouts: prunedLayouts,
+  };
+}
+
+function pruneWindowDefaults(window: StudioWindowResource): Record<string, unknown> {
+  return {
+    id: window.id,
+    label: window.label,
+    windowRole: window.windowRole,
+    defaultWorkbenchId:
+      window.defaultWorkbenchId === window.workbenches[0]?.id
+        ? undefined
+        : window.defaultWorkbenchId,
+    workbenches: window.workbenches.map((workbench) =>
+      pruneWorkbenchDefaults(window, workbench)
+    ),
+  };
+}
+
+function pruneStudioDocument(
+  model: StudioPersistenceModel
+): Record<string, unknown> {
+  return {
+    resourceType: "studio_document",
+    schemaVersion: STUDIO_PERSISTENCE_SCHEMA_VERSION,
+    id: model.id,
+    windows: model.windows.map((window) => pruneWindowDefaults(window)),
+  };
+}
+
 let bundledStudioSeedTemplate: StudioPersistenceModel | null = null;
 
 function getBundledStudioSeedTemplate(): StudioPersistenceModel {
@@ -228,10 +570,10 @@ function getBundledStudioSeedTemplate(): StudioPersistenceModel {
     return bundledStudioSeedTemplate;
   }
   const parsed = parse(studioSeedSource);
-  if (!isStudioDocument(parsed)) {
+  if (!isRawStudioDocument(parsed)) {
     throw new Error("Bundled Studio seed document is invalid");
   }
-  bundledStudioSeedTemplate = normalizeStudioDocument(parsed);
+  bundledStudioSeedTemplate = expandStudioDocument(parsed);
   return bundledStudioSeedTemplate;
 }
 
@@ -333,8 +675,8 @@ export async function loadStudioDocument(
   }
   try {
     const parsed = parse(raw);
-    if (isStudioDocument(parsed)) {
-      return normalizeStudioDocument(parsed);
+    if (isRawStudioDocument(parsed)) {
+      return expandStudioDocument(parsed);
     }
   } catch {
     // Invalid documents are treated as missing until stricter error handling lands.
@@ -355,7 +697,7 @@ export async function writeStudioDocument(
     ...model,
     id: model.id || deriveStudioDocumentId(projectPath),
   });
-  const content = stringify(normalized, {
+  const content = stringify(pruneStudioDocument(normalized), {
     lineWidth: 0,
     defaultStringType: "PLAIN",
     defaultKeyType: "PLAIN",

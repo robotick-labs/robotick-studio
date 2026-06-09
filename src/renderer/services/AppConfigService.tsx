@@ -107,7 +107,7 @@ function toWorkbenchConfig(
   workbench: StudioWorkbenchResource,
   seedFallback: StudioWorkbenchResource | undefined
 ): WorkbenchConfig | null {
-  const path = workbench.path ?? seedFallback?.path;
+  const path = workbench.path ?? seedFallback?.path ?? `/${workbench.id}`;
   const group = workbench.group ?? seedFallback?.group;
   const editor = workbench.defaultEditorId ?? seedFallback?.defaultEditorId;
   if (!path || !group || !editor) {
