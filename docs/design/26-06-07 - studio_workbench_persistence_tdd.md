@@ -236,11 +236,11 @@ windows:
 ### Inventory and contracts
 
 - [x] Produce an in-doc persisted-state inventory table covering current keys/files, owning code, value shape, durability classification, migration target, and notes.
-- [x] Produce in-doc draft canonical JSON examples for `studio_window`, `studio_workbench`, and `studio_layout`.
+- [x] Produce in-doc draft canonical resource examples for the current split-resource model and the preferred single-document `studio_document` direction.
 - [x] Produce implementation contracts for `studio_window`, `studio_workbench`, `studio_layout`, the normalized in-memory model, and project path resolution.
 
 Result:
-The TDD doc contains the inventory and draft resource examples; the codebase contains the first TypeScript contracts/path helpers needed by later implementation steps.
+The TDD doc contains the inventory and target-shape examples; the codebase contains the first TypeScript contracts/path helpers for the currently implemented split-resource phase.
 
 Implemented in:
 
@@ -255,7 +255,7 @@ Implemented in:
 - [x] Produce canonical-only loading and canonical-only writeback.
 
 Result:
-Studio loads project resource files into one normalized model and writes back only through the project resource file path.
+Studio loads project split resource files into one normalized model and writes back only through project-owned `studio/` files.
 
 Implemented in:
 
@@ -271,7 +271,7 @@ Implemented in:
 - [x] Produce floating-panel persistence that embeds panel instances in the owning layout resource.
 
 Result:
-The renderer no longer owns durable workbench/layout state through ad hoc storage keys during normal operation.
+`PanelLayout` durable workbench/layout structure now persists through the split project resource files during normal operation rather than through ad hoc layout storage keys.
 
 Implemented in:
 
@@ -281,10 +281,10 @@ Implemented in:
 
 ### Tests and fixtures
 
-- [x] Produce tests for schema validation, canonical loading, first-write materialization, and no-data-loss behavior.
+- [x] Produce tests for split-resource schema validation, loading, first-write materialization, and no-data-loss behavior.
 
 Result:
-The broader persistence test suite covers the finished canonical-resource behavior.
+The persistence test suite covers the implemented split-resource behavior and the no-legacy-read contract for layout persistence.
 
 Implemented in:
 
@@ -293,16 +293,16 @@ Implemented in:
 
 ### Document-model migration
 
-- [ ] Produce a `studio_document` schema and TypeScript contracts that replace the current split `studio_window` / `studio_workbench` / `studio_layout` top-level resource model.
-- [ ] Produce a builtin Studio seed document in the same schema that can replace `src/renderer/config/app-workspaces.yaml` as the primary declarative Studio definition.
-- [ ] Produce project bootstrap behavior that copies the builtin Studio document into `robots/<project>/studio/studio.yaml` for fresh projects.
-- [ ] Produce loader/hydrator logic that reads the single Studio document and hydrates the in-memory Studio model without reconstructing hidden default workbench/layout resources.
-- [ ] Produce serializer/writeback logic that writes the single Studio document deterministically in YAML.
-- [ ] Produce clean-break startup behavior that ignores superseded split `studio/` JSON resources and superseded legacy renderer/local-storage Studio state.
-- [ ] Produce cleanup/removal work for superseded split-resource readers, legacy Studio persistence readers, and compatibility-only code paths that are no longer needed.
+- [ ] Produce a `studio_document` schema, TypeScript contracts, and fixture examples that replace the current split `studio_window` / `studio_workbench` / `studio_layout` top-level resource model.
+- [ ] Produce a deterministic YAML loader/serializer for `studio_document`, with round-trip tests against representative fixtures and stable ordering.
+- [ ] Produce a builtin Studio seed document in the same schema and load it as the declarative default Studio definition.
+- [ ] Produce project bootstrap behavior that materializes `robots/<project>/studio/studio.yaml` from the builtin seed on first save or first project initialization.
+- [ ] Produce loader/hydrator logic that reads `studio/studio.yaml` and hydrates the in-memory Studio model without reconstructing hidden default workbench/layout resources.
+- [ ] Switch renderer persistence writeback from split JSON resources to `studio/studio.yaml`, preserving existing behavior coverage with updated tests.
+- [ ] Remove split-resource readers/writers and other superseded compatibility-only persistence code once the single-document path is fully covered by tests.
 
 Result:
-The persistence model converges on one coherent Studio document that is also the declarative Studio UI format used by builtin defaults and project-owned Studio state.
+The current codebase has not completed this phase yet. Remaining work should replace the temporary split-resource bridge with one coherent Studio document that is also the declarative Studio UI format used by builtin defaults and project-owned Studio state.
 
 Implemented in:
 
@@ -312,16 +312,16 @@ Implemented in:
 
 ### User testing and iteration (UX, robustness)
 
-- [ ] Review generated `studio/` assets from real project sessions and prune noisy default-only resources where appropriate.
-- [ ] Tighten canonical save/load robustness around project switching, child windows, and unexpected editor availability changes.
-- [ ] Refine what is persisted versus omitted so saved Studio assets feel intentional and inspectable rather than cache-like.
+- [ ] Review generated `studio/studio.yaml` assets from real project sessions and prune noisy default-only state where it makes the saved document feel cache-like.
+- [ ] Tighten save/load robustness around project switching, child windows, and unexpected editor availability changes, with focused regression tests for each case.
+- [ ] Refine persisted panel/viewer settings so the saved Studio document stays intentional and inspectable rather than becoming a dump of transient UI state.
 
 Result:
 Real project usage feeds back into the canonical resource model so the saved `studio/` assets become cleaner, more robust, and more predictable.
 
 ### Documentation and follow-up
 
-- [ ] Produce project documentation describing the new `studio/studio.yaml` document and its ownership boundaries.
+- [ ] Produce project documentation describing `studio/studio.yaml`, its ownership boundaries, and what deliberately remains runtime/session-only state.
 - [ ] Produce a follow-up issue or PR plan for the broader `workspace -> workbench` shipped-surface cleanup after the new Studio document model is reviewable.
 
 Result:
