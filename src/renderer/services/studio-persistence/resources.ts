@@ -239,6 +239,33 @@ function cloneWorkbench(workbench: StudioWorkbenchResource): StudioWorkbenchReso
   return normalizeWorkbench(workbench);
 }
 
+function createSeedChildWorkbench(
+  windowId: string
+): StudioWorkbenchResource {
+  const workbenchId = "new-workbench";
+  const layoutId = `${windowId}:${workbenchId}:default`;
+  return {
+    id: workbenchId,
+    path: "/home",
+    label: "New Workbench",
+    group: "project-select",
+    defaultEditorId: "home",
+    defaultLayoutId: layoutId,
+    layouts: [
+      {
+        id: layoutId,
+        label: "New Workbench | Default",
+        dock: {
+          nodeType: "panel",
+          panelId: `${windowId}-panel`,
+          editorId: "home",
+        },
+        floatingPanels: [],
+      },
+    ],
+  };
+}
+
 export function createSeedStudioWindowResource(
   windowId: string,
   windowRole: "main" | "child"
@@ -261,20 +288,14 @@ export function createSeedStudioWindowResource(
     };
   }
 
-  const defaultWorkbench =
-    seedWindow.workbenches.find(
-      (workbench) => workbench.id === seedWindow.defaultWorkbenchId
-    ) ?? seedWindow.workbenches[0];
-  if (!defaultWorkbench) {
-    throw new Error("Bundled Studio seed document does not define a default workbench");
-  }
+  const defaultWorkbench = createSeedChildWorkbench(windowId);
 
   return {
     id: windowId,
     label: "Studio Window",
     windowRole: "child",
     defaultWorkbenchId: defaultWorkbench.id,
-    workbenches: [cloneWorkbench(defaultWorkbench)],
+    workbenches: [defaultWorkbench],
   };
 }
 

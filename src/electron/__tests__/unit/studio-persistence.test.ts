@@ -55,6 +55,20 @@ describe("studio-persistence main helpers", () => {
     expect(
       document.windows.find((window) => window.id === "child-telemetry")?.windowRole
     ).toBe("child");
+    expect(
+      document.windows.find((window) => window.id === "child-telemetry")
+        ?.defaultWorkbenchId
+    ).toBe("new-workbench");
+    expect(
+      document.windows.find((window) => window.id === "child-telemetry")
+        ?.workbenches[0]
+    ).toMatchObject({
+      id: "new-workbench",
+      label: "New Workbench",
+      path: "/home",
+      defaultEditorId: "home",
+      defaultLayoutId: "child-telemetry:new-workbench:default",
+    });
   });
 
   it("merges only the submitted window into the current canonical document", () => {

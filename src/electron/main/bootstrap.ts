@@ -5,6 +5,7 @@ import { screen } from "electron";
 import { registerRendererStorage } from "./renderer-storage";
 import {
   ensureChildWindowInDocument,
+  listChildWindowIdsInDocument,
   registerStudioPersistence,
 } from "./studio-persistence";
 import {
@@ -1166,9 +1167,13 @@ export async function bootstrapElectron({
     });
   };
 
-  const allocateChildScope = (): string => {
+  const allocateChildScope = (reservedScopes: Iterable<string> = []): string => {
+    const reserved = new Set(reservedScopes);
     let index = 1;
-    while (openChildScopes.has(`${CHILD_WINDOW_SCOPE_PREFIX}${index}`)) {
+    while (
+      openChildScopes.has(`${CHILD_WINDOW_SCOPE_PREFIX}${index}`) ||
+      reserved.has(`${CHILD_WINDOW_SCOPE_PREFIX}${index}`)
+    ) {
       index += 1;
     }
     return `${CHILD_WINDOW_SCOPE_PREFIX}${index}`;
@@ -1360,35 +1365,54 @@ export async function bootstrapElectron({
         target.close();
         break;
       case "createWindow": {
-        const scope = payload?.scope?.trim() || allocateChildScope();
-        const existing = windowByScope.get(scope);
-        if (existing && !(existing.isDestroyed?.() ?? false)) {
-          if (existing.isMinimized?.()) {
-            existing.restore?.();
-          }
-          existing.show?.();
-          existing.focus?.();
-          break;
-        }
-        if (payload?.projectPath) {
-          return ensureChildWindowInDocument(payload.projectPath, scope).then(
-            () => {
-              createWindow({
-                scope,
-                isPrimary: false,
-                projectPath: payload.projectPath,
-              });
-              return {
-                isMaximized: target.isMaximized(),
-              };
+        const createWithScope = (scope: string) => {
+          const existing = windowByScope.get(scope);
+          if (existing && !(existing.isDestroyed?.() ?? false)) {
+            if (existing.isMinimized?.()) {
+              existing.restore?.();
             }
+            existing.show?.();
+            existing.focus?.();
+            return {
+              isMaximized: target.isMaximized(),
+            };
+          }
+          if (payload?.projectPath) {
+            return ensureChildWindowInDocument(payload.projectPath, scope).then(
+              () => {
+                createWindow({
+                  scope,
+                  isPrimary: false,
+                  projectPath: payload.projectPath,
+                });
+                return {
+                  isMaximized: target.isMaximized(),
+                };
+              }
+            );
+          }
+          createWindow({
+            scope,
+            isPrimary: false,
+            projectPath: payload?.projectPath,
+          });
+          return {
+            isMaximized: target.isMaximized(),
+          };
+        };
+
+        const explicitScope = payload?.scope?.trim();
+        if (explicitScope) {
+          return createWithScope(explicitScope);
+        }
+
+        if (payload?.projectPath) {
+          return listChildWindowIdsInDocument(payload.projectPath).then(
+            (persistedScopes) => createWithScope(allocateChildScope(persistedScopes))
           );
         }
-        createWindow({
-          scope,
-          isPrimary: false,
-          projectPath: payload?.projectPath,
-        });
+
+        return createWithScope(allocateChildScope());
         break;
       }
       case "childScopes":

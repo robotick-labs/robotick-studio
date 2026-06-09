@@ -247,22 +247,39 @@ function normalizeWindowScope(windowScope?: string): string {
   return normalized;
 }
 
+function createSeedChildWorkbench(windowId: string): StudioWorkbench {
+  const workbenchId = "new-workbench";
+  const layoutId = `${windowId}:${workbenchId}:default`;
+  return {
+    id: workbenchId,
+    path: "/home",
+    label: "New Workbench",
+    group: "project-select",
+    defaultEditorId: "home",
+    defaultLayoutId: layoutId,
+    layouts: [
+      {
+        id: layoutId,
+        label: "New Workbench | Default",
+        dock: {
+          nodeType: "panel",
+          panelId: `${windowId}-panel`,
+          editorId: "home",
+        },
+        floatingPanels: [],
+      },
+    ],
+  };
+}
+
 function createSeedChildWindow(windowId: string): StudioWindow {
-  const seed = getBundledTemplate();
-  const seedWindow = seed.windows[0];
-  const defaultWorkbench =
-    seedWindow?.workbenches.find(
-      (workbench) => workbench.id === seedWindow.defaultWorkbenchId
-    ) ?? seedWindow?.workbenches[0];
-  if (!defaultWorkbench) {
-    throw new Error("Bundled Studio template does not define a default workbench");
-  }
+  const defaultWorkbench = createSeedChildWorkbench(windowId);
   return {
     id: windowId,
     label: "Studio Window",
     windowRole: "child",
     defaultWorkbenchId: defaultWorkbench.id,
-    workbenches: [cloneDocument(defaultWorkbench)],
+    workbenches: [defaultWorkbench],
   };
 }
 
@@ -363,6 +380,15 @@ export async function ensureChildWindowInDocument(
   next.windows.push(createSeedChildWindow(windowId));
   await writeStudioDocumentToDisk(projectPath, next);
   return next;
+}
+
+export async function listChildWindowIdsInDocument(
+  projectPath: string
+): Promise<string[]> {
+  const current = await ensureStudioDocument(projectPath);
+  return current.windows
+    .filter((window) => window.windowRole === "child")
+    .map((window) => window.id);
 }
 
 function notifyDocumentChanged(

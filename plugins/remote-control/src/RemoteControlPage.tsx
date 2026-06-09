@@ -103,15 +103,20 @@ export function RemoteControlPage() {
   const viewerInstanceId = React.useRef<number | null>(null);
 
   useEffect(() => {
+    const disposeCurrentViewer = (reason: string) => {
+      if (viewerInstanceId.current == null) {
+        return;
+      }
+      void viewer.uninit(viewerInstanceId.current, reason);
+      viewerInstanceId.current = null;
+    };
     const { module: viewerModule, key: viewerKey } = viewerSelection;
     if (status !== "running") {
-      viewerInstanceId.current = null;
-      void viewer.uninit(undefined, `launcher status ${status}`);
+      disposeCurrentViewer(`launcher status ${status}`);
       return;
     }
     if (!viewerModule) {
-      viewerInstanceId.current = null;
-      void viewer.uninit(undefined, "no viewer module configured");
+      disposeCurrentViewer("no viewer module configured");
       return;
     }
 

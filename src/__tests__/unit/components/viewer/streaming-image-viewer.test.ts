@@ -85,6 +85,7 @@ import {
   calculateContainedImageRect,
   createDepthPreviewImageDataFromPngBytes,
   createDepthPreviewImageDataFromSamples,
+  createInstance,
   createMaskPreviewImageDataFromPngBytes,
   createMaskPreviewImageDataFromSamples,
   extractObjectDetectionOverlays,
@@ -792,6 +793,176 @@ describe("viewer-streaming-image stream selection", () => {
     expect(selector).not.toBeNull();
     expect(selector?.getAttribute("aria-label")).toBe("Image stream");
     expect(control?.textContent).toContain("Image Stream");
+  });
+
+  it("keeps DOM, selectors, and subscriptions isolated per viewer instance", async () => {
+    document.body.innerHTML =
+      '<div id="viewer-a"></div><div id="viewer-b"></div>';
+    const containerA = document.getElementById("viewer-a")!;
+    const containerB = document.getElementById("viewer-b")!;
+    const disposerA = vi.fn();
+    const disposerB = vi.fn();
+    subscribeTelemetry
+      .mockImplementationOnce(() => disposerA)
+      .mockImplementationOnce(() => disposerB);
+
+    const instanceA = await createInstance(
+      {
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Head-RGB",
+        streams: {
+          "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+          "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
+        },
+        frameRateHz: 30,
+        container: containerA,
+      },
+      101,
+    );
+    const instanceB = await createInstance(
+      {
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Chase",
+        streams: {
+          Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+          "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        },
+        frameRateHz: 30,
+        container: containerB,
+      },
+      202,
+    );
+
+    expect(
+      containerA.querySelector<HTMLSelectElement>(
+        'select[aria-label="Image stream"]',
+      )?.value,
+    ).toBe("Head-RGB");
+    expect(
+      containerB.querySelector<HTMLSelectElement>(
+        'select[aria-label="Image stream"]',
+      )?.value,
+    ).toBe("Chase");
+    expect(containerA.querySelector("canvas")).not.toBeNull();
+    expect(containerB.querySelector("canvas")).not.toBeNull();
+
+    await instanceA.unmount();
+
+    expect(disposerA).toHaveBeenCalledTimes(1);
+    expect(disposerB).not.toHaveBeenCalled();
+    expect(containerA.children).toHaveLength(0);
+    expect(
+      containerB.querySelector<HTMLSelectElement>(
+        'select[aria-label="Image stream"]',
+      )?.value,
+    ).toBe("Chase");
+    expect(containerB.querySelector("canvas")).not.toBeNull();
+
+    await instanceB.unmount();
+
+    expect(disposerB).toHaveBeenCalledTimes(1);
+    expect(containerB.children).toHaveLength(0);
+  });
+
+  it("does not clear a shared container when a superseded instance unmounts", async () => {
+    document.body.innerHTML = '<div id="viewer-shared"></div>';
+    const container = document.getElementById("viewer-shared")!;
+    const disposerA = vi.fn();
+    const disposerB = vi.fn();
+    subscribeTelemetry
+      .mockImplementationOnce(() => disposerA)
+      .mockImplementationOnce(() => disposerB);
+
+    const instanceA = await createInstance(
+      {
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Head-RGB",
+        streams: {
+          "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+          "Head-Depth": "demo-robot-simulator.head_depth_png.outputs.image",
+        },
+        frameRateHz: 30,
+        container,
+      },
+      301,
+    );
+    const instanceB = await createInstance(
+      {
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Chase",
+        streams: {
+          Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+          "Head-RGB": "demo-robot-simulator.head_rgb_png.outputs.image",
+        },
+        frameRateHz: 30,
+        container,
+      },
+      302,
+    );
+
+    expect(
+      container.querySelectorAll('select[aria-label="Image stream"]'),
+    ).toHaveLength(2);
+
+    await instanceA.unmount();
+
+    const remainingSelector = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Image stream"]',
+    );
+    expect(disposerA).toHaveBeenCalledTimes(1);
+    expect(disposerB).not.toHaveBeenCalled();
+    expect(remainingSelector?.value).toBe("Chase");
+    expect(container.querySelector("canvas")).not.toBeNull();
+
+    await instanceB.unmount();
+
+    expect(disposerB).toHaveBeenCalledTimes(1);
+    expect(container.children).toHaveLength(0);
+  });
+
+  it("ignores stale telemetry callbacks after an instance unmounts", async () => {
+    document.body.innerHTML = '<div id="viewer-stale"></div>';
+    const container = document.getElementById("viewer-stale")!;
+    const disposer = vi.fn();
+    subscribeTelemetry.mockImplementationOnce(() => disposer);
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      event.preventDefault();
+      unhandledRejections.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+    const instance = await createInstance(
+      {
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Chase",
+        streams: {
+          Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+        },
+        frameRateHz: 30,
+        container,
+      },
+      401,
+    );
+    const callback = subscribeTelemetry.mock.calls[0][2].callback;
+
+    await instance.unmount();
+
+    const getField = vi.fn();
+    callback({ getField });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(disposer).toHaveBeenCalledTimes(1);
+    expect(getField).not.toHaveBeenCalled();
+    expect(unhandledRejections).toHaveLength(0);
+
+    window.removeEventListener("unhandledrejection", onUnhandledRejection);
   });
 });
 

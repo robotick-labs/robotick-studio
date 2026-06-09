@@ -258,6 +258,61 @@ describe("electron launch paths", () => {
     expect(mocks.windows[1].focus).toHaveBeenCalledTimes(1);
   });
 
+  it("allocates a fresh child scope for new windows when persisted child windows already exist", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-child-scope-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const projectYamlPath = path.join(projectDir, "barr-e.project.yaml");
+    fs.mkdirSync(path.join(projectDir, "studio"), { recursive: true });
+    fs.writeFileSync(projectYamlPath, "name: Barr-E\n", "utf-8");
+    fs.writeFileSync(
+      path.join(projectDir, "studio", "studio.yaml"),
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: barr-e-studio",
+        "windows:",
+        "  - id: main",
+        '    label: "Main Window"',
+        "    windowRole: main",
+        "    defaultWorkbenchId: home",
+        "    workbenches: []",
+        "  - id: child-1",
+        '    label: "Existing Child"',
+        "    windowRole: child",
+        "    defaultWorkbenchId: new-workbench",
+        "    workbenches: []",
+      ].join("\n"),
+      "utf-8"
+    );
+
+    try {
+      const mocks = await bootstrapWithMocks();
+      const handler = mocks.ipcHandleHandlers.get("robotick-window-command");
+      expect(handler).toBeDefined();
+
+      const invokeEvent = { sender: {} };
+      await handler?.(invokeEvent, {
+        command: "createWindow",
+        projectPath: projectYamlPath,
+      });
+
+      expect(mocks.BrowserWindow).toHaveBeenCalledTimes(2);
+      expect(mocks.BrowserWindow.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            additionalArguments: expect.arrayContaining([
+              "--robotick-window-scope=child-2",
+            ]),
+          }),
+        })
+      );
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports a bootstrap project lock conflict through project selection state", async () => {
     const projectDir = path.join(
       os.tmpdir(),
