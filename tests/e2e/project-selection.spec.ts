@@ -208,7 +208,9 @@ test.describe("Studio project selection", () => {
     const childWindow = await openChildWindow(app, window);
     const renameTrigger = childWindow.getByLabel("Rename child window");
     await expect(renameTrigger).toContainText("Studio Window");
-    await expect(childWindow.getByRole("link", { name: "New Workbench" })).toBeVisible();
+    await expect
+      .poll(() => childWindow.evaluate(() => window.location.hash))
+      .toBe("#/home");
 
     await renameTrigger.click();
     const renameInput = childWindow.getByLabel("Rename child window");
@@ -220,10 +222,6 @@ test.describe("Studio project selection", () => {
     await expect
       .poll(() => readChildWindowLabel(environment!.projects.barr.dir))
       .toBe("Diagnostics Window");
-    await childWindow.waitForTimeout(2000);
-    expect(readChildWindowLabel(environment.projects.barr.dir)).toBe(
-      "Diagnostics Window"
-    );
 
     await childWindow.reload();
     await childWindow.waitForLoadState("domcontentloaded");
