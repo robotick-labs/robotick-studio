@@ -168,6 +168,44 @@ const expose = () => {
       }>,
   };
 
+  let latestActivationEvent: { activated_path: string[] } | null = null;
+  const activationListeners = new Set<
+    (payload: { activated_path: string[] }) => void
+  >();
+  ipcRenderer.on(
+    "robotick-studio-activation:changed",
+    (_event, payload: { activated_path?: string[] } | undefined) => {
+      latestActivationEvent = {
+        activated_path: Array.isArray(payload?.activated_path)
+          ? payload.activated_path.filter((segment) => typeof segment === "string")
+          : [],
+      };
+      for (const callback of activationListeners) {
+        callback(latestActivationEvent);
+      }
+    }
+  );
+
+  const studioControlBridge = {
+    reportActiveResource(payload: {
+      window_id?: string;
+      workbench_id?: string;
+      layout_id?: string;
+      panel_id?: string;
+    }) {
+      ipcRenderer.send("robotick-studio-runtime:active-resource", payload);
+    },
+    getLastActivation() {
+      return latestActivationEvent;
+    },
+    onActivationChanged(callback: (payload: { activated_path: string[] }) => void) {
+      activationListeners.add(callback);
+      return () => {
+        activationListeners.delete(callback);
+      };
+    },
+  };
+
   const cesiumToken = process.env.CESIUM_TOKEN?.trim();
   if (!cesiumToken) {
     console.warn(
@@ -400,6 +438,7 @@ const expose = () => {
     },
     windowControls,
     studioProcess,
+    studioControl: studioControlBridge,
     storage: storageBridge,
     studioPersistence: studioPersistenceBridge,
     projectSelection: projectSelectionBridge,

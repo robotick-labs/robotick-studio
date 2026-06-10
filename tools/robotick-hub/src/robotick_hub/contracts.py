@@ -100,6 +100,14 @@ class StudioProjectSelectResponse(BaseModel):
     issue: dict[str, object] | None = None
 
 
+class StudioActivationResponse(BaseModel):
+    accepted: bool
+    changed: bool
+    activated_path: list[str]
+    previous_active_path: list[str] | None = None
+    message: str
+
+
 class AppClosingRequest(BaseModel):
     pid: int | None = None
     instance_name: str | None = None

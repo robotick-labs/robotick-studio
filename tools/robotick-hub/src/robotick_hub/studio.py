@@ -957,6 +957,36 @@ def select_studio_project(
     return status_code, loaded
 
 
+def activate_studio_resource(
+    workspace_root: str | Path,
+    instance_name: str,
+    path_segments: tuple[str, ...] = (),
+) -> tuple[int, dict[str, object]] | None:
+    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    if instance is None or not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    resource_path = "/".join(quote(segment, safe="") for segment in path_segments)
+    url = (
+        f"{instance.control_endpoint}/v1/activate"
+        if not resource_path
+        else f"{instance.control_endpoint}/v1/studio/{resource_path}/activate"
+    )
+    request = Request(url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlopen(request, timeout=1.5) as response:
+            status_code = int(response.status)
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except HTTPError as error:
+        status_code = int(error.code)
+        loaded = yaml.safe_load(error.read().decode("utf-8"))
+    except URLError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return status_code, loaded
+
+
 def get_studio_status(
     workspace_root: str | Path,
     instance_name: str,

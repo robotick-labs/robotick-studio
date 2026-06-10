@@ -19,6 +19,7 @@ type StudioPanelStatus = {
   window_id: string;
   workbench_id: string;
   layout_id: string;
+  active_panel_id?: string;
   editor_id: string;
   label: string;
   settings: Record<string, unknown>;
@@ -36,6 +37,8 @@ type StudioLayoutStatus = {
   instance_id: string;
   window_id: string;
   workbench_id: string;
+  active_layout_id?: string;
+  active_panel_id?: string;
   dock: StudioDockNode;
   diagnostics: {
     source: "runtime";
@@ -52,6 +55,7 @@ type StudioWorkbenchStatus = {
   label: string;
   instance_id: string;
   window_id: string;
+  active_workbench_id?: string;
   path: string;
   group?: StudioWorkbench["group"];
   default_editor_id?: string;
@@ -66,6 +70,7 @@ type StudioWindowStatus = {
   id: string;
   label: string;
   instance_id: string;
+  active_window_id: string | null;
   window_role: StudioWindow["windowRole"];
   default_workbench_id?: string;
   active_workbench_id?: string;
@@ -96,6 +101,9 @@ export type StudioRuntimeStatusOptions = {
   workspaceRoot: string | null;
   activeWindowScope: string | null;
   openWindowScopes: string[];
+  activeWorkbenchIds?: Record<string, string>;
+  activeLayoutIds?: Record<string, string>;
+  activePanelIds?: Record<string, string>;
 };
 
 function cloneValue<T>(value: T): T {
@@ -190,15 +198,24 @@ export function buildStudioRuntimeTree(
   const windows = document.windows.map((window) => {
     const defaultWorkbenchId =
       window.defaultWorkbenchId ?? window.workbenches[0]?.id;
+    const activeWorkbenchId = options.activeWorkbenchIds?.[window.id] ?? null;
     const workbenches = window.workbenches.map((workbench) => {
       const defaultLayoutId =
         workbench.defaultLayoutId ?? workbench.layouts[0]?.id;
+      const layoutKey = `${window.id}/${workbench.id}`;
+      const activeLayoutId = options.activeLayoutIds?.[layoutKey] ?? null;
       const layouts = workbench.layouts.map((layout) => {
         const panels = buildPanelStatuses(layout, {
           instanceName: options.instanceName,
           windowId: window.id,
           workbenchId: workbench.id,
         });
+        const panelKey = `${window.id}/${workbench.id}/${layout.id}`;
+        const activePanelId = options.activePanelIds?.[panelKey] ?? null;
+        const panelsWithActivation = panels.map((panel) => ({
+          ...panel,
+          ...(activePanelId ? { active_panel_id: activePanelId } : {}),
+        }));
         return {
           resource_type: "studio_layout" as const,
           id: layout.id,
@@ -215,7 +232,9 @@ export function buildStudioRuntimeTree(
               (panel) => panel.panel_location === "floating"
             ).length,
           },
-          panels,
+          ...(activePanelId ? { active_panel_id: activePanelId } : {}),
+          ...(activeLayoutId ? { active_layout_id: activeLayoutId } : {}),
+          panels: panelsWithActivation,
         };
       });
       return {
@@ -224,16 +243,19 @@ export function buildStudioRuntimeTree(
         label: workbench.label,
         instance_id: options.instanceName,
         window_id: window.id,
+        ...(activeWorkbenchId ? { active_workbench_id: activeWorkbenchId } : {}),
         path: workbench.path ?? `/${workbench.id}`,
         ...(workbench.group ? { group: workbench.group } : {}),
         ...(workbench.defaultEditorId
           ? { default_editor_id: workbench.defaultEditorId }
           : {}),
         ...(defaultLayoutId ? { default_layout_id: defaultLayoutId } : {}),
-        ...(defaultLayoutId ? { active_layout_id: defaultLayoutId } : {}),
+        ...(activeLayoutId ? { active_layout_id: activeLayoutId } : {}),
         state_sources: {
           default_layout_id: "config",
-          active_layout_id: "runtime-fallback",
+          active_layout_id: options.activeLayoutIds?.[layoutKey]
+            ? "runtime"
+            : "unknown",
         },
         layouts,
       };
@@ -243,13 +265,16 @@ export function buildStudioRuntimeTree(
       id: window.id,
       label: window.label,
       instance_id: options.instanceName,
+      active_window_id: activeWindow.id,
       window_role: window.windowRole,
       ...(defaultWorkbenchId ? { default_workbench_id: defaultWorkbenchId } : {}),
-      ...(defaultWorkbenchId ? { active_workbench_id: defaultWorkbenchId } : {}),
-      state_sources: {
-        default_workbench_id: "config",
-        active_workbench_id: "runtime-fallback",
-      },
+      ...(activeWorkbenchId ? { active_workbench_id: activeWorkbenchId } : {}),
+        state_sources: {
+          default_workbench_id: "config",
+          active_workbench_id: options.activeWorkbenchIds?.[window.id]
+            ? "runtime"
+            : "unknown",
+        },
       workbenches,
     };
   });
@@ -269,6 +294,67 @@ export function buildStudioRuntimeTree(
       selected_project_path: "runtime",
     },
     windows,
+  };
+}
+
+function activationPathForNode(node: Record<string, unknown>): string[] | null {
+  const resourceType = String(node.resource_type ?? "");
+  const id = typeof node.id === "string" ? node.id : null;
+  if (resourceType === "studio_window" && id) {
+    return ["windows", id];
+  }
+  if (resourceType === "studio_workbench" && id && typeof node.window_id === "string") {
+    return ["windows", node.window_id, "workbenches", id];
+  }
+  if (
+    resourceType === "studio_layout" &&
+    id &&
+    typeof node.window_id === "string" &&
+    typeof node.workbench_id === "string"
+  ) {
+    return ["windows", node.window_id, "workbenches", node.workbench_id, "layouts", id];
+  }
+  if (
+    resourceType === "studio_panel" &&
+    id &&
+    typeof node.window_id === "string" &&
+    typeof node.workbench_id === "string" &&
+    typeof node.layout_id === "string"
+  ) {
+    return [
+      "windows",
+      node.window_id,
+      "workbenches",
+      node.workbench_id,
+      "layouts",
+      node.layout_id,
+      "panels",
+      id,
+    ];
+  }
+  return null;
+}
+
+function activationMetadata(node: Record<string, unknown>) {
+  const targetPath = activationPathForNode(node);
+  const resourceType = String(node.resource_type ?? "");
+  let active = false;
+  if (resourceType === "studio_window") {
+    active = node.id === node.active_window_id;
+  }
+  if (resourceType === "studio_workbench") {
+    active = node.id === node.active_workbench_id;
+  }
+  if (resourceType === "studio_layout") {
+    active = node.id === node.active_layout_id;
+  }
+  if (resourceType === "studio_panel") {
+    active = node.id === node.active_panel_id;
+  }
+  return {
+    active,
+    activatable: targetPath !== null,
+    activation_target_path: targetPath,
   };
 }
 
@@ -351,10 +437,14 @@ function buildCollectionNode(
   collectionName: string,
   items: Record<string, unknown>[]
 ): StudioControlStatus {
+  const parentActivationPath = activationPathForNode(parent);
   return {
     resource_type: `studio_${collectionName}`,
     id: collectionName,
     parent_id: parent.id,
+    active: false,
+    activatable: false,
+    activation_target_path: parentActivationPath,
     items: items.map((item) => summarizeChild(item)),
     child_resources: items.map((item) => summarizeChild(item)),
   };
@@ -405,6 +495,9 @@ export function resolveStudioRuntimeNode(
       selected_project_path: node.selected_project_path,
       active_window_id: node.active_window_id,
       state_sources: node.state_sources as Record<string, string>,
+      active: false,
+      activatable: false,
+      activation_target_path: null,
       children: { windows: windows.map((window) => summarizeChild(window)) },
       child_collections: buildChildCollections(node),
     };
@@ -421,6 +514,7 @@ export function resolveStudioRuntimeNode(
       default_workbench_id: node.default_workbench_id,
       active_workbench_id: node.active_workbench_id,
       state_sources: node.state_sources as Record<string, string>,
+      ...activationMetadata(node),
       children: {
         workbenches: workbenches.map((workbench) => summarizeChild(workbench)),
       },
@@ -441,6 +535,7 @@ export function resolveStudioRuntimeNode(
       default_layout_id: node.default_layout_id,
       active_layout_id: node.active_layout_id,
       state_sources: node.state_sources as Record<string, string>,
+      ...activationMetadata(node),
       children: { layouts: layouts.map((layout) => summarizeChild(layout)) },
       child_collections: buildChildCollections(node),
     };
@@ -454,14 +549,17 @@ export function resolveStudioRuntimeNode(
       instance_id: node.instance_id,
       window_id: node.window_id,
       workbench_id: node.workbench_id,
+      active_panel_id: node.active_panel_id,
       dock: node.dock,
       diagnostics: node.diagnostics,
+      ...activationMetadata(node),
       children: { panels: panels.map((panel) => summarizeChild(panel)) },
       child_collections: buildChildCollections(node),
     };
   }
   return {
     ...(node as StudioControlStatus),
+    ...activationMetadata(node),
     child_collections: buildChildCollections(node),
   };
 }

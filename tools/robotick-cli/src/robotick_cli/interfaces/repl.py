@@ -225,6 +225,16 @@ def start_interactive_shell(ctx: AppContext) -> int:
                 if (
                     state.namespace == "studio"
                     and state.instance_name is not None
+                    and line == "activate"
+                ):
+                    run_studio_command(
+                        ctx,
+                        [state.instance_name, *state.studio_path, "activate"],
+                    )
+                    continue
+                if (
+                    state.namespace == "studio"
+                    and state.instance_name is not None
                     and line.startswith("select-project ")
                 ):
                     run_studio_command(

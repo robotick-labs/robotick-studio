@@ -23,6 +23,7 @@ REQUIRED_HUB_FEATURES = {
     "studio_status",
     "studio_control_endpoint",
     "studio_project_select",
+    "studio_activation",
     "launcher_status",
     "launcher_ensure",
 }

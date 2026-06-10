@@ -22,9 +22,11 @@ import {
   startStudioControlServer,
   type StudioControlServer,
 } from "./studio-control/studio-control-server";
+import type { StudioControlActivationResponse } from "../common/studio-control-contract";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
+  IpcMainEvent,
   IpcMainInvokeEvent,
   Menu as ElectronMenu,
   Rectangle,
@@ -145,6 +147,13 @@ type RendererErrorPayload = {
   colno?: unknown;
   reason?: unknown;
   href?: unknown;
+};
+
+type StudioRuntimeActiveResourcePayload = {
+  window_id?: unknown;
+  workbench_id?: unknown;
+  layout_id?: unknown;
+  panel_id?: unknown;
 };
 
 type StudioProcessStats = {
@@ -1024,6 +1033,10 @@ export async function bootstrapElectron({
   >();
   const openChildScopes = new Set<string>();
   const windowByScope = new Map<string, BrowserWindowInstance>();
+  const activeWorkbenchByWindow = new Map<string, string>();
+  const activeLayoutByWorkbench = new Map<string, string>();
+  const activePanelByLayout = new Map<string, string>();
+  let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
@@ -1046,13 +1059,174 @@ export async function bootstrapElectron({
         return scope === PRIMARY_WINDOW_SCOPE ? "main" : scope;
       }
     }
-    return null;
+    return activeWindowScopeOverride;
   };
 
   const getOpenWindowScopes = (): string[] =>
     Array.from(windowByScope.entries())
       .filter(([, win]) => !(win.isDestroyed?.() ?? false))
       .map(([scope]) => (scope === PRIMARY_WINDOW_SCOPE ? "main" : scope));
+
+  const getActiveWorkbenchIds = (): Record<string, string> =>
+    Object.fromEntries(activeWorkbenchByWindow.entries());
+
+  const getActiveLayoutIds = (): Record<string, string> =>
+    Object.fromEntries(activeLayoutByWorkbench.entries());
+
+  const getActivePanelIds = (): Record<string, string> =>
+    Object.fromEntries(activePanelByLayout.entries());
+
+  const windowIdFromBrowserWindow = (win: BrowserWindowInstance | null): string | null => {
+    if (!win) {
+      return null;
+    }
+    const metadata = windowMetadataByWindow.get(win);
+    if (!metadata) {
+      return null;
+    }
+    return metadata.scope === PRIMARY_WINDOW_SCOPE ? "main" : metadata.scope;
+  };
+
+  const recordActiveStudioResource = (
+    win: BrowserWindowInstance | null,
+    payload: StudioRuntimeActiveResourcePayload | undefined
+  ) => {
+    const eventWindowId = windowIdFromBrowserWindow(win);
+    const payloadWindowId =
+      typeof payload?.window_id === "string" && payload.window_id.trim().length > 0
+        ? payload.window_id.trim()
+        : null;
+    const windowId = eventWindowId ?? payloadWindowId;
+    if (!windowId) {
+      return;
+    }
+    activeWindowScopeOverride = windowId;
+    if (typeof payload?.workbench_id === "string" && payload.workbench_id.trim()) {
+      activeWorkbenchByWindow.set(windowId, payload.workbench_id.trim());
+    }
+    const workbenchId = activeWorkbenchByWindow.get(windowId);
+    if (
+      workbenchId &&
+      typeof payload?.layout_id === "string" &&
+      payload.layout_id.trim()
+    ) {
+      activeLayoutByWorkbench.set(`${windowId}/${workbenchId}`, payload.layout_id.trim());
+    }
+    const layoutId = workbenchId
+      ? activeLayoutByWorkbench.get(`${windowId}/${workbenchId}`)
+      : null;
+    if (
+      workbenchId &&
+      layoutId &&
+      typeof payload?.panel_id === "string" &&
+      payload.panel_id.trim()
+    ) {
+      activePanelByLayout.set(`${windowId}/${workbenchId}/${layoutId}`, payload.panel_id.trim());
+    }
+  };
+
+  const focusWindowScope = (windowId: string) => {
+    activeWindowScopeOverride = windowId;
+    const scope = windowId === "main" ? PRIMARY_WINDOW_SCOPE : windowId;
+    const win = windowByScope.get(scope);
+    if (!win || win.isDestroyed?.()) {
+      return;
+    }
+    win.show?.();
+    if (win.isMinimized?.()) {
+      win.restore?.();
+    }
+    win.focus?.();
+  };
+
+  const currentActivationPathFor = (targetPath: string[]): string[] | null => {
+    const [collection, windowId, , workbenchId, , layoutId] = targetPath;
+    if (collection !== "windows" || !windowId) {
+      return null;
+    }
+    if (targetPath.length === 2) {
+      const activeWindow = getActiveWindowScope();
+      return activeWindow ? ["windows", activeWindow] : null;
+    }
+    if (targetPath.length === 4 && workbenchId) {
+      const activeWorkbench = activeWorkbenchByWindow.get(windowId);
+      return activeWorkbench
+        ? ["windows", windowId, "workbenches", activeWorkbench]
+        : null;
+    }
+    if (targetPath.length === 6 && workbenchId && layoutId) {
+      const activeLayout = activeLayoutByWorkbench.get(`${windowId}/${workbenchId}`);
+      return activeLayout
+        ? ["windows", windowId, "workbenches", workbenchId, "layouts", activeLayout]
+        : null;
+    }
+    if (targetPath.length === 8 && workbenchId && layoutId) {
+      const activePanel = activePanelByLayout.get(`${windowId}/${workbenchId}/${layoutId}`);
+      return activePanel
+        ? [
+            "windows",
+            windowId,
+            "workbenches",
+            workbenchId,
+            "layouts",
+            layoutId,
+            "panels",
+            activePanel,
+          ]
+        : null;
+    }
+    return null;
+  };
+
+  const activateStudioResource = (
+    targetPath: string[],
+    alreadyActive: boolean
+  ): StudioControlActivationResponse => {
+    const [collection, windowId, , workbenchId, , layoutId, , panelId] = targetPath;
+    if (collection !== "windows" || !windowId) {
+      return {
+        accepted: false,
+        changed: false,
+        activated_path: targetPath,
+        previous_active_path: null,
+        message: "No activatable Studio resource is available from this context.",
+      };
+    }
+
+    const previousActivePath = alreadyActive
+      ? targetPath
+      : currentActivationPathFor(targetPath);
+
+    focusWindowScope(windowId);
+    if (workbenchId) {
+      activeWorkbenchByWindow.set(windowId, workbenchId);
+    }
+    if (workbenchId && layoutId) {
+      activeLayoutByWorkbench.set(`${windowId}/${workbenchId}`, layoutId);
+    }
+    if (workbenchId && layoutId && panelId) {
+      activePanelByLayout.set(`${windowId}/${workbenchId}/${layoutId}`, panelId);
+    }
+
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed?.()) {
+        continue;
+      }
+      win.webContents.send("robotick-studio-activation:changed", {
+        activated_path: targetPath,
+      });
+    }
+
+    return {
+      accepted: true,
+      changed: !alreadyActive,
+      activated_path: targetPath,
+      previous_active_path: previousActivePath,
+      message: alreadyActive
+        ? "Studio resource was already active."
+        : "Activated Studio resource.",
+    };
+  };
 
   const broadcastProjectSelectionState = () => {
     const payload = getProjectSelectionState();
@@ -1313,7 +1487,7 @@ export async function bootstrapElectron({
     );
   };
 
-  const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent) => {
+  const resolveBrowserWindowFromEvent = (event: IpcMainInvokeEvent | IpcMainEvent) => {
     if (!BrowserWindow.fromWebContents) {
       return null;
     }
@@ -1482,6 +1656,15 @@ export async function bootstrapElectron({
         `[Electron] Renderer ${type}: ${message} @ ${source}:${lineno}:${colno}\n${stack}`
       );
     });
+    ipcMain.on(
+      "robotick-studio-runtime:active-resource",
+      (
+        event: IpcMainEvent,
+        payload: StudioRuntimeActiveResourcePayload | undefined
+      ) => {
+        recordActiveStudioResource(resolveBrowserWindowFromEvent(event), payload);
+      }
+    );
 
     ipcMain.handle(
       "robotick-window-command",
@@ -1726,8 +1909,12 @@ export async function bootstrapElectron({
         getSelectedProjectPath: () => currentProjectPath,
         getActiveWindowScope,
         getOpenWindowScopes,
+        getActiveWorkbenchIds,
+        getActiveLayoutIds,
+        getActivePanelIds,
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
+      activateResource: activateStudioResource,
     });
     void registerStudioControlEndpointWithHub(
       env.ROBOTICK_HUB_ENDPOINT,

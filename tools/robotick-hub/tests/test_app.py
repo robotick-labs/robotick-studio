@@ -67,6 +67,7 @@ def test_health_and_registry_record() -> None:
         assert response.json()["status"] == "ok"
         assert response.json()["api_version"] == 1
         assert "studio_project_select" in response.json()["features"]
+        assert "studio_activation" in response.json()["features"]
         assert response.json()["tray_expected"] is False
         assert response.json()["tray_active"] is False
         assert get_hub_record_path(workspace).exists()
@@ -519,6 +520,59 @@ def test_studio_project_select_proxies_to_control_endpoint(
     assert response.json()["accepted"] is True
     assert captured["url"] == "http://127.0.0.1:7123/v1/project/select"
     assert '"project_path": "/tmp/barr-e.project.yaml"' in captured["body"]
+
+
+def test_studio_activation_proxies_to_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return (
+                b'{"accepted":true,"changed":true,'
+                b'"activated_path":["windows","main"],'
+                b'"previous_active_path":null,'
+                b'"message":"Activated Studio resource."}'
+            )
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = request.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("robotick_hub.studio.urlopen", fake_urlopen)
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/windows/main/activate",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
+    assert response.json()["activated_path"] == ["windows", "main"]
+    assert captured["url"] == "http://127.0.0.1:7123/v1/studio/windows/main/activate"
+    assert captured["body"] == "{}"
 
 
 def test_app_instance_closing_endpoint(

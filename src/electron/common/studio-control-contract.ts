@@ -36,3 +36,11 @@ export type StudioControlProjectSelectionResponse = {
     message: string;
   } | null;
 };
+
+export type StudioControlActivationResponse = {
+  accepted: boolean;
+  changed: boolean;
+  activated_path: string[];
+  previous_active_path: string[] | null;
+  message: string;
+};

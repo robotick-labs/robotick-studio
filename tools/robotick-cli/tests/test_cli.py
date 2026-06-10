@@ -423,6 +423,34 @@ def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     assert "Return to the parent shell context" in text
 
 
+def test_bound_instance_ls_advertises_activate_for_activatable_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    instance_name = "studio-1234"
+    monkeypatch.setattr(
+        "robotick_cli.language.help.fetch_studio_node_status",
+        lambda _workspace, _instance_name, _path_segments: {
+            "resource_type": "studio_workbench",
+            "id": "home",
+            "activation_target_path": ["windows", "main", "workbenches", "home"],
+            "child_collections": [],
+        },
+    )
+
+    text = format_shell_context(
+        ShellState(
+            namespace="studio",
+            instance_name=instance_name,
+            studio_path=("windows", "main", "workbenches", "home"),
+        ),
+        str(workspace),
+    )
+
+    assert "- activate" in text
+    assert "Make the current Studio resource active" in text
+
+
 def test_instance_help_lists_status_and_windows_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
@@ -432,6 +460,7 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 
     assert result.returncode == 0
     assert f"robotick studio {instance_name} status" in result.stdout
+    assert f"robotick studio {instance_name} <path...> activate" in result.stdout
     assert f"robotick studio {instance_name} select-project <project>" in result.stdout
     assert f"robotick studio {instance_name} windows" in result.stdout
 
@@ -512,6 +541,82 @@ def test_instance_select_project_requires_control_endpoint(
         robotick_cli.studio.run_studio_command(
             AppContext(workspace_root=workspace),
             ["studio-1234", "select-project", "barr-e"],
+        )
+
+    assert error.value.code == "studio_control_unavailable"
+    assert "does not expose the Studio control service" in str(error.value)
+
+
+def test_instance_activate_posts_current_studio_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_post(_workspace, path, payload=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return {
+            "accepted": True,
+            "changed": True,
+            "activated_path": ["windows", "main", "workbenches", "home"],
+            "previous_active_path": None,
+            "message": "Activated Studio resource.",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.post_studio_hub_json", fake_post)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "windows", "main", "workbenches", "home", "activate"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/windows/main/workbenches/home/activate"
+    assert captured["payload"] is None
+    assert captured["output"] == {
+        "accepted": True,
+        "changed": True,
+        "activated_path": ["windows", "main", "workbenches", "home"],
+        "previous_active_path": None,
+        "message": "Activated Studio resource.",
+    }
+
+
+def test_instance_activate_requires_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with pytest.raises(CliError) as error:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "windows", "main", "activate"],
         )
 
     assert error.value.code == "studio_control_unavailable"

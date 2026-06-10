@@ -27,7 +27,18 @@ export function WorkbenchView({ workbench }: WorkbenchViewProps) {
       windowScope,
       isPrimaryWindow,
     });
-  }, [projectPath, workbench.path, windowScope, isPrimaryWindow]);
+    window.robotick?.studioControl?.reportActiveResource({
+      window_id: layoutWindowScope,
+      workbench_id: workbench.id,
+    });
+  }, [
+    projectPath,
+    workbench.id,
+    workbench.path,
+    windowScope,
+    isPrimaryWindow,
+    layoutWindowScope,
+  ]);
 
   return (
     <div className={styles.workbenchShell}>

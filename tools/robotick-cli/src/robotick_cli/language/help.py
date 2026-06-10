@@ -176,6 +176,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
     lines = [_heading(f"Current context: {current_context}", color=color), ""]
     if state.namespace == "studio" and state.instance_name is not None:
         status_spec = get_studio_command_spec("status")
+        activate_spec = get_studio_command_spec("activate")
         quit_spec = get_studio_command_spec("quit")
         lines.extend(
             [
@@ -183,6 +184,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 *_format_spec_lines(
                     [
                         (status_spec.name, status_spec.summary),
+                        (activate_spec.name, activate_spec.summary),
                         (quit_spec.name, quit_spec.summary),
                     ],
                     color=color,
@@ -387,7 +389,27 @@ def format_shell_context(state: ShellState, workspace_root: str, *, color: bool 
                 or ["- none"]
             )
         except Exception:
+            node = None
             child_contexts = ["- none"]
+        contextual_actions = [
+            (
+                get_studio_command_spec("status").shell_label or "status",
+                get_studio_command_spec("status").summary,
+            ),
+        ]
+        if isinstance(node, dict) and isinstance(node.get("activation_target_path"), list):
+            contextual_actions.append(
+                (
+                    get_studio_command_spec("activate").shell_label or "activate",
+                    get_studio_command_spec("activate").summary,
+                )
+            )
+        contextual_actions.append(
+            (
+                get_studio_command_spec("select-project").shell_label or "select-project",
+                get_studio_command_spec("select-project").summary,
+            )
+        )
         contextual_action_names = ["ls", "cd", "clear", "help", "back"]
         return "\n".join(
             [
@@ -400,14 +422,7 @@ def format_shell_context(state: ShellState, workspace_root: str, *, color: bool 
                 _section("Actions:", color=color),
                 *_format_bullet_rows(
                     [
-                        (
-                            get_studio_command_spec("status").shell_label or "status",
-                            get_studio_command_spec("status").summary,
-                        ),
-                        (
-                            get_studio_command_spec("select-project").shell_label or "select-project",
-                            get_studio_command_spec("select-project").summary,
-                        ),
+                        *contextual_actions,
                         *[
                             (
                                 name,
@@ -595,17 +610,20 @@ def open_help_text() -> str:
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
     select_project_spec = get_studio_command_spec("select-project")
+    activate_spec = get_studio_command_spec("activate")
     quit_spec = get_studio_command_spec("quit")
     return "\n".join(
         [
             "Usage:",
             f"  robotick studio {instance_name} status",
+            f"  robotick studio {instance_name} <path...> activate",
             f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
             f"  robotick studio {instance_name} windows",
             "",
             "Commands:",
             f"  {status_spec.name:<14} {status_spec.summary}",
+            f"  {activate_spec.name:<14} {activate_spec.summary}",
             f"  {select_project_spec.name:<14} {select_project_spec.summary}",
             f"  {quit_spec.name:<14} {quit_spec.summary}",
             "",

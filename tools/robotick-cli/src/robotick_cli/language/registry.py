@@ -106,6 +106,17 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_bound_instance=True,
     ),
     CommandSpec(
+        name="activate",
+        usage="robotick studio <instance> <path...> activate",
+        summary="Make the current Studio resource active",
+        shell_label="activate",
+        description_lines=(
+            "Ask the targeted Studio instance to activate the current window, workbench, layout, or panel.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
         name="quit",
         usage="robotick studio <instance> quit",
         summary="Close this Studio instance",

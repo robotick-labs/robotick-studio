@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError, HubRequestError
@@ -168,6 +169,10 @@ def handle_instance_status(
     return CommandResult(exit_code=0)
 
 
+def quote_studio_resource_path(path_segments: tuple[str, ...]) -> str:
+    return "/".join(quote(segment, safe="") for segment in path_segments)
+
+
 def resolve_registered_project_path(ctx: AppContext, project_name: str) -> str:
     projects = get_hub_workspace_projects(ctx)
     for project in projects:
@@ -221,6 +226,46 @@ def handle_instance_select_project(
     return CommandResult(exit_code=0 if payload.get("accepted") is True else 1)
 
 
+def handle_instance_activate(
+    ctx: AppContext,
+    instance: InstanceRecord,
+    path_segments: tuple[str, ...],
+    args: list[str],
+) -> CommandResult:
+    if args:
+        raise CliError(f"Unknown argument for '{instance.name} activate': {args[0]}")
+    if not instance.control_endpoint:
+        raise CliError(
+            f"Studio instance {instance.name} does not expose the Studio control service.",
+            code="studio_control_unavailable",
+            recovery=(
+                "This instance was likely opened before the control service was added. "
+                f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+            ),
+        )
+    resource_path = quote_studio_resource_path(path_segments)
+    hub_path = (
+        f"/v1/studio/instances/{instance.name}/activate"
+        if not resource_path
+        else f"/v1/studio/instances/{instance.name}/{resource_path}/activate"
+    )
+    try:
+        payload = post_studio_hub_json(ctx.workspace_root, hub_path)
+    except HubRequestError as error:
+        if error.status_code == 404:
+            raise CliError(
+                f"Studio instance {instance.name} does not expose Studio resource activation.",
+                code="studio_activation_unavailable",
+                recovery=(
+                    "This instance was likely opened before activation was added. "
+                    f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+                ),
+            ) from error
+        raise
+    write_json(payload)
+    return CommandResult(exit_code=0 if payload.get("accepted") is True else 1)
+
+
 def parse_instance_path_args(
     args: list[str],
 ) -> tuple[tuple[str, ...], str | None]:
@@ -232,6 +277,10 @@ def parse_instance_path_args(
         return (), "quit"
     if args and args[0] == "select-project":
         return (), "select-project"
+    if args == ["activate"]:
+        return (), "activate"
+    if args and args[-1] == "activate":
+        return tuple(args[:-1]), "activate"
     if args and args[-1] == "status":
         return tuple(args[:-1]), "status"
     return tuple(args), None
@@ -254,6 +303,8 @@ def run_studio_instance_command(
         return handle_instance_quit(ctx, instance.name, [])
     if action == "select-project":
         return handle_instance_select_project(ctx, instance, args[1:])
+    if action == "activate":
+        return handle_instance_activate(ctx, instance, path_segments, [])
     if action == "status":
         return handle_instance_status(ctx, instance.name, path_segments, [])
     if not args:

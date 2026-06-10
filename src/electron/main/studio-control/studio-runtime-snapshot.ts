@@ -19,6 +19,9 @@ export type StudioRuntimeSnapshotProvider = {
   getSelectedProjectPath: () => string;
   getActiveWindowScope: () => string | null;
   getOpenWindowScopes: () => string[];
+  getActiveWorkbenchIds?: () => Record<string, string>;
+  getActiveLayoutIds?: () => Record<string, string>;
+  getActivePanelIds?: () => Record<string, string>;
 };
 
 async function loadRuntimeDocument(
@@ -48,6 +51,9 @@ export async function getStudioRuntimeStatus(
     workspaceRoot: provider.workspaceRoot,
     activeWindowScope: provider.getActiveWindowScope(),
     openWindowScopes: provider.getOpenWindowScopes(),
+    activeWorkbenchIds: provider.getActiveWorkbenchIds?.(),
+    activeLayoutIds: provider.getActiveLayoutIds?.(),
+    activePanelIds: provider.getActivePanelIds?.(),
   };
   const tree = buildStudioRuntimeTree(document, options);
   return resolveStudioRuntimeNode(tree, pathSegments);

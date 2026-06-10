@@ -22,6 +22,7 @@ from robotick_hub.contracts import (
     StudioOpenResponse,
     StudioControlEndpointRequest,
     StudioControlEndpointResponse,
+    StudioActivationResponse,
     StudioProjectSelectRequest,
     StudioProjectSelectResponse,
     StudioProjectsResponse,
@@ -45,6 +46,7 @@ from robotick_hub.studio import (
     notify_instance_closing,
     open_studio,
     quit_instance,
+    activate_studio_resource,
     select_studio_project,
     summarize_instance,
     update_instance_control_endpoint,
@@ -67,6 +69,7 @@ HUB_FEATURES = [
     "studio_status",
     "studio_control_endpoint",
     "studio_project_select",
+    "studio_activation",
     "launcher_status",
     "launcher_ensure",
 ]
@@ -392,6 +395,27 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status_code,
             content=StudioProjectSelectResponse.model_validate(payload).model_dump(),
+        )
+
+    @app.post("/v1/studio/instances/{instance_id}/activate")
+    @app.post("/v1/studio/instances/{instance_id}/{resource_path:path}/activate")
+    def studio_resource_activate(
+        instance_id: str,
+        resource_path: str = "",
+    ) -> Response:
+        path_segments = tuple(segment for segment in resource_path.split("/") if segment)
+        result = activate_studio_resource(get_workspace_root(), instance_id, path_segments)
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Studio control endpoint not available for: {instance_id}",
+            )
+        status_code, payload = result
+        if "error" in payload:
+            return JSONResponse(status_code=status_code, content=payload)
+        return JSONResponse(
+            status_code=status_code,
+            content=StudioActivationResponse.model_validate(payload).model_dump(),
         )
 
     @app.post("/v1/apps/{app_id}/instances/closing", response_model=AppClosingResponse)

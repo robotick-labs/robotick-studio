@@ -64,6 +64,25 @@ export interface RobotickStudioProcess {
   readonly getStats: () => Promise<RobotickStudioProcessStats>;
 }
 
+export interface RobotickStudioActiveResource {
+  readonly window_id: string;
+  readonly workbench_id?: string;
+  readonly layout_id?: string;
+  readonly panel_id?: string;
+}
+
+export interface RobotickStudioActivationEvent {
+  readonly activated_path: string[];
+}
+
+export interface RobotickStudioControl {
+  readonly reportActiveResource: (resource: RobotickStudioActiveResource) => void;
+  readonly getLastActivation?: () => RobotickStudioActivationEvent | null;
+  readonly onActivationChanged?: (
+    callback: (event: RobotickStudioActivationEvent) => void
+  ) => () => void;
+}
+
 export interface RobotickProjectSelectionIssue {
   readonly type: "locked" | "error";
   readonly projectPath: string;
@@ -108,6 +127,7 @@ export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
+  readonly studioControl?: RobotickStudioControl;
   readonly storage?: RobotickStorage;
   readonly studioPersistence?: RobotickStudioPersistence;
   readonly projectSelection?: RobotickProjectSelection;

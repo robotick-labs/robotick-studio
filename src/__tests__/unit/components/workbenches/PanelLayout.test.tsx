@@ -206,7 +206,10 @@ describe("PanelLayout context menu", () => {
     projectContextState.projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
     studioStore = new MemoryStudioPersistenceStore();
     window.robotick = {
-      ...(window.robotick ?? {}),
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+      },
       studioPersistence: studioStore,
     };
     registryState.entries = [mockEntries.mockEntry];
@@ -216,6 +219,209 @@ describe("PanelLayout context menu", () => {
     useContextMenuMock.mockReturnValue({
       showPanelMenu,
       showHeaderMenu: vi.fn(),
+    });
+  });
+
+  it("activates the requested parent layout tab from Studio control", async () => {
+    registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
+    studioStore.files.set(
+      `${projectContextState.projectPath}:studio/studio.yaml`,
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: test-studio",
+        "windows:",
+        "  - id: main",
+        "    label: Main",
+        "    windowRole: main",
+        "    defaultWorkbenchId: workbench",
+        "    workbenches:",
+        "      - id: workbench",
+        "        label: Mock Workbench",
+        "        defaultEditorId: mock-editor",
+        "        defaultLayoutId: main:workbench:default",
+        "        layouts:",
+        "          - id: main:workbench:default",
+        "            label: Mock Workbench | Default",
+        "            dock:",
+        "              nodeType: panel",
+        "              panelId: panel-default",
+        "              editorId: mock-editor",
+        "          - id: main:workbench:models",
+        "            label: Models Layout",
+        "            dock:",
+        "              nodeType: panel",
+        "              panelId: panel-models",
+        "              editorId: animation-editor",
+      ].join("\n"),
+    );
+    const activationListeners = new Set<
+      (event: { activated_path: string[] }) => void
+    >();
+    const reportActiveResource = vi.fn();
+    window.robotick = {
+      ...(window.robotick ?? {}),
+      studioControl: {
+        reportActiveResource,
+        onActivationChanged: (callback) => {
+          activationListeners.add(callback);
+          return () => activationListeners.delete(callback);
+        },
+      },
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Mock Workbench | Default");
+    expect(container.querySelector("[data-testid='mock-editor']")).not.toBeNull();
+
+    await act(async () => {
+      for (const listener of activationListeners) {
+        listener({
+          activated_path: [
+            "windows",
+            "main",
+            "workbenches",
+            "workbench",
+            "layouts",
+            "main:workbench:models",
+          ],
+        });
+      }
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      const modelsTab = Array.from(
+        container.querySelectorAll<HTMLElement>("[role='button']")
+      ).find((button) => button.textContent?.includes("Models Layout"));
+      expect(modelsTab?.getAttribute("aria-pressed")).toBe("true");
+      expect(container.querySelector("[data-testid='animation-editor']")).not.toBeNull();
+    });
+    expect(reportActiveResource).toHaveBeenCalledWith({
+      window_id: "main",
+      workbench_id: "workbench",
+      layout_id: "main:workbench:models",
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("activates a panel by selecting its parent layout and reporting the panel", async () => {
+    registryState.entries = [mockEntries.mockEntry, mockEntries.animationEntry];
+    studioStore.files.set(
+      `${projectContextState.projectPath}:studio/studio.yaml`,
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: test-studio",
+        "windows:",
+        "  - id: main",
+        "    label: Main",
+        "    windowRole: main",
+        "    defaultWorkbenchId: workbench",
+        "    workbenches:",
+        "      - id: workbench",
+        "        label: Mock Workbench",
+        "        defaultEditorId: mock-editor",
+        "        defaultLayoutId: main:workbench:default",
+        "        layouts:",
+        "          - id: main:workbench:default",
+        "            label: Mock Workbench | Default",
+        "            dock:",
+        "              nodeType: panel",
+        "              panelId: panel-default",
+        "              editorId: mock-editor",
+        "          - id: main:workbench:models",
+        "            label: Models Layout",
+        "            dock:",
+        "              nodeType: split",
+        "              direction: horizontal",
+        "              ratio: 0.5",
+        "              children:",
+        "                - nodeType: panel",
+        "                  panelId: panel-mock",
+        "                  editorId: mock-editor",
+        "                - nodeType: panel",
+        "                  panelId: panel-models",
+        "                  editorId: animation-editor",
+      ].join("\n"),
+    );
+    const activationListeners = new Set<
+      (event: { activated_path: string[] }) => void
+    >();
+    const reportActiveResource = vi.fn();
+    window.robotick = {
+      ...(window.robotick ?? {}),
+      studioControl: {
+        reportActiveResource,
+        onActivationChanged: (callback) => {
+          activationListeners.add(callback);
+          return () => activationListeners.delete(callback);
+        },
+      },
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelLayout
+          workbenchId="workbench"
+          workbenchLabel="Mock Workbench"
+          defaultEditorId="mock-editor"
+        />
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      for (const listener of activationListeners) {
+        listener({
+          activated_path: [
+            "windows",
+            "main",
+            "workbenches",
+            "workbench",
+            "layouts",
+            "main:workbench:models",
+            "panels",
+            "panel-models",
+          ],
+        });
+      }
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      const modelsTab = Array.from(
+        container.querySelectorAll<HTMLElement>("[role='button']")
+      ).find((button) => button.textContent?.includes("Models Layout"));
+      expect(modelsTab?.getAttribute("aria-pressed")).toBe("true");
+      expect(container.querySelector("[data-testid='animation-editor']")).not.toBeNull();
+    });
+    expect(reportActiveResource).toHaveBeenCalledWith({
+      window_id: "main",
+      workbench_id: "workbench",
+      layout_id: "main:workbench:models",
+      panel_id: "panel-models",
+    });
+
+    act(() => {
+      root.unmount();
     });
   });
 
