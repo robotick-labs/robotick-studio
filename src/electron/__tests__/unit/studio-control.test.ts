@@ -145,6 +145,28 @@ describe("Studio control runtime status", () => {
     });
   });
 
+  it("derives selected project metadata from the live project path", () => {
+    const selectedProjectPath = "/tmp/robots/pip-e/pip-e.project.yaml";
+    const tree = buildStudioRuntimeTree(document, {
+      instanceName: "studio-1234",
+      pid: 1234,
+      mode: "dev",
+      selectedProjectPath,
+      workspaceRoot: "/tmp/workspace",
+      activeWindowScope: "main",
+      openWindowScopes: ["main"],
+    });
+
+    const status = resolveStudioRuntimeNode(tree, []);
+
+    expect(status).toMatchObject({
+      resource_type: "studio_instance",
+      project_name: "pip-e",
+      project_dir: "/tmp/robots/pip-e",
+      selected_project_path: selectedProjectPath,
+    });
+  });
+
   it("does not mark configured default workbench as active without live state", () => {
     const tree = buildStudioRuntimeTree(document, {
       instanceName: "studio-1234",

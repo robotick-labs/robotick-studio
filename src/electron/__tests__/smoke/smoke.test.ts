@@ -393,6 +393,39 @@ describe("electron launch paths", () => {
     }
   });
 
+  it("bootstraps project selection from a project directory by resolving the project yaml", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-bootstrap-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const projectYamlPath = path.join(projectDir, "alf-e.project.yaml");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(projectYamlPath, "name: Alf.e\n", "utf-8");
+
+    try {
+      const mocks = await bootstrapWithMocks({
+        ROBOTICK_PROJECT_DIR: projectDir,
+      });
+      const handler = mocks.ipcHandleHandlers.get(
+        "robotick-project-selection:get-state"
+      );
+      expect(handler).toBeDefined();
+
+      const state = await handler?.();
+      expect(state).toEqual(
+        expect.objectContaining({
+          currentProjectPath: projectYamlPath,
+          bootstrapIssue: null,
+        })
+      );
+      expect(
+        fs.existsSync(path.join(projectDir, "studio", "studio.lock"))
+      ).toBe(true);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it("close command only closes target window and does not quit app", async () => {
     const mocks = await bootstrapWithMocks();
     const handler = mocks.ipcHandleHandlers.get("robotick-window-command");

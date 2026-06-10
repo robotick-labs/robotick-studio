@@ -1,3 +1,4 @@
+import path from "path";
 import type {
   StudioControlResourceSummary,
   StudioControlStatus,
@@ -105,6 +106,28 @@ export type StudioRuntimeStatusOptions = {
   activeLayoutIds?: Record<string, string>;
   activePanelIds?: Record<string, string>;
 };
+
+function deriveProjectName(selectedProjectPath: string | null): string | null {
+  if (!selectedProjectPath) {
+    return null;
+  }
+  const basename = path.basename(selectedProjectPath).trim();
+  if (!basename) {
+    return null;
+  }
+  return basename.replace(/\.project\.ya?ml$/i, "") || null;
+}
+
+function deriveProjectDirectory(selectedProjectPath: string | null): string | null {
+  if (!selectedProjectPath) {
+    return null;
+  }
+  const directory = path.dirname(selectedProjectPath).trim();
+  if (!directory || directory === ".") {
+    return null;
+  }
+  return directory;
+}
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -285,8 +308,8 @@ export function buildStudioRuntimeTree(
     pid: options.pid,
     mode: process.env.ROBOTICK_STUDIO_MODE ?? options.mode,
     state: "running",
-    project_name: process.env.ROBOTICK_STUDIO_SELECTED_PROJECT?.trim() || null,
-    project_dir: options.selectedProjectPath,
+    project_name: deriveProjectName(options.selectedProjectPath),
+    project_dir: deriveProjectDirectory(options.selectedProjectPath),
     selected_project_path: options.selectedProjectPath,
     active_window_id: activeWindow.id,
     state_sources: {

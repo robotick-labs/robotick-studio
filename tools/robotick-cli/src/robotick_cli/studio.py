@@ -239,14 +239,8 @@ def handle_instance_activate(
                 f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
             ),
         )
-    resource_path = quote_studio_resource_path(path_segments)
-    hub_path = (
-        f"/v1/studio/instances/{instance.name}/activate"
-        if not resource_path
-        else f"/v1/studio/instances/{instance.name}/{resource_path}/activate"
-    )
     try:
-        payload = post_studio_hub_json(ctx.workspace_root, hub_path)
+        payload = activate_studio_resource_with_settle(ctx, instance.name, path_segments)
     except HubRequestError as error:
         if error.status_code == 404:
             raise CliError(
@@ -411,6 +405,9 @@ def launch_studio_via_hub(
             target.chain_args,
             control_service,
         )
+        refreshed_active_path = fetch_active_studio_path(ctx, str(instance["name"]))
+        if refreshed_active_path:
+            control_service["active_path"] = refreshed_active_path
     if json_output:
         instance_name = str(instance["name"])
         instance_command_prefix = ["robotick", "studio", instance_name]
@@ -575,14 +572,71 @@ def fetch_active_studio_path(ctx: AppContext, instance_name: str) -> list[str] |
     return active_path
 
 
-def activate_opened_studio_resource(
+def activation_settle_timeout_seconds() -> float:
+    configured = os.environ.get("ROBOTICK_STUDIO_ACTIVATE_SETTLE_SECONDS")
+    if configured is not None:
+        try:
+            return max(0.0, float(configured))
+        except ValueError:
+            return 0.0
+    return 0.5 if os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS") == "1" else 2.0
+
+
+def wait_for_studio_activation_applied(
+    ctx: AppContext,
+    instance_name: str,
+    path_segments: tuple[str, ...],
+    timeout_seconds: float | None = None,
+) -> bool:
+    if not path_segments:
+        return True
+    timeout_seconds = (
+        activation_settle_timeout_seconds()
+        if timeout_seconds is None
+        else timeout_seconds
+    )
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            node = fetch_studio_node_status(ctx.workspace_root, instance_name, path_segments)
+        except Exception:
+            node = None
+        if isinstance(node, dict) and node.get("active") is True:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def activate_studio_resource_with_settle(
     ctx: AppContext,
     instance_name: str,
     path_segments: tuple[str, ...],
 ) -> dict[str, object]:
     resource_path = quote_studio_resource_path(path_segments)
-    hub_path = f"/v1/studio/instances/{instance_name}/{resource_path}/activate"
-    return post_studio_hub_json(ctx.workspace_root, hub_path)
+    hub_path = (
+        f"/v1/studio/instances/{instance_name}/activate"
+        if not resource_path
+        else f"/v1/studio/instances/{instance_name}/{resource_path}/activate"
+    )
+    payload = post_studio_hub_json(ctx.workspace_root, hub_path)
+    if (
+        path_segments
+        and payload.get("accepted") is True
+        and not wait_for_studio_activation_applied(ctx, instance_name, path_segments)
+    ):
+        # Studio can report activation before the renderer applies the branch change.
+        payload = post_studio_hub_json(ctx.workspace_root, hub_path)
+        wait_for_studio_activation_applied(ctx, instance_name, path_segments)
+    return payload
+
+
+def activate_opened_studio_resource(
+    ctx: AppContext,
+    instance_name: str,
+    path_segments: tuple[str, ...],
+) -> dict[str, object]:
+    return activate_studio_resource_with_settle(ctx, instance_name, path_segments)
 
 
 def determine_hub_action(workspace_root: str | Path) -> str:

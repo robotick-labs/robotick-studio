@@ -925,6 +925,24 @@ function resolveWindowIconPath(env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
+function resolveBootstrapProjectSelectionPath(projectPath: string): string {
+  const resolvedPath = resolveProjectPath(projectPath);
+  try {
+    if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory()) {
+      const projectFiles = fs
+        .readdirSync(resolvedPath)
+        .filter((entry) => entry.endsWith(".project.yaml"))
+        .sort();
+      if (projectFiles.length > 0) {
+        return resolveProjectPath(path.join(resolvedPath, projectFiles[0]));
+      }
+    }
+  } catch {
+    // Fall back to the original resolved path below.
+  }
+  return resolvedPath;
+}
+
 /**
  * Initializes and configures the Electron application runtime, creates the main window, and wires IPC, window state persistence, and graceful shutdown handlers.
  *
@@ -1040,7 +1058,7 @@ export async function bootstrapElectron({
   let studioControlServer: StudioControlServer | null = null;
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
-      ? resolveProjectPath(env.ROBOTICK_PROJECT_DIR)
+      ? resolveBootstrapProjectSelectionPath(env.ROBOTICK_PROJECT_DIR)
       : "";
   let currentProjectPath = "";
   let bootstrapProjectIssue: ProjectSelectionIssue | null = null;

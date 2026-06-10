@@ -314,6 +314,10 @@ function looksAbsolutePath(path: string): boolean {
   );
 }
 
+function looksLikeProjectFilePath(path: string): boolean {
+  return /\.project\.ya?ml$/i.test(path.trim());
+}
+
 function normalizePathForMatch(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+/g, "/");
 }
@@ -342,10 +346,32 @@ function cacheProjectPaths(paths: string[]) {
   knownProjectPaths = paths.slice();
 }
 
+function absolutizeKnownProjectPath(candidate: string): string {
+  return looksAbsolutePath(candidate)
+    ? candidate
+    : joinWorkspacePath(getWorkspaceRoot(), candidate);
+}
+
 function resolveProjectPathFromCache(projectPath: string): string {
   const trimmedPath = projectPath.trim();
   if (!trimmedPath) {
     return trimmedPath;
+  }
+  if (looksAbsolutePath(trimmedPath) && !looksLikeProjectFilePath(trimmedPath)) {
+    const normalizedInput = normalizePathForMatch(trimmedPath).replace(/\/+$/, "");
+    const directoryMatches = knownProjectPaths
+      .map((candidate) => absolutizeKnownProjectPath(candidate))
+      .filter((candidate) => {
+        const normalizedCandidate = normalizePathForMatch(candidate);
+        const candidateDirectory = normalizedCandidate.slice(
+          0,
+          normalizedCandidate.lastIndexOf("/")
+        );
+        return candidateDirectory === normalizedInput;
+      });
+    if (directoryMatches.length === 1) {
+      return directoryMatches[0];
+    }
   }
   if (looksAbsolutePath(trimmedPath)) {
     return trimmedPath;
@@ -393,6 +419,25 @@ async function resolveProjectPath(projectPath: string): Promise<string> {
   return workspaceRoot
     ? joinWorkspacePath(workspaceRoot, resolvedPath)
     : resolvedPath;
+}
+
+async function resolveProjectSettingsPath(projectPath: string): Promise<string> {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return trimmedPath;
+  }
+
+  let resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  const needsAbsoluteDirectoryLookup =
+    looksAbsolutePath(trimmedPath) &&
+    !looksLikeProjectFilePath(trimmedPath) &&
+    resolvedPath === trimmedPath &&
+    knownProjectPaths.length === 0;
+  if (needsAbsoluteDirectoryLookup) {
+    await fetchProjectPaths();
+    resolvedPath = resolveProjectPathFromCache(trimmedPath);
+  }
+  return await resolveProjectPath(resolvedPath);
 }
 
 /**
@@ -637,7 +682,7 @@ export async function fetchProjectPaths(): Promise<string[]> {
 export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
-  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const normalizedProjectPath = await resolveProjectSettingsPath(projectPath);
   const url = buildUrl(getLauncherApiBase(), "/query/get-project-settings", {
     project_path: normalizedProjectPath,
   });

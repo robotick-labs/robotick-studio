@@ -1036,6 +1036,50 @@ def test_studio_open_restarts_stale_hub_when_new_route_is_missing(
     assert state["restarted"] == 1
 
 
+def test_activate_retries_when_runtime_state_does_not_apply_on_first_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    calls = {"activations": 0}
+
+    def fake_post(_workspace, path, payload=None):
+        calls["activations"] += 1
+        return {
+            "accepted": True,
+            "changed": True,
+            "activated_path": ["windows", "main", "workbenches", "telemetry"],
+            "previous_active_path": ["windows", "main", "workbenches", "home"],
+            "message": "Activated Studio resource.",
+        }
+
+    def fake_status(_workspace, _instance_name, path_segments):
+        if path_segments == ("windows", "main", "workbenches", "telemetry"):
+            return {"active": calls["activations"] >= 2}
+        raise AssertionError(f"Unexpected status path: {path_segments}")
+
+    monkeypatch.setattr("robotick_cli.studio.post_studio_hub_json", fake_post)
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_node_status", fake_status)
+    monkeypatch.setattr(
+        "robotick_cli.studio.activation_settle_timeout_seconds",
+        lambda: 0.0,
+    )
+
+    payload = robotick_cli.studio.activate_opened_studio_resource(
+        AppContext(workspace_root=workspace),
+        "studio-1234",
+        ("windows", "main", "workbenches", "telemetry"),
+    )
+
+    assert calls["activations"] == 2
+    assert payload["accepted"] is True
+    assert payload["activated_path"] == [
+        "windows",
+        "main",
+        "workbenches",
+        "telemetry",
+    ]
+
+
 def test_studio_quit_falls_back_when_hub_request_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
