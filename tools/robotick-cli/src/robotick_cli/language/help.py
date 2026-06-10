@@ -603,8 +603,9 @@ def open_help_text() -> str:
             "Output:",
             "  JSON Studio launch result in one-shot CLI usage.",
             "",
-            "Options:",
-            "  --activate <path>   Activate a Studio resource after the control service is ready.",
+            "Chaining:",
+            "  robotick studio open pip-e windows main workbenches terminal activate",
+            "  robotick studio open pip-e windows main workbenches terminal status",
             "",
         ]
     )

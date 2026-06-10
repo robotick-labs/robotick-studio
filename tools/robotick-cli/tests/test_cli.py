@@ -901,7 +901,7 @@ def test_open_without_project_returns_json_result() -> None:
     assert any(name.name.startswith("studio-open-empty-") for name in logs_dir.iterdir())
 
 
-def test_studio_open_can_wait_for_control_and_activate_resource(
+def test_studio_open_can_chain_into_instance_activation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -954,7 +954,7 @@ def test_studio_open_can_wait_for_control_and_activate_resource(
 
     result = robotick_cli.studio.run_studio_command(
         AppContext(workspace_root=workspace),
-        ["open", "barr-e", "--activate", "windows/main/workbenches/terminal"],
+        ["open", "barr-e", "windows", "main", "workbenches", "terminal", "activate"],
     )
 
     assert result.exit_code == 0

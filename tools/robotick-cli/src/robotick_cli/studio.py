@@ -44,7 +44,7 @@ class OpenLaunchTarget:
     kind: Literal["empty", "project"]
     label: str
     attach: bool
-    activate_path: tuple[str, ...] | None = None
+    chain_args: tuple[str, ...] = ()
 
 
 def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
@@ -338,7 +338,7 @@ def resolve_open_launch_target(
 ) -> OpenLaunchTarget:
     attach = False
     project_name: str | None = None
-    activate_path: tuple[str, ...] | None = None
+    chain_args: tuple[str, ...] = ()
     index = 0
 
     while index < len(args):
@@ -347,22 +347,14 @@ def resolve_open_launch_target(
             attach = True
             index += 1
             continue
-        if arg == "--activate":
-            index += 1
-            if index >= len(args):
-                raise CliError(f"Missing path after '--activate' for '{command_name}'.")
-            activate_path = parse_activate_path_arg(args[index], command_name)
-            index += 1
-            continue
-        if arg.startswith("--activate="):
-            activate_path = parse_activate_path_arg(arg.split("=", 1)[1], command_name)
-            index += 1
-            continue
         if arg.startswith("--") and arg != "--":
             raise CliError(f"Unknown option for '{command_name}': {arg}")
         if project_name is None:
             project_name = arg
         else:
+            if command_name == "open":
+                chain_args = tuple(args[index:])
+                break
             raise CliError(
                 f"Extra arguments are not yet supported on the hub-managed Studio path: {arg}"
             )
@@ -373,7 +365,6 @@ def resolve_open_launch_target(
             kind="empty",
             label="Robotick Studio",
             attach=attach,
-            activate_path=activate_path,
         )
 
     project = manifest.projects.get(project_name)
@@ -389,15 +380,8 @@ def resolve_open_launch_target(
         kind="project",
         label=project_name,
         attach=attach,
-        activate_path=activate_path,
+        chain_args=chain_args,
     )
-
-
-def parse_activate_path_arg(value: str, command_name: str) -> tuple[str, ...]:
-    path_segments = tuple(segment for segment in value.split("/") if segment)
-    if not path_segments:
-        raise CliError(f"Invalid empty activation path for '{command_name}'.")
-    return path_segments
 
 
 def launch_studio_via_hub(
@@ -419,16 +403,21 @@ def launch_studio_via_hub(
     control_instance = control_service.get("instance")
     if isinstance(control_instance, dict):
         instance.update(control_instance)
-    activation_result = None
-    if target.activate_path is not None:
-        activation_result = activate_opened_studio_resource(
+    chained_result = None
+    if target.chain_args:
+        chained_result = run_chained_open_command(
             ctx,
             str(instance["name"]),
-            target.activate_path,
+            target.chain_args,
+            control_service,
         )
     if json_output:
         result_payload = {
-            "resource_type": "robotick_studio_open_result",
+            "resource_type": (
+                "robotick_studio_open_chained_result"
+                if chained_result is not None
+                else "robotick_studio_open_result"
+            ),
             "project_name": project_name,
             "support": {
                 "hub": {"action": hub_action},
@@ -441,8 +430,8 @@ def launch_studio_via_hub(
                 if key != "instance"
             },
         }
-        if activation_result is not None:
-            result_payload["activation"] = activation_result
+        if chained_result is not None:
+            result_payload["chained_command"] = chained_result
         write_json(result_payload)
     else:
         if project_name is not None:
@@ -459,6 +448,43 @@ def launch_studio_via_hub(
             writeln("Studio launch started.")
         writeln(f"Instance: {instance['name']}/")
     return CommandResult(exit_code=0, opened_instance_name=str(instance["name"]))
+
+
+def run_chained_open_command(
+    ctx: AppContext,
+    instance_name: str,
+    args: tuple[str, ...],
+    control_service: dict[str, object],
+) -> dict[str, object]:
+    path_segments, action = parse_instance_path_args(list(args))
+    if action not in {"status", "activate"}:
+        raise CliError(
+            "Chained Studio open requires a final action such as 'status' or 'activate'.",
+            code="invalid_chained_open_command",
+            recovery=(
+                "Use `robotick studio open <project> <path...> status` or "
+                "`robotick studio open <project> <path...> activate`."
+            ),
+        )
+    if action == "activate" and control_service.get("state") != "ready":
+        raise CliError(
+            f"Studio instance {instance_name} did not expose the Studio control service in time.",
+            code="studio_control_unavailable",
+            recovery=(
+                f"Run `robotick studio {instance_name} <path...> activate` after "
+                "the control service is registered, or retry the open command."
+            ),
+        )
+    if action == "status":
+        result = fetch_studio_node_status(ctx.workspace_root, instance_name, path_segments)
+    else:
+        result = activate_opened_studio_resource(ctx, instance_name, path_segments)
+    return {
+        "args": list(args),
+        "path": list(path_segments),
+        "action": action,
+        "result": result,
+    }
 
 
 def open_control_wait_timeout_seconds() -> float:

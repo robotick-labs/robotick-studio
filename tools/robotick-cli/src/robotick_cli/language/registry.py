@@ -76,14 +76,14 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="open",
-        usage="robotick studio open [project] [--activate <path>]",
+        usage="robotick studio open [project] [path...] [action]",
         summary="Convenience launch; in the immediate shell it creates then enters the instance",
         shell_label="open [project]",
         description_lines=(
             "Convenience launch command. In the immediate shell it creates a new",
             "Robotick Studio instance and enters it immediately.",
             "In one-shot CLI usage it prints a JSON launch result.",
-            "Use --activate <path> to activate a Studio resource after launch.",
+            "Trailing path/action tokens run inside the newly opened instance.",
             "By default the launch is quiet and writes logs to .robotick/logs/.",
             "Studio launch now routes through robotick-hub.",
         ),
