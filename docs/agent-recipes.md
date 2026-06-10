@@ -20,7 +20,7 @@ Ground rules:
 
 These are the current common main-window workbench ids used in Studio project documents.
 
-### `Rc` or `Remote Control`
+### `Rc`, `RC view`, or `Remote Control`
 
 - Workbench id: `remote-control`
 - Path: `windows main workbenches remote-control`

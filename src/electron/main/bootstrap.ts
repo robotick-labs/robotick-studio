@@ -1056,12 +1056,29 @@ export async function bootstrapElectron({
   const activePanelByLayout = new Map<string, string>();
   let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
+  let studioControlEndpointRegistered = false;
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
       ? resolveBootstrapProjectSelectionPath(env.ROBOTICK_PROJECT_DIR)
       : "";
   let currentProjectPath = "";
   let bootstrapProjectIssue: ProjectSelectionIssue | null = null;
+
+  const registerStudioControlEndpointOnce = () => {
+    if (
+      !isHubManaged ||
+      studioControlEndpointRegistered ||
+      !studioControlServer
+    ) {
+      return;
+    }
+    studioControlEndpointRegistered = true;
+    void registerStudioControlEndpointWithHub(
+      env.ROBOTICK_HUB_ENDPOINT,
+      projectLockOwner.instanceName,
+      studioControlServer.endpoint
+    );
+  };
 
   const getProjectSelectionState = (): ProjectSelectionState => ({
     currentProjectPath,
@@ -1140,6 +1157,9 @@ export async function bootstrapElectron({
       payload.panel_id.trim()
     ) {
       activePanelByLayout.set(`${windowId}/${workbenchId}/${layoutId}`, payload.panel_id.trim());
+    }
+    if (windowId === "main" && activeWorkbenchByWindow.has(windowId)) {
+      registerStudioControlEndpointOnce();
     }
   };
 
@@ -1934,11 +1954,6 @@ export async function bootstrapElectron({
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,
     });
-    void registerStudioControlEndpointWithHub(
-      env.ROBOTICK_HUB_ENDPOINT,
-      projectLockOwner.instanceName,
-      studioControlServer.endpoint
-    );
   }
 
   createWindow({

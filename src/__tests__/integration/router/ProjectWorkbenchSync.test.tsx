@@ -267,4 +267,63 @@ describe("ProjectWorkbenchSync", () => {
       root.unmount();
     });
   });
+
+  it("applies the last Studio control activation when it arrived before the route listener mounted", async () => {
+    const service = createMockLauncherService({
+      projectPath: "/repo/robots/barr-e/barr-e.project.yaml",
+    });
+    appConfigState.loading = false;
+    appConfigState.workbenches = [
+      {
+        id: "home",
+        path: "/home",
+        label: "Home",
+        group: "project-select",
+        editor: "home",
+      },
+      {
+        id: "project",
+        path: "/project",
+        label: "Project",
+        group: "dev",
+        editor: "project",
+      },
+    ];
+    window.robotick = {
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+        windowScope: "primary",
+        isPrimaryWindow: true,
+      },
+      studioControl: {
+        reportActiveResource: vi.fn(),
+        getLastActivation: () => ({
+          activated_path: ["windows", "main", "workbenches", "home"],
+        }),
+        onActivationChanged: () => () => {},
+      },
+    };
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <TestLauncherProviders service={service}>
+          <MemoryRouter initialEntries={["/project"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </TestLauncherProviders>
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.innerHTML).toContain('data-testid="workbench-home"');
+    expect(container.innerHTML).not.toContain('data-testid="workbench-project"');
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });

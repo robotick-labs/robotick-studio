@@ -74,24 +74,28 @@ function StudioActivationSync() {
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    const unsubscribe = window.robotick?.studioControl?.onActivationChanged?.(
-      (event) => {
-        const activatedPath = event.activated_path;
-        const windowId = windowIdFromActivationPath(activatedPath);
-        if (windowId && windowId !== windowIdForCurrentSession()) {
-          return;
-        }
-        const workbenchId = workbenchIdFromActivationPath(activatedPath);
-        if (!workbenchId) {
-          return;
-        }
-        const workbench = workbenches.find((entry) => entry.id === workbenchId);
-        if (!workbench || location.pathname === workbench.path) {
-          return;
-        }
-        navigate(workbench.path);
+    const applyActivation = (event: { activated_path: string[] }) => {
+      const activatedPath = event.activated_path;
+      const windowId = windowIdFromActivationPath(activatedPath);
+      if (windowId && windowId !== windowIdForCurrentSession()) {
+        return;
       }
-    );
+      const workbenchId = workbenchIdFromActivationPath(activatedPath);
+      if (!workbenchId) {
+        return;
+      }
+      const workbench = workbenches.find((entry) => entry.id === workbenchId);
+      if (!workbench || location.pathname === workbench.path) {
+        return;
+      }
+      navigate(workbench.path);
+    };
+    const unsubscribe =
+      window.robotick?.studioControl?.onActivationChanged?.(applyActivation);
+    const lastActivation = window.robotick?.studioControl?.getLastActivation?.();
+    if (lastActivation) {
+      applyActivation(lastActivation);
+    }
     return unsubscribe;
   }, [location.pathname, navigate, workbenches]);
 

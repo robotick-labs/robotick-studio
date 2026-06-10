@@ -438,6 +438,36 @@ describe("electron launch paths", () => {
     expect(mocks.app.quit).not.toHaveBeenCalled();
   });
 
+  it("advertises the hub control endpoint only after the primary renderer reports active state", async () => {
+    const mocks = await bootstrapWithMocks({
+      ROBOTICK_STUDIO_MANAGED_BY_HUB: "1",
+      ROBOTICK_HUB_ENDPOINT: "http://127.0.0.1:7099",
+      ROBOTICK_STUDIO_INSTANCE_NAME: "studio-test",
+    });
+    const fetchMock = vi.mocked(fetch);
+    const activeResourceHandler = mocks.ipcOnHandlers.get(
+      "robotick-studio-runtime:active-resource"
+    );
+
+    expect(activeResourceHandler).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    activeResourceHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        window_id: "main",
+        workbench_id: "telemetry",
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint"
+    );
+  });
+
   it("hub-managed primary window close starts app quit immediately", async () => {
     const mocks = createElectronMocks();
     await bootstrapElectron({
