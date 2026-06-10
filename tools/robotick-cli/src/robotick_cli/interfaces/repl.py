@@ -10,9 +10,9 @@ from robotick_cli.language.help import format_shell_context, format_shell_help, 
 from robotick_cli.language.parse import tokenize
 from robotick_cli.language.registry import TOP_LEVEL_NAMESPACES
 from robotick_cli.language.route import run_command
-from robotick_cli.output import write, writeln
+from robotick_cli.output import stream_supports_color, write, writeln
 from robotick_cli.studio import run_studio_command
-from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
+from robotick_cli.studio_tree import fetch_studio_node_status, list_child_contexts
 
 
 def step_back(state: ShellState) -> ShellState:
@@ -98,8 +98,7 @@ def try_enter_context_directly(
     if state.namespace == "studio" and state.instance_name is not None:
         if len(tokens) != 1:
             return False
-        payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
-        node = resolve_studio_node(payload, state.studio_path)
+        node = fetch_studio_node_status(ctx.workspace_root, state.instance_name, state.studio_path)
         child_names = {
             name[:-1]
             for name in list_child_contexts(node)
@@ -119,6 +118,7 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
         next_state = step_back(state)
         state.namespace = next_state.namespace
         state.instance_name = next_state.instance_name
+        state.studio_path = next_state.studio_path
         return
     if len(args) == 1 and args[0].startswith("../"):
         sibling_target = args[0][3:]
@@ -127,6 +127,7 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
         next_state = step_back(state)
         state.namespace = next_state.namespace
         state.instance_name = next_state.instance_name
+        state.studio_path = next_state.studio_path
         if not try_enter_context_directly(ctx, state, [sibling_target]):
             raise CliError(f"Unknown context: {args[0]}")
         return
@@ -148,8 +149,7 @@ def apply_cd(ctx: AppContext, state: ShellState, args: list[str]) -> None:
     if state.namespace == "studio" and state.instance_name is not None:
         if len(args) != 1:
             raise CliError("Use 'cd <context>' from the bound Studio context.")
-        payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
-        node = resolve_studio_node(payload, state.studio_path)
+        node = fetch_studio_node_status(ctx.workspace_root, state.instance_name, state.studio_path)
         child_names = {
             name[:-1]
             for name in list_child_contexts(node)
@@ -166,6 +166,7 @@ def start_interactive_shell(ctx: AppContext) -> int:
     write("Welcome to Robotick™\nType 'help' for commands or 'exit' to leave.\n\n")
     ensure_hub(ctx.workspace_root)
     state = ShellState()
+    use_color = stream_supports_color()
     cleanup_completion = install_readline_completion(ctx, state)
 
     try:
@@ -175,7 +176,7 @@ def start_interactive_shell(ctx: AppContext) -> int:
                 writeln(stale_message)
 
             try:
-                raw_line = input(get_prompt(state))
+                raw_line = input(get_prompt(state, color=use_color))
             except KeyboardInterrupt:
                 writeln("\nKeyboardInterrupt")
                 writeln("Use 'exit' to leave Robotick.")
@@ -192,10 +193,10 @@ def start_interactive_shell(ctx: AppContext) -> int:
                 if line == "exit":
                     return 0
                 if line == "help":
-                    writeln(format_shell_help(state))
+                    writeln(format_shell_help(state, color=use_color))
                     continue
                 if line == "ls":
-                    writeln(format_shell_context(state, str(ctx.workspace_root)))
+                    writeln(format_shell_context(state, str(ctx.workspace_root), color=use_color))
                     continue
                 if line == "clear":
                     write("\x1bc")

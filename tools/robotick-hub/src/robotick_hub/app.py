@@ -35,6 +35,8 @@ from robotick_hub.runtime import remove_hub_record, write_hub_record
 from robotick_hub.studio import (
     get_instance,
     get_instance_status,
+    get_studio_status,
+    get_studio_capability_status,
     list_instances,
     notify_instance_closing,
     open_studio,
@@ -49,6 +51,14 @@ from robotick_hub.workspace import (
     list_workspace_project_paths,
     resolve_project_asset_path,
 )
+
+
+def get_workspace_config_capability_status() -> str:
+    try:
+        build_workspace_projects(get_workspace_root())
+    except Exception:
+        return "unavailable"
+    return "available"
 
 
 def get_endpoint() -> str:
@@ -66,15 +76,26 @@ def tray_active() -> bool:
 
 
 def build_capabilities() -> list[CapabilitySummary]:
-    launcher_status = get_launcher_status(get_workspace_root())
     return [
-        CapabilitySummary(name="workspace", kind="embedded", status="healthy"),
-        CapabilitySummary(name="studio", kind="discovered", status="hello-world"),
         CapabilitySummary(
-            name="launcher",
+            name="query-workspace-config",
+            kind="embedded",
+            status=get_workspace_config_capability_status(),
+        ),
+        CapabilitySummary(
+            name="launch-studio",
             kind="managed",
-            status=launcher_status["capability_status"],
-            endpoint=launcher_status["endpoint"],
+            status=get_studio_capability_status(get_workspace_root()),
+        ),
+        CapabilitySummary(
+            name="query-launcher-status",
+            kind="managed",
+            status="available",
+        ),
+        CapabilitySummary(
+            name="ensure-launcher-service",
+            kind="managed",
+            status="available",
         ),
     ]
 
@@ -260,20 +281,32 @@ def create_app() -> FastAPI:
     @app.get("/v1/studio/instances", response_model=StudioInstancesResponse)
     def studio_instances() -> StudioInstancesResponse:
         return StudioInstancesResponse.model_validate(
-            {"instances": list_instances(get_workspace_root())}
+            {"resource_type": "robotick_studio_instances", "instances": list_instances(get_workspace_root())}
         )
 
     @app.get("/v1/studio/instances/{instance_id}/status", response_class=JSONResponse)
     def studio_instance_status(instance_id: str) -> JSONResponse:
-        payload = get_instance_status(get_workspace_root(), instance_id)
+        payload = get_studio_status(get_workspace_root(), instance_id)
         if payload is None:
             raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
         return JSONResponse(payload)
 
+    @app.get("/v1/studio/instances/{instance_id}/{resource_path:path}/status", response_class=JSONResponse)
+    def studio_node_status(instance_id: str, resource_path: str) -> JSONResponse:
+        path_segments = tuple(segment for segment in resource_path.split("/") if segment)
+        payload = get_studio_status(get_workspace_root(), instance_id, path_segments)
+        if payload is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Studio resource not found: {instance_id}/{resource_path}",
+            )
+        return JSONResponse(payload)
+
     @app.post("/v1/studio/open", response_model=StudioOpenResponse)
     def studio_open(request: StudioOpenRequest) -> StudioOpenResponse:
+        instance, support = open_studio(get_workspace_root(), project_name=request.project_name)
         return StudioOpenResponse.model_validate(
-            {"instance": open_studio(get_workspace_root(), project_name=request.project_name)}
+            {"instance": instance, "support": support}
         )
 
     @app.post("/v1/studio/instances/{instance_id}/quit", response_model=StudioQuitResponse)

@@ -9,9 +9,16 @@ from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError, HubRequestError
 from robotick_cli.command_result import CommandResult
 from robotick_cli.hub import get_hub_workspace_projects
-from robotick_cli.hub_client import ensure_hub, fetch_hub_json, post_hub_json, restart_hub
+from robotick_cli.hub_client import (
+    discover_hub,
+    ensure_hub,
+    fetch_hub_json,
+    is_hub_healthy,
+    is_pid_alive,
+    post_hub_json,
+    restart_hub,
+)
 from robotick_cli.instances import (
-    format_instance_age,
     get_live_instance,
     normalize_instance_specifier,
     quit_studio_instance,
@@ -26,7 +33,7 @@ from robotick_cli.language.help import (
 )
 from robotick_cli.manifest import Manifest, load_manifest
 from robotick_cli.output import write_json, writeln
-from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
+from robotick_cli.studio_tree import fetch_studio_node_status, list_child_contexts
 
 @dataclass
 class OpenLaunchTarget:
@@ -42,6 +49,20 @@ def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
 
     manifest = load_manifest(ctx.workspace_root)
     command, *rest = args
+    if command == "status":
+        raise CliError(
+            "No Studio instance is currently bound. Use 'robotick studio open [project]' "
+            "or 'robotick studio instances' first.",
+            code="studio_instance_not_bound",
+            recovery="Run `robotick studio open [project]` or `robotick studio instances` first.",
+        )
+    if command == "quit":
+        raise CliError(
+            "No Studio instance is currently bound. Use 'robotick studio <instance> quit' "
+            "from the instance context.",
+            code="studio_instance_not_bound",
+            recovery="Run `robotick studio instances` to discover an instance first.",
+        )
     if command == "projects":
         handle_projects_command(ctx, rest)
         return CommandResult(exit_code=0)
@@ -87,29 +108,12 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
     if any(is_help_flag(arg) for arg in args):
         writeln(instances_help_text())
         return
-    json_mode = "--json" in args
     unknown_args = [arg for arg in args if arg != "--json"]
     if unknown_args:
         raise CliError(f"Unknown argument for 'instances': {unknown_args[0]}")
 
     payload = fetch_studio_hub_json(workspace_root, "/v1/studio/instances")
-    instances = payload["instances"]
-    if json_mode:
-        write_json({"instances": instances})
-        return
-
-    writeln("Open Robotick Studio instances:")
-    if not instances:
-        writeln("- none")
-        return
-    for instance in instances:
-        details = [instance["state"], instance["mode"]]
-        if instance.get("project_name"):
-            details.append(str(instance["project_name"]))
-        age = format_instance_age(str(instance["started_at"]))
-        if age:
-            details.append(age)
-        writeln(f"- {instance['name']} ({' | '.join(details)})")
+    write_json(payload)
 
 
 def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -> CommandResult:
@@ -136,8 +140,7 @@ def print_studio_context_listing(
     instance_name: str,
     path_segments: tuple[str, ...],
 ) -> None:
-    payload = fetch_instance_status(ctx.workspace_root, instance_name)
-    node = resolve_studio_node(payload, path_segments)
+    node = fetch_studio_node_status(ctx.workspace_root, instance_name, path_segments)
     contexts = list_child_contexts(node)
     label = f"studio/{instance_name}"
     if path_segments:
@@ -159,8 +162,7 @@ def handle_instance_status(
 ) -> CommandResult:
     if args:
         raise CliError(f"Unknown argument for '{instance_name} status': {args[0]}")
-    payload = fetch_instance_status(ctx.workspace_root, instance_name)
-    write_json(resolve_studio_node(payload, path_segments))
+    write_json(fetch_studio_node_status(ctx.workspace_root, instance_name, path_segments))
     return CommandResult(exit_code=0)
 
 
@@ -216,7 +218,10 @@ def handle_open_command(ctx: AppContext, manifest: Manifest, args: list[str]) ->
     if any(is_help_flag(arg) for arg in args):
         writeln(open_help_text())
         return CommandResult(exit_code=0)
-    return handle_create_command(ctx, manifest, args)
+    target = resolve_open_launch_target(ctx.workspace_root, manifest, args, "open")
+    if target.attach:
+        raise CliError("--attach is not yet supported on the hub-managed Studio path.")
+    return launch_studio_via_hub(ctx, manifest, target, json_output=True)
 
 
 def resolve_open_launch_target(
@@ -251,7 +256,11 @@ def resolve_open_launch_target(
     project = manifest.projects.get(project_name)
     if project is None:
         names = ", ".join(sorted(manifest.projects))
-        raise CliError(f"Unknown project: {project_name}. Registered projects: {names}")
+        raise CliError(
+            f"Unknown project: {project_name}. Registered projects: {names}",
+            code="unknown_project",
+            recovery="Run `robotick studio projects` to inspect registered projects.",
+        )
 
     return OpenLaunchTarget(
         kind="project",
@@ -264,28 +273,53 @@ def launch_studio_via_hub(
     ctx: AppContext,
     manifest: Manifest,
     target: OpenLaunchTarget,
+    *,
+    json_output: bool = False,
 ) -> CommandResult:
     project_name = target.label if target.kind == "project" else None
+    hub_action = determine_hub_action(ctx.workspace_root)
     payload = post_studio_hub_json(
         ctx.workspace_root,
         "/v1/studio/open",
         {"project_name": project_name},
     )
     instance = payload["instance"]
-    if project_name is not None:
-        writeln(f"Opening Robotick Studio for {project_name}...")
+    if json_output:
+        write_json(
+            {
+                "resource_type": "robotick_studio_open_result",
+                "project_name": project_name,
+                "support": {
+                    "hub": {"action": hub_action},
+                    **dict(payload.get("support") or {}),
+                },
+                "instance": instance,
+            }
+        )
     else:
-        writeln("Opening Robotick Studio...")
-    studio_mode = os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode)
-    writeln(f"Starting Studio in {studio_mode} mode...")
-    if instance.get("log_path"):
-        writeln(f"Logs: {os.path.relpath(str(instance['log_path']), ctx.workspace_root)}")
-    if project_name is not None:
-        writeln(f"Studio launch started for {project_name}.")
-    else:
-        writeln("Studio launch started.")
-    writeln(f"Instance: {instance['name']}/")
+        if project_name is not None:
+            writeln(f"Opening Robotick Studio for {project_name}...")
+        else:
+            writeln("Opening Robotick Studio...")
+        studio_mode = os.environ.get("ROBOTICK_STUDIO_MODE", manifest.studio.default_mode)
+        writeln(f"Starting Studio in {studio_mode} mode...")
+        if instance.get("log_path"):
+            writeln(f"Logs: {os.path.relpath(str(instance['log_path']), ctx.workspace_root)}")
+        if project_name is not None:
+            writeln(f"Studio launch started for {project_name}.")
+        else:
+            writeln("Studio launch started.")
+        writeln(f"Instance: {instance['name']}/")
     return CommandResult(exit_code=0, opened_instance_name=str(instance["name"]))
+
+
+def determine_hub_action(workspace_root: str | Path) -> str:
+    record = discover_hub(workspace_root)
+    if record is None:
+        return "started"
+    if not is_pid_alive(record.pid):
+        return "restarted"
+    return "reused" if is_hub_healthy(record) else "restarted"
 
 
 def fetch_studio_hub_json(workspace_root: str | Path, path: str) -> dict[str, object]:

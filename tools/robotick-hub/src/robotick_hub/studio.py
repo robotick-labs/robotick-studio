@@ -12,7 +12,7 @@ import time
 from pydantic import BaseModel
 import yaml
 
-from robotick_hub.launcher import ensure_launcher
+from robotick_hub.launcher import ensure_launcher_with_action
 from robotick_hub.manifest import Manifest, load_manifest
 
 ACTIVE_STUDIO_CHILDREN: dict[int, subprocess.Popen[object]] = {}
@@ -335,7 +335,7 @@ def extract_docked_panels(
             "editor_id": str(node.get("editorId") or "unknown"),
             "label": str(node.get("label") or node.get("panelId") or "panel"),
             "settings": clone_value(node.get("settings") or {}),
-            "diagnostics": {},
+            "diagnostics": {"source": "placeholder", "items": []},
         }
     ]
 
@@ -378,7 +378,7 @@ def normalize_layout(
                     "label": str(panel.get("label") or panel.get("id") or "panel"),
                     "settings": clone_value(panel.get("settings") or {}),
                     "frame": clone_value(panel.get("frame") or {}),
-                    "diagnostics": {},
+                    "diagnostics": {"source": "placeholder", "items": []},
                 }
             )
     panels = [*docked_panels, *floating_panels]
@@ -394,6 +394,8 @@ def normalize_layout(
         "floating_panels": floating_panels,
         "panels": panels,
         "diagnostics": {
+            "source": "computed",
+            "items": [],
             "panel_count": len(panels),
             "floating_panel_count": len(floating_panels),
         },
@@ -476,6 +478,10 @@ def normalize_workbench(
         "default_editor_id": default_editor_id,
         "default_layout_id": default_layout_id,
         "active_layout_id": default_layout_id,
+        "state_sources": {
+            "default_layout_id": "config",
+            "active_layout_id": "config",
+        },
         "layouts": layouts,
     }
 
@@ -508,6 +514,10 @@ def normalize_window(
         "window_role": str(payload.get("windowRole") or "main"),
         "default_workbench_id": active_workbench_id,
         "active_workbench_id": active_workbench_id,
+        "state_sources": {
+            "default_workbench_id": "config",
+            "active_workbench_id": "config",
+        },
         "workbenches": workbenches,
     }
 
@@ -554,8 +564,260 @@ def build_instance_status(
         **summary,
         "project_dir": instance.project_dir,
         "active_window_id": active_window_id,
+        "state_sources": {"active_window_id": "config"},
         "windows": windows,
     }
+
+
+def build_collection_node(
+    parent: dict[str, object],
+    collection_name: str,
+    items: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "resource_type": f"studio_{collection_name}",
+        "id": collection_name,
+        "parent_id": parent.get("id"),
+        "items": items,
+    }
+
+
+def child_collection_name(resource_type: str) -> str | None:
+    return {
+        "studio_instance": "windows",
+        "studio_window": "workbenches",
+        "studio_workbench": "layouts",
+        "studio_layout": "panels",
+    }.get(resource_type)
+
+
+def resolve_status_node(
+    instance_status: dict[str, object],
+    path_segments: tuple[str, ...],
+) -> dict[str, object]:
+    node = instance_status
+    index = 0
+    while index < len(path_segments):
+        segment = path_segments[index]
+        resource_type = str(node.get("resource_type") or "")
+        collection_name = child_collection_name(resource_type)
+        if collection_name is None or segment != collection_name:
+            raise KeyError(segment)
+        raw_items = node.get(collection_name)
+        items = [
+            item
+            for item in (raw_items if isinstance(raw_items, list) else [])
+            if isinstance(item, dict)
+        ]
+        if index == len(path_segments) - 1:
+            return build_collection_node(node, collection_name, items)
+        item_id = path_segments[index + 1]
+        next_node = next((item for item in items if str(item.get("id")) == item_id), None)
+        if next_node is None:
+            raise KeyError(item_id)
+        node = next_node
+        index += 2
+    return node
+
+
+def summarize_child_node(node: dict[str, object]) -> dict[str, object]:
+    resource_type = str(node.get("resource_type") or "")
+    if resource_type == "studio_window":
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "window_role": node.get("window_role"),
+        }
+    if resource_type == "studio_workbench":
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "group": node.get("group"),
+            "path": node.get("path"),
+        }
+    if resource_type == "studio_layout":
+        diagnostics = node.get("diagnostics")
+        panel_count = diagnostics.get("panel_count") if isinstance(diagnostics, dict) else None
+        floating_panel_count = (
+            diagnostics.get("floating_panel_count") if isinstance(diagnostics, dict) else None
+        )
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "panel_count": panel_count,
+            "floating_panel_count": floating_panel_count,
+        }
+    if resource_type == "studio_panel":
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "panel_location": node.get("panel_location"),
+            "editor_id": node.get("editor_id"),
+        }
+    return {
+        "resource_type": resource_type,
+        "id": node.get("id"),
+    }
+
+
+def build_child_contexts(node: dict[str, object]) -> list[dict[str, object]]:
+    resource_type = str(node.get("resource_type") or "")
+    if resource_type in {
+        "studio_windows",
+        "studio_workbenches",
+        "studio_layouts",
+        "studio_panels",
+    }:
+        items = node.get("items")
+        return [
+            {
+                "kind": "resource",
+                "name": str(item.get("id")),
+                "label": f"{item.get('id')}/",
+                "resource_type": item.get("resource_type"),
+            }
+            for item in (items if isinstance(items, list) else [])
+            if isinstance(item, dict)
+        ]
+
+    collection_name = child_collection_name(resource_type)
+    if collection_name is None:
+        return []
+    return [
+        {
+            "kind": "collection",
+            "name": collection_name,
+            "label": f"{collection_name}/",
+            "resource_type": f"studio_{collection_name}",
+        }
+    ]
+
+
+def build_status_view(node: dict[str, object]) -> dict[str, object]:
+    resource_type = str(node.get("resource_type") or "")
+    if resource_type == "studio_instance":
+        windows = node.get("windows")
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "name": node.get("name"),
+            "pid": node.get("pid"),
+            "mode": node.get("mode"),
+            "started_at": node.get("started_at"),
+            "state": node.get("state"),
+            "project_name": node.get("project_name"),
+            "log_path": node.get("log_path"),
+            "control_endpoint": node.get("control_endpoint"),
+            "project_dir": node.get("project_dir"),
+            "active_window_id": node.get("active_window_id"),
+            "state_sources": node.get("state_sources"),
+            "children": {
+                "windows": [
+                    summarize_child_node(window)
+                    for window in (windows if isinstance(windows, list) else [])
+                    if isinstance(window, dict)
+                ]
+            },
+            "available_contexts": build_child_contexts(node),
+        }
+    if resource_type == "studio_window":
+        workbenches = node.get("workbenches")
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "instance_id": node.get("instance_id"),
+            "window_role": node.get("window_role"),
+            "default_workbench_id": node.get("default_workbench_id"),
+            "active_workbench_id": node.get("active_workbench_id"),
+            "state_sources": node.get("state_sources"),
+            "children": {
+                "workbenches": [
+                    summarize_child_node(workbench)
+                    for workbench in (workbenches if isinstance(workbenches, list) else [])
+                    if isinstance(workbench, dict)
+                ]
+            },
+            "available_contexts": build_child_contexts(node),
+        }
+    if resource_type == "studio_workbench":
+        layouts = node.get("layouts")
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "instance_id": node.get("instance_id"),
+            "window_id": node.get("window_id"),
+            "path": node.get("path"),
+            "group": node.get("group"),
+            "default_editor_id": node.get("default_editor_id"),
+            "default_layout_id": node.get("default_layout_id"),
+            "active_layout_id": node.get("active_layout_id"),
+            "state_sources": node.get("state_sources"),
+            "children": {
+                "layouts": [
+                    summarize_child_node(layout)
+                    for layout in (layouts if isinstance(layouts, list) else [])
+                    if isinstance(layout, dict)
+                ]
+            },
+            "available_contexts": build_child_contexts(node),
+        }
+    if resource_type == "studio_layout":
+        panels = node.get("panels")
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "label": node.get("label"),
+            "instance_id": node.get("instance_id"),
+            "window_id": node.get("window_id"),
+            "workbench_id": node.get("workbench_id"),
+            "dock": node.get("dock"),
+            "diagnostics": node.get("diagnostics"),
+            "children": {
+                "panels": [
+                    summarize_child_node(panel)
+                    for panel in (panels if isinstance(panels, list) else [])
+                    if isinstance(panel, dict)
+                ]
+            },
+            "available_contexts": build_child_contexts(node),
+        }
+    if resource_type in {
+        "studio_windows",
+        "studio_workbenches",
+        "studio_layouts",
+        "studio_panels",
+    }:
+        items = node.get("items")
+        return {
+            "resource_type": resource_type,
+            "id": node.get("id"),
+            "parent_id": node.get("parent_id"),
+            "items": [
+                summarize_child_node(item)
+                for item in (items if isinstance(items, list) else [])
+                if isinstance(item, dict)
+            ],
+            "available_contexts": build_child_contexts(node),
+        }
+    return {
+        **node,
+        "available_contexts": build_child_contexts(node),
+    }
+
+
+def get_studio_capability_status(workspace_root: str | Path) -> str:
+    try:
+        manifest = load_manifest(workspace_root)
+        resolve_studio_runner_path(workspace_root, manifest)
+    except Exception:
+        return "unavailable"
+    return "available"
 
 
 def list_instances(workspace_root: str | Path) -> list[dict[str, object]]:
@@ -600,6 +862,21 @@ def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[
         remove_instance_record(workspace_root, instance.name)
         return None
     return build_instance_status(workspace_root, instance)
+
+
+def get_studio_status(
+    workspace_root: str | Path,
+    instance_name: str,
+    path_segments: tuple[str, ...] = (),
+) -> dict[str, object] | None:
+    instance_status = get_instance_status(workspace_root, instance_name)
+    if instance_status is None:
+        return None
+    try:
+        node = resolve_status_node(instance_status, path_segments)
+    except KeyError:
+        return None
+    return build_status_view(node)
 
 
 def find_instance_record_by_process_member(
@@ -739,10 +1016,10 @@ def open_studio(
     workspace_root: str | Path,
     *,
     project_name: str | None,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, object]]:
     workspace_root = Path(workspace_root).resolve()
     manifest = load_manifest(workspace_root)
-    ensure_launcher(workspace_root)
+    _, launcher_action = ensure_launcher_with_action(workspace_root)
     selected_project_dir, selected_project = resolve_project_selection(
         workspace_root, manifest, project_name
     )
@@ -791,7 +1068,7 @@ def open_studio(
         control_endpoint=None,
     )
     write_instance_record(workspace_root, record)
-    return summarize_instance(record)
+    return summarize_instance(record), {"launcher_service": {"action": launcher_action}}
 
 
 def signal_instance_process_tree(pid: int, sig: signal.Signals) -> None:

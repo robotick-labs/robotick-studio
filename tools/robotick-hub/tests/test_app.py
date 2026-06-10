@@ -76,7 +76,12 @@ def test_capabilities_endpoint() -> None:
         response = client.get("/v1/capabilities")
         assert response.status_code == 200
         names = [item["name"] for item in response.json()["capabilities"]]
-        assert names == ["workspace", "studio", "launcher"]
+        assert names == [
+            "query-workspace-config",
+            "launch-studio",
+            "query-launcher-status",
+            "ensure-launcher-service",
+        ]
 
 
 def test_capabilities_reflect_launcher_provider_state(
@@ -97,11 +102,18 @@ def test_capabilities_reflect_launcher_provider_state(
     with build_client(workspace) as client:
         response = client.get("/v1/capabilities")
         assert response.status_code == 200
-        launcher = next(
-            item for item in response.json()["capabilities"] if item["name"] == "launcher"
+        query_launcher = next(
+            item
+            for item in response.json()["capabilities"]
+            if item["name"] == "query-launcher-status"
         )
-        assert launcher["status"] == "healthy"
-        assert launcher["endpoint"] == "http://127.0.0.1:7081"
+        ensure_launcher = next(
+            item
+            for item in response.json()["capabilities"]
+            if item["name"] == "ensure-launcher-service"
+        )
+        assert query_launcher["status"] == "available"
+        assert ensure_launcher["status"] == "available"
 
 
 def test_workspace_and_studio_projects_endpoints() -> None:
@@ -339,7 +351,10 @@ def test_studio_instances_open_and_quit_endpoints(
         "control_endpoint": None,
     }
     monkeypatch.setattr("robotick_hub.app.list_instances", lambda _: [summary])
-    monkeypatch.setattr("robotick_hub.app.open_studio", lambda _, project_name=None: summary)
+    monkeypatch.setattr(
+        "robotick_hub.app.open_studio",
+        lambda _, project_name=None: (summary, {"launcher_service": {"action": "started"}}),
+    )
     monkeypatch.setattr(
         "robotick_hub.app.quit_instance",
         lambda _, instance_id: (True, f"Studio instance {instance_id} closed.", summary),
@@ -349,9 +364,11 @@ def test_studio_instances_open_and_quit_endpoints(
         open_response = client.post("/v1/studio/open", json={"project_name": "barr-e"})
         quit_response = client.post("/v1/studio/instances/studio-1234/quit")
         assert instances_response.status_code == 200
+        assert instances_response.json()["resource_type"] == "robotick_studio_instances"
         assert instances_response.json()["instances"][0]["name"] == "studio-1234"
         assert open_response.status_code == 200
         assert open_response.json()["instance"]["project_name"] == "barr-e"
+        assert open_response.json()["support"]["launcher_service"]["action"] == "started"
         assert quit_response.status_code == 200
         assert quit_response.json()["accepted"] is True
 
@@ -370,25 +387,29 @@ def test_studio_instance_status_endpoint(
         "state": "running",
         "project_name": "barr-e",
         "control_endpoint": None,
-        "windows": [
-            {
-                "resource_type": "studio_window",
-                "id": "main",
-                "label": "Main Window",
-                "window_role": "main",
-                "workbenches": [],
-            }
-        ],
+        "children": {
+            "windows": [
+                {
+                    "resource_type": "studio_window",
+                    "id": "main",
+                    "label": "Main Window",
+                    "window_role": "main",
+                }
+            ]
+        },
+        "available_contexts": [{"kind": "collection", "name": "windows", "label": "windows/"}],
     }
     monkeypatch.setattr(
-        "robotick_hub.app.get_instance_status",
-        lambda _, instance_id: status_payload if instance_id == "studio-1234" else None,
+        "robotick_hub.app.get_studio_status",
+        lambda _, instance_id, path_segments=(): (
+            status_payload if instance_id == "studio-1234" and path_segments == () else None
+        ),
     )
     with build_client(workspace) as client:
         response = client.get("/v1/studio/instances/studio-1234/status")
         assert response.status_code == 200
         assert response.json()["resource_type"] == "studio_instance"
-        assert response.json()["windows"][0]["id"] == "main"
+        assert response.json()["children"]["windows"][0]["id"] == "main"
 
 
 def test_app_instance_closing_endpoint(

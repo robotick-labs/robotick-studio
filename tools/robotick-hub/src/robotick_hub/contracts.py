@@ -51,6 +51,7 @@ class StudioInstanceSummary(BaseModel):
 
 
 class StudioInstancesResponse(BaseModel):
+    resource_type: str = "robotick_studio_instances"
     instances: list[StudioInstanceSummary]
 
 
@@ -58,8 +59,17 @@ class StudioOpenRequest(BaseModel):
     project_name: str | None = None
 
 
+class ActionSummary(BaseModel):
+    action: str
+
+
+class StudioOpenSupport(BaseModel):
+    launcher_service: ActionSummary
+
+
 class StudioOpenResponse(BaseModel):
     instance: StudioInstanceSummary
+    support: StudioOpenSupport
 
 
 class StudioQuitResponse(BaseModel):

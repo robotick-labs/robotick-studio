@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from robotick_cli.app.context import AppContext, ShellState
 from robotick_cli.instances import list_live_instances, normalize_instance_specifier
-from robotick_cli.studio_tree import fetch_instance_status, list_child_contexts, resolve_studio_node
+from robotick_cli.studio_tree import fetch_studio_node_status, list_child_contexts
 from robotick_cli.language.registry import (
     CONTEXT_SHELL_BUILTINS,
     TOP_LEVEL_NAMESPACES,
@@ -50,8 +50,7 @@ def _current_context_first_tokens(ctx: AppContext, state: ShellState) -> list[st
         names.extend(_context_builtin_names())
         names.extend(bound_instance_action_names())
         try:
-            payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
-            node = resolve_studio_node(payload, state.studio_path)
+            node = fetch_studio_node_status(ctx.workspace_root, state.instance_name, state.studio_path)
             names.extend(name[:-1] for name in list_child_contexts(node) if name.endswith("/"))
         except Exception:
             pass
@@ -74,8 +73,7 @@ def _cd_targets(ctx: AppContext, state: ShellState) -> list[str]:
         return sorted(["..", *_studio_instance_context_names(str(ctx.workspace_root))])
     if state.namespace == "studio" and state.instance_name is not None:
         try:
-            payload = fetch_instance_status(ctx.workspace_root, state.instance_name)
-            node = resolve_studio_node(payload, state.studio_path)
+            node = fetch_studio_node_status(ctx.workspace_root, state.instance_name, state.studio_path)
             children = [name for name in list_child_contexts(node)]
         except Exception:
             children = []

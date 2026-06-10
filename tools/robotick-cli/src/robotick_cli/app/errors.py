@@ -1,5 +1,14 @@
 class CliError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "cli_error",
+        recovery: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.recovery = recovery
 
 
 class HubUnavailableError(CliError):

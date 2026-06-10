@@ -197,17 +197,27 @@ def wait_for(condition, timeout_ms: int = 3000) -> None:
     raise AssertionError("Timed out waiting for condition")
 
 
+def opened_instance_name_from_stdout(stdout: str) -> str:
+    payload = json.loads(stdout)
+    return str(payload["instance"]["name"])
+
+
 def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
     text = format_shell_context(ShellState(), str(create_fake_workspace()))
     assert "Available here:" in text
-    assert "Contexts:\n- hub/\n- launcher/\n- studio/" in text
-    assert "Actions:\n- ls\n- cd\n- clear\n- help\n- exit" in text
+    assert "- hub/       Inspect the local Robotick hub for this workspace" in text
+    assert "- launcher/  Inspect launcher capability state through robotick-hub" in text
+    assert "- studio/    Open and inspect Robotick Studio projects in this workspace" in text
+    assert "- ls     List available namespaces and shell commands" in text
+    assert "- help   Show this help" in text
 
 
 def test_launcher_ls_exposes_launcher_actions() -> None:
     text = format_shell_context(ShellState(namespace="launcher"), str(create_fake_workspace()))
     assert "Available in launcher:" in text
-    assert "Actions:\n- status\n- ls\n- cd\n- clear\n- help\n- back\n- exit" in text
+    assert "- status  Query launcher service status as JSON without starting it" in text
+    assert "- ensure  Start or reuse the launcher service and report the result as JSON" in text
+    assert "- back    Return to the parent shell context" in text
 
 
 def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> None:
@@ -216,23 +226,78 @@ def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> 
     text = format_shell_context(ShellState(namespace="studio"), str(workspace))
     assert "Available in studio:" in text
     assert "Contexts:\n- studio-" in text
-    assert "Actions:\n- projects\n- instances\n- create [project]\n- open [project]" in text
+    assert "- projects          List registered Studio projects from robotick.yaml" in text
+    assert "- instances         List live Studio instances tracked in .robotick/instances" in text
+    assert "- open [project]    Convenience launch; in the immediate shell it creates then enters the instance" in text
+
+
+def test_top_level_help_is_reference_oriented() -> None:
+    text = repl_module.format_shell_help(ShellState())
+    assert "Current context: top level" in text
+    assert "Namespaces:" in text
+    assert "Notes:" in text
+    assert "Query commands return JSON and do not start dependencies." in text
+    assert "Examples:" in text
+
+
+def test_interactive_shell_formatting_can_opt_into_ansi_styling() -> None:
+    text = format_shell_context(ShellState(), str(create_fake_workspace()), color=True)
+    prompt = get_prompt(ShellState(namespace="studio"), color=True)
+    assert "\x1b[" in text
+    assert "\x1b[" in prompt
+    assert "Available here:" in text
+    assert "robotick" in prompt
+
+
+def test_launcher_help_describes_status_and_ensure_by_semantics() -> None:
+    text = repl_module.format_shell_help(ShellState(namespace="launcher"))
+    assert "Current context: launcher" in text
+    assert "Commands:" in text
+    assert "Output:" in text
+    assert "status returns launcher service state and runtime state as JSON." in text
+    assert "ensure returns the action taken: started, reused, or restarted." in text
+
+
+def test_bound_studio_help_describes_navigation_and_output() -> None:
+    text = repl_module.format_shell_help(
+        ShellState(namespace="studio", instance_name="studio-12345")
+    )
+    assert "Current context: studio/studio-12345" in text
+    assert "Navigation:" in text
+    assert "Output:" in text
+    assert "Some fields may be config-derived until live Studio state is available." in text
 
 
 def test_studio_help_is_generated_from_command_registry() -> None:
     open_spec = get_studio_command_spec("open")
     help_text = get_studio_help_text()
-    assert f"  {open_spec.usage}" in help_text
+    assert "Current context: studio" in help_text
+    assert "Commands:" in help_text
     assert open_spec.summary in help_text
+    assert "open and create return JSON in one-shot CLI usage." in help_text
 
 
-def test_hub_status_starts_hub_and_reports_capabilities() -> None:
+def test_hub_status_is_read_only_and_json_by_default() -> None:
     workspace = create_fake_workspace()
     result = run_cli(["hub", "status"], workspace)
-    assert result.returncode == 0
-    assert "Robotick hub is ready." in result.stdout
-    assert "Capabilities:" in result.stdout
 
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "robotick_hub_status"
+    assert payload["state"] == "stopped"
+    assert discover_hub(workspace) is None
+
+
+def test_hub_ensure_starts_hub_and_reports_json() -> None:
+    workspace = create_fake_workspace()
+    result = run_cli(["hub", "ensure"], workspace)
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "robotick_hub_ensure_result"
+    assert payload["action"] in {"started", "reused", "restarted"}
+    assert payload["status"]["state"] == "running"
+    assert payload["status"]["endpoint"].startswith("http://127.0.0.1:")
     record = discover_hub(workspace)
     assert record is not None
     terminate_pid(record.pid)
@@ -249,14 +314,29 @@ def test_hub_projects_reads_workspace_projects_through_hub_json() -> None:
     terminate_pid(record.pid)
 
 
-def test_launcher_status_uses_hub_managed_launcher_path() -> None:
+def test_launcher_status_is_read_only_and_json_by_default() -> None:
     workspace = create_fake_workspace()
-    result = run_cli(["launcher", "status", "--json"], workspace)
+    result = run_cli(["launcher", "status"], workspace)
+
     assert result.returncode == 0
     payload = json.loads(result.stdout)
-    assert payload["capability_status"] == "healthy"
-    assert payload["endpoint"].startswith("http://127.0.0.1:")
-    assert payload["listener_status"]["status"] == "stopped"
+    assert payload["resource_type"] == "robotick_launcher_status"
+    assert payload["service"]["state"] == "hub_unavailable"
+    assert discover_hub(workspace) is None
+    assert not (workspace / ".robotick" / "launcher.json").exists()
+
+
+def test_launcher_ensure_starts_hub_managed_launcher_path() -> None:
+    workspace = create_fake_workspace()
+    result = run_cli(["launcher", "ensure"], workspace)
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "robotick_launcher_ensure_result"
+    assert payload["action"] in {"started", "reused", "restarted"}
+    assert payload["status"]["service"]["state"] == "running"
+    assert payload["status"]["service"]["endpoint"].startswith("http://127.0.0.1:")
+    assert payload["status"]["runtime"]["status"] == "stopped"
 
     record = discover_hub(workspace)
     assert record is not None
@@ -293,7 +373,8 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
     workspace = create_fake_workspace()
     result = run_shell(["studio", "launcher status", "exit"], workspace)
     assert result.returncode == 0
-    assert "Robotick launcher is available through robotick-hub." in result.stdout
+    assert '"resource_type": "robotick_launcher_status"' in result.stdout
+    assert '"state": "stopped"' in result.stdout
 
     record = discover_hub(workspace)
     assert record is not None
@@ -307,28 +388,23 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
 def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
     text = format_shell_context(
         ShellState(namespace="studio", instance_name=instance_name),
         str(workspace),
     )
     assert f"Available in studio/{instance_name}:" in text
     assert "Contexts:\n- windows/" in text
-    assert "Actions:\n- status\n- ls\n- cd\n- clear\n- help\n- back\n- quit\n- exit" in text
+    assert "Actions:" in text
+    assert "- status  Print the currently bound Studio resource as JSON" in text
+    assert "- quit    Close this Studio instance" in text
+    assert "- back    Return to the parent shell context" in text
 
 
 def test_instance_help_lists_status_and_windows_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     result = run_cli(["studio", instance_name], workspace)
 
@@ -340,11 +416,7 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 def test_instance_status_returns_structured_payload() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     result = run_cli(["studio", instance_name, "status"], workspace)
 
@@ -353,7 +425,9 @@ def test_instance_status_returns_structured_payload() -> None:
     assert payload["resource_type"] == "studio_instance"
     assert payload["id"] == instance_name
     assert payload["project_name"] == "barr-e"
-    assert payload["windows"][0]["id"] == "main"
+    assert payload["state_sources"]["active_window_id"] == "config"
+    assert payload["children"]["windows"][0]["id"] == "main"
+    assert payload["available_contexts"][0]["label"] == "windows/"
 
 
 def test_deep_studio_navigation_and_status_work_in_repl() -> None:
@@ -392,11 +466,7 @@ def test_deep_studio_navigation_and_status_work_in_repl() -> None:
 def test_one_shot_deep_layout_and_panel_status() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     layout_result = run_cli(
         [
@@ -435,19 +505,19 @@ def test_one_shot_deep_layout_and_panel_status() -> None:
     panel_payload = json.loads(panel_result.stdout)
     assert layout_payload["resource_type"] == "studio_layout"
     assert layout_payload["id"] == "main:remote-control:default"
+    assert layout_payload["diagnostics"]["source"] == "computed"
+    assert layout_payload["diagnostics"]["items"] == []
     assert panel_payload["resource_type"] == "studio_panel"
     assert panel_payload["id"] == "panel-face-preview"
     assert panel_payload["settings"]["source"] == "face-camera"
+    assert panel_payload["diagnostics"]["source"] == "placeholder"
+    assert panel_payload["diagnostics"]["items"] == []
 
 
 def test_one_shot_window_and_workbench_status() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     window_result = run_cli(
         ["studio", instance_name, "windows", "main", "status"],
@@ -472,19 +542,19 @@ def test_one_shot_window_and_workbench_status() -> None:
     workbench_payload = json.loads(workbench_result.stdout)
     assert window_payload["resource_type"] == "studio_window"
     assert window_payload["id"] == "main"
+    assert window_payload["state_sources"]["active_workbench_id"] == "config"
+    assert window_payload["children"]["workbenches"][0]["id"] == "remote-control"
     assert workbench_payload["resource_type"] == "studio_workbench"
     assert workbench_payload["id"] == "remote-control"
     assert workbench_payload["active_layout_id"] == "main:remote-control:default"
+    assert workbench_payload["state_sources"]["active_layout_id"] == "config"
+    assert workbench_payload["children"]["layouts"][0]["id"] == "main:remote-control:default"
 
 
 def test_invalid_deep_studio_context_fails_clearly() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     result = run_cli(
         [
@@ -498,17 +568,46 @@ def test_invalid_deep_studio_context_fails_clearly() -> None:
     )
 
     assert result.returncode == 1
-    assert "Unknown Studio context: missing-window" in result.stderr
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "unknown_studio_context"
+    assert payload["error"]["message"] == "Unknown Studio context: missing-window"
 
 
-def test_open_without_project_launches_empty_studio_quietly() -> None:
+def test_studio_status_without_bound_instance_fails_with_guidance() -> None:
+    workspace = create_fake_workspace()
+
+    result = run_cli(["studio", "status"], workspace)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "studio_instance_not_bound"
+    assert "No Studio instance is currently bound." in payload["error"]["message"]
+    assert "robotick studio open [project]" in payload["error"]["recovery"]
+
+
+def test_open_with_unknown_project_returns_json_error() -> None:
+    workspace = create_fake_workspace()
+
+    result = run_cli(["studio", "open", "unknown-project"], workspace)
+
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert payload["error"]["code"] == "unknown_project"
+    assert "Unknown project: unknown-project." in payload["error"]["message"]
+    assert "robotick studio projects" in payload["error"]["recovery"]
+
+
+def test_open_without_project_returns_json_result() -> None:
     workspace = create_fake_workspace()
     result = run_cli(["studio", "open"], workspace)
 
     assert result.returncode == 0
-    assert "Opening Robotick Studio..." in result.stdout
-    assert "Studio launch started." in result.stdout
-    assert "Instance: studio-" in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "robotick_studio_open_result"
+    assert payload["project_name"] is None
+    assert payload["instance"]["name"].startswith("studio-")
+    assert payload["support"]["hub"]["action"] in {"started", "reused", "restarted"}
+    assert payload["support"]["launcher_service"]["action"] in {"started", "reused", "restarted"}
     logs_dir = workspace / ".robotick" / "logs"
     assert any(name.name.startswith("studio-open-empty-") for name in logs_dir.iterdir())
 
@@ -536,7 +635,8 @@ def test_studio_open_restarts_stale_hub_when_new_route_is_missing(
                 "project_name": None,
                 "log_path": str(workspace / ".robotick" / "logs" / "studio-open-empty.log"),
                 "control_endpoint": None,
-            }
+            },
+            "support": {"launcher_service": {"action": "started"}},
         }
 
     monkeypatch.setattr("robotick_cli.studio.post_hub_json", fake_post)
@@ -585,33 +685,30 @@ def test_open_with_project_launches_project_quietly() -> None:
     result = run_cli(["studio", "open", "barr-e"], workspace)
 
     assert result.returncode == 0
-    assert "Opening Robotick Studio for barr-e..." in result.stdout
-    assert "Studio launch started for barr-e." in result.stdout
-    assert "Instance: studio-" in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["resource_type"] == "robotick_studio_open_result"
+    assert payload["project_name"] == "barr-e"
+    assert payload["instance"]["name"].startswith("studio-")
+    assert payload["support"]["hub"]["action"] in {"started", "reused", "restarted"}
+    assert payload["support"]["launcher_service"]["action"] in {"started", "reused", "restarted"}
 
 
 def test_instances_list_live_instances_created_by_open() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     listed = run_cli(["studio", "instances"], workspace)
     assert listed.returncode == 0
-    assert f"- {instance_name}" in listed.stdout
+    payload = json.loads(listed.stdout)
+    assert payload["resource_type"] == "robotick_studio_instances"
+    assert any(item["name"] == instance_name for item in payload["instances"])
 
 
 def test_one_shot_quit_closes_live_instance_cleanly() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     quit_result = run_cli(["studio", instance_name, "quit"], workspace)
     assert quit_result.returncode == 0
@@ -625,11 +722,7 @@ def test_one_shot_quit_closes_live_instance_cleanly() -> None:
 def test_cd_enters_a_discovered_instance_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
     state = ShellState(namespace="studio")
     apply_cd(AppContext(workspace_root=workspace), state, [instance_name])
     assert state == ShellState(namespace="studio", instance_name=instance_name)
@@ -638,11 +731,7 @@ def test_cd_enters_a_discovered_instance_context() -> None:
 def test_direct_instance_entry_works_without_cd() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
     state = ShellState(namespace="studio")
 
     entered = try_enter_context_directly(
@@ -659,16 +748,8 @@ def test_cd_parent_sibling_instance_works() -> None:
     workspace = create_fake_workspace()
     first_opened = run_cli(["studio", "open"], workspace)
     second_opened = run_cli(["studio", "open"], workspace)
-    first_instance = next(
-        line.split(": ", 1)[1][:-1]
-        for line in first_opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
-    second_instance = next(
-        line.split(": ", 1)[1][:-1]
-        for line in second_opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    first_instance = opened_instance_name_from_stdout(first_opened.stdout)
+    second_instance = opened_instance_name_from_stdout(second_opened.stdout)
     state = ShellState(namespace="studio", instance_name=first_instance)
 
     apply_cd(AppContext(workspace_root=workspace), state, [f"../{second_instance}"])
@@ -799,9 +880,41 @@ def test_back_unwinds_from_instance_context_to_studio_without_leaving_cli() -> N
     assert next_state == ShellState(namespace="studio")
 
 
+def test_back_unwinds_from_nested_studio_context_to_parent_node() -> None:
+    next_state = step_back(
+        ShellState(
+            namespace="studio",
+            instance_name="studio-12345",
+            studio_path=("windows", "main", "workbenches"),
+        )
+    )
+    assert next_state == ShellState(
+        namespace="studio",
+        instance_name="studio-12345",
+        studio_path=("windows", "main"),
+    )
+
+
 def test_back_unwinds_from_studio_context_to_top_level() -> None:
     next_state = step_back(ShellState(namespace="studio"))
     assert next_state == ShellState()
+
+
+def test_cd_dot_dot_updates_nested_studio_path() -> None:
+    workspace = create_fake_workspace()
+    state = ShellState(
+        namespace="studio",
+        instance_name="studio-12345",
+        studio_path=("windows", "main", "workbenches"),
+    )
+
+    apply_cd(AppContext(workspace_root=workspace), state, [".."])
+
+    assert state == ShellState(
+        namespace="studio",
+        instance_name="studio-12345",
+        studio_path=("windows", "main"),
+    )
 
 
 def test_prompt_renders_bound_instance_path() -> None:
@@ -909,11 +1022,7 @@ def test_eof_does_not_exit_interactive_shell(
 def test_completion_suggests_studio_instances_for_cd() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     matches = get_completion_matches(
         AppContext(workspace_root=workspace),
@@ -929,11 +1038,7 @@ def test_completion_suggests_studio_instances_for_cd() -> None:
 def test_completion_suggests_instance_quit_in_studio_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     matches = get_completion_matches(
         AppContext(workspace_root=workspace),
@@ -949,11 +1054,7 @@ def test_completion_suggests_instance_quit_in_studio_context() -> None:
 def test_completion_suggests_instance_status_in_studio_context() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open"], workspace)
-    instance_name = next(
-        line.split(": ", 1)[1][:-1]
-        for line in opened.stdout.splitlines()
-        if line.startswith("Instance: ")
-    )
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
 
     matches = get_completion_matches(
         AppContext(workspace_root=workspace),

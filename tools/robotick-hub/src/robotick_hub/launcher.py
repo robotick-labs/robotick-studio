@@ -218,10 +218,16 @@ def start_launcher(workspace_root: str | Path) -> LauncherRecord:
 
 
 def ensure_launcher(workspace_root: str | Path) -> LauncherRecord:
+    return ensure_launcher_with_action(workspace_root)[0]
+
+
+def ensure_launcher_with_action(workspace_root: str | Path) -> tuple[LauncherRecord, str]:
     record = discover_launcher(workspace_root)
     if record is not None and is_pid_alive(record.pid) and is_launcher_healthy(record):
-        return record
+        return record, "reused"
+    action = "started"
     if record is not None and record.pid is not None:
+        action = "restarted"
         stop_launcher_process(record.pid)
         remove_launcher_record(workspace_root)
 
@@ -229,7 +235,7 @@ def ensure_launcher(workspace_root: str | Path) -> LauncherRecord:
     started_at = time.time()
     while time.time() - started_at < 8:
         if record is not None and is_pid_alive(record.pid) and is_launcher_healthy(record):
-            return record
+            return record, action
         record = discover_launcher(workspace_root)
         time.sleep(0.1)
     raise RuntimeError("robotick-launcher did not become ready.")
