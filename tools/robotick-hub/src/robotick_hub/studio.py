@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import os
+import json
 from pathlib import Path
 import signal
 import socket
 import subprocess
 import threading
 import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 from pydantic import BaseModel
 import yaml
@@ -51,6 +55,20 @@ def write_instance_record(workspace_root: str | Path, record: StudioInstanceReco
         f"{record.model_dump_json(indent=2)}\n",
         encoding="utf-8",
     )
+
+
+def update_instance_control_endpoint(
+    workspace_root: str | Path,
+    instance_name: str,
+    endpoint: str,
+) -> StudioInstanceRecord | None:
+    validate_studio_control_endpoint(endpoint)
+    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    if instance is None:
+        return None
+    updated = instance.model_copy(update={"control_endpoint": endpoint})
+    write_instance_record(workspace_root, updated)
+    return updated
 
 
 def remove_instance_record(workspace_root: str | Path, instance_name: str) -> None:
@@ -209,6 +227,26 @@ def reap_instance_process_group(instance: StudioInstanceRecord) -> None:
     except OSError:
         return
     wait_for_instance_exit(instance.pid, 1500)
+
+
+def release_project_lock(instance: StudioInstanceRecord) -> None:
+    if not instance.project_dir:
+        return
+    lock_path = Path(instance.project_dir) / "studio" / "studio.lock"
+    if not lock_path.exists():
+        return
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(payload, dict):
+        return
+    if payload.get("pid") != instance.pid and payload.get("instanceName") != instance.name:
+        return
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return
 
 
 def classify_instance_state(instance: StudioInstanceRecord) -> str:
@@ -664,36 +702,36 @@ def summarize_child_node(node: dict[str, object]) -> dict[str, object]:
     }
 
 
-def build_child_contexts(node: dict[str, object]) -> list[dict[str, object]]:
+def build_child_collections(node: dict[str, object]) -> list[dict[str, object]]:
     resource_type = str(node.get("resource_type") or "")
-    if resource_type in {
+    collection_name = child_collection_name(resource_type)
+    if collection_name is None:
+        return []
+    raw_items = node.get(collection_name)
+    item_count = len([item for item in raw_items if isinstance(item, dict)]) if isinstance(raw_items, list) else 0
+    return [
+        {
+            "name": collection_name,
+            "resource_type": f"studio_{collection_name}",
+            "item_count": item_count,
+        }
+    ]
+
+
+def build_child_resources(node: dict[str, object]) -> list[dict[str, object]]:
+    resource_type = str(node.get("resource_type") or "")
+    if resource_type not in {
         "studio_windows",
         "studio_workbenches",
         "studio_layouts",
         "studio_panels",
     }:
-        items = node.get("items")
-        return [
-            {
-                "kind": "resource",
-                "name": str(item.get("id")),
-                "label": f"{item.get('id')}/",
-                "resource_type": item.get("resource_type"),
-            }
-            for item in (items if isinstance(items, list) else [])
-            if isinstance(item, dict)
-        ]
-
-    collection_name = child_collection_name(resource_type)
-    if collection_name is None:
         return []
+    items = node.get("items")
     return [
-        {
-            "kind": "collection",
-            "name": collection_name,
-            "label": f"{collection_name}/",
-            "resource_type": f"studio_{collection_name}",
-        }
+        summarize_child_node(item)
+        for item in (items if isinstance(items, list) else [])
+        if isinstance(item, dict)
     ]
 
 
@@ -722,7 +760,7 @@ def build_status_view(node: dict[str, object]) -> dict[str, object]:
                     if isinstance(window, dict)
                 ]
             },
-            "available_contexts": build_child_contexts(node),
+            "child_collections": build_child_collections(node),
         }
     if resource_type == "studio_window":
         workbenches = node.get("workbenches")
@@ -742,7 +780,7 @@ def build_status_view(node: dict[str, object]) -> dict[str, object]:
                     if isinstance(workbench, dict)
                 ]
             },
-            "available_contexts": build_child_contexts(node),
+            "child_collections": build_child_collections(node),
         }
     if resource_type == "studio_workbench":
         layouts = node.get("layouts")
@@ -765,7 +803,7 @@ def build_status_view(node: dict[str, object]) -> dict[str, object]:
                     if isinstance(layout, dict)
                 ]
             },
-            "available_contexts": build_child_contexts(node),
+            "child_collections": build_child_collections(node),
         }
     if resource_type == "studio_layout":
         panels = node.get("panels")
@@ -785,7 +823,7 @@ def build_status_view(node: dict[str, object]) -> dict[str, object]:
                     if isinstance(panel, dict)
                 ]
             },
-            "available_contexts": build_child_contexts(node),
+            "child_collections": build_child_collections(node),
         }
     if resource_type in {
         "studio_windows",
@@ -798,16 +836,12 @@ def build_status_view(node: dict[str, object]) -> dict[str, object]:
             "resource_type": resource_type,
             "id": node.get("id"),
             "parent_id": node.get("parent_id"),
-            "items": [
-                summarize_child_node(item)
-                for item in (items if isinstance(items, list) else [])
-                if isinstance(item, dict)
-            ],
-            "available_contexts": build_child_contexts(node),
+            "items": build_child_resources(node),
+            "child_resources": build_child_resources(node),
         }
     return {
         **node,
-        "available_contexts": build_child_contexts(node),
+        "child_collections": build_child_collections(node),
     }
 
 
@@ -834,6 +868,7 @@ def list_instances(workspace_root: str | Path) -> list[dict[str, object]]:
             continue
         if not is_instance_alive(instance):
             reap_instance_process_group(instance)
+            release_project_lock(instance)
             remove_instance_record(workspace_root, instance.name)
             continue
         instances.append(summarize_instance(instance))
@@ -846,7 +881,7 @@ def get_instance(workspace_root: str | Path, instance_name: str) -> dict[str, ob
         return None
     if not is_instance_alive(instance):
         reap_instance_process_group(instance)
-        release_project_lock(instance.project_dir)
+        release_project_lock(instance)
         remove_instance_record(workspace_root, instance.name)
         return None
     return summarize_instance(instance)
@@ -858,10 +893,68 @@ def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[
         return None
     if not is_instance_alive(instance):
         reap_instance_process_group(instance)
-        release_project_lock(instance.project_dir)
+        release_project_lock(instance)
         remove_instance_record(workspace_root, instance.name)
         return None
     return build_instance_status(workspace_root, instance)
+
+
+def validate_studio_control_endpoint(endpoint: str) -> None:
+    parsed = urlparse(endpoint)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or not parsed.port:
+        raise ValueError(f"Invalid Studio control endpoint: {endpoint}")
+
+
+def fetch_studio_control_status(
+    instance: StudioInstanceRecord,
+    path_segments: tuple[str, ...],
+) -> dict[str, object] | None:
+    if not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    resource_path = "/".join(quote(segment, safe="") for segment in path_segments)
+    url = (
+        f"{instance.control_endpoint}/v1/status"
+        if not resource_path
+        else f"{instance.control_endpoint}/v1/studio/{resource_path}/status"
+    )
+    try:
+        with urlopen(url, timeout=1.5) as response:
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except URLError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return loaded
+
+
+def select_studio_project(
+    workspace_root: str | Path,
+    instance_name: str,
+    project_path: str,
+) -> tuple[int, dict[str, object]] | None:
+    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    if instance is None or not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    request = Request(
+        f"{instance.control_endpoint}/v1/project/select",
+        data=json.dumps({"project_path": project_path}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=1.5) as response:
+            status_code = int(response.status)
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except HTTPError as error:
+        status_code = int(error.code)
+        loaded = yaml.safe_load(error.read().decode("utf-8"))
+    except URLError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return status_code, loaded
 
 
 def get_studio_status(
@@ -869,7 +962,20 @@ def get_studio_status(
     instance_name: str,
     path_segments: tuple[str, ...] = (),
 ) -> dict[str, object] | None:
-    instance_status = get_instance_status(workspace_root, instance_name)
+    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    if instance is None:
+        return None
+    control_status = fetch_studio_control_status(instance, path_segments)
+    if control_status is not None:
+        return control_status
+
+    if not is_instance_alive(instance):
+        reap_instance_process_group(instance)
+        release_project_lock(instance)
+        remove_instance_record(workspace_root, instance.name)
+        return None
+
+    instance_status = build_instance_status(workspace_root, instance)
     if instance_status is None:
         return None
     try:
@@ -1126,6 +1232,6 @@ def quit_instance(workspace_root: str | Path, instance_name: str) -> tuple[bool,
             summarize_instance(record),
         )
     except OSError:
-        release_project_lock(record.project_dir)
+        release_project_lock(record)
         remove_instance_record(workspace_root, record.name)
         return False, f"Unable to quit {record.name}. It may already have exited.", summarize_instance(record)

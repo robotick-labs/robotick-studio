@@ -222,6 +222,16 @@ def start_interactive_shell(ctx: AppContext) -> int:
                         [state.instance_name, *state.studio_path, "status"],
                     )
                     continue
+                if (
+                    state.namespace == "studio"
+                    and state.instance_name is not None
+                    and line.startswith("select-project ")
+                ):
+                    run_studio_command(
+                        ctx,
+                        [state.instance_name, *tokenize(line)],
+                    )
+                    continue
                 if try_enter_context_directly(ctx, state, [line]):
                     continue
 

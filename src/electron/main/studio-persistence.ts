@@ -4,7 +4,7 @@ import { parse, stringify } from "yaml";
 import type { BrowserWindowConstructor } from "./bootstrap";
 import type { IpcMain } from "electron";
 
-type StudioDockNode =
+export type StudioDockNode =
   | {
       nodeType: "panel";
       panelId: string;
@@ -19,7 +19,7 @@ type StudioDockNode =
       children: [StudioDockNode, StudioDockNode];
     };
 
-type StudioFloatingPanel = {
+export type StudioFloatingPanel = {
   id: string;
   editorId: string;
   label?: string;
@@ -34,14 +34,14 @@ type StudioFloatingPanel = {
   };
 };
 
-type StudioLayout = {
+export type StudioLayout = {
   id: string;
   label: string;
   dock: StudioDockNode;
   floatingPanels?: StudioFloatingPanel[];
 };
 
-type StudioWorkbench = {
+export type StudioWorkbench = {
   id: string;
   path?: string;
   label: string;
@@ -51,7 +51,7 @@ type StudioWorkbench = {
   layouts: StudioLayout[];
 };
 
-type StudioWindow = {
+export type StudioWindow = {
   id: string;
   label: string;
   windowRole: "main" | "child";
@@ -59,7 +59,7 @@ type StudioWindow = {
   workbenches: StudioWorkbench[];
 };
 
-type StudioDocument = {
+export type StudioDocument = {
   resourceType: "studio_document";
   schemaVersion: 1;
   id: string;

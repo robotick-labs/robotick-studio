@@ -45,11 +45,19 @@ def fetch_studio_node_status(
 
 
 def list_child_contexts(node: dict[str, object]) -> list[str]:
-    contexts = node.get("available_contexts")
-    if not isinstance(contexts, list):
-        return []
-    return [
-        str(context.get("label"))
-        for context in contexts
-        if isinstance(context, dict) and isinstance(context.get("label"), str)
-    ]
+    child_collections = node.get("child_collections")
+    child_resources = node.get("child_resources")
+    labels: list[str] = []
+    if isinstance(child_collections, list):
+        labels.extend(
+            f"{collection.get('name')}/"
+            for collection in child_collections
+            if isinstance(collection, dict) and isinstance(collection.get("name"), str)
+        )
+    if isinstance(child_resources, list):
+        labels.extend(
+            f"{resource.get('id')}/"
+            for resource in child_resources
+            if isinstance(resource, dict) and isinstance(resource.get("id"), str)
+        )
+    return labels

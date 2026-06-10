@@ -14,10 +14,19 @@ import pytest
 import robotick_cli.hub_client as hub_client_module
 import robotick_cli.studio
 from robotick_cli.app.context import AppContext, ShellState
-from robotick_cli.hub_client import HubRecord, discover_hub, desktop_tray_expected, ensure_hub, get_hub_record_path
+from robotick_cli.app.errors import CliError
+from robotick_cli.hub_client import (
+    HubRecord,
+    discover_hub,
+    desktop_tray_expected,
+    ensure_hub,
+    get_hub_record_path,
+    is_hub_compatible,
+)
 from robotick_cli.interfaces.completion import get_completion_matches
 import robotick_cli.interfaces.repl as repl_module
 from robotick_cli.instances import parse_instance_pid, reconcile_bound_instance
+from robotick_cli.instances import InstanceRecord
 from robotick_cli.interfaces.repl import (
     apply_cd,
     bind_opened_instance_to_state,
@@ -40,6 +49,15 @@ from robotick_cli.studio import CommandResult
 CLI_DIR = Path(__file__).resolve().parents[1]
 CLI_SRC = CLI_DIR / "src"
 HUB_DIR = CLI_DIR.parent / "robotick-hub"
+
+
+def compatible_hub_health(*, tray_active: bool = False) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "api_version": hub_client_module.REQUIRED_HUB_API_VERSION,
+        "features": sorted(hub_client_module.REQUIRED_HUB_FEATURES),
+        "tray_active": tray_active,
+    }
 
 
 def write_executable(file_path: Path, contents: str) -> None:
@@ -396,9 +414,13 @@ def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     assert f"Available in studio/{instance_name}:" in text
     assert "Contexts:\n- windows/" in text
     assert "Actions:" in text
-    assert "- status  Print the currently bound Studio resource as JSON" in text
-    assert "- quit    Close this Studio instance" in text
-    assert "- back    Return to the parent shell context" in text
+    assert "- status" in text
+    assert "Print the currently bound Studio resource as JSON" in text
+    assert "- select-project [project]  Switch the selected project inside this Studio instance" in text
+    assert "- quit" in text
+    assert "Close this Studio instance" in text
+    assert "- back" in text
+    assert "Return to the parent shell context" in text
 
 
 def test_instance_help_lists_status_and_windows_context() -> None:
@@ -410,7 +432,90 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 
     assert result.returncode == 0
     assert f"robotick studio {instance_name} status" in result.stdout
+    assert f"robotick studio {instance_name} select-project <project>" in result.stdout
     assert f"robotick studio {instance_name} windows" in result.stdout
+
+
+def test_instance_select_project_posts_registered_project_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_hub_workspace_projects",
+        lambda _ctx: [
+            {
+                "name": "barr-e",
+                "project_dir": "robots/barr-e",
+                "project_path": "/tmp/barr-e.project.yaml",
+            }
+        ],
+    )
+
+    def fake_post(_workspace, path, payload=None):
+        captured["path"] = path
+        captured["payload"] = payload
+        return {
+            "accepted": True,
+            "currentProjectPath": "/tmp/barr-e.project.yaml",
+            "issue": None,
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.post_studio_hub_json", fake_post)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "select-project", "barr-e"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/project/select"
+    assert captured["payload"] == {"project_path": "/tmp/barr-e.project.yaml"}
+    assert captured["output"] == {
+        "accepted": True,
+        "currentProjectPath": "/tmp/barr-e.project.yaml",
+        "issue": None,
+    }
+
+
+def test_instance_select_project_requires_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with pytest.raises(CliError) as error:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "select-project", "barr-e"],
+        )
+
+    assert error.value.code == "studio_control_unavailable"
+    assert "does not expose the Studio control service" in str(error.value)
 
 
 def test_instance_status_returns_structured_payload() -> None:
@@ -427,7 +532,8 @@ def test_instance_status_returns_structured_payload() -> None:
     assert payload["project_name"] == "barr-e"
     assert payload["state_sources"]["active_window_id"] == "config"
     assert payload["children"]["windows"][0]["id"] == "main"
-    assert payload["available_contexts"][0]["label"] == "windows/"
+    assert payload["child_collections"][0]["name"] == "windows"
+    assert payload["child_collections"][0]["resource_type"] == "studio_windows"
 
 
 def test_deep_studio_navigation_and_status_work_in_repl() -> None:
@@ -1080,6 +1186,18 @@ def test_discover_hub_reads_registry_record() -> None:
     assert record.endpoint == "http://127.0.0.1:7090"
 
 
+def test_hub_compatibility_requires_current_protocol_and_features() -> None:
+    assert is_hub_compatible(compatible_hub_health()) is True
+    assert is_hub_compatible({"status": "ok"}) is False
+    assert is_hub_compatible(
+        {
+            "status": "ok",
+            "api_version": hub_client_module.REQUIRED_HUB_API_VERSION,
+            "features": ["hub_health_protocol"],
+        }
+    ) is False
+
+
 def test_desktop_tray_expected_honors_headless_and_desktop_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
@@ -1113,8 +1231,8 @@ def test_ensure_hub_replaces_non_tray_hub_in_desktop_mode(monkeypatch: pytest.Mo
     def fake_fetch(record, path):
         assert path == "/v1/health"
         if record.pid == 111:
-            return {"status": "ok", "tray_active": False}
-        return {"status": "ok", "tray_active": True}
+            return {**compatible_hub_health(tray_active=False)}
+        return {**compatible_hub_health(tray_active=True)}
 
     monkeypatch.setattr(hub_client_module, "discover_hub", fake_discover)
     monkeypatch.setattr(hub_client_module, "is_pid_alive", fake_is_pid_alive)
@@ -1123,6 +1241,47 @@ def test_ensure_hub_replaces_non_tray_hub_in_desktop_mode(monkeypatch: pytest.Mo
     monkeypatch.setattr(hub_client_module, "stop_hub_process", lambda pid: state["stopped"].append(pid))
 
     record = ensure_hub(workspace)
+    assert record.pid == 222
+    assert state["stopped"] == [111]
+    assert state["started"] == 1
+
+
+def test_ensure_hub_replaces_old_incompatible_hub(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = create_fake_workspace()
+    old = HubRecord(endpoint="http://127.0.0.1:7000", pid=111)
+    fresh = HubRecord(endpoint="http://127.0.0.1:7001", pid=222)
+    state = {"discover_calls": 0, "stopped": [], "started": 0}
+
+    monkeypatch.setenv("ROBOTICK_HUB_FORCE_HEADLESS", "1")
+
+    def fake_discover(_workspace):
+        state["discover_calls"] += 1
+        if state["discover_calls"] == 1:
+            return old
+        return fresh
+
+    def fake_fetch(record, path):
+        assert path == "/v1/health"
+        if record.pid == 111:
+            return {"status": "ok"}
+        return compatible_hub_health()
+
+    monkeypatch.setattr(hub_client_module, "discover_hub", fake_discover)
+    monkeypatch.setattr(hub_client_module, "is_pid_alive", lambda pid: pid in {111, 222})
+    monkeypatch.setattr(hub_client_module, "fetch_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        hub_client_module,
+        "start_hub",
+        lambda _workspace: state.__setitem__("started", state["started"] + 1),
+    )
+    monkeypatch.setattr(
+        hub_client_module,
+        "stop_hub_process",
+        lambda pid: state["stopped"].append(pid),
+    )
+
+    record = ensure_hub(workspace)
+
     assert record.pid == 222
     assert state["stopped"] == [111]
     assert state["started"] == 1

@@ -19,6 +19,7 @@ from robotick_cli.hub_client import (
     restart_hub,
 )
 from robotick_cli.instances import (
+    InstanceRecord,
     get_live_instance,
     normalize_instance_specifier,
     quit_studio_instance,
@@ -27,6 +28,7 @@ from robotick_cli.language.help import (
     create_help_text,
     instance_help_text,
     instance_quit_help_text,
+    instance_select_project_help_text,
     instances_help_text,
     open_help_text,
     projects_help_text,
@@ -166,6 +168,59 @@ def handle_instance_status(
     return CommandResult(exit_code=0)
 
 
+def resolve_registered_project_path(ctx: AppContext, project_name: str) -> str:
+    projects = get_hub_workspace_projects(ctx)
+    for project in projects:
+        if project.get("name") != project_name:
+            continue
+        project_path = project.get("project_path")
+        if not project_path:
+            raise CliError(
+                f"Registered project has no project file: {project_name}",
+                code="project_file_missing",
+                recovery="Create the project file or choose another project from `robotick studio projects`.",
+        )
+        return str(project_path)
+    names = ", ".join(sorted(str(project.get("name")) for project in projects))
+    raise CliError(
+        f"Unknown project: {project_name}. Registered projects: {names}",
+        code="unknown_project",
+        recovery="Run `robotick studio projects` to inspect registered projects.",
+    )
+
+
+def handle_instance_select_project(
+    ctx: AppContext,
+    instance: InstanceRecord,
+    args: list[str],
+) -> CommandResult:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(instance_select_project_help_text(instance.name))
+        return CommandResult(exit_code=0)
+    if len(args) != 1:
+        raise CliError(
+            f"Usage: robotick studio {instance.name} select-project <project>",
+            code="invalid_arguments",
+        )
+    if not instance.control_endpoint:
+        raise CliError(
+            f"Studio instance {instance.name} does not expose the Studio control service.",
+            code="studio_control_unavailable",
+            recovery=(
+                "This instance was likely opened before the control service was added. "
+                f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+            ),
+        )
+    project_path = resolve_registered_project_path(ctx, args[0])
+    payload = post_studio_hub_json(
+        ctx.workspace_root,
+        f"/v1/studio/instances/{instance.name}/project/select",
+        {"project_path": project_path},
+    )
+    write_json(payload)
+    return CommandResult(exit_code=0 if payload.get("accepted") is True else 1)
+
+
 def parse_instance_path_args(
     args: list[str],
 ) -> tuple[tuple[str, ...], str | None]:
@@ -175,6 +230,8 @@ def parse_instance_path_args(
         return (), "help"
     if args == ["quit"]:
         return (), "quit"
+    if args and args[0] == "select-project":
+        return (), "select-project"
     if args and args[-1] == "status":
         return tuple(args[:-1]), "status"
     return tuple(args), None
@@ -195,6 +252,8 @@ def run_studio_instance_command(
         return CommandResult(exit_code=0)
     if action == "quit":
         return handle_instance_quit(ctx, instance.name, [])
+    if action == "select-project":
+        return handle_instance_select_project(ctx, instance, args[1:])
     if action == "status":
         return handle_instance_status(ctx, instance.name, path_segments, [])
     if not args:

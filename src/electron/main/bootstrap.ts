@@ -17,6 +17,11 @@ import {
   resolveProjectLockDirectory,
   resolveProjectPath,
 } from "./project-locks";
+import {
+  registerStudioControlEndpointWithHub,
+  startStudioControlServer,
+  type StudioControlServer,
+} from "./studio-control/studio-control-server";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -1019,6 +1024,7 @@ export async function bootstrapElectron({
   >();
   const openChildScopes = new Set<string>();
   const windowByScope = new Map<string, BrowserWindowInstance>();
+  let studioControlServer: StudioControlServer | null = null;
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
       ? resolveProjectPath(env.ROBOTICK_PROJECT_DIR)
@@ -1030,6 +1036,23 @@ export async function bootstrapElectron({
     currentProjectPath,
     bootstrapIssue: bootstrapProjectIssue,
   });
+
+  const getActiveWindowScope = (): string | null => {
+    for (const [scope, win] of windowByScope.entries()) {
+      if (win.isDestroyed?.()) {
+        continue;
+      }
+      if (win.isFocused?.()) {
+        return scope === PRIMARY_WINDOW_SCOPE ? "main" : scope;
+      }
+    }
+    return null;
+  };
+
+  const getOpenWindowScopes = (): string[] =>
+    Array.from(windowByScope.entries())
+      .filter(([, win]) => !(win.isDestroyed?.() ?? false))
+      .map(([scope]) => (scope === PRIMARY_WINDOW_SCOPE ? "main" : scope));
 
   const broadcastProjectSelectionState = () => {
     const payload = getProjectSelectionState();
@@ -1511,6 +1534,7 @@ export async function bootstrapElectron({
   }
 
   const shutdown = (code = 0) => {
+    void studioControlServer?.close();
     if (currentProjectPath) {
       releaseProjectLock(currentProjectPath, projectLockOwner);
     }
@@ -1691,6 +1715,26 @@ export async function bootstrapElectron({
   });
 
   await app.whenReady();
+
+  if (isHubManaged) {
+    studioControlServer = await startStudioControlServer({
+      snapshotProvider: {
+        instanceName: projectLockOwner.instanceName,
+        pid: process.pid,
+        mode: env.ROBOTICK_STUDIO_MODE?.trim() || "dev",
+        workspaceRoot: env.ROBOTICK_WORKSPACE_ROOT?.trim() || null,
+        getSelectedProjectPath: () => currentProjectPath,
+        getActiveWindowScope,
+        getOpenWindowScopes,
+      },
+      selectProject: (projectPath) => requestProjectSelection(projectPath),
+    });
+    void registerStudioControlEndpointWithHub(
+      env.ROBOTICK_HUB_ENDPOINT,
+      projectLockOwner.instanceName,
+      studioControlServer.endpoint
+    );
+  }
 
   createWindow({
     scope: PRIMARY_WINDOW_SCOPE,

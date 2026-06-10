@@ -404,6 +404,10 @@ def format_shell_context(state: ShellState, workspace_root: str, *, color: bool 
                             get_studio_command_spec("status").shell_label or "status",
                             get_studio_command_spec("status").summary,
                         ),
+                        (
+                            get_studio_command_spec("select-project").shell_label or "select-project",
+                            get_studio_command_spec("select-project").summary,
+                        ),
                         *[
                             (
                                 name,
@@ -590,17 +594,20 @@ def open_help_text() -> str:
 
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
-    spec = get_studio_command_spec("quit")
+    select_project_spec = get_studio_command_spec("select-project")
+    quit_spec = get_studio_command_spec("quit")
     return "\n".join(
         [
             "Usage:",
             f"  robotick studio {instance_name} status",
+            f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
             f"  robotick studio {instance_name} windows",
             "",
             "Commands:",
-            f"  {status_spec.name:<6} {status_spec.summary}",
-            f"  {spec.name:<6} {spec.summary}",
+            f"  {status_spec.name:<14} {status_spec.summary}",
+            f"  {select_project_spec.name:<14} {select_project_spec.summary}",
+            f"  {quit_spec.name:<14} {quit_spec.summary}",
             "",
         ]
     )
@@ -615,6 +622,23 @@ def instance_quit_help_text(instance_name: str) -> str:
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],
+            "",
+        ]
+    )
+
+
+def instance_select_project_help_text(instance_name: str) -> str:
+    spec = get_studio_command_spec("select-project")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  robotick studio {instance_name} select-project <project>",
+            "",
+            "Description:",
+            *[f"  {line}" for line in spec.description_lines],
+            "",
+            "Output:",
+            "  JSON project-selection result from the Studio instance.",
             "",
         ]
     )

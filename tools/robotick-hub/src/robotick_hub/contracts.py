@@ -7,6 +7,8 @@ class HubHealth(BaseModel):
     status: str
     workspace_root: str
     endpoint: str
+    api_version: int
+    features: list[str]
     tray_expected: bool = False
     tray_active: bool = False
 
@@ -76,6 +78,26 @@ class StudioQuitResponse(BaseModel):
     accepted: bool
     message: str
     instance: StudioInstanceSummary | None = None
+
+
+class StudioControlEndpointRequest(BaseModel):
+    endpoint: str
+
+
+class StudioControlEndpointResponse(BaseModel):
+    accepted: bool
+    message: str
+    instance: StudioInstanceSummary | None = None
+
+
+class StudioProjectSelectRequest(BaseModel):
+    project_path: str
+
+
+class StudioProjectSelectResponse(BaseModel):
+    accepted: bool
+    currentProjectPath: str
+    issue: dict[str, object] | None = None
 
 
 class AppClosingRequest(BaseModel):

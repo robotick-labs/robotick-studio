@@ -10,8 +10,10 @@ from robotick_cli.hub_client import (
     discover_hub,
     ensure_hub,
     fetch_hub_json,
-    is_hub_healthy,
+    is_hub_compatible,
+    is_hub_usable,
     is_pid_alive,
+    desktop_tray_expected,
 )
 from robotick_cli.language.help import get_hub_help_text, hub_projects_help_text, hub_status_help_text
 from robotick_cli.output import write_json, writeln
@@ -59,7 +61,11 @@ def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:
         raise CliError(f"Unknown argument for 'hub ensure': {unknown_args[0]}")
 
     before = discover_hub(ctx.workspace_root)
-    before_healthy = before is not None and is_pid_alive(before.pid) and is_hub_healthy(before)
+    before_healthy = (
+        before is not None
+        and is_pid_alive(before.pid)
+        and is_hub_usable(before, tray_required=desktop_tray_expected())
+    )
     action = "reused" if before_healthy else ("restarted" if before is not None else "started")
     record = ensure_hub(ctx.workspace_root)
     write_json(
@@ -122,9 +128,14 @@ def build_running_hub_status(record: HubRecord) -> dict[str, Any]:
         "endpoint": record.endpoint,
         "pid": record.pid,
         "workspace_root": health["workspace_root"],
+        "protocol": {
+            "api_version": health.get("api_version"),
+            "features": health.get("features", []),
+            "compatible": is_hub_compatible(health),
+        },
         "tray": {
-            "expected": health["tray_expected"],
-            "active": health["tray_active"],
+            "expected": health.get("tray_expected", False),
+            "active": health.get("tray_active", False),
         },
         "capabilities": capabilities["capabilities"],
     }

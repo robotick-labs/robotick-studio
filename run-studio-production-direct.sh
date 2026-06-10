@@ -16,6 +16,7 @@ fi
 
 WORKSPACE_ROOT="$(cd "$WORKSPACE_ROOT" && pwd)"
 cd "$WORKSPACE_ROOT"
+export ROBOTICK_STUDIO_INSTANCE_NAME="${ROBOTICK_STUDIO_INSTANCE_NAME:-studio-$$}"
 
 # Production launch should build the packaged renderer/runtime, not rerun the
 # full Studio verification suite on every start.

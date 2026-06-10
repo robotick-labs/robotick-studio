@@ -20,6 +20,10 @@ from robotick_hub.contracts import (
     StudioInstancesResponse,
     StudioOpenRequest,
     StudioOpenResponse,
+    StudioControlEndpointRequest,
+    StudioControlEndpointResponse,
+    StudioProjectSelectRequest,
+    StudioProjectSelectResponse,
     StudioProjectsResponse,
     StudioQuitResponse,
     WorkspaceProject,
@@ -41,6 +45,9 @@ from robotick_hub.studio import (
     notify_instance_closing,
     open_studio,
     quit_instance,
+    select_studio_project,
+    summarize_instance,
+    update_instance_control_endpoint,
 )
 from robotick_hub.workspace import (
     build_workspace_projects,
@@ -51,6 +58,18 @@ from robotick_hub.workspace import (
     list_workspace_project_paths,
     resolve_project_asset_path,
 )
+
+HUB_API_VERSION = 1
+HUB_FEATURES = [
+    "hub_health_protocol",
+    "workspace_projects",
+    "studio_instances",
+    "studio_status",
+    "studio_control_endpoint",
+    "studio_project_select",
+    "launcher_status",
+    "launcher_ensure",
+]
 
 
 def get_workspace_config_capability_status() -> str:
@@ -182,6 +201,8 @@ def create_app() -> FastAPI:
             status="ok",
             workspace_root=get_workspace_root(),
             endpoint=get_endpoint(),
+            api_version=HUB_API_VERSION,
+            features=HUB_FEATURES,
             tray_expected=tray_expected(),
             tray_active=tray_active(),
         )
@@ -318,6 +339,59 @@ def create_app() -> FastAPI:
                 "message": message,
                 "instance": instance,
             }
+        )
+
+    @app.post(
+        "/v1/studio/instances/{instance_id}/control-endpoint",
+        response_model=StudioControlEndpointResponse,
+    )
+    def studio_control_endpoint(
+        instance_id: str,
+        request: StudioControlEndpointRequest,
+    ) -> StudioControlEndpointResponse:
+        try:
+            instance = update_instance_control_endpoint(
+                get_workspace_root(),
+                instance_id,
+                request.endpoint,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if instance is None:
+            raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+        return StudioControlEndpointResponse.model_validate(
+            {
+                "accepted": True,
+                "message": f"Studio control endpoint registered for {instance.name}.",
+                "instance": summarize_instance(instance),
+            }
+        )
+
+    @app.post(
+        "/v1/studio/instances/{instance_id}/project/select",
+        response_model=StudioProjectSelectResponse,
+    )
+    def studio_project_select(
+        instance_id: str,
+        request: StudioProjectSelectRequest,
+    ) -> Response:
+        try:
+            result = select_studio_project(
+                get_workspace_root(),
+                instance_id,
+                request.project_path,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Studio control endpoint not available for: {instance_id}",
+            )
+        status_code, payload = result
+        return JSONResponse(
+            status_code=status_code,
+            content=StudioProjectSelectResponse.model_validate(payload).model_dump(),
         )
 
     @app.post("/v1/apps/{app_id}/instances/closing", response_model=AppClosingResponse)

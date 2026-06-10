@@ -17,6 +17,8 @@ from robotick_hub.studio import (
     write_instance_record,
 )
 
+STUDIO_ROOT = Path(__file__).resolve().parents[3]
+
 
 def create_workspace() -> Path:
     root = Path(tempfile.mkdtemp(prefix="robotick-studio-provider-test-"))
@@ -54,20 +56,27 @@ def create_workspace() -> Path:
     return root
 
 
+def test_direct_studio_runners_export_hub_instance_name() -> None:
+    for script_name in ("run-studio-dev-direct.sh", "run-studio-production-direct.sh"):
+        script = (STUDIO_ROOT / script_name).read_text(encoding="utf-8")
+        assert 'ROBOTICK_STUDIO_INSTANCE_NAME="${ROBOTICK_STUDIO_INSTANCE_NAME:-studio-$$}"' in script
+
+
 def test_open_studio_registers_instance(monkeypatch: pytest.MonkeyPatch) -> None:
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher", lambda _: None)
+    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
 
     class FakeChild:
         pid = 1234
 
     monkeypatch.setattr("robotick_hub.studio.subprocess.Popen", lambda *args, **kwargs: FakeChild())
     monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: instance.pid == 1234)
-    summary = open_studio(workspace, project_name="barr-e")
+    summary, support = open_studio(workspace, project_name="barr-e")
     assert summary["name"] == "studio-1234"
     assert summary["project_name"] == "barr-e"
+    assert support["launcher_service"]["action"] == "reused"
     assert get_instance(workspace, "studio-1234") is not None
 
 
@@ -77,7 +86,7 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher", lambda _: None)
+    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
     launched: dict[str, object] = {}
 
     class FakeChild:
@@ -91,9 +100,10 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
     monkeypatch.setattr("robotick_hub.studio.subprocess.Popen", fake_popen)
     monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: instance.pid == 5678)
 
-    summary = open_studio(workspace, project_name="barr-e")
+    summary, support = open_studio(workspace, project_name="barr-e")
 
     assert summary["name"] == "studio-5678"
+    assert support["launcher_service"]["action"] == "reused"
     assert str(launched["args"][0]).endswith("robotick/robotick-studio/run-studio-dev-direct.sh")
     assert launched["env"]["ROBOTICK_PROJECT_DIR"].endswith("robots/barr-e")
     assert launched["env"]["ROBOTICK_STUDIO_SELECTED_PROJECT"] == "barr-e"
@@ -105,7 +115,7 @@ def test_open_studio_allows_same_project_to_launch_multiple_instances(
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher", lambda _: None)
+    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
     next_pid = iter([5678, 6789])
 
     class FakeChild:
@@ -121,8 +131,8 @@ def test_open_studio_allows_same_project_to_launch_multiple_instances(
         lambda instance: instance.pid in {5678, 6789},
     )
 
-    first = open_studio(workspace, project_name="barr-e")
-    second = open_studio(workspace, project_name="barr-e")
+    first, _ = open_studio(workspace, project_name="barr-e")
+    second, _ = open_studio(workspace, project_name="barr-e")
 
     assert first["project_name"] == "barr-e"
     assert second["project_name"] == "barr-e"

@@ -97,6 +97,15 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_bound_instance=True,
     ),
     CommandSpec(
+        name="select-project",
+        usage="robotick studio <instance> select-project <project>",
+        summary="Switch the selected project inside this Studio instance",
+        shell_label="select-project [project]",
+        description_lines=("Ask the targeted Studio instance to switch to a registered project.",),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
         name="quit",
         usage="robotick studio <instance> quit",
         summary="Close this Studio instance",
