@@ -28,6 +28,7 @@ export function AppRoutes() {
   const { workbenches } = useAppConfig();
   return (
     <>
+      <StudioActivationSync />
       <ProjectWorkbenchSync />
       <Routes>
         <Route path="/" element={<DefaultWorkbenchRedirect />} />
@@ -46,6 +47,68 @@ export function AppRoutes() {
       </Routes>
     </>
   );
+}
+
+function windowIdForCurrentSession(): string {
+  const windowScope = getWindowScope();
+  return windowScope === "primary" ? "main" : windowScope;
+}
+
+function windowIdFromActivationPath(path: string[]): string | null {
+  if (path[0] !== "windows") {
+    return null;
+  }
+  return path[1] ?? null;
+}
+
+function workbenchIdFromActivationPath(path: string[]): string | null {
+  if (path[0] !== "windows" || path[2] !== "workbenches") {
+    return null;
+  }
+  return path[3] ?? null;
+}
+
+function StudioActivationSync() {
+  const { workbenches } = useAppConfig();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const lastAppliedCachedActivation = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const applyActivation = (event: { activated_path: string[] }) => {
+      const activatedPath = event.activated_path;
+      const windowId = windowIdFromActivationPath(activatedPath);
+      if (windowId && windowId !== windowIdForCurrentSession()) {
+        return;
+      }
+      const workbenchId = workbenchIdFromActivationPath(activatedPath);
+      if (!workbenchId) {
+        return;
+      }
+      const workbench = workbenches.find((entry) => entry.id === workbenchId);
+      if (!workbench || location.pathname === workbench.path) {
+        return;
+      }
+      navigate(workbench.path);
+    };
+    const unsubscribe =
+      window.robotick?.studioControl?.onActivationChanged?.(applyActivation);
+    const lastActivation = window.robotick?.studioControl?.getLastActivation?.();
+    const lastActivationKey = lastActivation
+      ? JSON.stringify(lastActivation.activated_path)
+      : null;
+    if (
+      lastActivation &&
+      lastActivationKey &&
+      lastAppliedCachedActivation.current !== lastActivationKey
+    ) {
+      lastAppliedCachedActivation.current = lastActivationKey;
+      applyActivation(lastActivation);
+    }
+    return unsubscribe;
+  }, [location.pathname, navigate, workbenches]);
+
+  return null;
 }
 
 function WorkbenchFallback() {

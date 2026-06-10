@@ -444,6 +444,10 @@ export function PanelLayout({
   const layoutTabsStateRef = React.useRef(layoutTabsState);
   const layoutStateRef = React.useRef(layoutState);
   const floatingPanelsStateRef = React.useRef(floatingPanelsState);
+  const pendingActivatedPanelRef = React.useRef<{
+    layoutId: string;
+    panelId: string;
+  } | null>(null);
   const layout = layoutState.node;
   const currentLayoutStateKey = studioPersistenceEnabled
     ? activeLayoutResourceId
@@ -819,6 +823,19 @@ export function PanelLayout({
   }, [layout, maximizedPanelId]);
 
   React.useEffect(() => {
+    const pending = pendingActivatedPanelRef.current;
+    if (
+      !pending ||
+      pending.layoutId !== activeLayoutResourceId ||
+      !nodeContains(layout, pending.panelId)
+    ) {
+      return;
+    }
+    pendingActivatedPanelRef.current = null;
+    setMaximizedPanelId(pending.panelId);
+  }, [activeLayoutResourceId, layout]);
+
+  React.useEffect(() => {
     if (
       editingLayoutTab &&
       !visibleLayoutTabs.some((tab) => tab.id === editingLayoutTab.id)
@@ -951,6 +968,82 @@ export function PanelLayout({
     },
     [hydrateActiveLayout, layoutTabsStorageKey, persistCurrentLayoutSnapshot]
   );
+
+  React.useEffect(() => {
+    window.robotick?.studioControl?.reportActiveResource({
+      window_id: windowScope,
+      workbench_id: workbenchId,
+      layout_id: activeLayoutResourceId,
+      ...(maximizedPanelId ? { panel_id: maximizedPanelId } : {}),
+    });
+  }, [activeLayoutResourceId, maximizedPanelId, windowScope, workbenchId]);
+
+  React.useEffect(() => {
+    const applyActivation = (event: { activated_path: string[] }) => {
+        const path = event.activated_path;
+        const [collection, windowId, workbenchCollection, targetWorkbenchId] = path;
+        if (
+          collection !== "windows" ||
+          windowId !== windowScope ||
+          workbenchCollection !== "workbenches" ||
+          targetWorkbenchId !== workbenchId
+        ) {
+          return;
+        }
+        const layoutIndex = path.indexOf("layouts");
+        if (layoutIndex === -1) {
+          return;
+        }
+        const layoutId = path[layoutIndex + 1];
+        if (!layoutId) {
+          return;
+        }
+        const tabId = layoutId.startsWith(`${windowScope}:${workbenchId}:`)
+          ? layoutId.slice(`${windowScope}:${workbenchId}:`.length)
+          : layoutId;
+        const hasTab =
+          layoutTabsStateRef.current.storageKey === layoutTabsStorageKey &&
+          layoutTabsStateRef.current.tabs.some((tab) => tab.id === tabId);
+        if (hasTab && activeLayoutTabId !== tabId) {
+          handleSelectLayoutTab(tabId);
+        }
+        const panelIndex = path.indexOf("panels");
+        const panelId = panelIndex === -1 ? null : path[panelIndex + 1] ?? null;
+        if (panelId) {
+          if (activeLayoutResourceId === layoutId && nodeContains(layoutStateRef.current.node, panelId)) {
+            setMaximizedPanelId(panelId);
+          } else {
+            pendingActivatedPanelRef.current = { layoutId, panelId };
+          }
+          window.robotick?.studioControl?.reportActiveResource({
+            window_id: windowScope,
+            workbench_id: workbenchId,
+            layout_id: layoutId,
+            panel_id: panelId,
+          });
+        } else {
+          window.robotick?.studioControl?.reportActiveResource({
+            window_id: windowScope,
+            workbench_id: workbenchId,
+            layout_id: layoutId,
+          });
+        }
+    };
+    const unsubscribe =
+      window.robotick?.studioControl?.onActivationChanged?.(applyActivation);
+    const lastActivation = window.robotick?.studioControl?.getLastActivation?.();
+    if (lastActivation) {
+      applyActivation(lastActivation);
+    }
+    return unsubscribe;
+  }, [
+    activeLayoutTabId,
+    activeLayoutResourceId,
+    handleSelectLayoutTab,
+    layoutTabsStorageKey,
+    windowScope,
+    workbenchId,
+  ]);
 
   const handleAddLayoutTab = React.useCallback(() => {
     persistCurrentLayoutSnapshot();

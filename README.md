@@ -19,3 +19,27 @@ Robotick Studio is the Electron shell and supporting services that wrap the `rob
 - Electron main owns that canonical document and session coordination; renderer windows operate through the shared bridge rather than owning separate project documents.
 - `workspace` still means the checkout/runtime/root concept; `workbench` means a Studio UI surface such as `remote-control` or `telemetry`.
 - See [docs/studio-document.md](./docs/studio-document.md) for the ownership boundary and what intentionally remains runtime/session-only state.
+
+## Current CLI inspection surface
+
+The workspace `robotick` CLI now exposes Studio structure as navigable contexts. Once bound to a Studio instance, use:
+
+- `ls` to discover child contexts
+- `cd` to enter a child context
+- `status` to inspect the currently bound node
+
+The currently exposed path is:
+
+```text
+studio/<instance>/windows/<window>/workbenches/<workbench>/layouts/<layout>/panels/<panel>
+```
+
+Known resource commands can be chained after launch:
+
+```bash
+robotick studio open pip-e windows main workbenches terminal activate
+```
+
+See [docs/design/26-06-05 - robotick_cli_and_agentic_ux.md](./docs/design/26-06-05%20-%20robotick_cli_and_agentic_ux.md) for the canonical CLI, hub, launcher, and Studio control design.
+
+This is structural inspection only. Panel/viewer readiness, recovery, and deeper diagnosability remain separate follow-on work.

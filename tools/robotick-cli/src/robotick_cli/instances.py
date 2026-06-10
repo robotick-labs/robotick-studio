@@ -190,6 +190,7 @@ def reconcile_bound_instance(workspace_root: str | Path, state) -> str | None:
         return None
     stale_name = state.instance_name
     state.instance_name = None
+    state.studio_path = ()
     return f"Studio instance {stale_name} closed."
 
 

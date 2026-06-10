@@ -393,6 +393,39 @@ describe("electron launch paths", () => {
     }
   });
 
+  it("bootstraps project selection from a project directory by resolving the project yaml", async () => {
+    const projectDir = path.join(
+      os.tmpdir(),
+      `robotick-studio-bootstrap-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    const projectYamlPath = path.join(projectDir, "alf-e.project.yaml");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(projectYamlPath, "name: Alf.e\n", "utf-8");
+
+    try {
+      const mocks = await bootstrapWithMocks({
+        ROBOTICK_PROJECT_DIR: projectDir,
+      });
+      const handler = mocks.ipcHandleHandlers.get(
+        "robotick-project-selection:get-state"
+      );
+      expect(handler).toBeDefined();
+
+      const state = await handler?.();
+      expect(state).toEqual(
+        expect.objectContaining({
+          currentProjectPath: projectYamlPath,
+          bootstrapIssue: null,
+        })
+      );
+      expect(
+        fs.existsSync(path.join(projectDir, "studio", "studio.lock"))
+      ).toBe(true);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it("close command only closes target window and does not quit app", async () => {
     const mocks = await bootstrapWithMocks();
     const handler = mocks.ipcHandleHandlers.get("robotick-window-command");
@@ -403,6 +436,36 @@ describe("electron launch paths", () => {
 
     expect(mocks.windows[0].close).toHaveBeenCalledTimes(1);
     expect(mocks.app.quit).not.toHaveBeenCalled();
+  });
+
+  it("advertises the hub control endpoint only after the primary renderer reports active state", async () => {
+    const mocks = await bootstrapWithMocks({
+      ROBOTICK_STUDIO_MANAGED_BY_HUB: "1",
+      ROBOTICK_HUB_ENDPOINT: "http://127.0.0.1:7099",
+      ROBOTICK_STUDIO_INSTANCE_NAME: "studio-test",
+    });
+    const fetchMock = vi.mocked(fetch);
+    const activeResourceHandler = mocks.ipcOnHandlers.get(
+      "robotick-studio-runtime:active-resource"
+    );
+
+    expect(activeResourceHandler).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    activeResourceHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        window_id: "main",
+        workbench_id: "telemetry",
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint"
+    );
   });
 
   it("hub-managed primary window close starts app quit immediately", async () => {

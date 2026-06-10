@@ -495,6 +495,53 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("resolves absolute project directories to project yaml paths before settings requests", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+
+        if (url.pathname === "/query/list-projects") {
+          return createJsonResponse([
+            "robots/sample-robot/sample-robot.project.yaml",
+          ]);
+        }
+
+        if (url.pathname === "/query/get-project-settings") {
+          expect(url.searchParams.get("project_path")).toBe(
+            "/workspace/robots/sample-robot/sample-robot.project.yaml",
+          );
+          return createJsonResponse({
+            name: "Sample Robot",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+    window.robotick = {
+      environment: {
+        isStandaloneApp: true,
+        appTitle: "Robotick Studio",
+        workspaceRoot: "/workspace",
+      },
+    };
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(
+      launcherInterface.fetchProjectSettingsData(
+        "/workspace/robots/sample-robot",
+      ),
+    ).resolves.toEqual({
+      name: "Sample Robot",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces telemetry push rate from model yaml", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

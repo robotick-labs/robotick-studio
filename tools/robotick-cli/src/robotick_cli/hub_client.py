@@ -15,6 +15,19 @@ from pydantic import BaseModel
 
 from robotick_cli.app.errors import HubRequestError, HubUnavailableError
 
+REQUIRED_HUB_API_VERSION = 1
+REQUIRED_HUB_FEATURES = {
+    "hub_health_protocol",
+    "workspace_projects",
+    "studio_instances",
+    "studio_status",
+    "studio_control_endpoint",
+    "studio_project_select",
+    "studio_activation",
+    "launcher_status",
+    "launcher_ensure",
+}
+
 
 class HubRecord(BaseModel):
     endpoint: str
@@ -56,6 +69,28 @@ def is_hub_healthy(record: HubRecord) -> bool:
     except HubRequestError:
         return False
     return payload.get("status") == "ok"
+
+
+def is_hub_compatible(health: dict[str, Any]) -> bool:
+    if health.get("status") != "ok":
+        return False
+    api_version = health.get("api_version")
+    if not isinstance(api_version, int) or api_version < REQUIRED_HUB_API_VERSION:
+        return False
+    features = health.get("features")
+    if not isinstance(features, list):
+        return False
+    return REQUIRED_HUB_FEATURES.issubset({str(feature) for feature in features})
+
+
+def is_hub_usable(record: HubRecord, *, tray_required: bool) -> bool:
+    try:
+        health = fetch_hub_json(record, "/v1/health")
+    except HubRequestError:
+        return False
+    if not is_hub_compatible(health):
+        return False
+    return not tray_required or health.get("tray_active") is True
 
 
 def desktop_tray_expected() -> bool:
@@ -135,12 +170,10 @@ def restart_hub(workspace_root: str | Path) -> HubRecord:
     started_at = time.time()
     while time.time() - started_at < 8:
         record = discover_hub(workspace_root)
-        if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
-            if not desktop_tray_expected():
-                return record
-            health = fetch_hub_json(record, "/v1/health")
-            if health.get("tray_active") is True:
-                return record
+        if record is not None and is_pid_alive(record.pid) and is_hub_usable(
+            record, tray_required=desktop_tray_expected()
+        ):
+            return record
         time.sleep(0.1)
     raise HubUnavailableError("robotick-hub did not become ready after restart.")
 
@@ -178,11 +211,8 @@ def start_hub(workspace_root: str | Path) -> None:
 def ensure_hub(workspace_root: str | Path) -> HubRecord:
     record = discover_hub(workspace_root)
     tray_required = desktop_tray_expected()
-    if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
-        if not tray_required:
-            return record
-        health = fetch_hub_json(record, "/v1/health")
-        if health.get("tray_active") is True:
+    if record is not None and is_pid_alive(record.pid):
+        if is_hub_usable(record, tray_required=tray_required):
             return record
         stop_hub_process(record.pid)
 
@@ -190,12 +220,10 @@ def ensure_hub(workspace_root: str | Path) -> HubRecord:
     started_at = time.time()
     while time.time() - started_at < 8:
         record = discover_hub(workspace_root)
-        if record is not None and is_pid_alive(record.pid) and is_hub_healthy(record):
-            if not tray_required:
-                return record
-            health = fetch_hub_json(record, "/v1/health")
-            if health.get("tray_active") is True:
-                return record
+        if record is not None and is_pid_alive(record.pid) and is_hub_usable(
+            record, tray_required=tray_required
+        ):
+            return record
         time.sleep(0.1)
     raise HubUnavailableError("robotick-hub did not become ready.")
 

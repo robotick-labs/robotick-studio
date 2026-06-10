@@ -9,7 +9,7 @@ from robotick_cli.app.errors import CliError
 from robotick_cli.interfaces.repl import start_interactive_shell
 from robotick_cli.language.help import top_level_help_text
 from robotick_cli.language.route import is_help_flag, run_command
-from robotick_cli.output import writeln
+from robotick_cli.output import write_json, writeln
 
 
 def get_workspace_root() -> Path:
@@ -28,5 +28,14 @@ def main(argv: list[str] | None = None) -> int:
         result = run_command(ctx, args)
         return result.exit_code
     except CliError as error:
-        writeln(str(error), stream=sys.stderr)
+        write_json(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    **({"recovery": error.recovery} if error.recovery else {}),
+                }
+            },
+            stream=sys.stderr,
+        )
         return 1

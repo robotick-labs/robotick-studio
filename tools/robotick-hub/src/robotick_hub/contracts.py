@@ -7,6 +7,8 @@ class HubHealth(BaseModel):
     status: str
     workspace_root: str
     endpoint: str
+    api_version: int
+    features: list[str]
     tray_expected: bool = False
     tray_active: bool = False
 
@@ -51,6 +53,7 @@ class StudioInstanceSummary(BaseModel):
 
 
 class StudioInstancesResponse(BaseModel):
+    resource_type: str = "robotick_studio_instances"
     instances: list[StudioInstanceSummary]
 
 
@@ -58,14 +61,51 @@ class StudioOpenRequest(BaseModel):
     project_name: str | None = None
 
 
+class ActionSummary(BaseModel):
+    action: str
+
+
+class StudioOpenSupport(BaseModel):
+    launcher_service: ActionSummary
+
+
 class StudioOpenResponse(BaseModel):
     instance: StudioInstanceSummary
+    support: StudioOpenSupport
 
 
 class StudioQuitResponse(BaseModel):
     accepted: bool
     message: str
     instance: StudioInstanceSummary | None = None
+
+
+class StudioControlEndpointRequest(BaseModel):
+    endpoint: str
+
+
+class StudioControlEndpointResponse(BaseModel):
+    accepted: bool
+    message: str
+    instance: StudioInstanceSummary | None = None
+
+
+class StudioProjectSelectRequest(BaseModel):
+    project_path: str
+
+
+class StudioProjectSelectResponse(BaseModel):
+    accepted: bool
+    currentProjectPath: str
+    issue: dict[str, object] | None = None
+
+
+class StudioActivationResponse(BaseModel):
+    accepted: bool
+    changed: bool
+    activated_path: list[str]
+    previous_active_path: list[str] | None = None
+    message: str
 
 
 class AppClosingRequest(BaseModel):

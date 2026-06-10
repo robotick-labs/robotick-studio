@@ -11,6 +11,7 @@ import pytest
 from robotick_hub.app import create_app
 from robotick_hub.launcher import LauncherRecord
 from robotick_hub.runtime import get_hub_record_path
+from robotick_hub.studio import StudioInstanceRecord, write_instance_record
 from robotick_hub.tray import get_bundled_icon_path, should_use_tray
 
 
@@ -64,6 +65,9 @@ def test_health_and_registry_record() -> None:
         response = client.get("/v1/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+        assert response.json()["api_version"] == 1
+        assert "studio_project_select" in response.json()["features"]
+        assert "studio_activation" in response.json()["features"]
         assert response.json()["tray_expected"] is False
         assert response.json()["tray_active"] is False
         assert get_hub_record_path(workspace).exists()
@@ -76,7 +80,12 @@ def test_capabilities_endpoint() -> None:
         response = client.get("/v1/capabilities")
         assert response.status_code == 200
         names = [item["name"] for item in response.json()["capabilities"]]
-        assert names == ["workspace", "studio", "launcher"]
+        assert names == [
+            "query-workspace-config",
+            "launch-studio",
+            "query-launcher-status",
+            "ensure-launcher-service",
+        ]
 
 
 def test_capabilities_reflect_launcher_provider_state(
@@ -97,11 +106,18 @@ def test_capabilities_reflect_launcher_provider_state(
     with build_client(workspace) as client:
         response = client.get("/v1/capabilities")
         assert response.status_code == 200
-        launcher = next(
-            item for item in response.json()["capabilities"] if item["name"] == "launcher"
+        query_launcher = next(
+            item
+            for item in response.json()["capabilities"]
+            if item["name"] == "query-launcher-status"
         )
-        assert launcher["status"] == "healthy"
-        assert launcher["endpoint"] == "http://127.0.0.1:7081"
+        ensure_launcher = next(
+            item
+            for item in response.json()["capabilities"]
+            if item["name"] == "ensure-launcher-service"
+        )
+        assert query_launcher["status"] == "available"
+        assert ensure_launcher["status"] == "available"
 
 
 def test_workspace_and_studio_projects_endpoints() -> None:
@@ -260,9 +276,10 @@ def test_studio_projects_can_reflect_selected_target_project(
 ) -> None:
     workspace = create_fake_workspace()
     monkeypatch.setattr(
-        "robotick_hub.app.get_instance",
+        "robotick_hub.app.get_studio_status",
         lambda _workspace, instance_id: {
             "name": instance_id,
+            "resource_type": "studio_instance",
             "pid": 1234,
             "mode": "dev",
             "started_at": "2026-06-06T12:00:00+00:00",
@@ -328,7 +345,17 @@ def test_studio_instances_open_and_quit_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
-    summary = {
+    instances_summary = {
+        "name": "studio-1234",
+        "pid": 1234,
+        "mode": "dev",
+        "started_at": "2026-06-06T12:00:00+00:00",
+        "state": "running",
+        "project_name": None,
+        "log_path": "/tmp/studio.log",
+        "control_endpoint": None,
+    }
+    open_summary = {
         "name": "studio-1234",
         "pid": 1234,
         "mode": "dev",
@@ -338,22 +365,253 @@ def test_studio_instances_open_and_quit_endpoints(
         "log_path": "/tmp/studio.log",
         "control_endpoint": None,
     }
-    monkeypatch.setattr("robotick_hub.app.list_instances", lambda _: [summary])
-    monkeypatch.setattr("robotick_hub.app.open_studio", lambda _, project_name=None: summary)
+    monkeypatch.setattr("robotick_hub.app.list_instances", lambda _: [instances_summary])
+    monkeypatch.setattr(
+        "robotick_hub.app.open_studio",
+        lambda _, project_name=None: (open_summary, {"launcher_service": {"action": "started"}}),
+    )
     monkeypatch.setattr(
         "robotick_hub.app.quit_instance",
-        lambda _, instance_id: (True, f"Studio instance {instance_id} closed.", summary),
+        lambda _, instance_id: (True, f"Studio instance {instance_id} closed.", open_summary),
     )
     with build_client(workspace) as client:
         instances_response = client.get("/v1/studio/instances")
         open_response = client.post("/v1/studio/open", json={"project_name": "barr-e"})
         quit_response = client.post("/v1/studio/instances/studio-1234/quit")
         assert instances_response.status_code == 200
+        assert instances_response.json()["resource_type"] == "robotick_studio_instances"
         assert instances_response.json()["instances"][0]["name"] == "studio-1234"
+        assert instances_response.json()["instances"][0]["project_name"] is None
         assert open_response.status_code == 200
         assert open_response.json()["instance"]["project_name"] == "barr-e"
+        assert open_response.json()["support"]["launcher_service"]["action"] == "started"
         assert quit_response.status_code == 200
         assert quit_response.json()["accepted"] is True
+
+
+def test_studio_instance_status_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    status_payload = {
+        "resource_type": "studio_instance",
+        "id": "studio-1234",
+        "name": "studio-1234",
+        "pid": 1234,
+        "mode": "dev",
+        "started_at": "2026-06-06T12:00:00+00:00",
+        "state": "running",
+        "project_name": "barr-e",
+        "control_endpoint": None,
+        "children": {
+            "windows": [
+                {
+                    "resource_type": "studio_window",
+                    "id": "main",
+                    "label": "Main Window",
+                    "window_role": "main",
+                }
+            ]
+        },
+        "child_collections": [{"name": "windows", "resource_type": "studio_windows", "item_count": 1}],
+    }
+    monkeypatch.setattr(
+        "robotick_hub.app.get_studio_status",
+        lambda _, instance_id, path_segments=(): (
+            status_payload if instance_id == "studio-1234" and path_segments == () else None
+        ),
+    )
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+        assert response.status_code == 200
+        assert response.json()["resource_type"] == "studio_instance"
+        assert response.json()["children"]["windows"][0]["id"] == "main"
+        assert response.json()["child_collections"][0]["name"] == "windows"
+
+
+def test_studio_control_endpoint_registration_updates_instance_record() -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/control-endpoint",
+            json={"endpoint": "http://127.0.0.1:7123"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
+    assert response.json()["instance"]["control_endpoint"] == "http://127.0.0.1:7123"
+
+
+def test_studio_status_prefers_registered_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"resource_type":"studio_instance","id":"studio-1234","state":"runtime"}'
+
+    monkeypatch.setattr("robotick_hub.studio.urlopen", lambda url, timeout: FakeResponse())
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "runtime"
+
+
+def test_studio_project_select_proxies_to_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"accepted":true,"currentProjectPath":"/tmp/barr-e.project.yaml","issue":null}'
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = request.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("robotick_hub.studio.urlopen", fake_urlopen)
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/project/select",
+            json={"project_path": "/tmp/barr-e.project.yaml"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
+    assert captured["url"] == "http://127.0.0.1:7123/v1/project/select"
+    assert '"project_path": "/tmp/barr-e.project.yaml"' in captured["body"]
+
+
+def test_studio_instances_hide_cached_selected_project_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            project_name="barr-e",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances")
+
+    assert response.status_code == 200
+    instances = response.json()["instances"]
+    assert len(instances) == 1
+    assert instances[0]["name"] == "studio-1234"
+    assert instances[0]["project_name"] is None
+
+
+def test_studio_activation_proxies_to_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return (
+                b'{"accepted":true,"changed":true,'
+                b'"activated_path":["windows","main"],'
+                b'"previous_active_path":null,'
+                b'"message":"Activated Studio resource."}'
+            )
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = request.data.decode("utf-8")
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("robotick_hub.studio.urlopen", fake_urlopen)
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/windows/main/activate",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
+    assert response.json()["activated_path"] == ["windows", "main"]
+    assert captured["url"] == "http://127.0.0.1:7123/v1/studio/windows/main/activate"
+    assert captured["body"] == "{}"
 
 
 def test_app_instance_closing_endpoint(

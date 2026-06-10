@@ -53,13 +53,13 @@ CONTEXT_SHELL_BUILTINS: tuple[ShellBuiltinSpec, ...] = (
 STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         name="projects",
-        usage="robotick studio projects [--json]",
+        usage="robotick studio projects",
         summary="List registered Studio projects from robotick.yaml",
         shell_label="projects",
     ),
     CommandSpec(
         name="instances",
-        usage="robotick studio instances [--json]",
+        usage="robotick studio instances",
         summary="List live Studio instances tracked in .robotick/instances",
         shell_label="instances",
     ),
@@ -76,16 +76,46 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="open",
-        usage="robotick studio open [project]",
+        usage="robotick studio open [project] [path...] [action]",
         summary="Convenience launch; in the immediate shell it creates then enters the instance",
         shell_label="open [project]",
         description_lines=(
             "Convenience launch command. In the immediate shell it creates a new",
             "Robotick Studio instance and enters it immediately.",
-            "In one-shot CLI usage it behaves like the create primitive.",
+            "In one-shot CLI usage it prints a JSON launch result.",
+            "Trailing path/action tokens run inside the newly opened instance.",
             "By default the launch is quiet and writes logs to .robotick/logs/.",
             "Studio launch now routes through robotick-hub.",
         ),
+    ),
+    CommandSpec(
+        name="status",
+        usage="robotick studio <instance> status",
+        summary="Print the currently bound Studio resource as JSON",
+        shell_label="status",
+        description_lines=("Print the targeted Studio resource as JSON structured state.",),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
+        name="select-project",
+        usage="robotick studio <instance> select-project <project>",
+        summary="Switch the selected project inside this Studio instance",
+        shell_label="select-project [project]",
+        description_lines=("Ask the targeted Studio instance to switch to a registered project.",),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
+        name="activate",
+        usage="robotick studio <instance> <path...> activate",
+        summary="Make the current Studio resource active",
+        shell_label="activate",
+        description_lines=(
+            "Ask the targeted Studio instance to activate the current window, workbench, layout, or panel.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
     ),
     CommandSpec(
         name="quit",
@@ -96,31 +126,24 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_studio_root=False,
         visible_in_bound_instance=True,
     ),
-    CommandSpec(
-        name="workbench",
-        usage="robotick studio <instance> workbench [--help]",
-        summary="Inspect Studio workbench commands",
-        shell_label="workbench",
-        description_lines=(
-            "Inspect or act on Studio workbench state for the targeted instance.",
-            "The workbench command surface is being aligned now; richer operations",
-            "such as status, readiness, and capture targeting are not yet implemented.",
-        ),
-        visible_in_studio_root=False,
-        visible_in_bound_instance=True,
-    ),
 )
 
 HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         name="status",
-        usage="robotick hub status [--json]",
-        summary="Ensure the local Robotick hub and show hub health/capability status",
+        usage="robotick hub status",
+        summary="Query local Robotick hub status as JSON without starting it",
         shell_label="status",
     ),
     CommandSpec(
+        name="ensure",
+        usage="robotick hub ensure",
+        summary="Start or reuse the local Robotick hub and report the result as JSON",
+        shell_label="ensure",
+    ),
+    CommandSpec(
         name="projects",
-        usage="robotick hub projects [--json]",
+        usage="robotick hub projects",
         summary="List workspace projects through the hub API",
         shell_label="projects",
     ),
@@ -129,9 +152,15 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
 LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         name="status",
-        usage="robotick launcher status [--json]",
-        summary="Ensure launcher capability through the hub and show launcher status",
+        usage="robotick launcher status",
+        summary="Query launcher service status as JSON without starting it",
         shell_label="status",
+    ),
+    CommandSpec(
+        name="ensure",
+        usage="robotick launcher ensure",
+        summary="Start or reuse the launcher service and report the result as JSON",
+        shell_label="ensure",
     ),
 )
 
