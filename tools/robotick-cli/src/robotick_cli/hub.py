@@ -145,20 +145,13 @@ def handle_projects_command(ctx: AppContext, args: list[str]) -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln(hub_projects_help_text())
         return
-    json_mode = "--json" in args
     unknown_args = [arg for arg in args if arg != "--json"]
     if unknown_args:
         raise CliError(f"Unknown argument for 'hub projects': {unknown_args[0]}")
 
     record = ensure_hub(ctx.workspace_root)
     payload = fetch_hub_json(record, "/v1/workspace/projects")
-    if json_mode:
-        write_json(payload)
-        return
-
-    writeln("Workspace projects from robotick-hub:")
-    for project in payload["projects"]:
-        writeln(f"- {project['name']}: {project['project_dir']}")
+    write_json(payload)
 
 
 def get_hub_workspace_projects(ctx: AppContext) -> list[dict[str, str]]:

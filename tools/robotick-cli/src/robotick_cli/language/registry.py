@@ -53,7 +53,7 @@ CONTEXT_SHELL_BUILTINS: tuple[ShellBuiltinSpec, ...] = (
 STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         name="projects",
-        usage="robotick studio projects [--json]",
+        usage="robotick studio projects",
         summary="List registered Studio projects from robotick.yaml",
         shell_label="projects",
     ),
@@ -76,13 +76,14 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="open",
-        usage="robotick studio open [project]",
+        usage="robotick studio open [project] [--activate <path>]",
         summary="Convenience launch; in the immediate shell it creates then enters the instance",
         shell_label="open [project]",
         description_lines=(
             "Convenience launch command. In the immediate shell it creates a new",
             "Robotick Studio instance and enters it immediately.",
             "In one-shot CLI usage it prints a JSON launch result.",
+            "Use --activate <path> to activate a Studio resource after launch.",
             "By default the launch is quiet and writes logs to .robotick/logs/.",
             "Studio launch now routes through robotick-hub.",
         ),
@@ -142,7 +143,7 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="projects",
-        usage="robotick hub projects [--json]",
+        usage="robotick hub projects",
         summary="List workspace projects through the hub API",
         shell_label="projects",
     ),

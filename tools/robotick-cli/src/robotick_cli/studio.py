@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import time
 from typing import Literal
 from urllib.parse import quote
 
@@ -43,6 +44,7 @@ class OpenLaunchTarget:
     kind: Literal["empty", "project"]
     label: str
     attach: bool
+    activate_path: tuple[str, ...] | None = None
 
 
 def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
@@ -93,18 +95,12 @@ def handle_projects_command(ctx: AppContext, args: list[str]) -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln(projects_help_text())
         return
-    json_mode = "--json" in args
     unknown_args = [arg for arg in args if arg != "--json"]
     if unknown_args:
         raise CliError(f"Unknown argument for 'projects': {unknown_args[0]}")
 
     projects = get_hub_workspace_projects(ctx)
-    if json_mode:
-        write_json({"projects": projects})
-        return
-    writeln("Registered Robotick Studio projects:")
-    for project in projects:
-        writeln(f"- {project['name']}: {project['project_dir']}")
+    write_json({"projects": projects})
 
 
 def handle_instances_command(workspace_root: str | Path, args: list[str]) -> None:
@@ -342,10 +338,25 @@ def resolve_open_launch_target(
 ) -> OpenLaunchTarget:
     attach = False
     project_name: str | None = None
+    activate_path: tuple[str, ...] | None = None
+    index = 0
 
-    for arg in args:
+    while index < len(args):
+        arg = args[index]
         if arg == "--attach":
             attach = True
+            index += 1
+            continue
+        if arg == "--activate":
+            index += 1
+            if index >= len(args):
+                raise CliError(f"Missing path after '--activate' for '{command_name}'.")
+            activate_path = parse_activate_path_arg(args[index], command_name)
+            index += 1
+            continue
+        if arg.startswith("--activate="):
+            activate_path = parse_activate_path_arg(arg.split("=", 1)[1], command_name)
+            index += 1
             continue
         if arg.startswith("--") and arg != "--":
             raise CliError(f"Unknown option for '{command_name}': {arg}")
@@ -355,12 +366,14 @@ def resolve_open_launch_target(
             raise CliError(
                 f"Extra arguments are not yet supported on the hub-managed Studio path: {arg}"
             )
+        index += 1
 
     if project_name is None:
         return OpenLaunchTarget(
             kind="empty",
             label="Robotick Studio",
             attach=attach,
+            activate_path=activate_path,
         )
 
     project = manifest.projects.get(project_name)
@@ -376,7 +389,15 @@ def resolve_open_launch_target(
         kind="project",
         label=project_name,
         attach=attach,
+        activate_path=activate_path,
     )
+
+
+def parse_activate_path_arg(value: str, command_name: str) -> tuple[str, ...]:
+    path_segments = tuple(segment for segment in value.split("/") if segment)
+    if not path_segments:
+        raise CliError(f"Invalid empty activation path for '{command_name}'.")
+    return path_segments
 
 
 def launch_studio_via_hub(
@@ -393,19 +414,36 @@ def launch_studio_via_hub(
         "/v1/studio/open",
         {"project_name": project_name},
     )
-    instance = payload["instance"]
-    if json_output:
-        write_json(
-            {
-                "resource_type": "robotick_studio_open_result",
-                "project_name": project_name,
-                "support": {
-                    "hub": {"action": hub_action},
-                    **dict(payload.get("support") or {}),
-                },
-                "instance": instance,
-            }
+    instance = dict(payload["instance"])
+    control_service = wait_for_studio_control(ctx, str(instance["name"]))
+    control_instance = control_service.get("instance")
+    if isinstance(control_instance, dict):
+        instance.update(control_instance)
+    activation_result = None
+    if target.activate_path is not None:
+        activation_result = activate_opened_studio_resource(
+            ctx,
+            str(instance["name"]),
+            target.activate_path,
         )
+    if json_output:
+        result_payload = {
+            "resource_type": "robotick_studio_open_result",
+            "project_name": project_name,
+            "support": {
+                "hub": {"action": hub_action},
+                **dict(payload.get("support") or {}),
+            },
+            "instance": instance,
+            "control_service": {
+                key: value
+                for key, value in control_service.items()
+                if key != "instance"
+            },
+        }
+        if activation_result is not None:
+            result_payload["activation"] = activation_result
+        write_json(result_payload)
     else:
         if project_name is not None:
             writeln(f"Opening Robotick Studio for {project_name}...")
@@ -421,6 +459,90 @@ def launch_studio_via_hub(
             writeln("Studio launch started.")
         writeln(f"Instance: {instance['name']}/")
     return CommandResult(exit_code=0, opened_instance_name=str(instance["name"]))
+
+
+def open_control_wait_timeout_seconds() -> float:
+    configured = os.environ.get("ROBOTICK_STUDIO_OPEN_WAIT_CONTROL_SECONDS")
+    if configured is not None:
+        try:
+            return max(0.0, float(configured))
+        except ValueError:
+            return 0.0
+    if os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS") == "1":
+        return 0.0
+    return 5.0
+
+
+def wait_for_studio_control(
+    ctx: AppContext,
+    instance_name: str,
+    timeout_seconds: float | None = None,
+) -> dict[str, object]:
+    timeout_seconds = open_control_wait_timeout_seconds() if timeout_seconds is None else timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
+    last_instance: InstanceRecord | None = None
+    while True:
+        instance = get_live_instance(ctx.workspace_root, instance_name)
+        if instance is not None:
+            last_instance = instance
+            if instance.control_endpoint:
+                summary: dict[str, object] = {
+                    "state": "ready",
+                    "endpoint": instance.control_endpoint,
+                    "instance": instance.model_dump(),
+                }
+                active_path = fetch_active_studio_path(ctx, instance.name)
+                if active_path:
+                    summary["active_path"] = active_path
+                return summary
+        if time.monotonic() >= deadline:
+            if timeout_seconds <= 0:
+                state = "not_waited"
+            elif last_instance is None:
+                state = "unavailable"
+            else:
+                state = "registering"
+            summary = {
+                "state": state,
+                "endpoint": last_instance.control_endpoint if last_instance else None,
+            }
+            if last_instance is not None:
+                summary["instance"] = last_instance.model_dump()
+            return summary
+        time.sleep(0.1)
+
+
+def fetch_active_studio_path(ctx: AppContext, instance_name: str) -> list[str] | None:
+    try:
+        instance_status = fetch_studio_node_status(ctx.workspace_root, instance_name, ())
+    except Exception:
+        return None
+    active_window_id = instance_status.get("active_window_id")
+    if not isinstance(active_window_id, str) or not active_window_id:
+        return None
+    active_path = ["windows", active_window_id]
+    try:
+        window_status = fetch_studio_node_status(
+            ctx.workspace_root,
+            instance_name,
+            ("windows", active_window_id),
+        )
+    except Exception:
+        return active_path
+    active_workbench_id = window_status.get("active_workbench_id")
+    if isinstance(active_workbench_id, str) and active_workbench_id:
+        active_path.extend(["workbenches", active_workbench_id])
+    return active_path
+
+
+def activate_opened_studio_resource(
+    ctx: AppContext,
+    instance_name: str,
+    path_segments: tuple[str, ...],
+) -> dict[str, object]:
+    resource_path = quote_studio_resource_path(path_segments)
+    hub_path = f"/v1/studio/instances/{instance_name}/{resource_path}/activate"
+    return post_studio_hub_json(ctx.workspace_root, hub_path)
 
 
 def determine_hub_action(workspace_root: str | Path) -> str:

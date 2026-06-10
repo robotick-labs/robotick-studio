@@ -555,8 +555,8 @@ def projects_help_text() -> str:
             "Usage:",
             f"  {spec.usage}",
             "",
-            "Options:",
-            "  --json   Print the registered project list as JSON",
+            "Output:",
+            "  JSON registered project list. --json is accepted for compatibility.",
             "",
         ]
     )
@@ -602,6 +602,9 @@ def open_help_text() -> str:
             "",
             "Output:",
             "  JSON Studio launch result in one-shot CLI usage.",
+            "",
+            "Options:",
+            "  --activate <path>   Activate a Studio resource after the control service is ready.",
             "",
         ]
     )
@@ -697,8 +700,8 @@ def hub_projects_help_text() -> str:
             "Usage:",
             f"  {spec.usage}",
             "",
-            "Options:",
-            "  --json   Print the hub-backed project list as JSON",
+            "Output:",
+            "  JSON hub-backed project list. --json is accepted for compatibility.",
             "",
         ]
     )

@@ -323,9 +323,10 @@ def test_hub_ensure_starts_hub_and_reports_json() -> None:
 
 def test_hub_projects_reads_workspace_projects_through_hub_json() -> None:
     workspace = create_fake_workspace()
-    result = run_cli(["hub", "projects", "--json"], workspace)
+    result = run_cli(["hub", "projects"], workspace)
     assert result.returncode == 0
-    assert '"name": "barr-e"' in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["projects"][0]["name"] == "barr-e"
 
     record = discover_hub(workspace)
     assert record is not None
@@ -367,8 +368,8 @@ def test_launcher_ensure_starts_hub_managed_launcher_path() -> None:
 
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
     workspace = create_fake_workspace()
-    hub_result = run_cli(["hub", "projects", "--json"], workspace)
-    studio_result = run_cli(["studio", "projects", "--json"], workspace)
+    hub_result = run_cli(["hub", "projects"], workspace)
+    studio_result = run_cli(["studio", "projects"], workspace)
     assert hub_result.returncode == 0
     assert studio_result.returncode == 0
     assert hub_result.stdout == studio_result.stdout
@@ -893,10 +894,75 @@ def test_open_without_project_returns_json_result() -> None:
     assert payload["resource_type"] == "robotick_studio_open_result"
     assert payload["project_name"] is None
     assert payload["instance"]["name"].startswith("studio-")
+    assert payload["control_service"]["state"] == "not_waited"
     assert payload["support"]["hub"]["action"] in {"started", "reused", "restarted"}
     assert payload["support"]["launcher_service"]["action"] in {"started", "reused", "restarted"}
     logs_dir = workspace / ".robotick" / "logs"
     assert any(name.name.startswith("studio-open-empty-") for name in logs_dir.iterdir())
+
+
+def test_studio_open_can_wait_for_control_and_activate_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.studio.determine_hub_action", lambda _workspace: "reused")
+
+    def fake_post_studio_hub_json(_workspace, path, payload=None):
+        if path == "/v1/studio/open":
+            return {
+                "instance": {
+                    "name": "studio-2222",
+                    "pid": 2222,
+                    "mode": "dev",
+                    "started_at": "2026-06-06T12:00:00+00:00",
+                    "state": "running",
+                    "project_name": "barr-e",
+                    "log_path": str(workspace / ".robotick" / "logs" / "studio-open-barr-e.log"),
+                    "control_endpoint": None,
+                },
+                "support": {"launcher_service": {"action": "reused"}},
+            }
+        captured["activation"] = {"path": path, "payload": payload}
+        return {
+            "accepted": True,
+            "changed": True,
+            "activated_path": ["windows", "main", "workbenches", "terminal"],
+            "previous_active_path": ["windows", "main", "workbenches", "home"],
+            "message": "Activated Studio resource.",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.post_studio_hub_json", fake_post_studio_hub_json)
+    monkeypatch.setattr(
+        "robotick_cli.studio.wait_for_studio_control",
+        lambda _ctx, instance_name, _timeout_seconds=None: {
+            "state": "ready",
+            "endpoint": "http://127.0.0.1:7123",
+            "active_path": ["windows", "main", "workbenches", "home"],
+            "instance": {
+                "name": instance_name,
+                "pid": 2222,
+                "mode": "dev",
+                "started_at": "2026-06-06T12:00:00+00:00",
+                "state": "running",
+                "project_name": "barr-e",
+                "control_endpoint": "http://127.0.0.1:7123",
+            },
+        },
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["open", "barr-e", "--activate", "windows/main/workbenches/terminal"],
+    )
+
+    assert result.exit_code == 0
+    assert result.opened_instance_name == "studio-2222"
+    assert captured["activation"] == {
+        "path": "/v1/studio/instances/studio-2222/windows/main/workbenches/terminal/activate",
+        "payload": None,
+    }
 
 
 def test_studio_open_restarts_stale_hub_when_new_route_is_missing(
@@ -928,6 +994,10 @@ def test_studio_open_restarts_stale_hub_when_new_route_is_missing(
 
     monkeypatch.setattr("robotick_cli.studio.post_hub_json", fake_post)
     monkeypatch.setattr("robotick_cli.studio.restart_hub", lambda _workspace: state.__setitem__("restarted", state["restarted"] + 1) or fresh_record)
+    monkeypatch.setattr(
+        "robotick_cli.studio.wait_for_studio_control",
+        lambda _ctx, _instance_name, _timeout_seconds=None: {"state": "not_waited", "endpoint": None},
+    )
 
     result = robotick_cli.studio.run_studio_command(AppContext(workspace_root=workspace), ["open"])
     assert result.exit_code == 0

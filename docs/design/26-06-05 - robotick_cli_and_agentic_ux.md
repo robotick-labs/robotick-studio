@@ -66,6 +66,8 @@ Current canonical usage is through the `robotick` CLI:
 - `robotick studio <instance> select-project <project>`
 - `robotick studio <instance> <path...> activate`
 - `robotick studio <instance> quit`
+- `robotick studio open <project> --activate <path>`
+  for known targets that should become active immediately after launch
 
 The workspace root still provides `./tools/robotick` as a bootstrap shim, and `./install-robotick-cli.sh` installs a small delegating `robotick` command on `PATH`.
 
@@ -303,6 +305,8 @@ Current command hierarchy:
   create/materialize a new Studio instance without changing context
 - `robotick studio open`
   composite convenience command that creates or registers a Studio instance and returns or binds its identity
+- `robotick studio open <project> --activate <path>`
+  convenience launch that waits briefly for the Studio control service and activates a known resource path
 - `robotick studio <instance>`
   enter or target an existing Studio instance context
 - `robotick studio <instance> status`
@@ -349,6 +353,8 @@ Top-level capability namespaces remain addressable from a bound prompt, but they
 
 `open` launches or registers a Studio instance and returns a targetable `studio_instance`. In immediate mode it may bind the prompt to that instance.
 
+`open --activate <path>` is a convenience for known targets. It waits briefly for the Studio control service, activates the requested resource, and includes both `control_service` and `activation` details in the launch JSON result.
+
 Instance targeting uses explicit ids in one-shot mode, such as `robotick studio studio-12345 ...`. In immediate mode, once bound, unqualified Studio-scoped commands operate on the current instance.
 
 `status` is read-only, shallow, and node-local. Resource nodes return the selected resource plus shallow child summaries. Collection nodes return lightweight wrappers with child resources. Payloads should explicitly mark data provenance when values are runtime-derived, config-derived, computed, placeholder, or unknown.
@@ -379,6 +385,7 @@ robotick studio studio-12345 select-project barr-e
 robotick studio studio-12345 status
 robotick studio studio-12345 windows main workbenches remote-control status
 robotick studio studio-12345 windows main workbenches remote-control activate
+robotick studio open pip-e --activate windows/main/workbenches/terminal
 robotick studio studio-12345 quit
 ```
 
