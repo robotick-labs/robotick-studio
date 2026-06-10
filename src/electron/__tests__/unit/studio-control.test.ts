@@ -397,4 +397,118 @@ describe("Studio control runtime status", () => {
       previous_active_path: ["windows", "main", "workbenches", "models"],
     });
   });
+
+  it("decodes encoded resource path segments before resolving status", async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-control-"));
+    writeStudioDocumentFixture(projectPath);
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/windows/main/workbenches/remote-control/layouts/main%3Aremote-control%3Adefault/status",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      {
+        snapshotProvider: {
+          instanceName: "studio-1234",
+          pid: 1234,
+          mode: "dev",
+          workspaceRoot: projectPath,
+          getSelectedProjectPath: () => projectPath,
+          getActiveWindowScope: () => "main",
+          getOpenWindowScopes: () => ["main"],
+        },
+        selectProject: () => ({
+          accepted: false,
+          currentProjectPath: projectPath,
+          issue: null,
+        }),
+        activateResource: () => ({
+          accepted: false,
+          changed: false,
+          activated_path: [],
+          previous_active_path: null,
+          message: "unused",
+        }),
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      resource_type: "studio_layout",
+      id: "main:remote-control:default",
+    });
+  });
+
+  it("decodes encoded resource path segments before activating", async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-control-"));
+    writeStudioDocumentFixture(projectPath);
+    const captured: { pathSegments?: string[] } = {};
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/windows/main/workbenches/remote-control/layouts/main%3Aremote-control%3Adefault/activate",
+        method: "POST",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      {
+        snapshotProvider: {
+          instanceName: "studio-1234",
+          pid: 1234,
+          mode: "dev",
+          workspaceRoot: projectPath,
+          getSelectedProjectPath: () => projectPath,
+          getActiveWindowScope: () => "main",
+          getOpenWindowScopes: () => ["main"],
+        },
+        selectProject: () => ({
+          accepted: false,
+          currentProjectPath: projectPath,
+          issue: null,
+        }),
+        activateResource: (pathSegments) => {
+          captured.pathSegments = pathSegments;
+          return {
+            accepted: true,
+            changed: true,
+            activated_path: pathSegments,
+            previous_active_path: null,
+            message: "Activated Studio resource.",
+          };
+        },
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(captured.pathSegments).toEqual([
+      "windows",
+      "main",
+      "workbenches",
+      "remote-control",
+      "layouts",
+      "main:remote-control:default",
+    ]);
+  });
 });

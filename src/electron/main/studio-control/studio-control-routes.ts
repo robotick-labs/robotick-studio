@@ -34,6 +34,17 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
 }
 
+function decodePathSegments(resourcePath: string): string[] | null {
+  try {
+    return resourcePath
+      .split("/")
+      .filter((segment) => segment.length > 0)
+      .map((segment) => decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
+}
+
 function statusPathSegments(pathname: string): string[] | null {
   if (pathname === "/v1/status" || pathname === "/v1/studio/status") {
     return [];
@@ -44,7 +55,7 @@ function statusPathSegments(pathname: string): string[] | null {
     return null;
   }
   const resourcePath = pathname.slice(prefix.length, -suffix.length);
-  return resourcePath.split("/").filter((segment) => segment.length > 0);
+  return decodePathSegments(resourcePath);
 }
 
 function activationPathSegments(pathname: string): string[] | null {
@@ -57,7 +68,7 @@ function activationPathSegments(pathname: string): string[] | null {
     return null;
   }
   const resourcePath = pathname.slice(prefix.length, -suffix.length);
-  return resourcePath.split("/").filter((segment) => segment.length > 0);
+  return decodePathSegments(resourcePath);
 }
 
 function isStringArray(value: unknown): value is string[] {

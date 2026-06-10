@@ -751,6 +751,85 @@ def test_repl_cd_then_activate_targets_current_studio_path(
     ]
 
 
+def test_repl_back_updates_current_studio_path_before_activate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    inputs = iter(
+        [
+            "studio",
+            "studio-1234",
+            "cd windows",
+            "cd main",
+            "cd workbenches",
+            "cd home",
+            "back",
+            "activate",
+            "exit",
+        ]
+    )
+
+    def fake_node_status(
+        _workspace: Path,
+        _instance_name: str,
+        path_segments: tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        nodes = {
+            (): {"child_collections": [{"name": "windows"}]},
+            ("windows",): {"child_resources": [{"id": "main"}]},
+            ("windows", "main"): {"child_collections": [{"name": "workbenches"}]},
+            ("windows", "main", "workbenches"): {
+                "activation_target_path": ["windows", "main"],
+                "child_resources": [{"id": "home"}],
+            },
+            ("windows", "main", "workbenches", "home"): {
+                "activation_target_path": ["windows", "main", "workbenches", "home"],
+                "child_collections": [],
+            },
+        }
+        return nodes[path_segments]
+
+    def fake_run_studio_command(_ctx: AppContext, args: list[str]) -> CommandResult:
+        captured["args"] = args
+        return CommandResult(exit_code=0)
+
+    monkeypatch.setattr(repl_module, "ensure_hub", lambda _workspace: None)
+    monkeypatch.setattr(
+        repl_module,
+        "install_readline_completion",
+        lambda _ctx, _state: (lambda: None),
+    )
+    monkeypatch.setattr(
+        repl_module,
+        "get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(repl_module, "fetch_studio_node_status", fake_node_status)
+    monkeypatch.setattr(repl_module, "run_studio_command", fake_run_studio_command)
+    monkeypatch.setattr(repl_module, "reconcile_bound_instance", lambda _workspace, _state: None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(inputs))
+    monkeypatch.setattr(repl_module, "write", lambda _text, stream=None: None)
+    monkeypatch.setattr(repl_module, "writeln", lambda _text="", stream=None: None)
+
+    exit_code = start_interactive_shell(AppContext(workspace_root=workspace))
+
+    assert exit_code == 0
+    assert captured["args"] == [
+        "studio-1234",
+        "windows",
+        "main",
+        "workbenches",
+        "activate",
+    ]
+
+
 def test_one_shot_deep_layout_and_panel_status() -> None:
     workspace = create_fake_workspace()
     opened = run_cli(["studio", "open", "barr-e"], workspace)

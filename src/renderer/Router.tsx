@@ -72,6 +72,7 @@ function StudioActivationSync() {
   const { workbenches } = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
+  const lastAppliedCachedActivation = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     const applyActivation = (event: { activated_path: string[] }) => {
@@ -93,7 +94,15 @@ function StudioActivationSync() {
     const unsubscribe =
       window.robotick?.studioControl?.onActivationChanged?.(applyActivation);
     const lastActivation = window.robotick?.studioControl?.getLastActivation?.();
-    if (lastActivation) {
+    const lastActivationKey = lastActivation
+      ? JSON.stringify(lastActivation.activated_path)
+      : null;
+    if (
+      lastActivation &&
+      lastActivationKey &&
+      lastAppliedCachedActivation.current !== lastActivationKey
+    ) {
+      lastAppliedCachedActivation.current = lastActivationKey;
       applyActivation(lastActivation);
     }
     return unsubscribe;

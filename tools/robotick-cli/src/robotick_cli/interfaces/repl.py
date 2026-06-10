@@ -208,6 +208,7 @@ def start_interactive_shell(ctx: AppContext) -> int:
                         next_state = step_back(state)
                         state.namespace = next_state.namespace
                         state.instance_name = next_state.instance_name
+                        state.studio_path = next_state.studio_path
                     continue
                 if line == "quit":
                     handle_bound_instance_quit(ctx, state)
