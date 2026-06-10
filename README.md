@@ -34,4 +34,6 @@ The currently exposed path is:
 studio/<instance>/windows/<window>/workbenches/<workbench>/layouts/<layout>/panels/<panel>
 ```
 
+See [docs/design/26-06-05 - robotick_cli_and_agentic_ux.md](./docs/design/26-06-05%20-%20robotick_cli_and_agentic_ux.md) for the canonical CLI, hub, launcher, and Studio control design.
+
 This is structural inspection only. Panel/viewer readiness, recovery, and deeper diagnosability remain separate follow-on work.

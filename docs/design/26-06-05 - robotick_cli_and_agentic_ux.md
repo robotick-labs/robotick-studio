@@ -2,13 +2,13 @@
 
 Date: 2026-06-05
 Baseline project: `robots/barr-e`
-Status: technical design for MVP implementation
+Status: authoritative living design for the CLI, hub, launcher, and Studio control surface
 
 ## Executive Summary
 
 Robotick Studio is already a powerful human workbench. It can open robot projects, launch runtime profiles, inspect models, show telemetry, drive viewports, and shape expressive behaviour. The gap is that much of its operational truth still lives in an operator's head: which project script to run, which window matters, which log line is bad, whether a blank viewport means "not ready yet" or "broken", and when it is safe to capture evidence or shut everything down.
 
-This MVP makes those truths explicit. Studio instances, Studio windows, workbenches, layout tabs, panels, launcher services, launcher runs, viewer state, readiness classes, capture results, and shutdown blockers become named, typed, inspectable resources.
+This design makes those truths explicit. The current implemented slice covers hub/launcher status and ensure commands, Studio instance launch/discovery, bound Studio navigation, shallow JSON status from instance down to panel, project switching, and activation. The broader MVP extends that same contract to launcher runs, viewer readiness, capture results, recovery, and shutdown blockers.
 
 The immediate user-facing goal is a deterministic flow:
 
@@ -51,9 +51,25 @@ The baseline task was deliberately simple:
 
 The task completed mechanically, but the path was fragile. The first run captured a black Remote Control viewport even though the UI had moved past its placeholder state. A later run produced a better visual result. That variation showed that current readiness and visual-success signals are not explicit enough.
 
-### Current Entry Points
+### Canonical Entry Points
 
-Current human usage is based on repo scripts and the Studio UI:
+Current canonical usage is through the `robotick` CLI:
+
+- `robotick hub status`
+- `robotick hub ensure`
+- `robotick launcher status`
+- `robotick launcher ensure`
+- `robotick studio projects`
+- `robotick studio instances`
+- `robotick studio open [project]`
+- `robotick studio <instance> ... status`
+- `robotick studio <instance> select-project <project>`
+- `robotick studio <instance> <path...> activate`
+- `robotick studio <instance> quit`
+
+The workspace root still provides `./tools/robotick` as a bootstrap shim, and `./install-robotick-cli.sh` installs a small delegating `robotick` command on `PATH`.
+
+Legacy or convenience human entry points remain useful, but they are no longer the primary contract:
 
 - `./robots/barr-e/run-studio.sh`
 - `./robots/pip-e/run-studio.sh`
@@ -61,9 +77,9 @@ Current human usage is based on repo scripts and the Studio UI:
 - Studio project picker
 - Studio profile picker
 - launcher start/stop controls
-- Studio work areas currently named workbenches in the codebase, such as `Remote Control`, `Telemetry`, `Models`, `Project`, and `Terminal`
+- Studio workbenches such as `Remote Control`, `Telemetry`, `Models`, `Project`, and `Terminal`
 
-The functional surface exists. The missing piece is a stable operational contract behind it.
+The functional surface exists. The design goal is to make the CLI/hub/Studio control contract the stable operational source of truth behind it.
 
 ### Evidence
 
@@ -224,11 +240,13 @@ Long-running managed capabilities must expose explicit compatibility metadata. S
 
 ### Launcher Model
 
-Launcher is a Robotick-workspace-scoped capability/service, not a singleton bound to one Studio instance or one project. It supports runs beneath the service. Each run has its own run id, target project, profile, status, requested stages, target models, and optional owning Studio instance id.
+Launcher is currently treated as a Robotick-workspace-scoped capability/service, not a singleton bound to one Studio instance or one project. The target run model supports runs beneath the service. Each run has its own run id, target project, profile, status, requested stages, target models, and optional owning Studio instance id.
 
 Launcher reuse is compatibility-checked by hub. An old but still live launcher must be stopped and relaunched when its declared launcher contract no longer matches the hub expectation.
 
 Early concurrency may be constrained to one active run per `(project_id, profile_id)`, but that constraint must be explicit policy with a stable failure code.
+
+Launcher lifecycle remains an open design decision. The current service model is acceptable for now, but it may later be simplified into a short-lived launch worker or hub-internal launch module if Studio and other tools can query robot/model state directly after launch.
 
 ### Studio Model
 
@@ -252,34 +270,60 @@ The CLI uses a path-oriented grammar:
 - `quit` closes a Studio instance
 - `ls` presents context-forming entries separately from actions where useful
 
-Command hierarchy:
+Current command principles:
+
+- one-shot CLI commands are JSON-first by default
+- `status` is read-only and must not start, restart, or mutate hub, launcher, Studio, or project runtime state
+- explicit action commands such as `hub ensure`, `launcher ensure`, and `studio open [project]` may start or reuse dependencies
+- `cd`, `back`, prompt paths, and current shell binding are CLI-owned concepts
+- hub and Studio APIs expose resources, child collections, child resources, links, and actions; they should not expose shell-specific context state
+- Studio instance-local status and control should be answered by the running Studio Electron process through its control service, with hub acting as workspace lifecycle owner and proxy
+
+Current command hierarchy:
 
 - `robotick`
   top-level entrypoint and shell root
+- `robotick hub status`
+  read-only JSON query for hub reachability, endpoint, pid, workspace root, tray state, and capability readiness
+- `robotick hub ensure`
+  action command that starts, reuses, or restarts the hub and reports the action taken
+- `robotick launcher status`
+  read-only JSON query for launcher service reachability and launcher runtime state
+- `robotick launcher ensure`
+  action command that starts or reuses the hub-managed launcher service
 - `robotick studio`
   Studio namespace
 - `robotick launcher`
-  launcher namespace for robot/model runtime lifecycle
+  launcher service namespace for current status and ensure operations
+- `robotick studio projects`
+  list registered Studio projects from the workspace project source of truth
+- `robotick studio instances`
+  list live Studio instances tracked for the workspace
 - `robotick studio create`
   create/materialize a new Studio instance without changing context
 - `robotick studio open`
   composite convenience command that creates or registers a Studio instance and returns or binds its identity
 - `robotick studio <instance>`
   enter or target an existing Studio instance context
-- `robotick studio <instance> project ...`
-  bind or operate on project state within that instance
-- `robotick studio <instance> workbench ...`
-  bind or operate on Studio workbench state within that instance
-- `robotick studio <instance> viewer ...`
-  bind or operate on viewer state within that instance
+- `robotick studio <instance> status`
+  read-only JSON query for the current Studio instance node
+- `robotick studio <instance> <path...> status`
+  read-only JSON query for a Studio resource below the instance
+- `robotick studio <instance> select-project <project>`
+  ask the targeted Studio instance to switch selected project
+- `robotick studio <instance> <path...> activate`
+  ask the targeted Studio instance to make the targeted resource the active runtime branch
+- `robotick studio <instance> quit`
+  close the targeted Studio instance
+
+Target future command hierarchy:
+
+- `robotick launcher launch|stop|wait-ready ...`
+  operate on robot/model run lifecycle through the launcher capability
 - `robotick studio <instance> wait-ready viewer ...`
   wait for Studio workbench/viewer readiness
 - `robotick studio <instance> capture ...`
   capture panels or views from that instance
-- `robotick studio <instance> quit`
-  close the targeted Studio instance
-- `robotick launcher launch|stop|status|wait-ready ...`
-  operate on robot/model lifecycle through the launcher capability
 
 Interactive prompt examples:
 
@@ -289,7 +333,15 @@ robotick:studio>
 robotick:studio:studio-12345>
 ```
 
-Top-level capability namespaces remain addressable from a bound prompt, but they keep their ownership model. For example, invoking `launcher launch ...` from `robotick:studio:studio-12345>` may attach `owner_studio_instance_id` metadata for diagnostics and UX, but launcher service identity remains Robotick-workspace-scoped.
+The current exposed Studio hierarchy is:
+
+```text
+studio/<instance>/windows/<window>/workbenches/<workbench>/layouts/<layout>/panels/<panel>
+```
+
+`ls` lists child contexts and actions available at the current shell binding. `cd` changes only the CLI cursor over loaded or available structure. It must not activate Studio runtime state. `status` returns the currently bound Studio node as JSON. `activate` is the explicit mutating verb for changing Studio runtime state.
+
+Top-level capability namespaces remain addressable from a bound prompt, but they keep their ownership model. For example, a future `launcher launch ...` invoked from `robotick:studio:studio-12345>` may attach `owner_studio_instance_id` metadata for diagnostics and UX, but launcher service identity remains Robotick-workspace-scoped.
 
 ### Command Semantics
 
@@ -299,43 +351,48 @@ Top-level capability namespaces remain addressable from a bound prompt, but they
 
 Instance targeting uses explicit ids in one-shot mode, such as `robotick studio studio-12345 ...`. In immediate mode, once bound, unqualified Studio-scoped commands operate on the current instance.
 
-`launcher launch` returns a machine-targetable `launcher_run` identity such as `launcher-full-67890`. Launch subtype is also explicit in fields such as `launch_kind`, `profile_id`, `requested_stages`, and optional `target_models`; callers must not parse the id to recover that meaning.
+`status` is read-only, shallow, and node-local. Resource nodes return the selected resource plus shallow child summaries. Collection nodes return lightweight wrappers with child resources. Payloads should explicitly mark data provenance when values are runtime-derived, config-derived, computed, placeholder, or unknown.
 
-`launcher wait-ready` and `launcher stop` target explicit run ids. They do not silently operate on ambient singleton runtime state.
+`select-project` is a Studio-instance operation. Hub may resolve workspace project metadata and proxy the request, but the running Studio instance owns the selected project state.
 
-`wait-ready viewer` never creates a viewer. It waits against an existing Studio instance/window/workbench/panel/viewer target and, when relevant, a referenced launcher run id.
+`activate` is idempotent. Activating an already-active target returns an accepted no-op result rather than an error. Activating a deep child should activate the required parent chain, for example panel -> layout -> workbench -> window. Unsupported activation should return a stable JSON error such as `studio_activation_unsupported`; locked or runtime-rejected activation should gain stable codes when Studio has resources that can reject activation for those reasons.
 
-`capture` writes or returns a `capture_result` tied to explicit Studio and runtime context. It is not an implicit side effect of `wait-ready`.
+Future `launcher launch` returns a machine-targetable `launcher_run` identity such as `launcher-full-67890`. Launch subtype is also explicit in fields such as `launch_kind`, `profile_id`, `requested_stages`, and optional `target_models`; callers must not parse the id to recover that meaning.
 
-`quit` targets a Studio instance. `stop` targets a launcher run. `--wait` changes blocking behavior, not resource identity or ownership.
+Future `launcher wait-ready` and `launcher stop` target explicit run ids. They do not silently operate on ambient singleton runtime state.
 
-`--json` serializes the underlying resource or operation result with minimal presentation wrapping.
+Future `wait-ready viewer` never creates a viewer. It waits against an existing Studio instance/window/workbench/panel/viewer target and, when relevant, a referenced launcher run id.
 
-### Example Flow
+Future `capture` writes or returns a `capture_result` tied to explicit Studio and runtime context. It is not an implicit side effect of `wait-ready`.
+
+`quit` targets a Studio instance. Future `stop` targets a launcher run. Future `--wait` changes blocking behavior, not resource identity or ownership.
+
+CLI commands are JSON-first. `--json` may remain accepted for compatibility or explicitness, but it should not be required to get machine-readable output from canonical one-shot commands.
+
+### Current Example Flow
 
 ```bash
 robotick studio projects
 robotick studio open
 robotick studio instances
-robotick studio studio-12345 project barr-e
-robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
-robotick launcher wait-ready launcher-full-67890 --readiness launcher-run
-robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
-robotick studio studio-12345 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
-robotick launcher stop launcher-full-67890
-robotick studio studio-12345 quit --wait
+robotick studio studio-12345 select-project barr-e
+robotick studio studio-12345 status
+robotick studio studio-12345 windows main workbenches remote-control status
+robotick studio studio-12345 windows main workbenches remote-control activate
+robotick studio studio-12345 quit
 ```
 
 ```text
 robotick> studio
 robotick:studio> projects
 robotick:studio> open
-robotick:studio:studio-12345> project barr-e
-robotick:studio:studio-12345> launcher launch --project barr-e --profile local:ALL
-robotick:studio:studio-12345> launcher wait-ready launcher-full-67890 --readiness launcher-run
-robotick:studio:studio-12345> wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
-robotick:studio:studio-12345> capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
-robotick:studio:studio-12345> launcher stop launcher-full-67890
+robotick:studio:studio-12345> select-project barr-e
+robotick:studio:studio-12345> status
+robotick:studio:studio-12345> cd windows
+robotick:studio:studio-12345:windows> cd main
+robotick:studio:studio-12345:windows:main> cd workbenches
+robotick:studio:studio-12345:windows:main:workbenches> cd remote-control
+robotick:studio:studio-12345:windows:main:workbenches:remote-control> activate
 robotick:studio:studio-12345> quit
 ```
 
@@ -373,7 +430,7 @@ Humans should not need `AGENTS.md` to discover how to launch Studio.
 
 The MVP hub transport is localhost HTTP/JSON backed by FastAPI/Pydantic contracts. WebSocket event streams can be added later.
 
-Initial hub endpoints:
+Current hub endpoints:
 
 - `GET /v1/health`
   reports hub liveness, Robotick workspace identity, `api_contract_version`, and `build_id`
@@ -391,10 +448,24 @@ Initial hub endpoints:
   opens/registers a Studio instance with the hub endpoint configured
 - `GET /v1/studio/instances`
   lists known Studio instances
+- `GET /v1/studio/instances/{id}/status`
+  proxies to the Studio instance control endpoint when available and returns node-local instance status
+- `GET /v1/studio/instances/{id}/{path...}/status`
+  proxies to the Studio instance control endpoint when available and returns node-local Studio resource status
+- `POST /v1/studio/instances/{id}/project/select`
+  asks a running Studio instance to switch selected project
+- `POST /v1/studio/instances/{id}/{path...}/activate`
+  asks a running Studio instance to activate the targeted resource
+- `POST /v1/studio/instances/{id}/control-endpoint`
+  lets a Studio instance register its local control endpoint with hub
 - `POST /v1/studio/instances/{id}/quit`
   requests graceful Studio quit for a known instance
+- `POST /v1/apps/{app_id}/instances/closing`
+  records best-effort app-closing notifications from managed apps
+- `POST /v1/launcher/stop`
+  requests launcher service/runtime stop through the hub-managed launcher path
 
-Future Studio endpoints should expose status, project binding, workbench discovery, viewer status/recovery, readiness, capture, and shutdown state through the same typed resource contract.
+Future Studio endpoints should extend viewer status/recovery, readiness, capture, and shutdown state through the same typed resource contract.
 
 ## Resource And State Contract
 
@@ -465,6 +536,25 @@ MVP does not need every Studio workbench operation. It does need a shape that su
 Every resource response includes `resource_type` and canonical `id`. Long-lived resources include `state`. Machine timestamps use RFC 3339 UTC. Degraded or failed states include machine-readable reason data rather than prose-only explanation.
 
 Studio context fields such as `studio_window_id`, `studio_workbench_id`, `layout_tab_id`, and `panel_id` may be `null` when an operation intentionally targets a direct data source rather than visible Studio UI.
+
+Navigable resource responses may include:
+
+- `child_collections`
+  neutral child collection summaries that the CLI can render as contexts
+- `child_resources`
+  neutral child resource summaries for collection nodes
+- `children`
+  shallow child summaries grouped by collection name
+- `state_sources`
+  provenance for runtime-derived, config-derived, computed, placeholder, or unknown values
+- `diagnostics`
+  explicit diagnostics metadata even when empty
+- `active`
+  whether the resource is currently active in Studio runtime state
+- `activatable`
+  whether this exact resource can be activated
+- `activation_target_path`
+  the path that `activate` would affect from this context or nearest activatable parent
 
 ### Capability Resources
 
@@ -811,6 +901,39 @@ Migration requirements:
 
 JSON is preferred over YAML for this persisted UI state. Studio already uses YAML for static app configuration, while runtime/persisted Electron-side state is already JSON-oriented.
 
+## Studio Control Service
+
+Each running Studio instance exposes a local control/introspection service owned by the Electron process. Hub records each instance `control_endpoint` and proxies bound-instance status/control requests to it. Hub remains responsible for workspace-level lifecycle concerns such as launch, quit, instance discovery, compatibility checks, and stale-instance cleanup.
+
+Current intended file shape:
+
+```text
+src/
+  electron/
+    common/
+      studio-control-contract.ts
+    main/
+      studio-control/
+        studio-control-server.ts
+        studio-control-routes.ts
+        studio-runtime-snapshot.ts
+        studio-context-resolver.ts
+        studio-project-selection.ts
+      bootstrap.ts
+    preload/
+      studio-control-api.ts
+      preload.ts
+  renderer/
+    services/
+      studio-control/
+        StudioControlClient.ts
+        studio-control-types.ts
+```
+
+The control service is the home for runtime-authoritative instance answers: selected project, active window, active workbench, active layout, active panel where known, open resources, editor assignments, activation handling, and diagnostics. Hub-side reconstruction from persisted Studio documents is only a bootstrap or fallback path, not the long-term source of truth for instance-local state.
+
+If a stale hub does not know required proxy routes or protocol features, managed CLI commands should restart it and retry. If a running Studio instance predates the control service or lacks the expected `control_endpoint`, the operator should quit and reopen that Studio instance.
+
 ## Capture And Shutdown
 
 Capture is a first-class operation, not a screenshot improvised through UI automation. It must be available through Robotick commands and hub/Studio contracts in both dev and packaged modes. Agents should not scrape log files for Electron remote-debugging ports or speak raw CDP for basic capture.
@@ -853,11 +976,21 @@ The current implementation has already moved beyond raw wrapper scripts:
 - `robotick/robotick-studio/tools/robotick-cli/` provides a Python Robotick operations CLI
 - the CLI supports one-shot argv mode and immediate shell mode through the same language/routing layer
 - command/help/shell discovery output comes from a shared command registry
+- one-shot commands are JSON-first, including JSON error payloads for JSON-first command paths
+- `hub status` and `launcher status` are read-only; `hub ensure`, `launcher ensure`, and `studio open [project]` are explicit action commands
+- hub compatibility metadata lets managed CLI commands restart stale/incompatible hubs automatically
 - `tools/robotick-hub/` provides a Python/FastAPI/Pydantic service with health, capabilities, Robotick workspace identity, service registry, and workspace project listing
 - desktop sessions can show `robotick-hub` tray presence from the same Python process
 - launcher capability is routed through hub for ensure/status/stop/endpoint discovery and managed-worker lifecycle
 - shared workspace/project queries now live on hub-backed paths
 - `robotick studio open` ensures hub, asks hub to ensure required capabilities, and opens/registers Studio through hub-owned endpoints
+- `robotick studio instances` lists live Studio instances tracked by hub
+- bound Studio navigation exposes `windows/<window>/workbenches/<workbench>/layouts/<layout>/panels/<panel>`
+- `status` works from Studio instance down to panel and returns shallow node-local payloads plus neutral child summaries/collections
+- Studio exposes a local control service, registers `control_endpoint`, and hub proxies bound status/control requests to it when available
+- runtime-backed state currently includes active workbench reporting and activation through the visible Studio UI
+- `select-project` asks the running Studio instance to switch selected project through the control service
+- `activate` is parameterless in shell mode, path-scoped in one-shot mode, and idempotent for already-active targets
 - Studio no longer starts, stops, supervises, or force-kills launcher processes during its own boot/shutdown path
 - `quit` prefers the Studio control API slot when available and falls back clearly to process-group shutdown
 - hub exposes a reusable app-closing signal path, and Studio emits a best-effort closing notification
@@ -865,30 +998,29 @@ The current implementation has already moved beyond raw wrapper scripts:
 
 Current workflow reality remains incomplete for the MVP contract:
 
-- `robotick studio` exposes only the current hello-world subset plus minimal instance commands
-- `robotick launcher` exposes only the current routed status path
-- Studio instance records can still have `control_endpoint: null`
-- Studio has no typed workbench/panel/viewer inspection surface yet
+- locked/runtime-rejected activation needs stable error codes once Studio has resources that can reject activation for those reasons
+- panel/viewer diagnosability, readiness, capture, recovery, and shutdown detail are still planned beyond the current structural inspection surface
+- launcher truth is still too ambient for capture workflows
+- launcher lifecycle policy still needs a follow-up decision: singleton service vs short-lived launch worker vs hub-internal launch module
 - capture is still possible only through a dev-mode CDP workaround
 - Remote Control can still require manual refresh to recover
-- launcher truth is still too ambient for capture workflows
-- hub/service singleton and compatibility reuse still need formal enforcement
 
-## MVP Acceptance Flow
+## Target Acceptance Flow
 
-The Barr.e baseline should become a flow with explicit Studio instance identity, explicit launcher run identity, and explicit readiness class.
+The Barr.e baseline should become a flow with explicit Studio instance identity, explicit launcher run identity, and explicit readiness class. The first three Studio lines are current; the launcher run, readiness, and capture commands are target future work.
 
 One-shot flow:
 
 ```bash
-robotick studio open --json
-robotick studio studio-12345 project barr-e
-robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345 --json
+robotick studio open
+robotick studio studio-12345 select-project barr-e
+robotick studio studio-12345 windows main workbenches remote-control activate
+robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
 robotick launcher wait-ready launcher-full-67890 --readiness launcher-run
 robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
 robotick studio studio-12345 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
 robotick launcher stop launcher-full-67890
-robotick studio studio-12345 quit --wait
+robotick studio studio-12345 quit
 ```
 
 Interactive flow:
@@ -898,7 +1030,12 @@ robotick studio
 open
 robotick:studio:studio-12345>
 ls
-project barr-e
+select-project barr-e
+cd windows
+cd main
+cd workbenches
+cd remote-control
+activate
 launcher launch --project barr-e --profile local:ALL
 launcher wait-ready launcher-full-67890 --readiness launcher-run
 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
