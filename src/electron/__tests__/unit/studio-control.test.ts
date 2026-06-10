@@ -1,9 +1,13 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import type { StudioDocument } from "../../main/studio-persistence";
 import {
   buildStudioRuntimeTree,
   resolveStudioRuntimeNode,
 } from "../../main/studio-control/studio-context-resolver";
+import { routeStudioControlRequest } from "../../main/studio-control/studio-control-routes";
 
 const document: StudioDocument = {
   resourceType: "studio_document",
@@ -66,6 +70,47 @@ const document: StudioDocument = {
     },
   ],
 };
+
+function writeStudioDocumentFixture(projectPath: string) {
+  fs.mkdirSync(path.join(projectPath, "studio"), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectPath, "studio", "studio.yaml"),
+    [
+      "resourceType: studio_document",
+      "schemaVersion: 1",
+      "id: test-studio",
+      "windows:",
+      "  - id: main",
+      "    label: Main Window",
+      "    windowRole: main",
+      "    defaultWorkbenchId: remote-control",
+      "    workbenches:",
+      "      - id: remote-control",
+      "        label: Remote Control",
+      "        path: /remote-control",
+      "        defaultEditorId: remote-control",
+      "        layouts:",
+      "          - id: main:remote-control:default",
+      "            label: Remote Control | Default",
+      "            dock:",
+      "              nodeType: panel",
+      "              panelId: panel-remote-control",
+      "              editorId: remote-control",
+      "      - id: models",
+      "        label: Models",
+      "        path: /models",
+      "        defaultEditorId: models",
+      "        layouts:",
+      "          - id: main:models:default",
+      "            label: Models | Default",
+      "            dock:",
+      "              nodeType: panel",
+      "              panelId: panel-models",
+      "              editorId: models",
+    ].join("\n"),
+    "utf-8"
+  );
+}
 
 describe("Studio control runtime status", () => {
   it("returns node-local instance status with neutral child metadata", () => {
@@ -260,5 +305,74 @@ describe("Studio control runtime status", () => {
         },
       ])
     );
+  });
+
+  it("passes already-active state into activation handlers for idempotent responses", async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-control-"));
+    writeStudioDocumentFixture(projectPath);
+    const captured: { pathSegments?: string[]; alreadyActive?: boolean } = {};
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/windows/main/workbenches/models/activate",
+        method: "POST",
+        async *[Symbol.asyncIterator]() {
+          // No request body is required for activation.
+        },
+      } as any,
+      response as any,
+      {
+        snapshotProvider: {
+          instanceName: "studio-1234",
+          pid: 1234,
+          mode: "dev",
+          workspaceRoot: projectPath,
+          getSelectedProjectPath: () => projectPath,
+          getActiveWindowScope: () => "main",
+          getOpenWindowScopes: () => ["main"],
+          getActiveWorkbenchIds: () => ({ main: "models" }),
+        },
+        selectProject: () => ({
+          accepted: false,
+          currentProjectPath: projectPath,
+          issue: null,
+        }),
+        activateResource: (pathSegments, alreadyActive) => {
+          captured.pathSegments = pathSegments;
+          captured.alreadyActive = alreadyActive;
+          return {
+            accepted: true,
+            changed: !alreadyActive,
+            activated_path: pathSegments,
+            previous_active_path: alreadyActive ? pathSegments : null,
+            message: alreadyActive
+              ? "Studio resource was already active."
+              : "Activated Studio resource.",
+          };
+        },
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(captured).toEqual({
+      pathSegments: ["windows", "main", "workbenches", "models"],
+      alreadyActive: true,
+    });
+    expect(JSON.parse(response.body)).toMatchObject({
+      accepted: true,
+      changed: false,
+      activated_path: ["windows", "main", "workbenches", "models"],
+      previous_active_path: ["windows", "main", "workbenches", "models"],
+    });
   });
 });
