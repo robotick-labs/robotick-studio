@@ -38,7 +38,6 @@ from robotick_hub.launcher import (
 )
 from robotick_hub.runtime import remove_hub_record, write_hub_record
 from robotick_hub.studio import (
-    get_instance,
     get_instance_status,
     get_studio_status,
     get_studio_capability_status,
@@ -95,6 +94,13 @@ def tray_expected() -> bool:
 
 def tray_active() -> bool:
     return os.environ.get("ROBOTICK_HUB_TRAY_ACTIVE") == "1"
+
+
+def get_selected_project_from_runtime(instance_id: str) -> str | None:
+    payload = get_studio_status(get_workspace_root(), instance_id)
+    if not isinstance(payload, dict):
+        return None
+    return str(payload.get("project_name") or "") or None
 
 
 def build_capabilities() -> list[CapabilitySummary]:
@@ -223,9 +229,7 @@ def create_app() -> FastAPI:
         projects = build_workspace_projects(get_workspace_root())
         selected_target_project = None
         if instance_id:
-            instance = get_instance(get_workspace_root(), instance_id)
-            if instance is not None:
-                selected_target_project = str(instance.get("project_name") or "") or None
+            selected_target_project = get_selected_project_from_runtime(instance_id)
         return StudioProjectsResponse(
             projects=projects,
             selected_target_project=selected_target_project,

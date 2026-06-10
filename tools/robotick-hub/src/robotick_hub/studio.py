@@ -253,14 +253,18 @@ def classify_instance_state(instance: StudioInstanceRecord) -> str:
     return "running" if is_instance_alive(instance) else "stale"
 
 
-def summarize_instance(instance: StudioInstanceRecord) -> dict[str, object]:
+def summarize_instance(
+    instance: StudioInstanceRecord,
+    *,
+    include_project_name: bool = True,
+) -> dict[str, object]:
     return {
         "name": instance.name,
         "pid": instance.pid,
         "mode": instance.mode,
         "started_at": instance.started_at,
         "state": classify_instance_state(instance),
-        "project_name": instance.project_name,
+        "project_name": instance.project_name if include_project_name else None,
         "log_path": instance.log_path,
         "control_endpoint": instance.control_endpoint,
     }
@@ -871,7 +875,7 @@ def list_instances(workspace_root: str | Path) -> list[dict[str, object]]:
             release_project_lock(instance)
             remove_instance_record(workspace_root, instance.name)
             continue
-        instances.append(summarize_instance(instance))
+        instances.append(summarize_instance(instance, include_project_name=False))
     return sorted(instances, key=lambda item: str(item["name"]))
 
 
