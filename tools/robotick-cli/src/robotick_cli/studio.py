@@ -412,6 +412,12 @@ def launch_studio_via_hub(
             control_service,
         )
     if json_output:
+        instance_name = str(instance["name"])
+        instance_command_prefix = ["robotick", "studio", instance_name]
+        active_path = control_service.get("active_path")
+        window_command_prefix = instance_command_prefix
+        if isinstance(active_path, list) and all(isinstance(segment, str) for segment in active_path):
+            window_command_prefix = [*instance_command_prefix, *active_path]
         result_payload = {
             "resource_type": (
                 "robotick_studio_open_chained_result"
@@ -429,6 +435,14 @@ def launch_studio_via_hub(
                 for key, value in control_service.items()
                 if key != "instance"
             },
+            "control_handles": {
+                "instance_command_prefix": instance_command_prefix,
+                "window_command_prefix": window_command_prefix,
+            },
+            "notes": [
+                "Use the instance command prefix to control this Studio instance.",
+                "Running 'robotick studio open ...' again creates a separate Studio instance.",
+            ],
         }
         if chained_result is not None:
             result_payload["chained_command"] = chained_result

@@ -895,6 +895,20 @@ def test_open_without_project_returns_json_result() -> None:
     assert payload["project_name"] is None
     assert payload["instance"]["name"].startswith("studio-")
     assert payload["control_service"]["state"] == "not_waited"
+    assert payload["control_handles"]["instance_command_prefix"] == [
+        "robotick",
+        "studio",
+        payload["instance"]["name"],
+    ]
+    assert payload["control_handles"]["window_command_prefix"] == [
+        "robotick",
+        "studio",
+        payload["instance"]["name"],
+    ]
+    assert payload["notes"] == [
+        "Use the instance command prefix to control this Studio instance.",
+        "Running 'robotick studio open ...' again creates a separate Studio instance.",
+    ]
     assert payload["support"]["hub"]["action"] in {"started", "reused", "restarted"}
     assert payload["support"]["launcher_service"]["action"] in {"started", "reused", "restarted"}
     logs_dir = workspace / ".robotick" / "logs"
@@ -934,6 +948,7 @@ def test_studio_open_can_chain_into_instance_activation(
         }
 
     monkeypatch.setattr("robotick_cli.studio.post_studio_hub_json", fake_post_studio_hub_json)
+    monkeypatch.setattr("robotick_cli.studio.write_json", lambda payload: captured.__setitem__("result_payload", payload))
     monkeypatch.setattr(
         "robotick_cli.studio.wait_for_studio_control",
         lambda _ctx, instance_name, _timeout_seconds=None: {
@@ -959,6 +974,22 @@ def test_studio_open_can_chain_into_instance_activation(
 
     assert result.exit_code == 0
     assert result.opened_instance_name == "studio-2222"
+    payload = captured["result_payload"]
+    assert payload["resource_type"] == "robotick_studio_open_chained_result"
+    assert payload["control_handles"]["instance_command_prefix"] == [
+        "robotick",
+        "studio",
+        "studio-2222",
+    ]
+    assert payload["control_handles"]["window_command_prefix"] == [
+        "robotick",
+        "studio",
+        "studio-2222",
+        "windows",
+        "main",
+        "workbenches",
+        "home",
+    ]
     assert captured["activation"] == {
         "path": "/v1/studio/instances/studio-2222/windows/main/workbenches/terminal/activate",
         "payload": None,
@@ -1046,6 +1077,11 @@ def test_open_with_project_launches_project_quietly() -> None:
     assert payload["resource_type"] == "robotick_studio_open_result"
     assert payload["project_name"] == "barr-e"
     assert payload["instance"]["name"].startswith("studio-")
+    assert payload["control_handles"]["instance_command_prefix"] == [
+        "robotick",
+        "studio",
+        payload["instance"]["name"],
+    ]
     assert payload["support"]["hub"]["action"] in {"started", "reused", "restarted"}
     assert payload["support"]["launcher_service"]["action"] in {"started", "reused", "restarted"}
 

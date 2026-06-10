@@ -1,0 +1,102 @@
+# Robotick Studio Agent Recipes
+
+Purpose: give agents a Studio-local index of common workbench names, resource paths, and repeatable CLI workflows.
+
+Use this file when:
+
+- a user uses shorthand such as `Rc`, `Telemetry`, or `Terminal`
+- a request implies a Studio context but does not provide the exact resource path
+- you need a default Studio workflow that is more specific than the workspace-level recipe index
+
+Ground rules:
+
+- prefer live Studio instance status over file-backed assumptions once an instance exists
+- use project-backed Studio config only as a pre-launch fallback
+- keep entries focused on user intent to CLI/runtime mapping
+- treat `status` as read-only; it does not start services
+- use `hub ensure` and `launcher ensure` only when service startup or reuse is actually required
+
+## Workbench Glossary
+
+These are the current common main-window workbench ids used in Studio project documents.
+
+### `Rc` or `Remote Control`
+
+- Workbench id: `remote-control`
+- Path: `windows main workbenches remote-control`
+- Typical use: operator-facing robot control view
+
+### `Telemetry`
+
+- Workbench id: `telemetry`
+- Path: `windows main workbenches telemetry`
+- Typical use: runtime telemetry inspection
+
+### `Models`
+
+- Workbench id: `models`
+- Path: `windows main workbenches models`
+- Typical use: model graph inspection
+
+### `Project`
+
+- Workbench id: `project`
+- Path: `windows main workbenches project`
+
+### `Terminal`
+
+- Workbench id: `terminal`
+- Path: `windows main workbenches terminal`
+
+### `Home`
+
+- Workbench id: `home`
+- Path: `windows main workbenches home`
+
+## Recipes
+
+### Open a project directly into a workbench
+
+```bash
+./tools/robotick studio open <project> windows main workbenches <workbench-id> activate
+```
+
+Example:
+
+```bash
+./tools/robotick studio open barr-e windows main workbenches remote-control activate
+```
+
+### Open a registered project when the user does not specify a view
+
+```bash
+./tools/robotick studio open <project>
+```
+
+Do not invent a workbench switch unless a project-specific default is documented.
+
+### Verify the active main-window workbench
+
+```bash
+./tools/robotick studio <instance> windows main status
+```
+
+Check `active_workbench_id` in the JSON result.
+
+### Discover live Studio structure after launch
+
+- Use `./tools/robotick studio instances` to find the running instance id.
+- Use `./tools/robotick studio <instance> windows main status` for main-window structure and active workbench.
+- Use bound-instance `ls`, `cd`, and `status` in the immediate shell when interactive exploration is more efficient.
+
+### Resolve a shorthand workbench request before launch
+
+1. Map the user phrase to a workbench id from this file.
+2. Open the requested project with `./tools/robotick studio open <project> windows main workbenches <workbench-id> activate`.
+3. Verify the active workbench with `./tools/robotick studio <instance> windows main status`.
+
+## Known Gaps
+
+- There is not yet a first-class pre-launch command for listing activatable targets by label or alias.
+- There is not yet a first-class capture command or capture-readiness contract.
+- Recipe entries here should not be treated as proof of runtime readiness.
