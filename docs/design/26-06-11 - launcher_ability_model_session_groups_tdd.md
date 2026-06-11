@@ -45,6 +45,21 @@ The current launcher path is useful but too coupled to a single active launcher 
 
 This blocks the desired operating model where Studio is a viewer/controller of independent runtimes rather than the owner of those runtimes.
 
+## Current Code Map
+
+Implementation should assume the current code is split this way:
+
+- Hub composition: `tools/robotick-hub/src/robotick_hub/app.py` directly wires workspace, Studio, and launcher routes.
+- Launcher hub provider: `tools/robotick-hub/src/robotick_hub/launcher.py` writes `.robotick/launcher.json`, starts `python -m robotick.launcher.cli listen`, checks listener health, and proxies requests.
+- Studio hub provider: `tools/robotick-hub/src/robotick_hub/studio.py` manages Studio instance records, launch/quit, control endpoint registration, project selection, and activation.
+- Launcher listener: `tools/robotick-launcher/src/robotick/launcher/listen/routes_launch.py` owns singleton module-level runtime state such as process handle, current profile, current project, current status, log subscribers, and status queue.
+- Launcher query listener: `tools/robotick-launcher/src/robotick/launcher/listen/routes_query.py` serves workloads registry, model schema, and related project/query helpers still reached through hub proxy routes.
+- Launcher domain logic: `tools/robotick-launcher/src/robotick/launcher/actions/launch/run_profile.py` and `target_plan.py` contain much of the useful profile, model, target, stage, build, deploy, run, and stop behavior to preserve.
+- Studio renderer launcher data source: `src/renderer/data-sources/launcher/internal/launcher-interface.ts` calls `/launcher/run`, `/launcher/run-model`, `/launcher/stop`, `/launcher/stop-model`, `/launcher/status`, and `/launcher/ws/log`.
+- CLI launcher entrypoint: `tools/robotick-cli/src/robotick_cli/launcher.py` currently exposes only `launcher status` and `launcher ensure`.
+
+The first implementation step should be to split reusable domain logic from listener state so hub abilities can import domain behavior without starting the singleton listener.
+
 ## Current Behavior To Preserve
 
 The replacement architecture should preserve the useful behavior already present:
@@ -66,6 +81,7 @@ The launcher ability owns:
 - parsing launch intent
 - resolving project/profile/model scope
 - resolving target and stage policy
+- serving launcher-owned project query/schema resources that currently sit behind the listener
 - creating and tracking model session groups
 - creating and tracking model sessions
 - starting launcher workers
@@ -93,12 +109,42 @@ Hub core should not know the internals of any specific ability. It should compos
 
 Built-in abilities should use the same conventions future external plugins would need. This does not require dynamic plugin loading immediately, but it should avoid patterns that would make plugin loading difficult later, such as hidden globals, direct cross-ability imports, or domain logic embedded in hub route handlers.
 
+Launcher and Studio should begin as built-in hub abilities that import their domain modules. Their endpoint shapes should allow them to move into owner packages as plugin-packaged abilities once the ability seam is stable.
+
+Target launcher package shape:
+
+```text
+tools/robotick-launcher/
+  src/robotick/launcher/
+    domain/
+    workers/
+    hub_ability/
+      manifest.py
+      ability.py
+      routes.py
+      contracts.py
+```
+
+Target Studio package shape:
+
+```text
+tools/robotick-studio-ability/
+  src/robotick/studio_ability/
+    domain/
+    hub_ability/
+      manifest.py
+      ability.py
+      routes.py
+      contracts.py
+```
+
 ## Process Boundaries
 
 The launcher should stop being a standalone singleton service. The long-term process model should be:
 
 - `robotick-hub`: a long-running process that hosts the launcher ability in-process as Python application code.
-- Launcher ability internals: normal Python modules/classes called by hub routes for intent parsing, scope resolution, target planning, storage, status reduction, and runtime probing.
+- Launcher ability internals: normal Python modules/classes called by hub routes for intent parsing, scope resolution, target planning, storage, status reduction, and runtime probing. Initially this can be built into hub, but the final package owner should be `tools/robotick-launcher`.
+- Launcher domain helpers: importable Python code split away from listener route state so hub can reuse profile, target planning, query/schema, and status-reduction behavior without starting a listener service.
 - Launcher workers: separate child processes only when needed to run build, flash, deploy, start, stop, restart, or recovery commands for specific model sessions or groups.
 - `robotick-engine`: separate runtime process on the target host/device. After handoff, it is the live runtime authority for health, telemetry, and future control.
 - Studio: separate UI/application process that discovers and controls groups/sessions through hub, and may continue to read runtime telemetry directly where that is the best data path.
@@ -288,13 +334,15 @@ Temporary launcher disruption is acceptable during the refactor. Untested state 
 
 1. Define the launcher ability resource contracts for launch intent, model session group, and model session.
 2. Represent currently supported profile strings such as `local:ALL` and `native:alf-e-spine` as launch intent values.
-3. Introduce durable group/session storage and route launcher operations through it.
-4. Add runtime probes and handoff status using `robotick-engine` endpoints.
-5. Decouple Studio project selection from launcher process ownership.
-6. Replace singleton-shaped launcher listener state with per-group/per-session state.
-7. Implement CLI commands as group/session operations rather than ambient launcher-run operations.
-8. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
-9. Remove legacy ambient status/control paths once the group/session resource model is in use.
+3. Split reusable launcher domain helpers away from singleton listener route state.
+4. Introduce durable group/session storage and route launcher operations through it.
+5. Move launcher-backed query/schema routes into hub-owned ability/workspace code.
+6. Add runtime probes and handoff status using `robotick-engine` endpoints.
+7. Decouple Studio project selection from launcher process ownership.
+8. Replace singleton-shaped launcher listener state with per-group/per-session state.
+9. Implement CLI commands as group/session operations rather than ambient launcher-run operations.
+10. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
+11. Remove legacy ambient status/control paths once the group/session resource model is in use.
 
 The fastest implementation route may make the current launcher temporarily unusable while hub, CLI, and Studio are moved onto group/session resources. The target design does not require compatibility shims for legacy launcher-run or ambient singleton endpoints.
 
