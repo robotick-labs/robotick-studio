@@ -4,8 +4,6 @@ Date: 2026-06-11
 
 Status: Proposed long-term architecture
 
-Source issue: https://github.com/robotick-labs/robotick-studio/issues/52
-
 Related docs:
 
 - `docs/design/26-06-05 - robotick_cli_and_agentic_ux.md`
@@ -76,6 +74,21 @@ The launcher ability owns:
 - exposing resources to Studio, CLI, MCP, and other hub clients
 
 Launcher workers should not be the long-term source of runtime truth. Once a model is up, Studio and hub should prefer direct runtime observation through `robotick-engine` health, telemetry, and future control endpoints.
+
+## CLI And Hub Control Surface
+
+CLI and hub launcher controls should be implemented as the first practical surface over this resource model. Any legacy "launcher run" concept should map to `model_session_group`, with per-model detail represented by `model_session`.
+
+The practical command shape becomes:
+
+- `launch`: create a model session group from launch intent, then return the group id, resolved scope, target/stage policy, member model session ids, and creator metadata.
+- `wait-ready`: wait for a group or session to reach live-confirmed readiness, while reporting service-level readiness separately from runtime readiness.
+- `status`: report ability health, group status, and per-session lifecycle without relying on ambient singleton launcher state.
+- `logs`: return launcher worker, build, startup, and runtime log references scoped to a group or session.
+- `stop`: stop a selected model session, a selected set of sessions, or every member of a group.
+- `restart`: restart one session or aggregate over a group by creating a new generation for each selected model.
+
+For compatibility during migration, responses may expose `launcher_run_id` as an alias for `model_session_group.id`. New clients should prefer `model_session_group_id` and `model_session_id`.
 
 ## Resource Model
 
@@ -235,8 +248,9 @@ This does not require arbitrary third-party plugins immediately, but the archite
 4. Add runtime probes and handoff status using `robotick-engine` endpoints.
 5. Decouple Studio project selection from launcher process ownership.
 6. Replace singleton-shaped launcher listener state with per-group/per-session state.
-7. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
-8. Remove or deprecate legacy status endpoints once clients use the resource model.
+7. Implement CLI commands as group/session operations rather than ambient launcher-run operations.
+8. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
+9. Remove or deprecate legacy status endpoints once clients use the resource model.
 
 ## Acceptance Criteria
 
@@ -249,6 +263,9 @@ This does not require arbitrary third-party plugins immediately, but the archite
 - Group stop/restart works as aggregate operations over member model sessions.
 - Runtime state after handoff is confirmed directly from `robotick-engine` where available.
 - Persisted state is never presented as live unless it has been recently confirmed.
+- `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on model session groups and model sessions.
+- Service-level readiness is reported separately from group/session runtime readiness.
+- Per-model build, launch, runtime, and failure details are agent-accessible without attaching to terminals manually.
 - Existing launcher status and ensure flows remain compatible during migration.
 
 ## Open Decisions
