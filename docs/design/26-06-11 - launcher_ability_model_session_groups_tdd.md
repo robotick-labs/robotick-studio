@@ -75,9 +75,41 @@ The launcher ability owns:
 
 Launcher workers should not be the long-term source of runtime truth. Once a model is up, Studio and hub should prefer direct runtime observation through `robotick-engine` health, telemetry, and future control endpoints.
 
+## Ability Architecture
+
+Launcher should be implemented as one built-in hub ability, not as a special case. Existing hub integrations, including Studio communication, should move toward the same shape so the ability boundary becomes a real architectural seam.
+
+An ability should provide:
+
+- a stable name and version
+- health/status metadata
+- route/resource registration
+- typed request and response contracts
+- access to shared hub context such as workspace lookup, request identity, logging, and storage helpers
+- clear ownership of its domain rules
+- tests for its contracts and status behavior
+
+Hub core should not know the internals of any specific ability. It should compose abilities, expose their metadata, route requests to them, and provide shared infrastructure.
+
+Built-in abilities should use the same conventions future external plugins would need. This does not require dynamic plugin loading immediately, but it should avoid patterns that would make plugin loading difficult later, such as hidden globals, direct cross-ability imports, or domain logic embedded in hub route handlers.
+
+## Process Boundaries
+
+The launcher should stop being a standalone singleton service. The long-term process model should be:
+
+- `robotick-hub`: a long-running process that hosts the launcher ability in-process as Python application code.
+- Launcher ability internals: normal Python modules/classes called by hub routes for intent parsing, scope resolution, target planning, storage, status reduction, and runtime probing.
+- Launcher workers: separate child processes only when needed to run build, flash, deploy, start, stop, restart, or recovery commands for specific model sessions or groups.
+- `robotick-engine`: separate runtime process on the target host/device. After handoff, it is the live runtime authority for health, telemetry, and future control.
+- Studio: separate UI/application process that discovers and controls groups/sessions through hub, and may continue to read runtime telemetry directly where that is the best data path.
+- `robotick-cli`: short-lived command process that talks to hub over the JSON API rather than importing launcher internals.
+- MCP: adapter/tool process, if present, that exposes agent tools over the same hub resources rather than owning launcher state.
+
+This keeps hub as the control plane, launcher ability as internal domain logic, launcher workers as execution helpers, and `robotick-engine` as runtime truth.
+
 ## CLI And Hub Control Surface
 
-CLI and hub launcher controls should be implemented as the first practical surface over this resource model. Any legacy "launcher run" concept should map to `model_session_group`, with per-model detail represented by `model_session`.
+CLI and hub launcher controls should be implemented as the first practical surface over this resource model. Older "launcher run" terminology should be retired in favor of `model_session_group`, with per-model detail represented by `model_session`.
 
 The practical command shape becomes:
 
@@ -87,8 +119,6 @@ The practical command shape becomes:
 - `logs`: return launcher worker, build, startup, and runtime log references scoped to a group or session.
 - `stop`: stop a selected model session, a selected set of sessions, or every member of a group.
 - `restart`: restart one session or aggregate over a group by creating a new generation for each selected model.
-
-For compatibility during migration, responses may expose `launcher_run_id` as an alias for `model_session_group.id`. New clients should prefer `model_session_group_id` and `model_session_id`.
 
 ## Resource Model
 
@@ -240,17 +270,33 @@ The launcher ability should own launcher domain rules. That includes scope expan
 
 This does not require arbitrary third-party plugins immediately, but the architecture should make built-in abilities look like future external abilities could use the same shape.
 
-## Migration Plan
+## Validation Strategy
+
+The implementation does not need to be purely test-first, but each layer should be validated before the next layer depends on it.
+
+Required coverage shape:
+
+- Unit tests for launch intent mapping, scope expansion, target/stage planning, lifecycle transitions, status reduction, freshness, and stop/restart selection.
+- Contract tests for hub and CLI JSON payloads, including success, failure, stale state, and invalid selection cases.
+- Integration tests for process/runtime behavior that cannot be proven in pure unit tests, especially independent parallel groups and Studio project switching.
+- Regression tests for `ALL`, named profiles, explicit model lists, single-model launches, and `auto_launch=false` behavior.
+- Focused runtime probe tests for `robotick-engine` health/telemetry handoff and stale-state handling.
+
+Temporary launcher disruption is acceptable during the refactor. Untested state transitions, ambiguous readiness payloads, or unvalidated multi-session behavior are not.
+
+## Implementation Route
 
 1. Define the launcher ability resource contracts for launch intent, model session group, and model session.
-2. Add compatibility mapping from current profile strings such as `local:ALL` and `native:alf-e-spine` into launch intent.
-3. Introduce durable group/session envelopes while preserving existing launcher endpoints.
+2. Represent currently supported profile strings such as `local:ALL` and `native:alf-e-spine` as launch intent values.
+3. Introduce durable group/session storage and route launcher operations through it.
 4. Add runtime probes and handoff status using `robotick-engine` endpoints.
 5. Decouple Studio project selection from launcher process ownership.
 6. Replace singleton-shaped launcher listener state with per-group/per-session state.
 7. Implement CLI commands as group/session operations rather than ambient launcher-run operations.
 8. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
-9. Remove or deprecate legacy status endpoints once clients use the resource model.
+9. Remove legacy ambient status/control paths once the group/session resource model is in use.
+
+The fastest implementation route may make the current launcher temporarily unusable while hub, CLI, and Studio are moved onto group/session resources. The target design does not require compatibility shims for legacy launcher-run or ambient singleton endpoints.
 
 ## Acceptance Criteria
 
@@ -266,12 +312,11 @@ This does not require arbitrary third-party plugins immediately, but the archite
 - `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on model session groups and model sessions.
 - Service-level readiness is reported separately from group/session runtime readiness.
 - Per-model build, launch, runtime, and failure details are agent-accessible without attaching to terminals manually.
-- Existing launcher status and ensure flows remain compatible during migration.
+- Legacy ambient launcher status/control paths are removed or replaced by group/session resources.
 
 ## Open Decisions
 
 - Exact storage location for durable group/session envelopes.
-- Whether the launcher ability runs fully in hub process or delegates to a separate internal service.
 - Final target override schema for mixed local, native, remote, container, and embedded launches.
 - How dependency expansion should work when launching a subset of models.
 - Teardown behavior for runtimes that do not expose `robotick-engine` control endpoints.
