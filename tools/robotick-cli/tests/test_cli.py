@@ -1020,6 +1020,7 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 
     assert result.returncode == 0
     assert f"robotick studio {instance_name} status" in result.stdout
+    assert f"robotick studio {instance_name} diagnostics <status|endpoints|renderer|fetch-check|telemetry>" in result.stdout
     assert f"robotick studio {instance_name} <path...> activate" in result.stdout
     assert f"robotick studio {instance_name} select-project <project>" in result.stdout
     assert f"robotick studio {instance_name} windows" in result.stdout
@@ -1080,6 +1081,203 @@ def test_instance_select_project_posts_registered_project_path(
         "currentProjectPath": "/tmp/barr-e.project.yaml",
         "issue": None,
     }
+
+
+def test_instance_diagnostics_status_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_status",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "status"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/status"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_status",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_renderer_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_renderer",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "renderer"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/renderer"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_renderer",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_fetch_check_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_fetch_check",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "fetch-check"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/fetch-check"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_fetch_check",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_telemetry_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_telemetry",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "telemetry"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/telemetry"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_telemetry",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_requires_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with pytest.raises(CliError) as error:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "diagnostics", "endpoints"],
+        )
+
+    assert error.value.code == "studio_control_unavailable"
+    assert "does not expose the Studio control service" in str(error.value)
 
 
 def test_instance_select_project_requires_control_endpoint(

@@ -10,8 +10,10 @@ import {
   launcherService,
 } from "./data-sources/launcher";
 import {
+  getTelemetryDiagnostics,
   TelemetryServiceProvider,
   telemetryService,
+  useTelemetryService,
 } from "./data-sources/telemetry";
 import { AppConfigProvider } from "./services/AppConfigService";
 import {
@@ -21,6 +23,8 @@ import {
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
+import { publishRendererDiagnosticsPatch } from "./services/studio-diagnostics";
+import { getLauncherRendererDiagnosticsSnapshot } from "./data-sources/launcher/internal/launcher-interface";
 
 type RouterSelectionOptions = {
   isStandaloneApp?: boolean;
@@ -32,6 +36,7 @@ type RouterSelectionOptions = {
 const DEV_USER_TIMING_CLEAR_INTERVAL_MS = 3_000;
 const DEV_USER_TIMING_ENTRY_THRESHOLD = 1_000;
 const useProjectContext = Project.Context.use;
+const useProjectData = ProjectData.use;
 
 function shouldInstallDevUserTimingGuard(): boolean {
   return import.meta.env.DEV && typeof performance !== "undefined";
@@ -127,6 +132,7 @@ export function App({
                   <ContextMenuProvider>
                     <RouterComponent>
                       <div className={styles.appShell}>
+                        <RendererDiagnosticsPublisher />
                         <AppHeader />
                         <main className={styles.pageContainer}>
                           <AppRoutes />
@@ -191,4 +197,45 @@ function ProjectBootstrapIssueDialog() {
       ]}
     />
   );
+}
+
+function RendererDiagnosticsPublisher() {
+  const { projectModels } = useProjectData();
+  const telemetry = useTelemetryService();
+
+  useEffect(() => {
+    const publish = () =>
+      publishRendererDiagnosticsPatch({
+        launcher: getLauncherRendererDiagnosticsSnapshot(),
+        telemetry: {
+          loading: projectModels.loading,
+          error: projectModels.error,
+          model_count: projectModels.data.length,
+          models: projectModels.data.map((model) => ({
+            ...(() => {
+              const diagnostics = getTelemetryDiagnostics(model.telemetryBaseUrl);
+              return {
+                subscriber_count: diagnostics.subscriberCount,
+                last_frame_at: diagnostics.lastFrameAt,
+                layout_loaded: diagnostics.layoutLoaded,
+                last_error: diagnostics.lastErrorMessage,
+              };
+            })(),
+            model_id: model.modelShortName || model.modelPath,
+            telemetry_base_url: model.telemetryBaseUrl,
+            ingress_rate_hz: telemetry.getIngressRateHz(model.telemetryBaseUrl),
+            has_latest_model:
+              telemetry.getLatestModel(model.telemetryBaseUrl) !== null,
+          })),
+        },
+      });
+
+    publish();
+    const intervalId = window.setInterval(publish, 2000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [projectModels.data, projectModels.error, projectModels.loading, telemetry]);
+
+  return null;
 }

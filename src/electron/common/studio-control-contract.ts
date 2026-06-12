@@ -44,3 +44,196 @@ export type StudioControlActivationResponse = {
   previous_active_path: string[] | null;
   message: string;
 };
+
+export type StudioControlDiagnosticsCapabilityVersions = {
+  status: number;
+  endpoints: number;
+  renderer: number;
+};
+
+export type StudioControlDiagnosticsLimits = {
+  renderer_error_entries: number | null;
+  console_buffer_entries: number | null;
+  fetch_failure_entries: number | null;
+  websocket_failure_entries: number | null;
+};
+
+export type StudioControlDiagnosticsStatus = {
+  resource_type: "studio_diagnostics_status";
+  instance_id: string;
+  instance_name: string;
+  pid: number;
+  mode: string;
+  started_at: string | null;
+  selected_project_id: string | null;
+  selected_project_path: string | null;
+  project_directory: string | null;
+  project_file_name: string | null;
+  project_display_name: string | null;
+  ui_project_label: string | null;
+  active_window_id: string | null;
+  focused_window_id: string | null;
+  active_workbench_id: string | null;
+  active_layout_id: string | null;
+  active_panel_id: string | null;
+  diagnostics_capability_versions: StudioControlDiagnosticsCapabilityVersions;
+  diagnostics_limits: StudioControlDiagnosticsLimits;
+  limitations: string[];
+};
+
+export type StudioControlDiagnosticsHubRecord = {
+  endpoint: string;
+  pid: number | null;
+  source_path: string;
+};
+
+export type StudioControlDiagnosticsHubHealth = {
+  endpoint: string;
+  status: string;
+  api_version: number | null;
+  features: string[];
+  tray_expected: boolean | null;
+  tray_active: boolean | null;
+};
+
+export type StudioControlDiagnosticsEndpointWarning = {
+  code: "stale_hub_endpoint";
+  message: string;
+  startup_hub_endpoint: string | null;
+  current_hub_endpoint: string | null;
+  workspace_hub_endpoint: string | null;
+};
+
+export type StudioControlDiagnosticsEndpoints = {
+  resource_type: "studio_diagnostics_endpoints";
+  instance_id: string;
+  startup_hub_endpoint: string | null;
+  current_hub_endpoint: string | null;
+  workspace_hub_record: StudioControlDiagnosticsHubRecord | null;
+  hub_health: StudioControlDiagnosticsHubHealth | null;
+  stale_endpoint_warnings: StudioControlDiagnosticsEndpointWarning[];
+  renderer_origin: string | null;
+  active_window_url: string | null;
+  terminal_log_stream_url: string | null;
+  telemetry_websocket_urls: string[];
+  limitations: string[];
+};
+
+export type StudioControlRendererErrorRecord = {
+  window_id: string | null;
+  recorded_at: string;
+  type: string;
+  message: string;
+  source: string | null;
+  lineno: number | null;
+  colno: number | null;
+  stack: string | null;
+};
+
+export type StudioControlRendererLauncherDiagnostics = {
+  current_project_path: string;
+  launcher_profile: string;
+  static_hub_endpoint: string | null;
+  cached_hub_endpoint: string | null;
+  launcher_api_base: string;
+  terminal_log_stream_url: string;
+  bootstrap_issue: {
+    type: "locked" | "error";
+    projectPath: string;
+    instanceName?: string;
+    pid?: number;
+    message: string;
+  } | null;
+  last_runtime_fetch_at: string | null;
+  last_runtime_fetch_error: string | null;
+};
+
+export type StudioControlRendererProjectPickerDiagnostics = {
+  selected_project_path: string;
+  selected_value: string;
+  rendered_label: string | null;
+  project_display_name: string | null;
+  project_file_name: string | null;
+};
+
+export type StudioControlRendererTelemetryModelDiagnostics = {
+  model_id: string;
+  telemetry_base_url: string;
+  subscriber_count: number;
+  last_frame_at: string | null;
+  ingress_rate_hz: number;
+  layout_loaded: boolean;
+  has_latest_model: boolean;
+  last_error: string | null;
+};
+
+export type StudioControlRendererTelemetryDiagnostics = {
+  loading: boolean;
+  error: string | null;
+  model_count: number;
+  models: StudioControlRendererTelemetryModelDiagnostics[];
+};
+
+export type StudioControlRendererFetchFailureRecord = {
+  recorded_at: string;
+  source: string;
+  operation: string;
+  url: string;
+  status_code: number | null;
+  message: string;
+};
+
+export type StudioControlRendererWebSocketFailureRecord = {
+  recorded_at: string;
+  source: string;
+  phase: string;
+  url: string;
+  message: string;
+  close_code: number | null;
+};
+
+export type StudioControlRendererSnapshot = {
+  updated_at: string | null;
+  launcher?: StudioControlRendererLauncherDiagnostics;
+  project_picker?: StudioControlRendererProjectPickerDiagnostics;
+  telemetry?: StudioControlRendererTelemetryDiagnostics;
+  fetch_failures?: StudioControlRendererFetchFailureRecord[];
+  websocket_failures?: StudioControlRendererWebSocketFailureRecord[];
+};
+
+export type StudioControlDiagnosticsRendererWindow = {
+  window_id: string;
+  url: string | null;
+  snapshot: StudioControlRendererSnapshot | null;
+  recent_errors: StudioControlRendererErrorRecord[];
+};
+
+export type StudioControlDiagnosticsRenderer = {
+  resource_type: "studio_diagnostics_renderer";
+  instance_id: string;
+  active_window_id: string | null;
+  windows: StudioControlDiagnosticsRendererWindow[];
+  limitations: string[];
+};
+
+export type StudioControlDiagnosticsFetchCheck = {
+  resource_type: "studio_diagnostics_fetch_check";
+  instance_id: string;
+  active_window_id: string | null;
+  fetch_failures: StudioControlRendererFetchFailureRecord[];
+  websocket_failures: StudioControlRendererWebSocketFailureRecord[];
+  limitations: string[];
+};
+
+export type StudioControlDiagnosticsTelemetryWindow = {
+  window_id: string;
+  telemetry: StudioControlRendererTelemetryDiagnostics | null;
+};
+
+export type StudioControlDiagnosticsTelemetry = {
+  resource_type: "studio_diagnostics_telemetry";
+  instance_id: string;
+  active_window_id: string | null;
+  windows: StudioControlDiagnosticsTelemetryWindow[];
+  limitations: string[];
+};

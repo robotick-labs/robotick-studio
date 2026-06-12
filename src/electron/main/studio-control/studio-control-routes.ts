@@ -1,9 +1,22 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type {
   StudioControlActivationResponse,
+  StudioControlDiagnosticsEndpoints,
+  StudioControlDiagnosticsFetchCheck,
+  StudioControlDiagnosticsRenderer,
+  StudioControlDiagnosticsTelemetry,
+  StudioControlDiagnosticsStatus,
   StudioControlProjectSelectionRequest,
   StudioControlProjectSelectionResponse,
 } from "../../common/studio-control-contract";
+import {
+  getStudioDiagnosticsEndpoints,
+  getStudioDiagnosticsFetchCheck,
+  getStudioDiagnosticsRenderer,
+  getStudioDiagnosticsTelemetry,
+  getStudioDiagnosticsStatus,
+  type StudioDiagnosticsProvider,
+} from "./studio-diagnostics";
 import type { StudioRuntimeSnapshotProvider } from "./studio-runtime-snapshot";
 import {
   getStudioRuntimeFocused,
@@ -12,6 +25,7 @@ import {
 
 export type StudioControlRouteDependencies = {
   snapshotProvider: StudioRuntimeSnapshotProvider;
+  diagnosticsProvider: StudioDiagnosticsProvider;
   selectProject: (projectPath: string) => StudioControlProjectSelectionResponse;
   activateResource: (
     pathSegments: string[],
@@ -74,6 +88,42 @@ function activationPathSegments(pathname: string): string[] | null {
   return decodePathSegments(resourcePath);
 }
 
+function diagnosticsKind(
+  pathname: string
+): "status" | "endpoints" | "renderer" | "fetch-check" | "telemetry" | null {
+  if (
+    pathname === "/v1/diagnostics/status" ||
+    pathname === "/v1/studio/diagnostics/status"
+  ) {
+    return "status";
+  }
+  if (
+    pathname === "/v1/diagnostics/endpoints" ||
+    pathname === "/v1/studio/diagnostics/endpoints"
+  ) {
+    return "endpoints";
+  }
+  if (
+    pathname === "/v1/diagnostics/renderer" ||
+    pathname === "/v1/studio/diagnostics/renderer"
+  ) {
+    return "renderer";
+  }
+  if (
+    pathname === "/v1/diagnostics/fetch-check" ||
+    pathname === "/v1/studio/diagnostics/fetch-check"
+  ) {
+    return "fetch-check";
+  }
+  if (
+    pathname === "/v1/diagnostics/telemetry" ||
+    pathname === "/v1/studio/diagnostics/telemetry"
+  ) {
+    return "telemetry";
+  }
+  return null;
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -90,6 +140,38 @@ export async function routeStudioControlRequest(
     (url.pathname === "/v1/focused" || url.pathname === "/v1/studio/focused")
   ) {
     const payload = await getStudioRuntimeFocused(dependencies.snapshotProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+
+  const diagnostics = diagnosticsKind(url.pathname);
+  if (method === "GET" && diagnostics === "status") {
+    const payload: StudioControlDiagnosticsStatus =
+      await getStudioDiagnosticsStatus(dependencies.diagnosticsProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+  if (method === "GET" && diagnostics === "endpoints") {
+    const payload: StudioControlDiagnosticsEndpoints =
+      await getStudioDiagnosticsEndpoints(dependencies.diagnosticsProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+  if (method === "GET" && diagnostics === "renderer") {
+    const payload: StudioControlDiagnosticsRenderer =
+      await getStudioDiagnosticsRenderer(dependencies.diagnosticsProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+  if (method === "GET" && diagnostics === "fetch-check") {
+    const payload: StudioControlDiagnosticsFetchCheck =
+      await getStudioDiagnosticsFetchCheck(dependencies.diagnosticsProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+  if (method === "GET" && diagnostics === "telemetry") {
+    const payload: StudioControlDiagnosticsTelemetry =
+      await getStudioDiagnosticsTelemetry(dependencies.diagnosticsProvider);
     writeJson(response, 200, payload);
     return;
   }

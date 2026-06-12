@@ -87,6 +87,10 @@ export interface RobotickStudioControl {
   ) => () => void;
 }
 
+export interface RobotickDiagnosticsBridge {
+  readonly publishSnapshot: (snapshot: Record<string, unknown>) => void;
+}
+
 export interface RobotickProjectSelectionIssue {
   readonly type: "locked" | "error";
   readonly projectPath: string;
@@ -133,6 +137,7 @@ export interface RobotickGlobals {
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
   readonly studioControl?: RobotickStudioControl;
+  readonly diagnostics?: RobotickDiagnosticsBridge;
   readonly storage?: RobotickStorage;
   readonly studioPersistence?: RobotickStudioPersistence;
   readonly projectSelection?: RobotickProjectSelection;

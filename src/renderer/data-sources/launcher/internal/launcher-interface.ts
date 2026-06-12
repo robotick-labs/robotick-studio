@@ -3,6 +3,7 @@ import {
   removeStorageValue,
   setStorageValue,
 } from "../../../services/storage";
+import { recordRendererFetchFailure } from "../../../services/studio-diagnostics";
 import type { LauncherService } from "./LauncherService";
 
 /**
@@ -78,14 +79,32 @@ function encodePathPreservingSlashes(path: string): string {
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(
-      `Request failed ${response.status} ${response.statusText}: ${text}`
-    );
+  try {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const message = `Request failed ${response.status} ${response.statusText}: ${text}`;
+      recordRendererFetchFailure({
+        source: "launcher-interface",
+        operation: `${init?.method ?? "GET"} ${new URL(url).pathname}`,
+        url,
+        statusCode: response.status,
+        message,
+      });
+      throw new Error(message);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (!(error instanceof Error && error.message.startsWith("Request failed "))) {
+      recordRendererFetchFailure({
+        source: "launcher-interface",
+        operation: `${init?.method ?? "GET"} ${new URL(url).pathname}`,
+        url,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
   }
-  return (await response.json()) as T;
 }
 
 async function tryFetchJSON<T>(
@@ -231,6 +250,10 @@ export type WorkloadsRegistryResponse = {
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
 const projectSelectionStateListeners = new Set<ProjectSelectionStateChangedListener>();
+let latestProjectSelectionState: ProjectSelectionState = {
+  currentProjectPath: "",
+  bootstrapIssue: null,
+};
 
 type ModelCacheEntry = {
   projectPath: string;
@@ -241,6 +264,8 @@ let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
 let knownProjectPaths: string[] = [];
 let bridgeProjectSelectionUnsubscribe: (() => void) | null = null;
+let lastLauncherRuntimeFetchAt: string | null = null;
+let lastLauncherRuntimeFetchError: string | null = null;
 
 function getProjectSelectionBridge() {
   if (typeof window === "undefined") {
@@ -271,6 +296,10 @@ function notifyProjectSelectionStateChanged(state: ProjectSelectionState) {
 
 function applyProjectSelectionState(state: ProjectSelectionState) {
   const nextProjectPath = state.currentProjectPath?.trim() || "";
+  latestProjectSelectionState = {
+    currentProjectPath: nextProjectPath,
+    bootstrapIssue: state.bootstrapIssue ?? null,
+  };
   if (getProjectPath() !== nextProjectPath) {
     applyProjectPath(nextProjectPath);
   }
@@ -557,10 +586,12 @@ async function getProjectSelectionState(): Promise<ProjectSelectionState> {
   ensureProjectSelectionBridgeSubscription();
   const bridge = getProjectSelectionBridge();
   if (!bridge?.getState) {
-    return {
+    const fallbackState = {
       currentProjectPath: getProjectPath(),
       bootstrapIssue: null,
     };
+    latestProjectSelectionState = fallbackState;
+    return fallbackState;
   }
   const state = await bridge.getState();
   const normalizedState = {
@@ -879,13 +910,19 @@ async function fetchLauncherSnapshot(): Promise<LauncherStatusResponse | null> {
   if (!projectName) {
     return null;
   }
+  lastLauncherRuntimeFetchAt = new Date().toISOString();
   const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/runtime", {
     project_id: projectName,
   });
-  const runtime = await tryFetchJSON<LauncherRuntimeStatusResponse>(url);
-  return runtime
-    ? { resource_type: "robotick_launcher_status", runtime }
-    : null;
+  try {
+    const runtime = await fetchJSON<LauncherRuntimeStatusResponse>(url);
+    lastLauncherRuntimeFetchError = null;
+    return { resource_type: "robotick_launcher_status", runtime };
+  } catch (error) {
+    lastLauncherRuntimeFetchError =
+      error instanceof Error ? error.message : String(error);
+    return null;
+  }
 }
 
 async function createLauncherGroupRequest(
@@ -1114,6 +1151,32 @@ export async function getLauncherLogStreamUrlAsync(): Promise<string> {
       project_id: projectName,
     }
   );
+}
+
+export type LauncherRendererDiagnosticsSnapshot = {
+  current_project_path: string;
+  launcher_profile: string;
+  static_hub_endpoint: string | null;
+  cached_hub_endpoint: string | null;
+  launcher_api_base: string;
+  terminal_log_stream_url: string;
+  bootstrap_issue: ProjectSelectionIssue | null;
+  last_runtime_fetch_at: string | null;
+  last_runtime_fetch_error: string | null;
+};
+
+export function getLauncherRendererDiagnosticsSnapshot(): LauncherRendererDiagnosticsSnapshot {
+  return {
+    current_project_path: getProjectPath(),
+    launcher_profile: getLauncherProfile(),
+    static_hub_endpoint: getStaticHubEndpoint() || null,
+    cached_hub_endpoint: cachedHubEndpoint || null,
+    launcher_api_base: getLauncherApiBaseSync(),
+    terminal_log_stream_url: getLauncherLogStreamUrl(),
+    bootstrap_issue: latestProjectSelectionState.bootstrapIssue,
+    last_runtime_fetch_at: lastLauncherRuntimeFetchAt,
+    last_runtime_fetch_error: lastLauncherRuntimeFetchError,
+  };
 }
 
 export async function fetchLauncherLogSnapshot(

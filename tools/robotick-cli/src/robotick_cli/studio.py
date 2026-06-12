@@ -321,6 +321,36 @@ def handle_instance_status(
     return CommandResult(exit_code=0)
 
 
+def handle_instance_diagnostics(
+    ctx: AppContext,
+    instance: InstanceRecord,
+    args: list[str],
+) -> CommandResult:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(instance_help_text(instance.name))
+        return CommandResult(exit_code=0)
+    if len(args) != 1 or args[0] not in {"status", "endpoints", "renderer", "fetch-check", "telemetry"}:
+        raise CliError(
+            f"Usage: robotick studio {instance.name} diagnostics <status|endpoints|renderer|fetch-check|telemetry>",
+            code="invalid_arguments",
+        )
+    if not instance.control_endpoint:
+        raise CliError(
+            f"Studio instance {instance.name} does not expose the Studio control service.",
+            code="studio_control_unavailable",
+            recovery=(
+                "This instance was likely opened before the control service was added. "
+                f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+            ),
+        )
+    payload = fetch_studio_hub_json(
+        ctx.workspace_root,
+        f"/v1/studio/instances/{instance.name}/diagnostics/{args[0]}",
+    )
+    write_json(payload)
+    return CommandResult(exit_code=0)
+
+
 def quote_studio_resource_path(path_segments: tuple[str, ...]) -> str:
     return "/".join(quote(segment, safe="") for segment in path_segments)
 
@@ -447,6 +477,8 @@ def run_studio_instance_command(
         return CommandResult(exit_code=0)
     if action == "quit":
         return handle_instance_quit(ctx, instance.name, [])
+    if args and args[0] == "diagnostics":
+        return handle_instance_diagnostics(ctx, instance, args[1:])
     if action == "select-project":
         return handle_instance_select_project(ctx, instance, args[1:])
     if action == "activate":

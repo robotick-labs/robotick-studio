@@ -195,4 +195,29 @@ describe("telemetry-store websocket", () => {
 
     unsubscribe();
   });
+
+  it("reports telemetry diagnostics including subscriber count, last frame, and last error", async () => {
+    const callback = vi.fn();
+    const error = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+      error,
+    });
+
+    emitLayout("base");
+    emitFrame("base", "sid", 2);
+    listenersByBaseUrl.get("base")?.onError?.(new Error("socket broke"));
+
+    const diagnostics = store.getDiagnostics("base");
+
+    expect(diagnostics).toMatchObject({
+      subscriberCount: 1,
+      layoutLoaded: true,
+      lastErrorMessage: "socket broke",
+    });
+    expect(diagnostics.lastFrameAt).toEqual(expect.any(String));
+    expect(error).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+  });
 });

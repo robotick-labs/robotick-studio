@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Project, useLauncherService } from "../../data-sources/launcher";
+import { publishRendererDiagnosticsPatch } from "../../services/studio-diagnostics";
 
 const useProjectContext = Project.Context.use;
 const useProjectSettingsList = Project.Hooks.useSettingsList;
@@ -50,6 +51,12 @@ function deriveProjectDisplayName(projectPath: string) {
     return projectName || parts[parts.length - 2] || basename;
   }
   return basename || projectPath;
+}
+
+function getProjectFileName(projectPath: string) {
+  const normalized = normalizePath(projectPath);
+  const parts = normalized.split(pathSeparatorRegex).filter(Boolean);
+  return parts[parts.length - 1] ?? null;
 }
 
 function pathsReferToSameProject(left: string, right: string) {
@@ -132,6 +139,24 @@ export function ProjectPicker() {
   }
 
   const selectValue = selectedProject?.path || options[0]?.path || "";
+  const selectedOption = options.find((project) => project.path === selectValue) ?? null;
+
+  useEffect(() => {
+    publishRendererDiagnosticsPatch({
+      project_picker: {
+        selected_project_path: projectPath,
+        selected_value: selectValue,
+        rendered_label: selectedOption
+          ? formatProjectOptionLabel(
+              selectedOption.name,
+              statusesByPath[selectedOption.path]
+            )
+          : null,
+        project_display_name: selectedOption?.name ?? null,
+        project_file_name: projectPath ? getProjectFileName(projectPath) : null,
+      },
+    });
+  }, [projectPath, selectValue, selectedOption, statusesByPath]);
 
   return (
     <>

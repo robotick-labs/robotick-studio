@@ -24,6 +24,7 @@ from robotick_hub.contracts import (
 from robotick_hub.workspace import build_workspace_projects
 from robotick.studio_ability.domain import (
     activate_studio_resource,
+    get_studio_diagnostics,
     get_instance_status,
     get_studio_focused,
     get_studio_capability_status,
@@ -83,6 +84,8 @@ class StudioAbility:
             payload = get_studio_status(context.workspace_root, instance_id)
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+            if "error" in payload:
+                return JSONResponse(status_code=503, content=payload)
             return JSONResponse(payload)
 
         @router.get("/v1/studio/instances/{instance_id}/focused", response_class=JSONResponse)
@@ -91,6 +94,23 @@ class StudioAbility:
             payload = get_studio_focused(context.workspace_root, instance_id)
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+            if "error" in payload:
+                return JSONResponse(status_code=503, content=payload)
+            return JSONResponse(payload)
+
+        @router.get(
+            "/v1/studio/instances/{instance_id}/diagnostics/{kind}",
+            response_class=JSONResponse,
+        )
+        def studio_instance_diagnostics(instance_id: str, kind: str) -> JSONResponse:
+            context = context_provider()
+            if kind not in {"status", "endpoints", "renderer", "fetch-check", "telemetry"}:
+                raise HTTPException(status_code=404, detail=f"Unknown Studio diagnostics kind: {kind}")
+            payload = get_studio_diagnostics(context.workspace_root, instance_id, kind)
+            if payload is None:
+                raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+            if "error" in payload:
+                return JSONResponse(status_code=503, content=payload)
             return JSONResponse(payload)
 
         @router.get("/v1/studio/instances/{instance_id}/{resource_path:path}/status", response_class=JSONResponse)
@@ -173,6 +193,8 @@ class StudioAbility:
                     detail=f"Studio control endpoint not available for: {instance_id}",
                 )
             status_code, payload = result
+            if "error" in payload:
+                return JSONResponse(status_code=status_code, content=payload)
             return JSONResponse(
                 status_code=status_code,
                 content=StudioProjectSelectResponse.model_validate(payload).model_dump(),

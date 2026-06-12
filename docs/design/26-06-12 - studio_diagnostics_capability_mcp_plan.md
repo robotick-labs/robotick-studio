@@ -183,6 +183,41 @@ Target behavior:
 - Let hub aggregate static CLI capabilities, workspace capabilities, hub abilities, launcher capabilities, live Studio instance capabilities, and Studio plugin capabilities.
 - Keep resource identifiers URI-shaped where practical, so live Studio state can become MCP resources without inventing a second naming system.
 
+## Studio Command System Target
+
+The end state should not just be "more diagnostics routes". Studio should grow a proper command/capability system with Electron as the authoritative broker, so future in-Studio commands, plugin actions, and MCP mapping all sit on the same foundation.
+
+Core architectural patterns:
+
+- Keep command identity, metadata, availability, and dispatch in Electron main.
+- Let renderer participate only where browser context is genuinely required, such as DOM/CSS inspection, view-local state capture, or renderer-owned editor behavior.
+- Treat preload as a typed transport bridge, not as a place to accumulate business logic or command routing.
+- Keep hub thin: bootstrap, lifecycle, provider availability, and aggregation. Hub should not become the true command registry for live Studio behavior.
+
+Command registry requirements:
+
+- Register commands with stable ids, not just route strings.
+- Include metadata for title, description, provider, resource scope, input schema, output schema, read-only/mutating/destructive flags, and availability.
+- Support core Studio commands and plugin-published commands through the same registry.
+- Allow commands to declare whether they are Electron-owned or renderer-assisted.
+- Keep command ids and resource URIs stable even if CLI spelling changes.
+
+Renderer participation rules:
+
+- Renderer-owned state should be published upward as snapshots, diagnostics records, and focused/active UI hints.
+- Renderer should not become the canonical source of process/window/resource truth.
+- Renderer-assisted commands should execute through Electron-owned command definitions, with Electron validating inputs and returning the final shaped response.
+- DOM/CSS/query/screenshot-style features may require renderer or webContents execution, but they should still be surfaced through Electron-owned command metadata.
+
+Plugin publication rules:
+
+- Plugins should publish commands, resources, and diagnostics through Studio-owned registration APIs.
+- Plugin registration should mirror the general shape already used for editor/plugin discovery, but command execution should still route through Electron-owned command definitions.
+- Hub should aggregate plugin-published capabilities and resources without plugin-specific route code.
+- Plugin contributions should carry plugin id and namespace so ids remain stable and collision-free.
+
+This is the comparison line with Blender/Maya/UE5-style systems: explicit command/operator registration, explicit availability/context rules, and a clean separation between command metadata, command dispatch, and UI/editor implementation details.
+
 Example resource-published action shape:
 
 ```json
@@ -243,6 +278,8 @@ Migration principles:
 - Prefer simplifying or replacing old internal surfaces over preserving backwards-compatible shims.
 - Keep temporary shims only when they materially reduce migration risk, and remove them in the same phase.
 - Promote existing Electron control-service routes as the canonical live provider surface instead of duplicating their behavior in hub.
+- Introduce a real Studio-owned command registry in Electron before expanding the command surface much further.
+- Migrate existing live operations such as `status`, `focused`, `activate`, `select-project`, and `diagnostics:*` onto that registry instead of leaving them as unrelated route special cases.
 - Prefer proxying to the Studio control endpoint when an instance is live.
 - Keep plugin-specific behavior behind Studio-owned provider registration; hub should not need plugin-specific route code.
 - Return explicit unavailable-provider diagnostics when Studio is not live or has no control endpoint.
@@ -259,6 +296,12 @@ studio.<instance>.resource.activate     Studio-owned live provider action
 studio.<instance>.diagnostics.snapshot  Studio-owned live provider action/resource
 ```
 
+Current implementation status:
+
+- live Studio `status`, `focused`, `activate`, `select-project`, and diagnostics routes now treat the Electron control service as the canonical provider surface
+- hub no longer synthesizes fallback live Studio resource state for those routes when a live instance lacks a control endpoint
+- when a Studio instance exists but the live provider is unavailable, hub returns structured `provider_unavailable` results instead of silently falling back to config-derived state
+
 MCP-shaped ownership mapping:
 
 ```text
@@ -274,6 +317,18 @@ studio_project_select                                 Studio-owned tool
 studio_diagnostics_fetch_check                        Studio-owned read-only tool
 studio_plugin_tool                                    Studio plugin-owned tool template
 ```
+
+Proposed command layering:
+
+```text
+CLI path / hub proxy
+  -> hub bootstrap or live Studio forwarding
+  -> Electron command registry
+  -> core Electron handler or renderer-assisted handler
+  -> Studio-owned response/resource payload
+```
+
+This layering keeps command registration tidy inside Studio, keeps hub less brittle, and gives plugins a clear place to publish future commands and MCP-shaped endpoints.
 
 ## Chromium And Renderer Capture Requirements
 

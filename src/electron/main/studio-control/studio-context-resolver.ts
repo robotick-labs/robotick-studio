@@ -98,6 +98,16 @@ type StudioInstanceStatus = {
   windows: StudioWindowStatus[];
 };
 
+type StudioActionStatus = {
+  id: string;
+  label: string;
+  tool_name: string;
+  read_only: boolean;
+  destructive: boolean;
+  path: string[];
+  resource_uri: string;
+};
+
 export type StudioRuntimeStatusOptions = {
   instanceName: string;
   pid: number;
@@ -373,6 +383,68 @@ function activationPathForNode(node: Record<string, unknown>): string[] | null {
   return null;
 }
 
+function statusPathForNode(node: Record<string, unknown>): string[] {
+  return activationPathForNode(node) ?? [];
+}
+
+function collectionPathForNode(
+  parent: Record<string, unknown>,
+  collectionName: string
+): string[] | null {
+  const parentPath = activationPathForNode(parent);
+  if (parentPath === null && String(parent.resource_type ?? "") !== "studio_instance") {
+    return null;
+  }
+  return [...(parentPath ?? []), collectionName];
+}
+
+function resourceUriForPath(
+  instanceId: string,
+  pathSegments: string[] | null
+): string {
+  if (!pathSegments || pathSegments.length === 0) {
+    return `studio://${instanceId}`;
+  }
+  return `studio://${instanceId}/${pathSegments.join("/")}`;
+}
+
+function resourceUriForNode(node: Record<string, unknown>): string {
+  const instanceId =
+    typeof node.instance_id === "string"
+      ? node.instance_id
+      : typeof node.id === "string"
+        ? node.id
+        : "studio";
+  return resourceUriForPath(instanceId, statusPathForNode(node));
+}
+
+function actionMetadata(node: Record<string, unknown>): StudioActionStatus[] {
+  const actions: StudioActionStatus[] = [
+    {
+      id: "studio.resource.status",
+      label: "Status",
+      tool_name: "studio_resource_status",
+      read_only: true,
+      destructive: false,
+      path: [...statusPathForNode(node), "status"],
+      resource_uri: resourceUriForNode(node),
+    },
+  ];
+  const activation = activationMetadata(node);
+  if (activation.activatable && Array.isArray(activation.activation_target_path)) {
+    actions.push({
+      id: "studio.resource.activate",
+      label: "Activate",
+      tool_name: "studio_resource_activate",
+      read_only: false,
+      destructive: false,
+      path: [...activation.activation_target_path, "activate"],
+      resource_uri: resourceUriForNode(node),
+    });
+  }
+  return actions;
+}
+
 function activationMetadata(node: Record<string, unknown>) {
   const targetPath = activationPathForNode(node);
   const resourceType = String(node.resource_type ?? "");
@@ -414,6 +486,7 @@ function summarizeChild(node: Record<string, unknown>): StudioControlResourceSum
       resource_type: resourceType,
       id,
       label,
+      resource_uri: resourceUriForNode(node),
       window_role: typeof node.window_role === "string" ? node.window_role : undefined,
     };
   }
@@ -422,6 +495,7 @@ function summarizeChild(node: Record<string, unknown>): StudioControlResourceSum
       resource_type: resourceType,
       id,
       label,
+      resource_uri: resourceUriForNode(node),
       group: typeof node.group === "string" ? node.group : undefined,
       path: typeof node.path === "string" ? node.path : undefined,
     };
@@ -432,6 +506,7 @@ function summarizeChild(node: Record<string, unknown>): StudioControlResourceSum
       resource_type: resourceType,
       id,
       label,
+      resource_uri: resourceUriForNode(node),
       panel_count: diagnostics?.panel_count,
       floating_panel_count: diagnostics?.floating_panel_count,
     };
@@ -441,6 +516,7 @@ function summarizeChild(node: Record<string, unknown>): StudioControlResourceSum
       resource_type: resourceType,
       id,
       label,
+      resource_uri: resourceUriForNode(node),
       panel_location:
         typeof node.panel_location === "string" ? node.panel_location : undefined,
       editor_id: typeof node.editor_id === "string" ? node.editor_id : undefined,
@@ -449,6 +525,7 @@ function summarizeChild(node: Record<string, unknown>): StudioControlResourceSum
   return {
     resource_type: resourceType,
     id,
+    resource_uri: resourceUriForNode(node),
   };
 }
 
@@ -476,13 +553,30 @@ function buildCollectionNode(
   items: Record<string, unknown>[]
 ): StudioControlStatus {
   const parentActivationPath = activationPathForNode(parent);
+  const collectionPath = collectionPathForNode(parent, collectionName);
+  const instanceId =
+    typeof parent.instance_id === "string"
+      ? parent.instance_id
+      : String(parent.id ?? "studio");
   return {
     resource_type: `studio_${collectionName}`,
     id: collectionName,
     parent_id: parent.id,
+    resource_uri: resourceUriForPath(instanceId, collectionPath),
     active: false,
     activatable: false,
     activation_target_path: parentActivationPath,
+    actions: [
+      {
+        id: "studio.resource.status",
+        label: "Status",
+        tool_name: "studio_resource_status",
+        read_only: true,
+        destructive: false,
+        path: [...(collectionPath ?? []), "status"],
+        resource_uri: resourceUriForPath(instanceId, collectionPath),
+      },
+    ],
     items: items.map((item) => summarizeChild(item)),
     child_resources: items.map((item) => summarizeChild(item)),
   };
@@ -524,6 +618,7 @@ export function resolveStudioRuntimeNode(
     return {
       resource_type: resourceType,
       id: String(node.id),
+      resource_uri: resourceUriForNode(node),
       name: node.name,
       pid: node.pid,
       mode: node.mode,
@@ -539,6 +634,7 @@ export function resolveStudioRuntimeNode(
       active: false,
       activatable: false,
       activation_target_path: null,
+      actions: actionMetadata(node),
       children: { windows: windows.map((window) => summarizeChild(window)) },
       child_collections: buildChildCollections(node),
     };
@@ -549,6 +645,7 @@ export function resolveStudioRuntimeNode(
     return {
       resource_type: resourceType,
       id: String(node.id),
+      resource_uri: resourceUriForNode(node),
       label: node.label,
       instance_id: node.instance_id,
       active_window_id: node.active_window_id,
@@ -558,6 +655,7 @@ export function resolveStudioRuntimeNode(
       active_workbench_id: node.active_workbench_id,
       state_sources: node.state_sources as Record<string, string>,
       ...activationMetadata(node),
+      actions: actionMetadata(node),
       children: {
         workbenches: workbenches.map((workbench) => summarizeChild(workbench)),
       },
@@ -569,6 +667,7 @@ export function resolveStudioRuntimeNode(
     return {
       resource_type: resourceType,
       id: String(node.id),
+      resource_uri: resourceUriForNode(node),
       label: node.label,
       instance_id: node.instance_id,
       window_id: node.window_id,
@@ -579,6 +678,7 @@ export function resolveStudioRuntimeNode(
       active_layout_id: node.active_layout_id,
       state_sources: node.state_sources as Record<string, string>,
       ...activationMetadata(node),
+      actions: actionMetadata(node),
       children: { layouts: layouts.map((layout) => summarizeChild(layout)) },
       child_collections: buildChildCollections(node),
     };
@@ -588,6 +688,7 @@ export function resolveStudioRuntimeNode(
     return {
       resource_type: resourceType,
       id: String(node.id),
+      resource_uri: resourceUriForNode(node),
       label: node.label,
       instance_id: node.instance_id,
       window_id: node.window_id,
@@ -596,13 +697,16 @@ export function resolveStudioRuntimeNode(
       dock: node.dock,
       diagnostics: node.diagnostics,
       ...activationMetadata(node),
+      actions: actionMetadata(node),
       children: { panels: panels.map((panel) => summarizeChild(panel)) },
       child_collections: buildChildCollections(node),
     };
   }
   return {
     ...(node as StudioControlStatus),
+    resource_uri: resourceUriForNode(node),
     ...activationMetadata(node),
+    actions: actionMetadata(node),
     child_collections: buildChildCollections(node),
   };
 }

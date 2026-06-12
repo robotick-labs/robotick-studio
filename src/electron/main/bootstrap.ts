@@ -149,6 +149,24 @@ type RendererErrorPayload = {
   href?: unknown;
 };
 
+type RendererDiagnosticsSnapshotPayload = Record<string, unknown>;
+
+type RendererDiagnosticsRecord = {
+  updated_at: string | null;
+  [key: string]: unknown;
+};
+
+type RendererErrorRecord = {
+  window_id: string | null;
+  recorded_at: string;
+  type: string;
+  message: string;
+  source: string | null;
+  lineno: number | null;
+  colno: number | null;
+  stack: string | null;
+};
+
 type StudioRuntimeActiveResourcePayload = {
   window_id?: unknown;
   workbench_id?: unknown;
@@ -223,6 +241,7 @@ const DEV_SERVER_PORT_CANDIDATES = [
   5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183,
 ];
 const DEV_SERVER_PROBE_TIMEOUT_MS = 800;
+const RENDERER_ERROR_BUFFER_LIMIT = 50;
 
 const PUBLIC_ICON_RELATIVE = path.join(
   "public",
@@ -1076,9 +1095,12 @@ export async function bootstrapElectron({
   const activeWorkbenchByWindow = new Map<string, string>();
   const activeLayoutByWorkbench = new Map<string, string>();
   const activePanelByLayout = new Map<string, string>();
+  const rendererDiagnosticsByWindow = new Map<string, RendererDiagnosticsRecord>();
+  const rendererErrorsByWindow = new Map<string, RendererErrorRecord[]>();
   let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
   let studioControlEndpointRegistered = false;
+  const startedAt = new Date().toISOString();
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
       ? resolveBootstrapProjectSelectionPath(env.ROBOTICK_PROJECT_DIR)
@@ -1140,6 +1162,13 @@ export async function bootstrapElectron({
       .filter(([, win]) => !(win.isDestroyed?.() ?? false))
       .map(([scope]) => (scope === PRIMARY_WINDOW_SCOPE ? "main" : scope));
 
+  const getWindowUrl = (scope: string): string | null => {
+    const normalizedScope = scope === "main" ? PRIMARY_WINDOW_SCOPE : scope;
+    const win = windowByScope.get(normalizedScope);
+    const url = win?.webContents.getURL?.();
+    return typeof url === "string" && url.trim().length > 0 ? url.trim() : null;
+  };
+
   const getActiveWorkbenchIds = (): Record<string, string> =>
     Object.fromEntries(activeWorkbenchByWindow.entries());
 
@@ -1148,6 +1177,14 @@ export async function bootstrapElectron({
 
   const getActivePanelIds = (): Record<string, string> =>
     Object.fromEntries(activePanelByLayout.entries());
+
+  const getRendererDiagnostics = (
+    windowId: string
+  ): RendererDiagnosticsRecord | null =>
+    rendererDiagnosticsByWindow.get(windowId) ?? null;
+
+  const getRendererErrors = (windowId: string): RendererErrorRecord[] =>
+    rendererErrorsByWindow.get(windowId)?.slice() ?? [];
 
   const windowIdFromBrowserWindow = (win: BrowserWindowInstance | null): string | null => {
     if (!win) {
@@ -1158,6 +1195,61 @@ export async function bootstrapElectron({
       return null;
     }
     return metadata.scope === PRIMARY_WINDOW_SCOPE ? "main" : metadata.scope;
+  };
+
+  const recordRendererError = (
+    windowId: string | null,
+    payload: RendererErrorPayload
+  ) => {
+    const type = typeof payload?.type === "string" ? payload.type : "unknown";
+    const message =
+      typeof payload?.message === "string" && payload.message.length > 0
+        ? payload.message
+        : "No message";
+    const source =
+      typeof payload?.source === "string" && payload.source.length > 0
+        ? payload.source
+        : typeof payload?.href === "string" && payload.href.length > 0
+          ? payload.href
+          : null;
+    const record: RendererErrorRecord = {
+      window_id: windowId,
+      recorded_at: new Date().toISOString(),
+      type,
+      message,
+      source,
+      lineno: typeof payload?.lineno === "number" ? payload.lineno : null,
+      colno: typeof payload?.colno === "number" ? payload.colno : null,
+      stack:
+        typeof payload?.stack === "string" && payload.stack.length > 0
+          ? payload.stack
+          : typeof payload?.reason === "string" && payload.reason.length > 0
+            ? payload.reason
+            : null,
+    };
+    const key = windowId ?? "__unknown__";
+    const next = [...(rendererErrorsByWindow.get(key) ?? []), record];
+    if (next.length > RENDERER_ERROR_BUFFER_LIMIT) {
+      next.splice(0, next.length - RENDERER_ERROR_BUFFER_LIMIT);
+    }
+    rendererErrorsByWindow.set(key, next);
+  };
+
+  const recordRendererDiagnostics = (
+    windowId: string | null,
+    payload: RendererDiagnosticsSnapshotPayload | undefined
+  ) => {
+    if (!windowId || !payload || typeof payload !== "object") {
+      return;
+    }
+    const updatedAt =
+      typeof payload.updated_at === "string" && payload.updated_at.trim().length > 0
+        ? payload.updated_at.trim()
+        : new Date().toISOString();
+    rendererDiagnosticsByWindow.set(windowId, {
+      ...(payload as Record<string, unknown>),
+      updated_at: updatedAt,
+    });
   };
 
   const recordActiveStudioResource = (
@@ -1707,7 +1799,9 @@ export async function bootstrapElectron({
   };
 
   if (ipcMain) {
-    ipcMain.on("robotick-renderer-error", (_event, payload: RendererErrorPayload) => {
+    ipcMain.on("robotick-renderer-error", (event, payload: RendererErrorPayload) => {
+      const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+      recordRendererError(windowId, payload);
       const type = typeof payload?.type === "string" ? payload.type : "unknown";
       const message =
         typeof payload?.message === "string" && payload.message.length > 0
@@ -1734,6 +1828,13 @@ export async function bootstrapElectron({
         `[Electron] Renderer ${type}: ${message} @ ${source}:${lineno}:${colno}\n${stack}`
       );
     });
+    ipcMain.on(
+      "robotick-renderer-diagnostics",
+      (event, payload: RendererDiagnosticsSnapshotPayload | undefined) => {
+        const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+        recordRendererDiagnostics(windowId, payload);
+      }
+    );
     ipcMain.on(
       "robotick-studio-runtime:active-resource",
       (
@@ -1998,6 +2099,30 @@ export async function bootstrapElectron({
         getActiveWorkbenchIds,
         getActiveLayoutIds,
         getActivePanelIds,
+      },
+      diagnosticsProvider: {
+        instanceName: projectLockOwner.instanceName,
+        pid: process.pid,
+        mode: env.ROBOTICK_STUDIO_MODE?.trim() || "dev",
+        workspaceRoot: env.ROBOTICK_WORKSPACE_ROOT?.trim() || null,
+        startedAt,
+        startupHubEndpoint: env.ROBOTICK_HUB_ENDPOINT?.trim() || null,
+        getCurrentHubEndpoint: () =>
+          readCurrentHubEndpoint(
+            env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+            env.ROBOTICK_HUB_ENDPOINT
+          ),
+        getSelectedProjectPath: () => currentProjectPath,
+        getActiveWindowScope,
+        getFocusedWindowScope,
+        getLastFocusedAt: () => lastFocusedAt,
+        getOpenWindowScopes,
+        getActiveWorkbenchIds,
+        getActiveLayoutIds,
+        getActivePanelIds,
+        getWindowUrl,
+        getRendererDiagnostics,
+        getRendererErrors,
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,

@@ -2106,6 +2106,119 @@ def test_studio_status_prefers_registered_control_endpoint(
     assert response.json()["state"] == "runtime"
 
 
+def test_studio_status_endpoint_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_focused_endpoint_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/focused")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    monkeypatch.setattr(
+        "robotick.studio_ability.hub_ability.ability.get_studio_diagnostics",
+        lambda _, instance_id, kind: (
+            {
+                "resource_type": f"studio_diagnostics_{kind.replace('-', '_')}",
+                "instance_id": instance_id,
+                "current_hub_endpoint": "http://127.0.0.1:7000",
+            }
+            if instance_id == "studio-1234" and kind in {"endpoints", "renderer", "fetch-check", "telemetry"}
+            else None
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/diagnostics/endpoints")
+        renderer_response = client.get("/v1/studio/instances/studio-1234/diagnostics/renderer")
+        fetch_check_response = client.get("/v1/studio/instances/studio-1234/diagnostics/fetch-check")
+        telemetry_response = client.get("/v1/studio/instances/studio-1234/diagnostics/telemetry")
+
+    assert response.status_code == 200
+    assert response.json()["resource_type"] == "studio_diagnostics_endpoints"
+    assert response.json()["instance_id"] == "studio-1234"
+    assert renderer_response.status_code == 200
+    assert renderer_response.json()["resource_type"] == "studio_diagnostics_renderer"
+    assert fetch_check_response.status_code == 200
+    assert fetch_check_response.json()["resource_type"] == "studio_diagnostics_fetch_check"
+    assert telemetry_response.status_code == 200
+    assert telemetry_response.json()["resource_type"] == "studio_diagnostics_telemetry"
+
+
+def test_studio_diagnostics_endpoint_surfaces_provider_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick.studio_ability.hub_ability.ability.get_studio_diagnostics",
+        lambda *_args: {
+            "error": {
+                "code": "provider_unavailable",
+                "message": "Diagnostics unavailable.",
+                "recovery": "Reopen Studio.",
+            }
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/diagnostics/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
 def test_studio_project_select_proxies_to_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2152,6 +2265,32 @@ def test_studio_project_select_proxies_to_control_endpoint(
     assert response.json()["accepted"] is True
     assert captured["url"] == "http://127.0.0.1:7123/v1/project/select"
     assert '"project_path": "/tmp/barr-e.project.yaml"' in captured["body"]
+
+
+def test_studio_project_select_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/project/select",
+            json={"project_path": "/tmp/barr-e.project.yaml"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
 
 
 def test_studio_instances_hide_cached_selected_project_name(
@@ -2232,6 +2371,29 @@ def test_studio_activation_proxies_to_control_endpoint(
     assert response.json()["activated_path"] == ["windows", "main"]
     assert captured["url"] == "http://127.0.0.1:7123/v1/studio/windows/main/activate"
     assert captured["body"] == "{}"
+
+
+def test_studio_activation_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.post("/v1/studio/instances/studio-1234/windows/main/activate")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
 
 
 def test_app_instance_closing_endpoint(

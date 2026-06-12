@@ -680,6 +680,50 @@ describe("launcher-interface gateway telemetry resolution", () => {
     readStorage.mockImplementation(() => "");
   });
 
+  it("records launcher fetch failures in the renderer diagnostics snapshot", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      return {
+        ok: false,
+        status: 503,
+        statusText: "Unavailable",
+        json: async () => ({}),
+        text: async () => "hub unavailable",
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+    const diagnostics = await import("../../../../renderer/services/studio-diagnostics");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toBeNull();
+
+    expect(launcherInterface.getLauncherRendererDiagnosticsSnapshot()).toMatchObject({
+      last_runtime_fetch_error: "Request failed 503 Unavailable: hub unavailable",
+    });
+    expect(diagnostics.getRendererDiagnosticsSnapshot()).toMatchObject({
+      fetch_failures: [
+        expect.objectContaining({
+          source: "launcher-interface",
+          operation: "GET /v1/launcher/runtime",
+          status_code: 503,
+        }),
+      ],
+    });
+  });
+
   it("resolves absolute project directories to project yaml paths before settings requests", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL) => {
@@ -887,7 +931,9 @@ describe("launcher-interface gateway telemetry resolution", () => {
       profile: null,
       models: {},
     });
-    expect(launcherInterface.getLauncherLogStreamUrl()).toBe("");
+    expect(launcherInterface.getLauncherLogStreamUrl()).toBe(
+      "ws://127.0.0.1:44493/v1/launcher/models/logs/stream?project_id=sample-robot"
+    );
     expect(
       launcherInterface.buildProjectAssetUrl(
         "/tmp/demo/demo.project.yaml",

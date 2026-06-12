@@ -209,6 +209,12 @@ const expose = () => {
     },
   };
 
+  const diagnosticsBridge = {
+    publishSnapshot(snapshot: Record<string, unknown>) {
+      ipcRenderer.send("robotick-renderer-diagnostics", snapshot);
+    },
+  };
+
   const cesiumToken = process.env.CESIUM_TOKEN?.trim();
   if (!cesiumToken) {
     console.warn(
@@ -444,6 +450,7 @@ const expose = () => {
     windowControls,
     studioProcess,
     studioControl: studioControlBridge,
+    diagnostics: diagnosticsBridge,
     storage: storageBridge,
     studioPersistence: studioPersistenceBridge,
     projectSelection: projectSelectionBridge,

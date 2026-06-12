@@ -60,6 +60,7 @@ def get_prompt(state: ShellState, *, color: bool = False) -> str:
 def get_studio_help_text() -> str:
     root_specs = [get_studio_command_spec(name) for name in studio_root_action_names()]
     status_spec = get_studio_command_spec("status")
+    diagnostics_spec = get_studio_command_spec("diagnostics")
     quit_spec = get_studio_command_spec("quit")
     return "\n".join(
         [
@@ -74,6 +75,7 @@ def get_studio_help_text() -> str:
             "",
             "Bound instance commands:",
             f"  {status_spec.shell_label or status_spec.name:<16}{status_spec.summary}",
+            f"  {diagnostics_spec.shell_label or diagnostics_spec.name:<16}{diagnostics_spec.summary}",
             f"  {quit_spec.shell_label or quit_spec.name:<16}{quit_spec.summary}",
             "",
             "Examples:",
@@ -185,6 +187,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
     lines = [_heading(f"Current context: {current_context}", color=color), ""]
     if state.namespace == "studio" and state.instance_name is not None:
         status_spec = get_studio_command_spec("status")
+        diagnostics_spec = get_studio_command_spec("diagnostics")
         activate_spec = get_studio_command_spec("activate")
         quit_spec = get_studio_command_spec("quit")
         lines.extend(
@@ -193,6 +196,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 *_format_spec_lines(
                     [
                         (status_spec.name, status_spec.summary),
+                        (diagnostics_spec.name, diagnostics_spec.summary),
                         (activate_spec.name, activate_spec.summary),
                         (quit_spec.name, quit_spec.summary),
                     ],
@@ -207,10 +211,15 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 "",
                 _section("Output:", color=color),
                 "  status returns JSON for the currently bound Studio node.",
+                "  diagnostics returns read-only control-service diagnostics snapshots.",
                 "  Some fields may be config-derived until live Studio state is available.",
                 "",
                 _section("Examples:", color=color),
                 "  status",
+                "  diagnostics status",
+                "  diagnostics renderer",
+                "  diagnostics fetch-check",
+                "  diagnostics telemetry",
                 "  cd windows",
                 "  cd main",
                 "  cd workbenches",
@@ -639,6 +648,7 @@ def open_help_text() -> str:
 
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
+    diagnostics_spec = get_studio_command_spec("diagnostics")
     select_project_spec = get_studio_command_spec("select-project")
     activate_spec = get_studio_command_spec("activate")
     quit_spec = get_studio_command_spec("quit")
@@ -646,6 +656,7 @@ def instance_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} status",
+            f"  robotick studio {instance_name} diagnostics <status|endpoints|renderer|fetch-check|telemetry>",
             f"  robotick studio {instance_name} <path...> activate",
             f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
@@ -653,6 +664,7 @@ def instance_help_text(instance_name: str) -> str:
             "",
             "Commands:",
             f"  {status_spec.name:<14} {status_spec.summary}",
+            f"  {diagnostics_spec.name:<14} {diagnostics_spec.summary}",
             f"  {activate_spec.name:<14} {activate_spec.summary}",
             f"  {select_project_spec.name:<14} {select_project_spec.summary}",
             f"  {quit_spec.name:<14} {quit_spec.summary}",

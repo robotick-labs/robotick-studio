@@ -4,6 +4,7 @@ import type { LauncherModelLogEvent } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
 import { createPollingTask } from "../../../utils/polling";
 import { isAppQuitting } from "../../../utils/appQuitting";
+import { recordRendererWebSocketFailure } from "../../../services/studio-diagnostics";
 
 type TerminalLogSubscriber = () => void;
 
@@ -212,9 +213,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
     const generation = this.connectGeneration;
     this.connectRequest = (async () => {
       let ws: WebSocket;
+      let socketUrl = "";
 
       try {
-        const socketUrl = await launcherService.getLauncherLogStreamUrlAsync();
+        socketUrl = await launcherService.getLauncherLogStreamUrlAsync();
         if (generation !== this.connectGeneration) {
           return;
         }
@@ -226,6 +228,14 @@ class TerminalLogServiceImpl implements TerminalLogService {
         this.ws = ws;
       } catch (err) {
         if (generation === this.connectGeneration) {
+          if (typeof err === "object" && err !== null) {
+            recordRendererWebSocketFailure({
+              source: "terminal-log-service",
+              phase: "connect",
+              url: socketUrl,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
           console.warn("[terminal] WS creation failed:", err);
           this.scheduleReconnect();
         }
@@ -251,6 +261,12 @@ class TerminalLogServiceImpl implements TerminalLogService {
         if (this.ws !== ws) {
           return;
         }
+        recordRendererWebSocketFailure({
+          source: "terminal-log-service",
+          phase: "error",
+          url: ws.url,
+          message: "terminal log websocket error",
+        });
         console.warn("[terminal] WebSocket error:", ev);
         ws.close();
       };
@@ -258,6 +274,15 @@ class TerminalLogServiceImpl implements TerminalLogService {
       ws.onclose = (ev) => {
         if (this.ws !== ws) {
           return;
+        }
+        if (!this.shuttingDown && !isAppQuitting()) {
+          recordRendererWebSocketFailure({
+            source: "terminal-log-service",
+            phase: "close",
+            url: ws.url,
+            message: ev.reason || "terminal log websocket closed",
+            closeCode: ev.code,
+          });
         }
         console.log("[terminal] Disconnected:", ev.code, ev.reason);
         this.ws = null;
