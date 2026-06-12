@@ -79,7 +79,27 @@ export interface LauncherService {
     status: string;
     phase?: string | null;
     profile?: string | null;
-    models?: Record<string, { stage?: string; status?: string }>;
+    models?: Record<
+      string,
+      {
+        stage?: string;
+        status?: string;
+        lifecycle?: string;
+        readiness?: string;
+        freshness?: "live" | "stale" | "pending" | "failed";
+        diagnostics?: Array<{
+          code?: string;
+          message?: string;
+          details?: Record<string, unknown>;
+        }>;
+        groupId?: string;
+        sessionId?: string;
+        logRefs?: Array<{
+          kind?: string;
+          path?: string;
+        }>;
+      }
+    >;
   } | null>;
   getLauncherLogStreamUrl(): string;
 }

@@ -1,5 +1,5 @@
 import React, { useLayoutEffect } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -71,6 +71,32 @@ async function advance(ms: number) {
 }
 
 describe("Launcher service integration", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  const demoModel = {
+    modelPath: "models/demo-robot-face.model.yaml",
+    modelShortName: "demo-robot-face",
+    modelName: "Demo Robot Face",
+    telemetryPort: 7090,
+    telemetryBaseUrl: "http://localhost:7090/api/telemetry",
+    telemetryPushRateHz: 20,
+    data: {},
+  };
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
   it("injects the launcher service into the Project provider", () => {
     const setProjectPath = vi.fn();
     const service = createMockLauncherService({
@@ -170,7 +196,7 @@ describe("Launcher service integration", () => {
     }));
 
     const service = createMockLauncherService({
-      getProjectPath: () => "/proj",
+      projectPath: "/proj",
       getLauncherProfile: () => "local:ALL",
       requestLauncherStop,
       requestLauncherRun,
@@ -225,6 +251,161 @@ describe("Launcher service integration", () => {
       'button[aria-label="Stop launcher"], button[aria-label="Start launcher"]'
     ) as HTMLButtonElement | null;
     expect(startStop?.getAttribute("aria-label")).toBe("Stop launcher");
+
+    vi.useRealTimers();
+    unmount();
+  });
+
+  it("shows an immediate launching state for a per-model start request", async () => {
+    vi.useFakeTimers();
+
+    let currentStatus = "stopped";
+    let currentModels: Record<string, Record<string, string>> = {};
+    const requestLauncherRunModel = vi.fn().mockImplementation(async () => {
+      setTimeout(() => {
+        currentStatus = "running";
+        currentModels = {
+          "demo-robot-face": {
+            stage: "run",
+            status: "running",
+            lifecycle: "running",
+            readiness: "ready",
+            freshness: "live",
+          },
+        };
+      }, 700);
+    });
+    const fetchLauncherStatus = vi.fn().mockImplementation(async () => ({
+      status: currentStatus,
+      phase: currentStatus === "running" ? "run" : null,
+      models: currentModels,
+    }));
+
+    const service = createMockLauncherService({
+      projectPath: "/proj",
+      getLauncherProfile: () => "local:ALL",
+      getProjectModels: async () => [demoModel],
+      refreshProjectModels: async () => [demoModel],
+      requestLauncherRunModel,
+      fetchLauncherStatus,
+    });
+
+    const { unmount } = renderWithLauncherService(
+      service,
+      <Project.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
+      </Project.Context.Provider>
+    );
+
+    await flushPromises();
+    await advance(1000);
+
+    const startButton = document.querySelector(
+      'button[aria-label="Start demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(startButton).not.toBeNull();
+
+    await act(async () => {
+      startButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(requestLauncherRunModel).toHaveBeenCalledWith("/proj", "local", "demo-robot-face");
+    expect(document.body.textContent).toContain("launching");
+
+    const stopButton = document.querySelector(
+      'button[aria-label="Stop demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(stopButton).not.toBeNull();
+    expect(stopButton?.disabled).toBe(true);
+
+    await advance(1000);
+    expect(document.body.textContent).toContain("running");
+
+    vi.useRealTimers();
+    unmount();
+  });
+
+  it("shows an immediate stopping state for a per-model stop request", async () => {
+    vi.useFakeTimers();
+
+    let currentStatus = "running";
+    let currentModels: Record<string, Record<string, string>> = {
+      "demo-robot-face": {
+        stage: "run",
+        status: "running",
+        lifecycle: "running",
+        readiness: "ready",
+        freshness: "live",
+      },
+    };
+    const requestLauncherStopModel = vi.fn().mockImplementation(async () => {
+      setTimeout(() => {
+        currentStatus = "stopped";
+        currentModels = {
+          "demo-robot-face": {
+            stage: "stop",
+            status: "succeeded",
+            lifecycle: "stopped",
+            readiness: "pending",
+            freshness: "pending",
+          },
+        };
+      }, 700);
+    });
+    const fetchLauncherStatus = vi.fn().mockImplementation(async () => ({
+      status: currentStatus,
+      phase: currentStatus === "running" ? "run" : null,
+      models: currentModels,
+    }));
+
+    const service = createMockLauncherService({
+      projectPath: "/proj",
+      getLauncherProfile: () => "local:ALL",
+      getProjectModels: async () => [demoModel],
+      refreshProjectModels: async () => [demoModel],
+      requestLauncherStopModel,
+      fetchLauncherStatus,
+    });
+
+    const { unmount } = renderWithLauncherService(
+      service,
+      <Project.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
+      </Project.Context.Provider>
+    );
+
+    await flushPromises();
+    await advance(1000);
+
+    const stopButton = document.querySelector(
+      'button[aria-label="Stop demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(stopButton).not.toBeNull();
+
+    await act(async () => {
+      stopButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(requestLauncherStopModel).toHaveBeenCalledWith("/proj", "local", "demo-robot-face");
+    expect(document.body.textContent).toContain("stopping");
+
+    const stoppingButton = document.querySelector(
+      'button[aria-label="Stop demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(stoppingButton?.disabled).toBe(true);
+
+    await advance(1000);
+    expect(document.body.textContent).toContain("stopped");
 
     vi.useRealTimers();
     unmount();

@@ -33,9 +33,17 @@ type HubStudioProjectsResult = {
   selectedTargetProject?: string;
 };
 
-function getHubEndpoint(): string | null {
+async function getHubEndpoint(): Promise<string | null> {
   if (typeof window === "undefined") {
     return null;
+  }
+  try {
+    const endpoint = await window.robotick?.hub?.getEndpoint?.();
+    if (typeof endpoint === "string" && endpoint.trim().length > 0) {
+      return endpoint.trim();
+    }
+  } catch {
+    // Fall through to the startup environment endpoint.
   }
   const endpoint = window.robotick?.environment?.hubEndpoint;
   return typeof endpoint === "string" && endpoint.trim().length > 0
@@ -58,7 +66,7 @@ function buildHubUrl(baseUrl: string, path: string): string {
 }
 
 async function fetchHubStudioProjects(): Promise<HubStudioProjectsResult | null> {
-  const hubEndpoint = getHubEndpoint();
+  const hubEndpoint = await getHubEndpoint();
   if (!hubEndpoint) {
     return null;
   }

@@ -36,7 +36,6 @@ export function LauncherControls() {
     modelHealth,
     projectModels.data
   );
-
   React.useEffect(() => {
     if (!isStatusOpen) {
       return;
@@ -186,13 +185,14 @@ type TooltipRow = {
   name: string;
   modelId: string;
   isRunning: boolean;
+  modelStatus: LauncherStatus;
+  stateLabel: string;
   launcherStage: string | null;
   launcherStatus: string | null;
-  healthKnown: boolean;
-  healthLoading: boolean;
+  launcherLifecycle: string | null;
+  launcherReadiness: string | null;
+  launcherFreshness: string | null;
   healthAlive: boolean;
-  healthWarning: boolean;
-  detail: string | null;
 };
 
 function ModelStatusRow({
@@ -210,27 +210,17 @@ function ModelStatusRow({
   runModel: (modelId: string) => Promise<void>;
   restartModel: (modelId: string) => Promise<void>;
 }) {
-  const isRunStarting =
-    model.launcherStage === "run" && model.launcherStatus === "starting";
-  const isDetachedLaunched =
-    model.launcherStage === "run" && model.launcherStatus === "succeeded";
-  const hasHealthSignal =
-    model.healthLoading || model.healthAlive || model.healthWarning;
-  const isRunning =
-    isRunStarting ||
-    (model.launcherStatus === "running" &&
-      (!model.healthKnown || hasHealthSignal)) ||
-    (isDetachedLaunched && hasHealthSignal);
-  const modelStatus: LauncherStatus = isRunStarting
-    ? "launching"
-    : isRunning
-      ? "running"
-      : "stopped";
-  const modelAlive = model.healthLoading || model.healthAlive;
-  const controlActive = modelStatus !== "stopped";
-  const controlsDisabled = isBusy || isAwaitingStatus;
-  const toggleDisabled = !controlActive && controlsDisabled;
-  const canRestart = modelStatus === "running" && !isBusy;
+  const controlActive = model.modelStatus !== "stopped";
+  const controlsDisabled =
+    isBusy ||
+    isAwaitingStatus ||
+    model.modelStatus === "launching" ||
+    model.modelStatus === "stopping";
+  const toggleDisabled =
+    model.modelStatus === "launching" ||
+    model.modelStatus === "stopping" ||
+    (!controlActive && controlsDisabled);
+  const canRestart = model.modelStatus === "running" && !isBusy;
 
   async function handleToggle() {
     if (controlActive) {
@@ -246,7 +236,11 @@ function ModelStatusRow({
   }
 
   const rowClasses = [styles.statusTooltipRow];
-  if (!isRunning) {
+  if (
+    model.stateLabel === "failed" ||
+    model.stateLabel === "stale" ||
+    model.stateLabel === "stopped"
+  ) {
     rowClasses.push(styles.statusTooltipRowError);
   }
 
@@ -254,9 +248,7 @@ function ModelStatusRow({
     <div className={rowClasses.join(" ")}>
       <div className={styles.statusTooltipRowMain}>
         <span>{model.name}</span>
-        {model.detail ? (
-          <span className={styles.statusTooltipDetail}>{model.detail}</span>
-        ) : null}
+        <span className={styles.statusTooltipDetail}>{model.stateLabel}</span>
       </div>
       <div className={styles.statusTooltipRowControls}>
         <button
@@ -281,12 +273,13 @@ function ModelStatusRow({
         </button>
         <div className={styles.statusTooltipModelIcon}>
           <LauncherDots
-            status={modelStatus}
-            robotAlive={modelAlive}
+            status={model.modelStatus}
+            robotAlive={model.healthAlive || model.modelStatus !== "running"}
             tooltipSummary={{
-              running: modelStatus === "running" ? [{ name: model.name }] : [],
+              running:
+                model.modelStatus === "running" ? [{ name: model.name }] : [],
               notRunning:
-                modelStatus !== "running" ? [{ name: model.name }] : [],
+                model.modelStatus !== "running" ? [{ name: model.name }] : [],
             }}
           />
         </div>
@@ -296,7 +289,20 @@ function ModelStatusRow({
 }
 
 function buildTooltipSummary(
-  launcherModels: Record<string, { stage?: string; status?: string }>,
+  launcherModels: Record<
+    string,
+    {
+      stage?: string;
+      status?: string;
+      lifecycle?: string;
+      readiness?: string;
+      freshness?: string;
+      groupId?: string;
+      sessionId?: string;
+      diagnostics?: Array<{ code?: string; message?: string }>;
+      logRefs?: Array<{ kind?: string; path?: string }>;
+    }
+  >,
   modelHealth: Record<
     string,
     {
@@ -328,48 +334,41 @@ function buildTooltipSummary(
   for (const name of names) {
     const launcherModel = launcherModels[name];
     const health = modelHealth[name];
+    const presentation = deriveTooltipPresentation(launcherModel, health);
     const launcherStage = launcherModel?.stage ?? null;
     const launcherStatus = launcherModel?.status ?? null;
-    const isRunStarting =
-      launcherStage === "run" && launcherStatus === "starting";
-    const isDetachedLaunched =
-      launcherStage === "run" && launcherStatus === "succeeded";
-    const healthKnown = Boolean(health);
-    const healthLoading = health?.loading === true;
+    const launcherLifecycle = launcherModel?.lifecycle ?? null;
+    const launcherReadiness = launcherModel?.readiness ?? null;
+    const launcherFreshness = launcherModel?.freshness ?? null;
     const healthAlive = health?.alive === true;
-    const healthWarning = Boolean(health?.warning?.trim());
-    const hasHealthSignal = healthLoading || healthAlive || healthWarning;
-    const isRunning =
-      isRunStarting ||
-      (launcherStatus === "running" && (!healthKnown || hasHealthSignal)) ||
-      (isDetachedLaunched && hasHealthSignal);
-    const detail = buildTooltipDetail(launcherModel, health);
 
-    if (isRunning) {
+    if (presentation.isRunning) {
       running.push({
         name,
         modelId: name,
-        isRunning,
+        isRunning: true,
+        modelStatus: presentation.modelStatus,
+        stateLabel: presentation.stateLabel,
         launcherStage,
         launcherStatus,
-        healthKnown,
-        healthLoading,
+        launcherLifecycle,
+        launcherReadiness,
+        launcherFreshness,
         healthAlive,
-        healthWarning,
-        detail,
       });
     } else {
       notRunning.push({
         name,
         modelId: name,
-        isRunning,
+        isRunning: false,
+        modelStatus: presentation.modelStatus,
+        stateLabel: presentation.stateLabel,
         launcherStage,
         launcherStatus,
-        healthKnown,
-        healthLoading,
+        launcherLifecycle,
+        launcherReadiness,
+        launcherFreshness,
         healthAlive,
-        healthWarning,
-        detail,
       });
     }
   }
@@ -377,41 +376,55 @@ function buildTooltipSummary(
   return { running, notRunning };
 }
 
-function buildTooltipDetail(
-  launcherModel?: { stage?: string; status?: string },
+function deriveTooltipPresentation(
+  launcherModel?: {
+    stage?: string;
+    status?: string;
+    lifecycle?: string;
+    readiness?: string;
+    freshness?: string;
+    groupId?: string;
+    sessionId?: string;
+    diagnostics?: Array<{ code?: string; message?: string }>;
+    logRefs?: Array<{ kind?: string; path?: string }>;
+  },
   health?: {
     alive: boolean;
     loading: boolean;
     error?: string | null;
     warning?: string | null;
   }
-): string | null {
+) {
+  const stage = launcherModel?.stage?.trim();
+  const status = launcherModel?.status?.trim();
+  const lifecycle = launcherModel?.lifecycle?.trim();
+  const freshness = launcherModel?.freshness?.trim();
+  const readiness = launcherModel?.readiness?.trim();
+
+  if (freshness === "stale" || lifecycle === "stale") {
+    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "stale" };
+  }
+  if (status === "starting") {
+    return { isRunning: true, modelStatus: "launching" as LauncherStatus, stateLabel: "launching" };
+  }
+  if (status === "stopping") {
+    return { isRunning: true, modelStatus: "stopping" as LauncherStatus, stateLabel: "stopping" };
+  }
+  if (
+    stage === "run" &&
+    (status === "running" || status === "succeeded")
+  ) {
+    const stateLabel = readiness === "ready" || status === "running" ? "running" : "launched";
+    return { isRunning: true, modelStatus: "running" as LauncherStatus, stateLabel };
+  }
+  if (status === "failed" || lifecycle === "failed") {
+    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "failed" };
+  }
   if (health?.loading) {
-    return "health check pending";
+    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "checking" };
   }
-  if (health && !health.alive) {
-    return health.error?.trim() || "flatlined";
+  if (health?.alive) {
+    return { isRunning: true, modelStatus: "running" as LauncherStatus, stateLabel: "running" };
   }
-  if (launcherModel?.stage && launcherModel?.status) {
-    if (
-      launcherModel.stage === "run" &&
-      launcherModel.status === "succeeded"
-    ) {
-      if (health?.warning?.trim()) {
-        return `launched • health unavailable (${health.warning.trim()})`;
-      }
-      return "launched";
-    }
-    if (health?.warning?.trim()) {
-      return `${launcherModel.stage} • ${launcherModel.status} • health unavailable (${health.warning.trim()})`;
-    }
-    return `${launcherModel.stage} • ${launcherModel.status}`;
-  }
-  if (health?.warning?.trim()) {
-    return `health unavailable (${health.warning.trim()})`;
-  }
-  if (launcherModel?.status) {
-    return launcherModel.status;
-  }
-  return null;
+  return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "stopped" };
 }

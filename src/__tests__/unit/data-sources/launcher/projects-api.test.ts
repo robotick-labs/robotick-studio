@@ -73,6 +73,50 @@ describe("projects-api hub-backed discovery", () => {
     ]);
   });
 
+  it("uses the current hub endpoint bridge for project discovery when the startup endpoint is stale", async () => {
+    vi.stubGlobal("window", {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:37115",
+        },
+        hub: {
+          getEndpoint: async () => "http://127.0.0.1:53401",
+        },
+      },
+    } as Window & typeof globalThis);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.toString()).toBe("http://127.0.0.1:53401/v1/studio/projects");
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          projects: [
+            {
+              name: "barr-e",
+              project_dir: "robots/barr-e",
+              project_path: "/workspace/robots/barr-e/barr-e.project.yaml",
+              display_name: "Barr.e",
+            },
+          ],
+        }),
+        text: async () => "",
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const projectsApi = await import(
+      "../../../../renderer/data-sources/launcher/internal/projects-api"
+    );
+
+    await expect(projectsApi.listProjectPaths()).resolves.toEqual([
+      "/workspace/robots/barr-e/barr-e.project.yaml",
+    ]);
+  });
+
   it("orders the CLI-selected hub project first for Studio auto-selection", async () => {
     vi.stubGlobal("window", {
       robotick: {

@@ -943,6 +943,28 @@ function resolveBootstrapProjectSelectionPath(projectPath: string): string {
   return resolvedPath;
 }
 
+function readCurrentHubEndpoint(
+  workspaceRoot: string | undefined,
+  fallbackEndpoint: string | undefined
+): string | undefined {
+  const fallback = fallbackEndpoint?.trim() || undefined;
+  const root = workspaceRoot?.trim();
+  if (!root) {
+    return fallback;
+  }
+
+  try {
+    const payload = JSON.parse(
+      fs.readFileSync(path.join(root, ".robotick", "hub.json"), "utf-8")
+    ) as { endpoint?: unknown };
+    return typeof payload.endpoint === "string" && payload.endpoint.trim()
+      ? payload.endpoint.trim()
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Initializes and configures the Electron application runtime, creates the main window, and wires IPC, window state persistence, and graceful shutdown handlers.
  *
@@ -1727,6 +1749,9 @@ export async function bootstrapElectron({
     );
     ipcMain.handle("robotick-project-selection:get-state", () =>
       getProjectSelectionState()
+    );
+    ipcMain.handle("robotick-hub:get-endpoint", () =>
+      readCurrentHubEndpoint(resolvedProjectRoot, env.ROBOTICK_HUB_ENDPOINT)
     );
     ipcMain.handle(
       "robotick-project-selection:set",

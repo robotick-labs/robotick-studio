@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import time
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError, HubRequestError
@@ -74,6 +74,9 @@ def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
     if command == "instances":
         handle_instances_command(ctx.workspace_root, rest)
         return CommandResult(exit_code=0)
+    if command == "launcher-status":
+        handle_launcher_status_command(ctx, rest)
+        return CommandResult(exit_code=0)
     if command == "create":
         return handle_create_command(ctx, manifest, rest)
     if command == "open":
@@ -113,6 +116,58 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
 
     payload = fetch_studio_hub_json(workspace_root, "/v1/studio/instances")
     write_json(payload)
+
+
+def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(
+            "Usage:\n"
+            "  robotick studio launcher-status [project]\n\n"
+            "Compares raw hub launcher runtime authority with the Studio-facing launcher projection.\n"
+        )
+        return
+    positionals = [arg for arg in args if arg != "--json"]
+    if len(positionals) > 1:
+        raise CliError(f"Unknown argument for 'launcher-status': {positionals[1]}")
+    project_name = positionals[0] if positionals else None
+
+    from robotick_cli import launcher as launcher_cli
+
+    record = ensure_hub(ctx.workspace_root)
+    runtime_path = "/v1/launcher/runtime"
+    if project_name:
+        runtime_path = f"{runtime_path}?{urlencode({'project_id': project_name})}"
+    hub_runtime = fetch_hub_json(record, runtime_path)
+    status_payload = fetch_hub_json(record, "/v1/launcher/status")
+    if project_name:
+        status_payload = launcher_cli.filter_status_payload(
+            status_payload,
+            {
+                "group_id": None,
+                "project_id": project_name,
+                "session_ids": [],
+                "model_ids": [],
+            },
+        )
+    studio_projection = launcher_cli.format_launcher_status_payload(status_payload)
+    raw_state = str(hub_runtime.get("state") or hub_runtime.get("status") or "")
+    projected_state = str((studio_projection.get("service") or {}).get("state") or "")
+    write_json(
+        {
+            "resource_type": "robotick_studio_launcher_status",
+            "project_name": project_name,
+            "hub_runtime": hub_runtime,
+            "studio_projection": {
+                "service": studio_projection.get("service"),
+                "runtime": studio_projection.get("runtime"),
+            },
+            "comparison": {
+                "state_agrees": raw_state == projected_state,
+                "hub_state": raw_state,
+                "studio_state": projected_state,
+            },
+        }
+    )
 
 
 def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -> CommandResult:

@@ -117,6 +117,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
     try {
       const socketUrl = launcherService.getLauncherLogStreamUrl();
+      if (!socketUrl) {
+        return;
+      }
       ws = new globalThis.WebSocket(socketUrl);
       this.ws = ws;
     } catch (err) {

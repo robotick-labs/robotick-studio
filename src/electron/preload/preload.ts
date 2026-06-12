@@ -111,6 +111,9 @@ const expose = () => {
   installAppQuittingForwarding();
 
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  const workspaceRoot =
+    process.env.ROBOTICK_WORKSPACE_ROOT ??
+    process.env.ROBOTICK_PROJECT_DIR;
   const windowControls = usesNativeWindowFrame
     ? undefined
     : {
@@ -432,9 +435,11 @@ const expose = () => {
       windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
       isPrimaryWindow:
         (readArgument(WINDOW_PRIMARY_ARG_PREFIX) ?? "1") !== "0",
-      workspaceRoot:
-        process.env.ROBOTICK_WORKSPACE_ROOT ??
-        process.env.ROBOTICK_PROJECT_DIR,
+      workspaceRoot,
+    },
+    hub: {
+      getEndpoint: () =>
+        ipcRenderer.invoke("robotick-hub:get-endpoint") as Promise<string | undefined>,
     },
     windowControls,
     studioProcess,

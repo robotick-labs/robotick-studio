@@ -16,6 +16,42 @@ Ground rules:
 - treat `status` as read-only; it does not start services
 - use `hub ensure` and `launcher ensure` only when service startup or reuse is actually required
 
+## Launcher Recipes
+
+### Inspect launcher runtime for the active workspace
+
+```bash
+./tools/robotick launcher status
+```
+
+Use this before action commands when the user asks about currently running models. Treat the per-model runtime section as source of truth; group/session history is diagnostic context only.
+
+### Compare hub runtime authority with Studio-facing launcher state
+
+```bash
+./tools/robotick studio launcher-status <project>
+```
+
+Use this during launcher/Studio debugging to compare raw hub per-model runtime truth with the state Studio-facing code will consume. `comparison.state_agrees` should be `true`; inspect the per-model entries if hub and Studio disagree about `running`, `stopped`, or operation state.
+
+### Launch a whole project through the hub-hosted launcher ability
+
+```bash
+./tools/robotick launcher launch <project> native:ALL
+```
+
+Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--local` or `--native` for explicit model selection.
+
+### Wait for launcher readiness, inspect logs, and stop model selections
+
+```bash
+./tools/robotick launcher wait-ready --project <project>
+./tools/robotick launcher logs --project <project>
+./tools/robotick launcher stop --project <project>
+```
+
+Use `--model <id>` or `--models <id,...>` for per-model/subset control. Whole-project control is model fan-out, not a first-class group operation.
+
 ## Workbench Glossary
 
 These are the current common main-window workbench ids used in Studio project documents.

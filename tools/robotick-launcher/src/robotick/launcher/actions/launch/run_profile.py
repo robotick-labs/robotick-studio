@@ -30,6 +30,10 @@ from robotick.launcher.actions.launch.prepare_project_docker import (
 from robotick.launcher.actions.launch.stages import LaunchStage
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.config import Config
+from robotick.launcher.domain.intent import (
+    expand_launch_intent,
+    launch_intent_from_profile,
+)
 
 
 def _print_plain(message: str) -> None:
@@ -273,56 +277,24 @@ def _local_deploy_can_complete_immediately(plan: Any) -> bool:
     return plan.deploy.strategy == "local" and plan.deploy.deploy_handler is None
 
 
-def _normalize_model_id(model_spec: str) -> str:
-    model_name = Path(model_spec).name
-    if model_name.endswith(".model.yaml"):
-        return Path(model_name).stem.removesuffix(".model")
-    return model_spec
-
-
 def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]:
-    if model_spec == "ALL":
-        model_paths = list_project_models(project_path)
-        return [Path(p).stem.removesuffix(".model") for p in model_paths]
-
-    project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
-    profiles = project_data.get("profiles") or {}
-    if not isinstance(profiles, dict):
-        raise ValueError("Project 'profiles' section must be a mapping when provided.")
-
-    profile_entry = profiles.get(model_spec)
-    if profile_entry is None:
-        return [_normalize_model_id(model_spec)]
-
-    if isinstance(profile_entry, list):
-        models = profile_entry
-    elif isinstance(profile_entry, dict):
-        models = profile_entry.get("models") or []
-    else:
-        raise ValueError(
-            f"Profile '{model_spec}' must be a list of model ids or a mapping with 'models'."
-        )
-
-    if not isinstance(models, list) or any(
-        not isinstance(model_id, str) or not model_id for model_id in models
-    ):
-        raise ValueError(
-            f"Profile '{model_spec}' must resolve to a list of non-empty model ids."
-        )
-
-    return models
+    dummy_project_name = project_path.stem.removesuffix(".project")
+    intent = launch_intent_from_profile(
+        dummy_project_name,
+        project_path,
+        f"native:{model_spec}",
+    )
+    return expand_launch_intent(project_path, intent).requested_model_ids
 
 
 def _profile_selection_is_automatic(project_path: Path, model_spec: str) -> bool:
-    if model_spec == "ALL":
-        return True
-
-    project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
-    profiles = project_data.get("profiles") or {}
-    if not isinstance(profiles, dict):
-        raise ValueError("Project 'profiles' section must be a mapping when provided.")
-
-    return model_spec in profiles
+    dummy_project_name = project_path.stem.removesuffix(".project")
+    intent = launch_intent_from_profile(
+        dummy_project_name,
+        project_path,
+        f"native:{model_spec}",
+    )
+    return expand_launch_intent(project_path, intent).automatic_selection
 
 
 def _build_project_model_index(project_path: Path) -> dict[str, Path]:

@@ -29,11 +29,11 @@ export const Launcher = {
    * subscribe to anything. Think “RPC over REST”.
    */
   Service: {
-    run: LauncherRest.LauncherRest.run, // POST /launcher/run
-    stop: LauncherRest.LauncherRest.stop, // POST /launcher/stop
-    status: LauncherRest.LauncherRest.status, // GET /launcher/status
+    run: LauncherRest.LauncherRest.run, // POST /v1/launcher/models/launch
+    stop: LauncherRest.LauncherRest.stop, // POST /v1/launcher/models/stop (project/model aggregate)
+    status: LauncherRest.LauncherRest.status, // GET /v1/launcher/status
     logs: {
-      // URL for live streamed logs; consumer chooses SSE/WebSocket/etc.
+      // Empty until Studio log streaming is migrated off the legacy singleton socket.
       streamUrl: LauncherRest.LauncherRest.logsStreamUrl,
     },
   },

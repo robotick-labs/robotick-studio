@@ -11,7 +11,7 @@ Related docs:
 
 ## Executive Summary
 
-Hub should be the stable control plane for Studio, CLI, MCP, and other agentic clients. Launcher-specific behavior should live behind a hub `ability`, not in hub core.
+Hub should be the stable control plane for Studio, CLI, and other agentic clients. Launcher-specific behavior should live behind a hub `ability`, not in hub core.
 
 The execution model should be based on:
 
@@ -19,14 +19,37 @@ The execution model should be based on:
 - `model_session_group`: an aggregate of model sessions created from `ALL`, a named profile, an explicit model list, or a single model.
 - `ALL`: the canonical everything scope. There should be no separate `whole_robot` primitive; a full robot is simply a model session group whose scope expands to all relevant models.
 
-The long-term goal is reliable independent runtimes. Multiple robots, projects, targets, or profiles should be able to run in parallel from separate Studio instances, one Studio instance, `robotick-cli`, MCP, or another hub client. Switching project in Studio should discover and bind to matching running groups without stopping or disturbing unrelated bots.
+The long-term goal is reliable independent runtimes. Multiple robots, projects, targets, or profiles should be able to run in parallel from separate Studio instances, one Studio instance, `robotick-cli`, or another hub client. Switching project in Studio should discover and bind to matching running groups without stopping or disturbing unrelated bots.
+
+## MVP Simplification: Per-Model Runtime Authority
+
+Status update, 2026-06-12: for the CLI-only MVP, model-session groups are no longer the active launcher control primitive. They may remain as diagnostic/history records while existing worker/log machinery depends on them, but current state and control should be shaped around project/model runtime records.
+
+The MVP rule is:
+
+- hub stores a small per-model runtime phone book keyed by project plus model id
+- hub verifies phone-book entries against live process and telemetry signals before presenting state
+- in-flight launcher operations are tracked per model as `launching`, `stopping`, or `restarting`
+- whole-project launch, stop, and restart expand to the selected project models and fan out in parallel
+- Studio and CLI compute aggregate toolbar/status state from granular per-model runtime records
+- stale historical session/group records must not decide current running/stopped/flatline state
+
+The active MVP control endpoints are:
+
+- `POST /v1/launcher/models/launch`
+- `POST /v1/launcher/models/stop`
+- `POST /v1/launcher/models/restart`
+- `GET /v1/launcher/runtime`
+- `GET /v1/launcher/status`, with `runtime.models` as the current-state source of truth
+
+`ALL` remains a selector meaning “expand to all selected launchable models”; it is not a separate long-lived runtime group. Restart remains simple stop-plus-launch behavior.
 
 ## Terms
 
 - `hub core`: request routing, auth/context, workspace discovery, ability registration, and shared transport concerns.
 - `ability`: a bounded hub extension that knows how to talk to an external domain or service.
 - `launcher ability`: the hub ability that owns launcher semantics, launch planning, model session groups, model sessions, and runtime handoff.
-- `launcher worker`: a short-lived or long-lived process used by the launcher ability to start, stop, or recover model runtimes.
+- `launcher worker`: a short-lived or long-lived process used by the launcher ability to start, stop, or restart model runtimes.
 - `model_session`: the durable resource representing one concrete model runtime attempt.
 - `model_session_group`: the durable resource representing a requested aggregate of model sessions.
 - `handoff`: the point where startup supervision moves from launcher worker state to direct runtime observation.
@@ -50,13 +73,13 @@ This blocks the desired operating model where Studio is a viewer/controller of i
 Implementation should assume the current code is split this way:
 
 - Hub composition: `tools/robotick-hub/src/robotick_hub/app.py` directly wires workspace, Studio, and launcher routes.
-- Launcher hub provider: `tools/robotick-hub/src/robotick_hub/launcher.py` writes `.robotick/launcher.json`, starts `python -m robotick.launcher.cli listen`, checks listener health, and proxies requests.
+- Historical note: the earlier standalone launcher hub provider has now been retired; launcher control is owned directly by the hub-hosted launcher ability and `/v1/launcher/*` resources.
 - Studio hub provider: `tools/robotick-hub/src/robotick_hub/studio.py` manages Studio instance records, launch/quit, control endpoint registration, project selection, and activation.
 - Launcher listener: `tools/robotick-launcher/src/robotick/launcher/listen/routes_launch.py` owns singleton module-level runtime state such as process handle, current profile, current project, current status, log subscribers, and status queue.
 - Launcher query listener: `tools/robotick-launcher/src/robotick/launcher/listen/routes_query.py` serves workloads registry, model schema, and related project/query helpers still reached through hub proxy routes.
 - Launcher domain logic: `tools/robotick-launcher/src/robotick/launcher/actions/launch/run_profile.py` and `target_plan.py` contain much of the useful profile, model, target, stage, build, deploy, run, and stop behavior to preserve.
-- Studio renderer launcher data source: `src/renderer/data-sources/launcher/internal/launcher-interface.ts` calls `/launcher/run`, `/launcher/run-model`, `/launcher/stop`, `/launcher/stop-model`, `/launcher/status`, and `/launcher/ws/log`.
-- CLI launcher entrypoint: `tools/robotick-cli/src/robotick_cli/launcher.py` currently exposes only `launcher status` and `launcher ensure`.
+- Studio renderer launcher data source: `src/renderer/data-sources/launcher/internal/launcher-interface.ts` now calls `/v1/launcher/models/*` for control and `/v1/launcher/status` for live per-model runtime projection. Dedicated Studio log streaming is still follow-on work.
+- CLI launcher entrypoint: `tools/robotick-cli/src/robotick_cli/launcher.py` now exposes `launch`, `status`, `wait-ready`, `logs`, `stop`, `restart`, and a resource-native `ensure`.
 
 The first implementation step should be to split reusable domain logic from listener state so hub abilities can import domain behavior without starting the singleton listener.
 
@@ -87,13 +110,24 @@ The launcher ability owns:
 - starting launcher workers
 - handing runtime observation to direct robot endpoints
 - reducing per-model status into group status
-- exposing resources to Studio, CLI, MCP, and other hub clients
+- exposing resources to Studio, CLI, and other hub clients
 
 Launcher workers should not be the long-term source of runtime truth. Once a model is up, Studio and hub should prefer direct runtime observation through `robotick-engine` health, telemetry, and future control endpoints.
 
 ## Ability Architecture
 
 Launcher should be implemented as one built-in hub ability, not as a special case. Existing hub integrations, including Studio communication, should move toward the same shape so the ability boundary becomes a real architectural seam.
+
+Current implementation clarification:
+
+- `robotick-hub` now exposes a built-in ability seam with manifest/status metadata, shared hub context, and route registration.
+- Studio and Launcher are both mounted through that same built-in ability shape.
+- Launcher ability ownership now lives under `tools/robotick-launcher/src/robotick/launcher/hub_ability/`.
+- Studio ability ownership now lives under `tools/robotick-studio-ability/src/robotick/studio_ability/hub_ability/`.
+- Hub core now only composes those owner-packaged abilities plus shared contracts/context/workspace helpers.
+- The default shape for a simple built-in ability is a single `ability.py` entrypoint plus only the support modules that carry real domain weight.
+- Launcher currently uses `ability.py` plus focused support modules such as `launcher_sessions.py` and worker entrypoints.
+- Studio currently uses `hub_ability/ability.py` plus `domain.py`.
 
 An ability should provide:
 
@@ -109,7 +143,7 @@ Hub core should not know the internals of any specific ability. It should compos
 
 Built-in abilities should use the same conventions future external plugins would need. This does not require dynamic plugin loading immediately, but it should avoid patterns that would make plugin loading difficult later, such as hidden globals, direct cross-ability imports, or domain logic embedded in hub route handlers.
 
-Launcher and Studio should begin as built-in hub abilities that import their domain modules. Their endpoint shapes should allow them to move into owner packages as plugin-packaged abilities once the ability seam is stable.
+Launcher and Studio now run as built-in hub abilities imported from their owner packages. Their endpoint shapes and shared built-in ability conventions still keep the door open for future plugin-style loading without further contract changes, without forcing extra file splits for otherwise simple abilities.
 
 Target launcher package shape:
 
@@ -119,10 +153,8 @@ tools/robotick-launcher/
     domain/
     workers/
     hub_ability/
-      manifest.py
       ability.py
-      routes.py
-      contracts.py
+      launcher_sessions.py
 ```
 
 Target Studio package shape:
@@ -130,41 +162,56 @@ Target Studio package shape:
 ```text
 tools/robotick-studio-ability/
   src/robotick/studio_ability/
-    domain/
+    domain.py
     hub_ability/
-      manifest.py
       ability.py
-      routes.py
-      contracts.py
 ```
+
+Packaging note:
+
+- local source-tree development now relies on the shared `robotick` top-level package being namespace-friendly so launcher-owned and Studio-owned modules can live in separate `src` roots without shadowing each other.
 
 ## Process Boundaries
 
 The launcher should stop being a standalone singleton service. The long-term process model should be:
 
 - `robotick-hub`: a long-running process that hosts the launcher ability in-process as Python application code.
-- Launcher ability internals: normal Python modules/classes called by hub routes for intent parsing, scope resolution, target planning, storage, status reduction, and runtime probing. Initially this can be built into hub, but the final package owner should be `tools/robotick-launcher`.
+- Launcher ability internals: normal Python modules/classes called by hub routes for intent parsing, scope resolution, target planning, storage, status reduction, and runtime probing. These now live in `tools/robotick-launcher`.
 - Launcher domain helpers: importable Python code split away from listener route state so hub can reuse profile, target planning, query/schema, and status-reduction behavior without starting a listener service.
-- Launcher workers: separate child processes only when needed to run build, flash, deploy, start, stop, restart, or recovery commands for specific model sessions or groups.
+- Launcher workers: separate child processes only when needed to run build, flash, deploy, start, stop, or restart commands for specific model sessions or groups.
 - `robotick-engine`: separate runtime process on the target host/device. After handoff, it is the live runtime authority for health, telemetry, and future control.
 - Studio: separate UI/application process that discovers and controls groups/sessions through hub, and may continue to read runtime telemetry directly where that is the best data path.
 - `robotick-cli`: short-lived command process that talks to hub over the JSON API rather than importing launcher internals.
-- MCP: adapter/tool process, if present, that exposes agent tools over the same hub resources rather than owning launcher state.
-
 This keeps hub as the control plane, launcher ability as internal domain logic, launcher workers as execution helpers, and `robotick-engine` as runtime truth.
+
+Current implementation clarification:
+
+- Launcher group creation now happens in-process inside the hub-hosted launcher ability.
+- Per-session launch currently uses hub-managed worker subprocesses rather than a standalone launcher listener service.
+- Group/session stop and restart now dispatch the control step through dedicated launcher worker subprocesses, while startup continues to use per-session run workers.
+- Group status is now reduced from the latest session generation per model, so restart history does not poison current aggregate state.
 
 ## CLI And Hub Control Surface
 
-CLI and hub launcher controls should be implemented as the first practical surface over this resource model. Older "launcher run" terminology should be retired in favor of `model_session_group`, with per-model detail represented by `model_session`.
+CLI and hub launcher controls should be implemented as the first practical surface over this resource model. Older "launcher run" terminology should be retired in favor of project/model runtime control, with model sessions retained as diagnostic execution records.
 
 The practical command shape becomes:
 
-- `launch`: create a model session group from launch intent, then return the group id, resolved scope, target/stage policy, member model session ids, and creator metadata.
-- `wait-ready`: wait for a group or session to reach live-confirmed readiness, while reporting service-level readiness separately from runtime readiness.
-- `status`: report ability health, group status, and per-session lifecycle without relying on ambient singleton launcher state.
-- `logs`: return launcher worker, build, startup, and runtime log references scoped to a group or session.
-- `stop`: stop a selected model session, a selected set of sessions, or every member of a group.
-- `restart`: restart one session or aggregate over a group by creating a new generation for each selected model.
+- `launch`: resolve a project/model selector, fan out selected model launches, and return launched/skipped model ids plus runtime projection.
+- `wait-ready`: wait for selected runtime readiness, while reporting service-level readiness separately from runtime readiness.
+- `status`: report ability health and per-model runtime lifecycle without relying on ambient singleton launcher state.
+- `logs`: return launcher worker, build, startup, and runtime log references scoped to available diagnostics.
+- `stop`: stop a project, explicit model, or explicit model set by fan-out across the selected models.
+- `restart`: simple stop-plus-launch for a project, explicit model, or explicit model set.
+
+Current implementation clarification:
+
+- `robotick launcher launch`, `status`, `wait-ready`, `logs`, `stop`, and `restart` now exist as JSON-first CLI commands over the hub-hosted launcher ability.
+- `launch`, `stop`, and `restart` use `/v1/launcher/models/*`; group/session records are diagnostic/history scaffolding in the MVP path.
+- Launcher group/session responses now include hardened convenience fields such as `resolved_scope`, `target_policy`, `stage_policy`, `creator`, `freshness`, `actionable_diagnostics`, and per-session `log_refs`, so Studio and CLI do not need to reconstruct those views independently.
+- `wait-ready` now benefits from launcher refresh logic that hands sessions off to runtime authority when live health succeeds, and reduces them to `stale` when live confirmation ages out.
+- `logs` now exposes launcher worker/control log references plus runtime probe references from the stored session runtime metadata.
+- Studio now discovers launcher state from the per-model runtime projection in `/v1/launcher/status`, rather than by binding to a hidden singleton launcher process owned by the renderer.
 
 ## Resource Model
 
@@ -184,7 +231,7 @@ The practical command shape becomes:
   "target_policy": "native",
   "stage_policy": "default",
   "created_by": {
-    "client": "studio | robotick-cli | mcp | other",
+    "client": "studio | robotick-cli | other",
     "instance_id": "..."
   },
   "status": "starting | running | degraded | stopped | failed | stale",
@@ -235,6 +282,7 @@ Clients should submit launch intent rather than pre-resolved launcher internals:
     }
   },
   "stage_policy": "default",
+  "dependency_policy": "exact",
   "desired_runtime": {
     "telemetry": true,
     "control": true
@@ -243,6 +291,21 @@ Clients should submit launch intent rather than pre-resolved launcher internals:
 ```
 
 The launcher ability resolves this intent into a model session group plus concrete model sessions. Hub core only routes the request to the ability and returns the resulting resources.
+
+First implementation clarification:
+
+- `target_overrides` is a per-model mapping with optional `platform`, `variant`, `host`, and `stages`.
+- `stage_policy` remains the global default; explicit stage lists can be supplied globally or per model override.
+- `dependency_policy=exact` means explicit subset launches do not implicitly expand dependency graphs in the first implementation.
+
+## First Storage Shape
+
+The first durable store should be workspace-local JSON envelopes under:
+
+- `.robotick/launcher/model-session-groups/<group-id>.json`
+- `.robotick/launcher/model-sessions/<session-id>.json`
+
+This keeps the first resource model inspectable and easy to migrate while contracts and lifecycle behavior are still moving. A future migration to SQLite or another indexed store remains possible once the resource and API shapes are stable.
 
 ## Lifecycle
 
@@ -268,7 +331,7 @@ Required behavior:
 - Separate Studio instances can launch separate projects or separate target/profile combinations without colliding.
 - One Studio instance can switch projects and discover existing matching model session groups.
 - Switching project in Studio must not stop, replace, or hide unrelated running groups.
-- `robotick-cli` and MCP can launch, inspect, stop, and restart the same resources Studio sees.
+- `robotick-cli` can launch, inspect, stop, and restart the same resources Studio sees.
 - Two clients viewing the same group should observe the same live runtime state.
 
 Studio should act like a controller and viewer. It may request launch or stop operations, but it should not be the hidden owner of process lifetime.
@@ -314,6 +377,11 @@ Hub core should provide a small, stable set of ability integration points:
 
 The launcher ability should own launcher domain rules. That includes scope expansion, profile semantics, target planning, startup orchestration, runtime handoff, and model/group status reduction.
 
+Current implementation clarification:
+
+- Scope expansion, profile semantics, target planning, storage, startup orchestration, and status reduction now route through shared launcher domain modules plus the launcher ability.
+- Runtime handoff/probing now also runs behind the launcher ability boundary, including direct `robotick-engine` health confirmation, stale-state reconciliation, and persisted source-of-truth diagnostics.
+
 This does not require arbitrary third-party plugins immediately, but the architecture should make built-in abilities look like future external abilities could use the same shape.
 
 ## Validation Strategy
@@ -340,31 +408,37 @@ Temporary launcher disruption is acceptable during the refactor. Untested state 
 6. Add runtime probes and handoff status using `robotick-engine` endpoints.
 7. Decouple Studio project selection from launcher process ownership.
 8. Replace singleton-shaped launcher listener state with per-group/per-session state.
-9. Implement CLI commands as group/session operations rather than ambient launcher-run operations.
-10. Expose the same resources through Studio UI, `robotick-cli`, and MCP.
+9. Implement CLI commands as project/model runtime operations rather than ambient launcher-run operations.
+10. Expose the same resources through Studio UI and `robotick-cli`.
 11. Remove legacy ambient status/control paths once the group/session resource model is in use.
 
-The fastest implementation route may make the current launcher temporarily unusable while hub, CLI, and Studio are moved onto group/session resources. The target design does not require compatibility shims for legacy launcher-run or ambient singleton endpoints.
+The fastest implementation route may make the current launcher temporarily unusable while hub, CLI, and Studio are moved onto hub-hosted launcher resources. The target design does not require compatibility shims for legacy launcher-run or ambient singleton endpoints.
+
+Current implementation clarification:
+
+- Legacy `/launcher/*` singleton control routes have now been removed from hub; callers should use `/v1/launcher/models/*`, `/v1/launcher/runtime`, and `/v1/launcher/status` for current control/state.
+- Group/session routes remain diagnostic/history resources while model-log and model-wait surfaces mature.
+- Runtime probe/handoff status is now persisted directly on model sessions, with runtime authority taking precedence over launcher worker state after successful live confirmation.
+- `robotick launcher ensure` now ensures hub availability, then reads `/v1/launcher/status`; it no longer depends on a separate launcher capability ensure route.
 
 ## Acceptance Criteria
 
 - Multiple robots/projects can run independently at the same time from separate Studio instances.
 - Multiple robots/projects can run independently at the same time from one Studio instance.
-- Multiple robots/projects can run independently at the same time from `robotick-cli`, MCP, or another hub client.
-- Studio project switching discovers and binds to matching existing model session groups without stopping or disturbing other running bots.
-- `ALL`, profile, explicit model list, and single model launches all resolve to model session groups.
-- Individual models can be stopped and restarted without stopping the whole group.
-- Group stop/restart works as aggregate operations over member model sessions.
+- Multiple robots/projects can run independently at the same time from `robotick-cli` or another hub client.
+- Studio project switching discovers and binds to matching existing per-model runtime records without stopping or disturbing other running bots.
+- `ALL`, profile, explicit model list, and single model launches all resolve to selected project/model runtime operations.
+- Individual models can be stopped and restarted without stopping unrelated models.
+- Whole-project stop/restart works as parallel fan-out over selected models.
 - Runtime state after handoff is confirmed directly from `robotick-engine` where available.
 - Persisted state is never presented as live unless it has been recently confirmed.
-- `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on model session groups and model sessions.
+- `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on hub-hosted launcher resources, with current state derived from per-model runtime truth.
 - Service-level readiness is reported separately from group/session runtime readiness.
 - Per-model build, launch, runtime, and failure details are agent-accessible without attaching to terminals manually.
-- Legacy ambient launcher status/control paths are removed or replaced by group/session resources.
+- Legacy ambient launcher status/control paths are removed or replaced by model runtime resources.
 
 ## Open Decisions
 
-- Exact storage location for durable group/session envelopes.
-- Final target override schema for mixed local, native, remote, container, and embedded launches.
-- How dependency expansion should work when launching a subset of models.
+- Whether the JSON envelope store should later migrate to SQLite or another indexed store after the contracts stabilize.
+- Whether mixed-target overrides need fields beyond `platform`, `variant`, `host`, and `stages`.
 - Teardown behavior for runtimes that do not expose `robotick-engine` control endpoints.

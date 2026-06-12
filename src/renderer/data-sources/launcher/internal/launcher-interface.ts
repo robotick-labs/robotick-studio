@@ -294,7 +294,9 @@ function getWorkspaceRoot(): string {
   return typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
 }
 
-function getHubEndpoint(): string {
+let cachedHubEndpoint = "";
+
+function getStaticHubEndpoint(): string {
   if (typeof window === "undefined") {
     return "";
   }
@@ -302,8 +304,33 @@ function getHubEndpoint(): string {
   return typeof hubEndpoint === "string" ? hubEndpoint.trim() : "";
 }
 
-function getLauncherApiBase(): string {
-  return getHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
+async function resolveHubEndpoint(): Promise<string> {
+  if (typeof window !== "undefined") {
+    try {
+      const hubEndpoint = await window.robotick?.hub?.getEndpoint?.();
+      if (typeof hubEndpoint === "string" && hubEndpoint.trim()) {
+        cachedHubEndpoint = hubEndpoint.trim();
+        return cachedHubEndpoint;
+      }
+    } catch {
+      // Fall through to cached/static endpoint resolution.
+    }
+  }
+
+  const staticEndpoint = getStaticHubEndpoint();
+  if (staticEndpoint) {
+    cachedHubEndpoint = staticEndpoint;
+    return staticEndpoint;
+  }
+  return cachedHubEndpoint;
+}
+
+async function getLauncherApiBase(): Promise<string> {
+  return (await resolveHubEndpoint()) || LAUNCHER_LOCAL_API_BASE;
+}
+
+function getLauncherApiBaseSync(): string {
+  return cachedHubEndpoint || getStaticHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
 }
 
 function looksAbsolutePath(path: string): boolean {
@@ -642,6 +669,177 @@ type GatewayRegistryResponse = {
   models?: GatewayRegistryEntry[];
 };
 
+type LauncherDiagnostics = {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
+type LauncherLogRef = {
+  kind?: string;
+  path?: string;
+};
+
+type LauncherIntentScope = {
+  kind?: string;
+  value?: string | string[];
+};
+
+type LauncherIntentRecord = {
+  scope?: LauncherIntentScope;
+  target_policy?: string;
+  stage_policy?: {
+    kind?: string;
+    stages?: string[];
+  };
+  created_by?: {
+    client?: string;
+    instance_id?: string | null;
+  };
+};
+
+type LauncherGroupRecord = {
+  id: string;
+  project_id: string;
+  project_path?: string;
+  intent?: LauncherIntentRecord;
+  resolved_scope?: {
+    kind?: string;
+    value?: string | string[];
+    resolved_model_ids?: string[];
+  };
+  target_policy?: string;
+  stage_policy?: {
+    kind?: string;
+    stages?: string[];
+  };
+  creator?: {
+    client?: string;
+    instance_id?: string | null;
+  };
+  status?: string;
+  readiness?: string;
+  freshness?: "live" | "stale" | "pending" | "failed";
+  diagnostics?: LauncherDiagnostics[];
+  actionable_diagnostics?: LauncherDiagnostics[];
+  session_ids?: string[];
+  updated_at?: string;
+  created_at?: string;
+  last_confirmed_at?: string | null;
+};
+
+type LauncherSessionRecord = {
+  id: string;
+  group_id: string;
+  project_id: string;
+  model_id: string;
+  generation?: number;
+  target?: {
+    platform?: string;
+    variant?: string | null;
+    host?: string | null;
+    stages?: string[];
+  };
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stale" | "pending" | "failed";
+  creator?: {
+    client?: string;
+    instance_id?: string | null;
+  };
+  target_policy?: string;
+  stage_policy?: {
+    kind?: string;
+    stages?: string[];
+  };
+  diagnostics?: LauncherDiagnostics[];
+  actionable_diagnostics?: LauncherDiagnostics[];
+  log_refs?: LauncherLogRef[];
+  runtime?: {
+    authority?: string;
+    worker?: {
+      pid?: number;
+      log_path?: string;
+      started_at?: string;
+    };
+    control?: {
+      action?: string;
+      pid?: number;
+      log_path?: string;
+      started_at?: string;
+      finished_at?: string;
+      returncode?: number;
+    };
+  };
+  updated_at?: string;
+  created_at?: string;
+  last_confirmed_at?: string | null;
+};
+
+type LauncherRuntimeModelRecord = {
+  id?: string;
+  project_id?: string;
+  project_path?: string;
+  model_id?: string;
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stopped" | "pending" | "failed";
+  operation?: {
+    action?: string;
+    pid?: number;
+    pid_alive?: boolean;
+  } | null;
+  pid?: number;
+  pid_alive?: boolean;
+  health?: {
+    configured?: boolean;
+    healthy?: boolean;
+    error?: string | null;
+    checked_at?: string;
+  };
+  log_path?: string | null;
+  last_session_id?: string | null;
+  updated_at?: string;
+};
+
+type LauncherRuntimeStatusResponse = {
+  resource_type?: string;
+  state?: string;
+  models?: LauncherRuntimeModelRecord[];
+};
+
+type LauncherStatusResponse = {
+  resource_type?: string;
+  ability?: {
+    name?: string;
+    version?: string;
+    status?: string;
+    details?: Record<string, unknown>;
+  };
+  runtime?: LauncherRuntimeStatusResponse;
+  groups?: LauncherGroupRecord[];
+  sessions?: LauncherSessionRecord[];
+};
+
+type LegacyLauncherModelStatus = {
+  stage?: string;
+  status?: string;
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+  diagnostics?: LauncherDiagnostics[];
+  groupId?: string;
+  sessionId?: string;
+  logRefs?: LauncherLogRef[];
+};
+
+type LegacyLauncherStatus = {
+  status: string;
+  phase?: string | null;
+  profile?: string | null;
+  models?: Record<string, LegacyLauncherModelStatus>;
+};
+
 async function tryFetchGatewayRegistry(
   gatewayBaseUrl: string
 ): Promise<Map<string, GatewayRegistryEntry> | null> {
@@ -671,8 +869,446 @@ function buildModelShortName(modelPath: string): string {
   return filename;
 }
 
+function stripYamlExtension(value: string): string {
+  return value.replace(/\.ya?ml$/i, "");
+}
+
+function deriveProjectName(projectPath: string): string {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return "";
+  }
+  const basename = getPathBasename(trimmedPath);
+  return stripYamlExtension(basename).replace(/\.project$/i, "");
+}
+
+function parseTimestamp(value?: string | null): number {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeTargetPolicy(value: string | undefined): "local" | "native" | null {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "local" || normalized === "native") {
+    return normalized;
+  }
+  return null;
+}
+
+function deriveGroupProfile(group: LauncherGroupRecord): string | null {
+  const targetPolicy = normalizeTargetPolicy(group.intent?.target_policy);
+  const scope = group.intent?.scope;
+  if (!targetPolicy || !scope) {
+    return null;
+  }
+  if (Array.isArray(scope.value)) {
+    return null;
+  }
+  const scopeValue = scope.value?.trim();
+  if (!scopeValue) {
+    return null;
+  }
+  if (
+    scope.kind === "ALL" ||
+    scope.kind === "profile" ||
+    scope.kind === "model"
+  ) {
+    return `${targetPolicy}:${scopeValue}`;
+  }
+  return null;
+}
+
+function compareByMostRecent(
+  left: { updated_at?: string; created_at?: string },
+  right: { updated_at?: string; created_at?: string }
+): number {
+  return (
+    parseTimestamp(right.updated_at ?? right.created_at) -
+    parseTimestamp(left.updated_at ?? left.created_at)
+  );
+}
+
+function isProjectMatch(group: LauncherGroupRecord, projectName: string): boolean {
+  return group.project_id?.trim() === projectName;
+}
+
+function isSessionActive(session: LauncherSessionRecord): boolean {
+  switch (session.lifecycle) {
+    case "planned":
+    case "starting":
+    case "handed_off":
+    case "running":
+    case "stopping":
+    case "stale":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function sessionPriority(session: LauncherSessionRecord): number {
+  switch (session.lifecycle) {
+    case "running":
+    case "handed_off":
+    case "stale":
+      return 5;
+    case "starting":
+    case "planned":
+      return 4;
+    case "stopping":
+      return 3;
+    case "failed":
+      return 2;
+    case "stopped":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function compareSessions(left: LauncherSessionRecord, right: LauncherSessionRecord): number {
+  const priorityDelta = sessionPriority(right) - sessionPriority(left);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+  const generationDelta = (right.generation ?? 0) - (left.generation ?? 0);
+  if (generationDelta !== 0) {
+    return generationDelta;
+  }
+  return compareByMostRecent(left, right);
+}
+
+function selectProjectGroups(
+  snapshot: LauncherStatusResponse,
+  projectName: string
+): LauncherGroupRecord[] {
+  return (snapshot.groups ?? [])
+    .filter((group) => isProjectMatch(group, projectName))
+    .sort(compareByMostRecent);
+}
+
+function selectProjectSessions(
+  snapshot: LauncherStatusResponse,
+  groups: LauncherGroupRecord[]
+): LauncherSessionRecord[] {
+  const groupIds = new Set(groups.map((group) => group.id));
+  return (snapshot.sessions ?? [])
+    .filter((session) => groupIds.has(session.group_id))
+    .sort(compareSessions);
+}
+
+function selectLatestProjectSessionsByModel(
+  sessions: LauncherSessionRecord[]
+): LauncherSessionRecord[] {
+  const latestByModel = new Map<string, LauncherSessionRecord>();
+  for (const session of sessions) {
+    const modelId = session.model_id?.trim();
+    if (!modelId) {
+      continue;
+    }
+    const current = latestByModel.get(modelId);
+    if (!current) {
+      latestByModel.set(modelId, session);
+      continue;
+    }
+    const generation = session.generation ?? 0;
+    const currentGeneration = current.generation ?? 0;
+    // Session generation is only meaningful within the same launch lineage.
+    // Across unrelated groups, lifecycle + recency decides which session
+    // best represents the current model state.
+    if (session.group_id === current.group_id && generation > currentGeneration) {
+      latestByModel.set(modelId, session);
+      continue;
+    }
+    if (
+      (session.group_id !== current.group_id ||
+        generation === currentGeneration) &&
+      compareSessions(session, current) < 0
+    ) {
+      latestByModel.set(modelId, session);
+    }
+  }
+  return Array.from(latestByModel.values()).sort(compareSessions);
+}
+
+function pickProjectProfile(
+  groups: LauncherGroupRecord[],
+  currentProfile: string
+): string | null {
+  const uniqueProfiles = Array.from(
+    new Set(
+      groups
+        .map((group) => deriveGroupProfile(group))
+        .filter((profile): profile is string => Boolean(profile))
+    )
+  );
+  if (uniqueProfiles.length === 1) {
+    return uniqueProfiles[0];
+  }
+  return currentProfile.trim() || null;
+}
+
+function isAutoLaunchDisabledSession(session: LauncherSessionRecord): boolean {
+  return Boolean(
+    session.lifecycle === "stopped" &&
+      session.diagnostics?.some(
+        (diagnostic) => diagnostic.code === "auto_launch_disabled"
+      )
+  );
+}
+
+function mapSessionToLegacyModelStatus(
+  session: LauncherSessionRecord
+): LegacyLauncherModelStatus | null {
+  if (isAutoLaunchDisabledSession(session)) {
+    return null;
+  }
+  const logRefs: LauncherLogRef[] =
+    session.log_refs && session.log_refs.length > 0
+      ? session.log_refs
+      : [];
+  if (logRefs.length === 0 && session.runtime?.worker?.log_path) {
+    logRefs.push({ kind: "worker", path: session.runtime.worker.log_path });
+  }
+  if (logRefs.length === 0 && session.runtime?.control?.log_path) {
+    logRefs.push({ kind: "control", path: session.runtime.control.log_path });
+  }
+  const baseStatus = {
+    lifecycle: session.lifecycle,
+    readiness: session.readiness,
+    freshness:
+      session.freshness ??
+      (session.lifecycle === "stale" || session.readiness === "stale"
+        ? "stale"
+        : session.readiness === "failed" || session.lifecycle === "failed"
+          ? "failed"
+          : session.readiness === "ready" ||
+              session.lifecycle === "running" ||
+              session.lifecycle === "handed_off"
+            ? "live"
+            : "pending"),
+    diagnostics: session.actionable_diagnostics ?? session.diagnostics ?? [],
+    groupId: session.group_id,
+    sessionId: session.id,
+    logRefs,
+  } satisfies Omit<
+    LegacyLauncherModelStatus,
+    "stage" | "status"
+  >;
+  switch (session.lifecycle) {
+    case "planned":
+    case "starting":
+      return { ...baseStatus, stage: "run", status: "starting" };
+    case "handed_off":
+    case "running":
+      return { ...baseStatus, stage: "run", status: "running" };
+    case "stopping":
+      return { ...baseStatus, stage: "stop", status: "running" };
+    case "stopped":
+      return { ...baseStatus, stage: "stop", status: "succeeded" };
+    case "failed":
+      return { ...baseStatus, stage: "run", status: "failed" };
+    case "stale":
+      return { ...baseStatus, stage: "run", status: "running" };
+    default:
+      return null;
+  }
+}
+
+function buildLegacyModelStatusMap(
+  sessions: LauncherSessionRecord[]
+): Record<string, LegacyLauncherModelStatus> {
+  const byModel = new Map<string, LauncherSessionRecord>();
+  for (const session of sessions) {
+    const modelId = session.model_id?.trim();
+    if (!modelId) {
+      continue;
+    }
+    const current = byModel.get(modelId);
+    if (!current || compareSessions(session, current) < 0) {
+      byModel.set(modelId, session);
+    }
+  }
+
+  const models: Record<string, LegacyLauncherModelStatus> = {};
+  for (const [modelId, session] of byModel.entries()) {
+    const status = mapSessionToLegacyModelStatus(session);
+    if (status) {
+      models[modelId] = status;
+    }
+  }
+  return models;
+}
+
+function mapRuntimeModelToLegacyModelStatus(
+  model: LauncherRuntimeModelRecord
+): LegacyLauncherModelStatus | null {
+  const modelId = model.model_id?.trim();
+  if (!modelId) {
+    return null;
+  }
+  const baseStatus = {
+    lifecycle: model.lifecycle,
+    readiness: model.readiness,
+    freshness: model.freshness,
+    sessionId: model.last_session_id ?? undefined,
+    logRefs: model.log_path ? [{ kind: "worker", path: model.log_path }] : [],
+  } satisfies Omit<
+    LegacyLauncherModelStatus,
+    "stage" | "status" | "groupId"
+  >;
+
+  switch (model.lifecycle) {
+    case "starting":
+      return { ...baseStatus, stage: "run", status: "starting" };
+    case "running":
+      return { ...baseStatus, stage: "run", status: "running" };
+    case "stopping":
+      return { ...baseStatus, stage: "stop", status: "running" };
+    case "stopped":
+      return { ...baseStatus, stage: "stop", status: "succeeded" };
+    default:
+      if (model.freshness === "failed") {
+        return { ...baseStatus, stage: "run", status: "running" };
+      }
+      return null;
+  }
+}
+
+function buildRuntimeModelStatusMap(
+  models: LauncherRuntimeModelRecord[]
+): Record<string, LegacyLauncherModelStatus> {
+  const byModel: Record<string, LegacyLauncherModelStatus> = {};
+  for (const model of models) {
+    const modelId = model.model_id?.trim();
+    if (!modelId) {
+      continue;
+    }
+    const status = mapRuntimeModelToLegacyModelStatus(model);
+    if (status) {
+      byModel[modelId] = status;
+    }
+  }
+  return byModel;
+}
+
+function reduceRuntimeLauncherStatus(
+  models: LauncherRuntimeModelRecord[]
+): "stopped" | "launching" | "running" | "stopping" {
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  if (models.some((model) => model.lifecycle === "starting")) {
+    return "launching";
+  }
+  if (
+    models.some(
+      (model) => model.lifecycle === "running" || model.freshness === "live"
+    )
+  ) {
+    return "running";
+  }
+  return "stopped";
+}
+
+function reduceRuntimeLauncherPhase(
+  models: LauncherRuntimeModelRecord[]
+): string | null {
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stop";
+  }
+  if (
+    models.some((model) =>
+      ["starting", "running"].includes(model.lifecycle ?? "")
+    )
+  ) {
+    return "run";
+  }
+  return null;
+}
+
+function resolveSessionTargetPolicy(
+  session: LauncherSessionRecord,
+  group?: LauncherGroupRecord
+): "local" | "native" | null {
+  return (
+    normalizeTargetPolicy(session.target_policy) ??
+    normalizeTargetPolicy(group?.target_policy) ??
+    normalizeTargetPolicy(group?.intent?.target_policy)
+  );
+}
+
+function reduceLegacyLauncherStatus(
+  sessions: LauncherSessionRecord[]
+): "stopped" | "launching" | "running" | "stopping" {
+  if (sessions.some((session) => session.lifecycle === "running" || session.lifecycle === "handed_off" || session.lifecycle === "stale")) {
+    return "running";
+  }
+  if (sessions.some((session) => session.lifecycle === "starting" || session.lifecycle === "planned")) {
+    return "launching";
+  }
+  if (sessions.some((session) => session.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  return "stopped";
+}
+
+function reduceLegacyLauncherPhase(
+  sessions: LauncherSessionRecord[]
+): string | null {
+  if (sessions.some((session) => session.lifecycle === "stopping")) {
+    return "stop";
+  }
+  if (sessions.some(isSessionActive)) {
+    return "run";
+  }
+  return null;
+}
+
+async function fetchLauncherSnapshot(): Promise<LauncherStatusResponse | null> {
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/status");
+  return await tryFetchJSON<LauncherStatusResponse>(url);
+}
+
+async function createLauncherGroupRequest(
+  payload: Record<string, unknown>
+): Promise<void> {
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/launch");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function stopLauncherGroups(
+  groups: LauncherGroupRecord[],
+  requestBody?: Record<string, unknown>
+): Promise<void> {
+  await Promise.all(
+    groups.map(async (group) => {
+      const url = buildUrl(
+        await getLauncherApiBase(),
+        `/v1/launcher/groups/${encodeURIComponent(group.id)}/stop`
+      );
+      await fetchJSON(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody ?? {}),
+      });
+    })
+  );
+}
+
 export async function fetchProjectPaths(): Promise<string[]> {
-  const url = buildUrl(getLauncherApiBase(), "/query/list-projects");
+  const url = buildUrl(await getLauncherApiBase(), "/query/list-projects");
   const projects = await fetchJSON<string[]>(url);
   const sortedProjects = projects.sort();
   cacheProjectPaths(sortedProjects);
@@ -683,7 +1319,7 @@ export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
   const normalizedProjectPath = await resolveProjectSettingsPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-project-settings", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-project-settings", {
     project_path: normalizedProjectPath,
   });
   return await fetchJSON<T>(url);
@@ -694,7 +1330,7 @@ export async function fetchProjectRemoteControlSettings<
 >(projectPath: string, signal?: AbortSignal): Promise<T> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    getLauncherApiBase(),
+    await getLauncherApiBase(),
     "/query/get-project-rc-settings",
     {
       project_path: normalizedProjectPath,
@@ -713,7 +1349,7 @@ export function buildProjectAssetUrl(
     : joinWorkspacePath(getWorkspaceRoot(), normalizedProjectPath);
   const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
   return buildUrl(
-    getLauncherApiBase(),
+    getLauncherApiBaseSync(),
     `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
     {
       project_path: absoluteProjectPath,
@@ -726,11 +1362,14 @@ export async function requestLauncherRun(
   launcherProfile: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/run", {
-    project_path: normalizedProjectPath,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  await createLauncherGroupRequest({
+    project_name: projectName,
     profile: launcherProfile,
+    creator: {
+      client: "studio",
+    },
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
 export async function requestLauncherRunModel(
@@ -739,17 +1378,40 @@ export async function requestLauncherRunModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/run-model", {
-    project_path: normalizedProjectPath,
-    platform,
-    model_id: modelId,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  await createLauncherGroupRequest({
+    project_name: projectName,
+    intent: {
+      project: projectName,
+      scope: {
+        kind: "model",
+        value: modelId,
+      },
+      target_policy: platform,
+      created_by: {
+        client: "studio",
+      },
+    },
+    creator: {
+      client: "studio",
+    },
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
 export async function requestLauncherStop(): Promise<void> {
-  const url = buildUrl(getLauncherApiBase(), "/launcher/stop");
-  await fetchJSON(url, { method: "POST" });
+  const projectPath = getProjectPath();
+  const projectName = deriveProjectName(projectPath);
+  if (!projectName) {
+    return;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_name: projectName }),
+  });
 }
 
 export async function requestLauncherStopModel(
@@ -758,36 +1420,68 @@ export async function requestLauncherStopModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/stop-model", {
-    project_path: normalizedProjectPath,
-    platform,
-    model_id: modelId,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  if (!projectName) {
+    return;
+  }
+  void platform;
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_name: projectName, model_ids: [modelId] }),
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
-export async function fetchLauncherStatus(): Promise<{
-  status: string;
-  phase?: string | null;
-  profile?: string | null;
-  models?: Record<string, { stage?: string; status?: string }>;
-} | null> {
-  const url = buildUrl(getLauncherApiBase(), "/launcher/status");
-  return await tryFetchJSON<{
-    status: string;
-    phase?: string | null;
-    profile?: string | null;
-    models?: Record<string, { stage?: string; status?: string }>;
-  }>(url);
+export async function fetchLauncherStatus(): Promise<LegacyLauncherStatus | null> {
+  const snapshot = await fetchLauncherSnapshot();
+  if (!snapshot) {
+    return null;
+  }
+
+  const projectPath = getProjectPath();
+  const projectName = deriveProjectName(projectPath);
+  if (!projectName) {
+    return {
+      status: "stopped",
+      phase: null,
+      profile: getLauncherProfile().trim() || null,
+      models: {},
+    };
+  }
+
+  const runtimeModels = (snapshot.runtime?.models ?? []).filter(
+    (model) => model.project_id?.trim() === projectName
+  );
+  if (runtimeModels.length > 0) {
+    return {
+      status: reduceRuntimeLauncherStatus(runtimeModels),
+      phase: reduceRuntimeLauncherPhase(runtimeModels),
+      profile: getLauncherProfile().trim() || null,
+      models: buildRuntimeModelStatusMap(runtimeModels),
+    };
+  }
+
+  const groups = selectProjectGroups(snapshot, projectName);
+  const sessions = selectProjectSessions(snapshot, groups);
+  const latestSessions = selectLatestProjectSessionsByModel(sessions);
+  return {
+    status: reduceLegacyLauncherStatus(latestSessions),
+    phase: reduceLegacyLauncherPhase(latestSessions),
+    profile: pickProjectProfile(groups, getLauncherProfile()),
+    models: buildLegacyModelStatusMap(latestSessions),
+  };
 }
 
 export function getLauncherLogStreamUrl(): string {
-  return buildWebSocketUrl(getLauncherApiBase(), "/launcher/ws/log");
+  return "";
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/list-project-models", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/list-project-models", {
     project_path: normalizedProjectPath,
   });
   const models = await fetchJSON<string[]>(url);
@@ -799,7 +1493,7 @@ async function fetchProjectModelData(
   modelPath: string
 ): Promise<unknown> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-model", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-model", {
     project_path: normalizedProjectPath,
     model_path: modelPath,
   });
@@ -812,7 +1506,7 @@ export async function fetchProjectWorkloadsRegistry(
 ): Promise<WorkloadsRegistryResponse> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    getLauncherApiBase(),
+    await getLauncherApiBase(),
     "/query/get-workloads-registry",
     {
       project_path: normalizedProjectPath,
@@ -827,7 +1521,7 @@ export async function fetchProjectCoreModelSchema(
   target = "linux"
 ): Promise<Record<string, unknown>> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-core-model-schema", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-core-model-schema", {
     project_path: normalizedProjectPath,
     target,
   });

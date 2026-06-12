@@ -112,22 +112,27 @@ def get_hub_help_text() -> str:
 
 
 def get_launcher_help_text() -> str:
-    status_spec = get_launcher_command_spec("status")
-    ensure_spec = get_launcher_command_spec("ensure")
+    specs = [get_launcher_command_spec(name) for name in launcher_action_names()]
     return "\n".join(
         [
             "Current context: launcher",
             "",
             "Commands:",
-            f"  {status_spec.shell_label or status_spec.name:<10}{status_spec.summary}",
-            f"  {ensure_spec.shell_label or ensure_spec.name:<10}{ensure_spec.summary}",
+            *[f"  {spec.shell_label or spec.name:<18}{spec.summary}" for spec in specs],
             "",
             "Output:",
             "  status returns JSON and never starts the launcher service.",
-            "  ensure returns JSON describing whether the service was started, reused, or restarted.",
+            "  launch, stop, and restart target project/model runtime resources through robotick-hub.",
+            "  status summarizes live per-model runtime truth; logs and wait-ready may include diagnostic session refs.",
+            "  ensure makes the hub-backed launcher control plane available, then returns current runtime status as JSON.",
             "",
             "Examples:",
+            "  robotick launcher launch barr-e native:ALL",
             "  robotick launcher status",
+            "  robotick launcher wait-ready --project barr-e",
+            "  robotick launcher logs --project barr-e",
+            "  robotick launcher stop --project barr-e",
+            "  robotick launcher restart --project barr-e",
             "  robotick launcher ensure",
             "",
         ]
@@ -211,16 +216,12 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
         return "\n".join(lines)
 
     if state.namespace == "launcher":
-        status_spec = get_launcher_command_spec("status")
-        ensure_spec = get_launcher_command_spec("ensure")
+        specs = [get_launcher_command_spec(name) for name in launcher_action_names()]
         lines.extend(
             [
                 _section("Commands:", color=color),
                 *_format_spec_lines(
-                    [
-                        (status_spec.name, status_spec.summary),
-                        (ensure_spec.name, ensure_spec.summary),
-                    ],
+                    [(spec.name, spec.summary) for spec in specs],
                     color=color,
                     label_color=GREEN,
                 ),
@@ -233,11 +234,15 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 ),
                 "",
                 _section("Output:", color=color),
-                "  status returns launcher service state and runtime state as JSON.",
-                "  ensure returns the action taken: started, reused, or restarted.",
+                "  status returns launcher service state and per-model runtime status as JSON.",
+                "  launch, stop, and restart operate on project/model selections.",
+                "  ensure returns the action taken, then reports current runtime status from launcher resources.",
                 "",
                 _section("Examples:", color=color),
+                "  robotick launcher launch barr-e native:ALL",
                 "  robotick launcher status",
+                "  robotick launcher stop --project barr-e",
+                "  robotick launcher restart --project barr-e",
                 "  robotick launcher ensure",
                 "",
             ]
@@ -675,6 +680,7 @@ def launcher_status_help_text() -> str:
             "",
             "Output:",
             "  JSON launcher service status. This command does not start the launcher.",
+            "  Optional selectors: --project <project>, --model <id>, --models <id,...>.",
             "",
         ]
     )

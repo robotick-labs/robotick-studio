@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import robotick.launcher.domain.query as query_module
 import robotick.launcher.listen.routes_query as routes_query
 
 
@@ -10,12 +11,12 @@ def test_workloads_registry_reports_missing_primitive_defaults(
     project_path.write_text("name: Demo\nschema_version: 1\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        routes_query,
+        query_module,
         "_validate_core_model_yaml_against_schema",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        routes_query,
+        query_module,
         "discover_workloads_metadata",
         lambda _cfg: [
             {

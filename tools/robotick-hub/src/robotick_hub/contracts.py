@@ -24,6 +24,25 @@ class CapabilityList(BaseModel):
     capabilities: list[CapabilitySummary]
 
 
+class AbilityManifestResponse(BaseModel):
+    name: str
+    version: str
+    owner: str
+    plugin_shaped: bool
+    description: str = ""
+
+
+class AbilityListResponse(BaseModel):
+    abilities: list[AbilityManifestResponse]
+
+
+class AbilityStatusResponse(BaseModel):
+    name: str
+    version: str
+    status: str
+    details: dict[str, object] = {}
+
+
 class WorkspaceProject(BaseModel):
     name: str
     project_dir: str
@@ -117,16 +136,3 @@ class AppClosingResponse(BaseModel):
     accepted: bool
     message: str
     instance: StudioInstanceSummary | None = None
-
-
-class LauncherEnsureResponse(BaseModel):
-    capability_status: str
-    endpoint: str
-    pid: int | None = None
-
-
-class LauncherStatusResponse(BaseModel):
-    capability_status: str
-    endpoint: str | None = None
-    pid: int | None = None
-    listener_status: dict[str, object] | None = None

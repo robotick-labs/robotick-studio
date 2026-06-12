@@ -4,19 +4,20 @@ import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-import websockets
 
+from robotick_hub.abilities.base import HubContext
 from robotick_hub.contracts import (
+    AbilityListResponse,
+    AbilityManifestResponse,
+    AbilityStatusResponse,
     AppClosingRequest,
     AppClosingResponse,
     CapabilityList,
     CapabilitySummary,
     HubHealth,
-    LauncherEnsureResponse,
-    LauncherStatusResponse,
     StudioInstancesResponse,
     StudioOpenRequest,
     StudioOpenResponse,
@@ -30,26 +31,7 @@ from robotick_hub.contracts import (
     WorkspaceProject,
     WorkspaceProjectsResponse,
 )
-from robotick_hub.launcher import (
-    ensure_launcher,
-    get_launcher_status,
-    proxy_launcher_request,
-    stop_launcher,
-)
 from robotick_hub.runtime import remove_hub_record, write_hub_record
-from robotick_hub.studio import (
-    get_instance_status,
-    get_studio_status,
-    get_studio_capability_status,
-    list_instances,
-    notify_instance_closing,
-    open_studio,
-    quit_instance,
-    activate_studio_resource,
-    select_studio_project,
-    summarize_instance,
-    update_instance_control_endpoint,
-)
 from robotick_hub.workspace import (
     build_workspace_projects,
     get_project_model,
@@ -59,10 +41,13 @@ from robotick_hub.workspace import (
     list_workspace_project_paths,
     resolve_project_asset_path,
 )
+from robotick.launcher.hub_ability import LauncherAbility
+from robotick.studio_ability.hub_ability import StudioAbility
 
 HUB_API_VERSION = 1
 HUB_FEATURES = [
     "hub_health_protocol",
+    "hub_abilities",
     "workspace_projects",
     "studio_instances",
     "studio_status",
@@ -71,6 +56,7 @@ HUB_FEATURES = [
     "studio_activation",
     "launcher_status",
     "launcher_ensure",
+    "launcher_groups",
 ]
 
 
@@ -96,14 +82,21 @@ def tray_active() -> bool:
     return os.environ.get("ROBOTICK_HUB_TRAY_ACTIVE") == "1"
 
 
-def get_selected_project_from_runtime(instance_id: str) -> str | None:
-    payload = get_studio_status(get_workspace_root(), instance_id)
-    if not isinstance(payload, dict):
-        return None
-    return str(payload.get("project_name") or "") or None
+def get_hub_context() -> HubContext:
+    return HubContext(
+        workspace_root=get_workspace_root(),
+        endpoint=get_endpoint(),
+        tray_expected=tray_expected(),
+        tray_active=tray_active(),
+    )
+
+
+def get_built_in_abilities() -> list[object]:
+    return [StudioAbility(), LauncherAbility()]
 
 
 def build_capabilities() -> list[CapabilitySummary]:
+    ability_status = {ability.manifest.name: ability.get_status(get_hub_context()) for ability in get_built_in_abilities()}
     return [
         CapabilitySummary(
             name="query-workspace-config",
@@ -113,17 +106,17 @@ def build_capabilities() -> list[CapabilitySummary]:
         CapabilitySummary(
             name="launch-studio",
             kind="managed",
-            status=get_studio_capability_status(get_workspace_root()),
+            status=ability_status["studio"].status,
         ),
         CapabilitySummary(
             name="query-launcher-status",
-            kind="managed",
-            status="available",
+            kind="embedded",
+            status=ability_status["launcher"].status,
         ),
         CapabilitySummary(
             name="ensure-launcher-service",
-            kind="managed",
-            status="available",
+            kind="embedded",
+            status=ability_status["launcher"].status,
         ),
     ]
 
@@ -143,38 +136,6 @@ def _resolve_registered_project_path(project_path: str) -> str:
             f"Project file is not registered in this workspace: {resolved_project_path}"
         )
     return resolved_project_path
-
-
-def _proxyable_headers(request: Request) -> dict[str, str]:
-    forwarded: dict[str, str] = {}
-    content_type = request.headers.get("content-type")
-    if content_type:
-        forwarded["content-type"] = content_type
-    accept = request.headers.get("accept")
-    if accept:
-        forwarded["accept"] = accept
-    return forwarded
-
-
-def _launcher_http_proxy(
-    request: Request,
-    path: str,
-    *,
-    method: str,
-    body: bytes | None = None,
-) -> Response:
-    record = ensure_launcher(get_workspace_root())
-    query_params = dict(request.query_params.multi_items())
-    status_code, payload, headers = proxy_launcher_request(
-        record,
-        method,
-        path,
-        params=query_params,
-        body=body,
-        headers=_proxyable_headers(request),
-    )
-    content_type = headers.get("Content-Type", "application/json")
-    return Response(content=payload, status_code=status_code, media_type=content_type)
 
 
 @asynccontextmanager
@@ -220,20 +181,27 @@ def create_app() -> FastAPI:
     def capabilities() -> CapabilityList:
         return CapabilityList(capabilities=build_capabilities())
 
+    @app.get("/v1/abilities", response_model=AbilityListResponse)
+    def abilities() -> AbilityListResponse:
+        return AbilityListResponse(
+            abilities=[
+                AbilityManifestResponse.model_validate(ability.manifest.model_dump())
+                for ability in get_built_in_abilities()
+            ]
+        )
+
+    @app.get("/v1/abilities/{ability_name}/status", response_model=AbilityStatusResponse)
+    def ability_status(ability_name: str) -> AbilityStatusResponse:
+        for ability in get_built_in_abilities():
+            if ability.manifest.name == ability_name:
+                return AbilityStatusResponse.model_validate(
+                    ability.get_status(get_hub_context()).model_dump()
+                )
+        raise HTTPException(status_code=404, detail=f"Unknown ability: {ability_name}")
+
     @app.get("/v1/workspace/projects", response_model=WorkspaceProjectsResponse)
     def workspace_projects() -> WorkspaceProjectsResponse:
         return WorkspaceProjectsResponse(projects=build_workspace_projects(get_workspace_root()))
-
-    @app.get("/v1/studio/projects", response_model=StudioProjectsResponse)
-    def studio_projects(instance_id: str | None = None) -> StudioProjectsResponse:
-        projects = build_workspace_projects(get_workspace_root())
-        selected_target_project = None
-        if instance_id:
-            selected_target_project = get_selected_project_from_runtime(instance_id)
-        return StudioProjectsResponse(
-            projects=projects,
-            selected_target_project=selected_target_project,
-        )
 
     @app.get("/query/list-projects", response_model=list[str])
     def query_list_projects() -> list[str]:
@@ -298,202 +266,8 @@ def create_app() -> FastAPI:
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    @app.get("/query/get-workloads-registry")
-    async def query_get_workloads_registry(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/query/get-workloads-registry", method="GET")
-
-    @app.get("/query/get-core-model-schema")
-    async def query_get_core_model_schema(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/query/get-core-model-schema", method="GET")
-
-    @app.get("/v1/studio/instances", response_model=StudioInstancesResponse)
-    def studio_instances() -> StudioInstancesResponse:
-        return StudioInstancesResponse.model_validate(
-            {"resource_type": "robotick_studio_instances", "instances": list_instances(get_workspace_root())}
-        )
-
-    @app.get("/v1/studio/instances/{instance_id}/status", response_class=JSONResponse)
-    def studio_instance_status(instance_id: str) -> JSONResponse:
-        payload = get_studio_status(get_workspace_root(), instance_id)
-        if payload is None:
-            raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
-        return JSONResponse(payload)
-
-    @app.get("/v1/studio/instances/{instance_id}/{resource_path:path}/status", response_class=JSONResponse)
-    def studio_node_status(instance_id: str, resource_path: str) -> JSONResponse:
-        path_segments = tuple(segment for segment in resource_path.split("/") if segment)
-        payload = get_studio_status(get_workspace_root(), instance_id, path_segments)
-        if payload is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Studio resource not found: {instance_id}/{resource_path}",
-            )
-        return JSONResponse(payload)
-
-    @app.post("/v1/studio/open", response_model=StudioOpenResponse)
-    def studio_open(request: StudioOpenRequest) -> StudioOpenResponse:
-        instance, support = open_studio(get_workspace_root(), project_name=request.project_name)
-        return StudioOpenResponse.model_validate(
-            {"instance": instance, "support": support}
-        )
-
-    @app.post("/v1/studio/instances/{instance_id}/quit", response_model=StudioQuitResponse)
-    def studio_quit(instance_id: str) -> StudioQuitResponse:
-        accepted, message, instance = quit_instance(get_workspace_root(), instance_id)
-        return StudioQuitResponse.model_validate(
-            {
-                "accepted": accepted,
-                "message": message,
-                "instance": instance,
-            }
-        )
-
-    @app.post(
-        "/v1/studio/instances/{instance_id}/control-endpoint",
-        response_model=StudioControlEndpointResponse,
-    )
-    def studio_control_endpoint(
-        instance_id: str,
-        request: StudioControlEndpointRequest,
-    ) -> StudioControlEndpointResponse:
-        try:
-            instance = update_instance_control_endpoint(
-                get_workspace_root(),
-                instance_id,
-                request.endpoint,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
-        return StudioControlEndpointResponse.model_validate(
-            {
-                "accepted": True,
-                "message": f"Studio control endpoint registered for {instance.name}.",
-                "instance": summarize_instance(instance),
-            }
-        )
-
-    @app.post(
-        "/v1/studio/instances/{instance_id}/project/select",
-        response_model=StudioProjectSelectResponse,
-    )
-    def studio_project_select(
-        instance_id: str,
-        request: StudioProjectSelectRequest,
-    ) -> Response:
-        try:
-            result = select_studio_project(
-                get_workspace_root(),
-                instance_id,
-                request.project_path,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        if result is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Studio control endpoint not available for: {instance_id}",
-            )
-        status_code, payload = result
-        return JSONResponse(
-            status_code=status_code,
-            content=StudioProjectSelectResponse.model_validate(payload).model_dump(),
-        )
-
-    @app.post("/v1/studio/instances/{instance_id}/activate")
-    @app.post("/v1/studio/instances/{instance_id}/{resource_path:path}/activate")
-    def studio_resource_activate(
-        instance_id: str,
-        resource_path: str = "",
-    ) -> Response:
-        path_segments = tuple(segment for segment in resource_path.split("/") if segment)
-        result = activate_studio_resource(get_workspace_root(), instance_id, path_segments)
-        if result is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Studio control endpoint not available for: {instance_id}",
-            )
-        status_code, payload = result
-        if "error" in payload:
-            return JSONResponse(status_code=status_code, content=payload)
-        return JSONResponse(
-            status_code=status_code,
-            content=StudioActivationResponse.model_validate(payload).model_dump(),
-        )
-
-    @app.post("/v1/apps/{app_id}/instances/closing", response_model=AppClosingResponse)
-    def app_instance_closing(app_id: str, request: AppClosingRequest) -> AppClosingResponse:
-        accepted, message, instance = notify_instance_closing(
-            get_workspace_root(),
-            app_id=app_id,
-            process_id=request.pid,
-            instance_name=request.instance_name,
-        )
-        return AppClosingResponse.model_validate(
-            {
-                "accepted": accepted,
-                "message": message,
-                "instance": instance,
-            }
-        )
-
-    @app.post("/v1/capabilities/launcher/ensure", response_model=LauncherEnsureResponse)
-    def launcher_ensure() -> LauncherEnsureResponse:
-        record = ensure_launcher(get_workspace_root())
-        return LauncherEnsureResponse(
-            capability_status="healthy",
-            endpoint=record.endpoint,
-            pid=record.pid,
-        )
-
-    @app.get("/v1/launcher/status", response_model=LauncherStatusResponse)
-    def launcher_status() -> LauncherStatusResponse:
-        return LauncherStatusResponse.model_validate(get_launcher_status(get_workspace_root()))
-
-    @app.post("/v1/launcher/stop", response_model=LauncherStatusResponse)
-    def launcher_stop() -> LauncherStatusResponse:
-        return LauncherStatusResponse.model_validate(stop_launcher(get_workspace_root()))
-
-    @app.post("/launcher/run")
-    async def launcher_run(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/launcher/run", method="POST")
-
-    @app.post("/launcher/run-model")
-    async def launcher_run_model(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/launcher/run-model", method="POST")
-
-    @app.post("/launcher/stop")
-    async def launcher_stop_proxy(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/launcher/stop", method="POST")
-
-    @app.post("/launcher/stop-model")
-    async def launcher_stop_model(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/launcher/stop-model", method="POST")
-
-    @app.get("/launcher/status")
-    async def launcher_status_proxy(request: Request) -> Response:
-        return _launcher_http_proxy(request, "/launcher/status", method="GET")
-
-    @app.websocket("/launcher/ws/log")
-    async def launcher_log_proxy(websocket: WebSocket) -> None:
-        await websocket.accept()
-        record = ensure_launcher(get_workspace_root())
-        launcher_ws_url = record.endpoint.replace("http://", "ws://").replace(
-            "https://", "wss://"
-        ) + "/launcher/ws/log"
-        try:
-            async with websockets.connect(launcher_ws_url) as upstream:
-                while True:
-                    message = await upstream.recv()
-                    if isinstance(message, bytes):
-                        await websocket.send_bytes(message)
-                    else:
-                        await websocket.send_text(message)
-        except WebSocketDisconnect:
-            return
-        except Exception as error:
-            await websocket.close(code=1011, reason=str(error)[:120])
+    for ability in get_built_in_abilities():
+        app.include_router(ability.build_router(get_hub_context))
 
     return app
 

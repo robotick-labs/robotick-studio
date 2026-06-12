@@ -16,11 +16,15 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel
 import yaml
 
-from robotick_hub.launcher import ensure_launcher_with_action
 from robotick_hub.manifest import Manifest, load_manifest
 
 ACTIVE_STUDIO_CHILDREN: dict[int, subprocess.Popen[object]] = {}
 ACTIVE_STUDIO_CHILDREN_LOCK = threading.Lock()
+
+
+def ensure_launcher_with_action(_workspace_root: str | Path) -> tuple[None, str]:
+    # Studio now talks to the launcher ability hosted inside robotick-hub.
+    return None, "reused"
 
 
 class StudioInstanceRecord(BaseModel):
@@ -1159,7 +1163,6 @@ def open_studio(
 ) -> tuple[dict[str, object], dict[str, object]]:
     workspace_root = Path(workspace_root).resolve()
     manifest = load_manifest(workspace_root)
-    _, launcher_action = ensure_launcher_with_action(workspace_root)
     selected_project_dir, selected_project = resolve_project_selection(
         workspace_root, manifest, project_name
     )
@@ -1208,7 +1211,7 @@ def open_studio(
         control_endpoint=None,
     )
     write_instance_record(workspace_root, record)
-    return summarize_instance(record), {"launcher_service": {"action": launcher_action}}
+    return summarize_instance(record), {"launcher_service": {"action": "reused"}}
 
 
 def signal_instance_process_tree(pid: int, sig: signal.Signals) -> None:

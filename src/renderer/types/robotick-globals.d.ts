@@ -64,6 +64,10 @@ export interface RobotickStudioProcess {
   readonly getStats: () => Promise<RobotickStudioProcessStats>;
 }
 
+export interface RobotickHub {
+  readonly getEndpoint: () => Promise<string | undefined>;
+}
+
 export interface RobotickStudioActiveResource {
   readonly window_id: string;
   readonly workbench_id?: string;
@@ -125,6 +129,7 @@ export interface RobotickProjectSelection {
 
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
+  readonly hub?: RobotickHub;
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
   readonly studioControl?: RobotickStudioControl;

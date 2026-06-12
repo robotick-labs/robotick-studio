@@ -118,6 +118,15 @@ def get_hub_dir(workspace_root: str | Path) -> Path:
     ).resolve()
 
 
+def get_hub_owner_src_dirs(workspace_root: str | Path) -> list[Path]:
+    tools_root = get_hub_dir(workspace_root).resolve().parent
+    candidates = [
+        tools_root / "robotick-launcher" / "src",
+        tools_root / "robotick-studio-ability" / "src",
+    ]
+    return [candidate for candidate in candidates if candidate.exists()]
+
+
 def python_supports_module(executable: str, module_name: str) -> bool:
     result = subprocess.run(
         [executable, "-c", f"import {module_name}"],
@@ -185,6 +194,7 @@ def start_hub(workspace_root: str | Path) -> None:
     port = find_available_port()
     env = os.environ.copy()
     pythonpath_entries = [str(hub_src)]
+    pythonpath_entries.extend(str(path) for path in get_hub_owner_src_dirs(workspace_root))
     if env.get("PYTHONPATH"):
         pythonpath_entries.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
@@ -246,6 +256,8 @@ def post_hub_json(
     record: HubRecord,
     path: str,
     payload: dict[str, Any] | None = None,
+    *,
+    timeout_seconds: float = 2,
 ) -> dict[str, Any]:
     data = None
     headers: dict[str, str] = {}
@@ -254,7 +266,7 @@ def post_hub_json(
         headers["Content-Type"] = "application/json"
     request = Request(f"{record.endpoint}{path}", data=data, headers=headers, method="POST")
     try:
-        with urlopen(request, timeout=2) as response:
+        with urlopen(request, timeout=timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         raise HubRequestError(

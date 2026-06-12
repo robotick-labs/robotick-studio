@@ -8,6 +8,10 @@ import jsonschema
 from jsonschema import Draft4Validator
 
 from robotick.launcher.actions.query.list import list_projects, list_project_models
+from robotick.launcher.domain.query import (
+    build_workloads_registry as build_workloads_registry_payload,
+    get_core_model_schema as get_core_model_schema_payload,
+)
 from robotick.launcher.discover_workloads import discover_workloads_metadata
 from robotick.launcher.runtime_lock import apply_runtime_lock
 
@@ -329,188 +333,14 @@ def get_workloads_registry(
     """
     Discover workload metadata for a project, including field types and simple default values.
     """
-    project_path_full = project_path.resolve()
-    if not project_path_full.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Project file not found: {project_path_full}"
-        )
-
-    base_dir = project_path_full.parent.resolve()
-    project_name = project_path_full.stem.removesuffix(".project")
-
-    project_data = _load_yaml_as_json(project_path_full)
-
-    discovery_config = _DiscoveryConfig(
-        base_dir=base_dir,
-        project_data=project_data,
-        target=target,
-        project_name=project_name,
-    )
-    validation_errors = _validate_core_model_yaml_against_schema(
-        discovery_config, project_path_full, project_data
-    )
-    discovered = discover_workloads_metadata(discovery_config)
-
-    workloads: List[Dict[str, Any]] = []
-    shared_primitives: Dict[str, Dict[str, Any]] = {}
-    shared_structs: Dict[str, Dict[str, Any]] = {}
-    for entry in discovered:
-        metadata = dict(entry)
-        primitives = metadata.pop("primitives", {}) or {}
-        if isinstance(primitives, dict):
-            for tname, pmeta in primitives.items():
-                if not isinstance(tname, str) or not isinstance(pmeta, dict):
-                    continue
-                existing = shared_primitives.get(tname)
-                if existing is None:
-                    shared_primitives[tname] = dict(pmeta)
-                elif existing != pmeta:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=(
-                            f"Conflicting primitive metadata for type '{tname}' "
-                            f"while building shared workload registry schema."
-                        ),
-                    )
-        structs = metadata.get("structs", {}) or {}
-        if isinstance(structs, dict):
-            for _, sdef in structs.items():
-                if not isinstance(sdef, dict):
-                    continue
-                sname = sdef.get("name")
-                if not isinstance(sname, str) or not sname.strip():
-                    continue
-                normalized_fields: List[Dict[str, Any]] = []
-                for f in sdef.get("fields", []) or []:
-                    if not isinstance(f, dict):
-                        continue
-                    fname = f.get("name")
-                    ftype = f.get("type")
-                    if not isinstance(fname, str) or not isinstance(ftype, str):
-                        continue
-                    nfield = {
-                        "field_name": fname,
-                        "field_type_name": ftype,
-                    }
-                    if "default_value" in f:
-                        nfield["default_value"] = f.get("default_value")
-                    normalized_fields.append(nfield)
-                normalized = {"type_name": sname, "fields": normalized_fields}
-                existing = shared_structs.get(sname)
-                if existing is None:
-                    shared_structs[sname] = normalized
-                elif existing != normalized:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=(
-                            f"Conflicting struct metadata for type '{sname}' "
-                            f"while building shared workload registry schema."
-                        ),
-                    )
-        workload_entry: Dict[str, Any] = {
-            "type": entry["name"],
-        }
-        for key in ("config", "inputs", "outputs"):
-            sdef = structs.get(key)
-            if isinstance(sdef, dict) and isinstance(sdef.get("name"), str):
-                workload_entry[key] = {"type": sdef["name"]}
-        if "schema_error" in metadata:
-            workload_entry["schema_error"] = metadata["schema_error"]
-            validation_errors.append(
-                f"{entry['name']}:$: {metadata['schema_error']}"
-            )
-        workloads.append(workload_entry)
-
-    types_map: Dict[str, Dict[str, Any]] = {}
-
-    for type_name, meta in shared_primitives.items():
-        type_entry = {
-            "name": type_name,
-            "type_category": meta.get("category", "primitive"),
-        }
-        for opt_key in (
-            "primitive_kind",
-            "mime_type",
-            "format",
-            "capacity",
-            "enum_values",
-        ):
-            if opt_key in meta:
-                type_entry[opt_key] = meta[opt_key]
-        types_map[type_name] = type_entry
-
-    primitive_kind_by_type: Dict[str, str] = {}
-    for primitive_name, primitive_meta in shared_primitives.items():
-        primitive_kind = primitive_meta.get("primitive_kind")
-        if isinstance(primitive_kind, str):
-            primitive_kind_by_type[primitive_name] = primitive_kind
-
-    for type_name, sdef in shared_structs.items():
-        fields: List[Dict[str, Any]] = []
-        for field in sdef.get("fields", []) or []:
-            field_name = field.get("field_name", "")
-            field_type = field.get("field_type_name", "")
-            field_entry: Dict[str, Any] = {
-                "name": field_name,
-                "type": field_type,
-                "element_count": 1,
-            }
-            if "default_value" in field:
-                field_entry["default_value"] = field.get("default_value")
-            else:
-                hardcoded_default = _HARDCODED_FIELD_DEFAULTS.get((type_name, field_name))
-                if hardcoded_default is not None:
-                    field_entry["default_value"] = hardcoded_default
-                    fields.append(field_entry)
-                    continue
-                primitive_kind = primitive_kind_by_type.get(field_type)
-                if primitive_kind is not None:
-                    synthesized_default = _synthesized_primitive_default(
-                        primitive_kind
-                    )
-                    if synthesized_default is not None:
-                        field_entry["default_value"] = synthesized_default
-                    else:
-                        validation_errors.append(
-                            "Missing default_value in schema metadata for primitive field "
-                            f"'{type_name}.{field_name}' ({field_type}, kind={primitive_kind})."
-                        )
-            primitive_meta = shared_primitives.get(field_type, {})
-            if isinstance(primitive_meta, dict):
-                primitive_kind = primitive_meta.get("primitive_kind")
-                if isinstance(primitive_kind, str):
-                    field_entry["primitive_kind"] = primitive_kind
-                enum_values = primitive_meta.get("enum_values")
-                if (
-                    isinstance(enum_values, list)
-                    and all(isinstance(v, str) for v in enum_values)
-                    and len(enum_values) > 0
-                ):
-                    field_entry["enum_values"] = enum_values
-            fields.append(field_entry)
-        types_map[type_name] = {
-            "name": type_name,
-            "type_category": "struct",
-            "fields": fields,
-        }
-
-    payload = {
-        "project": str(project_path_full),
-        "target": target,
-        "workloads": sorted(workloads, key=lambda w: str(w.get("type", ""))),
-        "types": sorted(types_map.values(), key=lambda t: str(t.get("name", ""))),
-        "writable_inputs": [],
-        "validation_errors": validation_errors,
-    }
     try:
-        _validate_workloads_layout_payload(payload, discovery_config)
-    except jsonschema.ValidationError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"workloads layout schema validation failed: {exc.message}",
-        ) from exc
-
-    return payload
+        return build_workloads_registry_payload(project_path.resolve(), target)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/get-core-model-schema", response_class=JSONResponse)
@@ -522,18 +352,9 @@ def get_core_model_schema(
         "linux", description="Target platform used for schema resolution"
     ),
 ):
-    project_path_full = project_path.resolve()
-    if not project_path_full.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Project file not found: {project_path_full}"
-        )
-    base_dir = project_path_full.parent.resolve()
-    project_name = project_path_full.stem.removesuffix(".project")
-    project_data = _load_yaml_as_json(project_path_full)
-    discovery_config = _DiscoveryConfig(
-        base_dir=base_dir,
-        project_data=project_data,
-        target=target,
-        project_name=project_name,
-    )
-    return _load_core_model_schema(discovery_config)
+    try:
+        return get_core_model_schema_payload(project_path.resolve(), target)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
