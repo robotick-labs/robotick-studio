@@ -19,6 +19,14 @@ Ground rules:
 
 ## Launcher Recipes
 
+### Discover registered Studio projects
+
+```bash
+./tools/robotick studio projects
+```
+
+Use this when a user names a project informally or asks which Studio projects are available. Prefer the returned project ids for CLI commands, and use project display names only for user-facing explanation.
+
 ### Inspect launcher runtime for the active workspace
 
 ```bash
@@ -33,9 +41,9 @@ Use this before action commands when the user asks about currently running model
 ./tools/robotick studio focused
 ```
 
-Use this when the user asks what they are looking at in Studio, says `:studio`, or asks about the current Studio context. The command is read-only. It reports the currently focused Studio instance/window when one has desktop focus; otherwise it falls back to the most recently focused Studio instance and reports the active window/workbench/layout. Panel and element focus are intentionally future extensions.
+Use this when the user asks what they are looking at in Studio, says `:studio` or `:this-studio`, or asks about the current Studio context. The command is read-only. It reports the currently focused Studio instance/window when one has desktop focus; otherwise it falls back to the most recently focused Studio instance and reports the active window/workbench/layout. Panel and element focus are intentionally future extensions.
 
-Prefer `:studio` as the agent shorthand. Avoid `@studio` in VS Code chat because VS Code may resolve it as the repository `studio` folder instead of leaving it as Robotick shorthand.
+Prefer `:studio` or `:this-studio` as agent shorthand. Avoid `@studio` in VS Code chat because VS Code may resolve it as the repository `studio` folder instead of leaving it as Robotick shorthand.
 
 ### Compare hub runtime authority with Studio-facing launcher state
 
