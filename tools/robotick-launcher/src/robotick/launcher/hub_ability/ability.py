@@ -106,6 +106,13 @@ def _launcher_query() -> Any:
     return launcher_query
 
 
+def _launcher_list_project_models() -> Any:
+    _ensure_launcher_import_path()
+    from robotick.launcher.actions.query.list import list_project_models
+
+    return list_project_models
+
+
 def _launcher_run_profile_module() -> Any:
     _ensure_launcher_import_path()
     from robotick.launcher.actions.launch import run_profile as run_profile_module
@@ -224,7 +231,45 @@ def _list_runtime_phonebook_records(
         if wanted_models and payload.get("model_id") not in wanted_models:
             continue
         records.append(payload)
-    return records
+    return _cull_absent_model_phonebook_records(workspace_root, records)
+
+
+def _declared_project_model_ids(workspace_root: str, project_id: str) -> set[str] | None:
+    try:
+        project_path = _resolve_project_path(workspace_root, project_id)
+    except FileNotFoundError:
+        return None
+    list_project_models = _launcher_list_project_models()
+    try:
+        model_paths = list_project_models(str(project_path))
+    except FileNotFoundError:
+        return None
+    return {Path(path).stem.removesuffix(".model") for path in model_paths}
+
+
+def _cull_absent_model_phonebook_records(
+    workspace_root: str,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    declared_by_project: dict[str, set[str] | None] = {}
+    kept: list[dict[str, Any]] = []
+    for record in records:
+        project_id = str(record.get("project_id") or "").strip()
+        model_id = str(record.get("model_id") or "").strip()
+        if not project_id or not model_id:
+            kept.append(record)
+            continue
+        if project_id not in declared_by_project:
+            declared_by_project[project_id] = _declared_project_model_ids(workspace_root, project_id)
+        declared_model_ids = declared_by_project[project_id]
+        if declared_model_ids is None or model_id in declared_model_ids:
+            kept.append(record)
+            continue
+        try:
+            _runtime_phonebook_path(workspace_root, project_id, model_id).unlink(missing_ok=True)
+        except OSError:
+            pass
+    return kept
 
 
 def _runtime_phonebook_record_from_session(

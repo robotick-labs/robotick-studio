@@ -54,6 +54,7 @@ HUB_FEATURES = [
     "studio_control_endpoint",
     "studio_project_select",
     "studio_activation",
+    "studio_focused",
     "launcher_status",
     "launcher_ensure",
     "launcher_groups",

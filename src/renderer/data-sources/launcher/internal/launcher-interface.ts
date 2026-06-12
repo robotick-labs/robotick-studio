@@ -1102,6 +1102,20 @@ export function getLauncherLogStreamUrl(): string {
   );
 }
 
+export async function getLauncherLogStreamUrlAsync(): Promise<string> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return "";
+  }
+  return buildWebSocketUrl(
+    await getLauncherApiBase(),
+    "/v1/launcher/models/logs/stream",
+    {
+      project_id: projectName,
+    }
+  );
+}
+
 export async function fetchLauncherLogSnapshot(
   tail = 300
 ): Promise<LauncherModelLogsBatch | null> {
@@ -1347,6 +1361,7 @@ const currentProject: LauncherService = {
   requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
+  getLauncherLogStreamUrlAsync,
   fetchLauncherLogSnapshot,
   requestLauncherLogClear,
 };

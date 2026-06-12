@@ -88,6 +88,7 @@ def get_studio_help_text() -> str:
 def get_hub_help_text() -> str:
     status_spec = get_hub_command_spec("status")
     ensure_spec = get_hub_command_spec("ensure")
+    restart_spec = get_hub_command_spec("restart")
     projects_spec = get_hub_command_spec("projects")
     return "\n".join(
         [
@@ -96,15 +97,18 @@ def get_hub_help_text() -> str:
             "Commands:",
             f"  {status_spec.shell_label or status_spec.name:<10}{status_spec.summary}",
             f"  {ensure_spec.shell_label or ensure_spec.name:<10}{ensure_spec.summary}",
+            f"  {restart_spec.shell_label or restart_spec.name:<10}{restart_spec.summary}",
             f"  {projects_spec.shell_label or projects_spec.name:<10}{projects_spec.summary}",
             "",
             "Output:",
             "  status returns JSON and never starts the hub.",
             "  ensure returns JSON describing whether the hub was started, reused, or restarted.",
+            "  restart returns JSON after replacing the current hub process.",
             "",
             "Examples:",
             "  robotick hub status",
             "  robotick hub ensure",
+            "  robotick hub restart",
             "  robotick hub projects",
             "",
         ]
@@ -576,6 +580,23 @@ def instances_help_text() -> str:
             "",
             "Output:",
             "  JSON Studio instance list. This command does not launch Studio.",
+            "",
+        ]
+    )
+
+
+def focused_help_text() -> str:
+    spec = get_studio_command_spec("focused")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {spec.usage}",
+            "",
+            "Description:",
+            *[f"  {line}" for line in spec.description_lines],
+            "",
+            "Output:",
+            "  JSON Studio focus summary. This command does not change focus.",
             "",
         ]
     )

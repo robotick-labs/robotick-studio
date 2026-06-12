@@ -76,6 +76,8 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private messages: TerminalLogMessage[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
   private ws: WebSocket | null = null;
+  private connectGeneration = 0;
+  private connectRequest: Promise<void> | null = null;
   private snapshotRequest: Promise<void> | null = null;
   private reconnectTask = createPollingTask(
     () => {
@@ -148,6 +150,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private reconnect() {
+    this.connectGeneration += 1;
     if (this.ws) {
       try {
         this.ws.close();
@@ -203,60 +206,72 @@ class TerminalLogServiceImpl implements TerminalLogService {
     if (!HAS_WEBSOCKET) {
       return;
     }
-    if (this.ws) {
+    if (this.ws || this.connectRequest) {
       return;
     }
-    let ws: WebSocket;
+    const generation = this.connectGeneration;
+    this.connectRequest = (async () => {
+      let ws: WebSocket;
 
-    try {
-      const socketUrl = launcherService.getLauncherLogStreamUrl();
-      if (!socketUrl) {
+      try {
+        const socketUrl = await launcherService.getLauncherLogStreamUrlAsync();
+        if (generation !== this.connectGeneration) {
+          return;
+        }
+        if (!socketUrl || this.shuttingDown || isAppQuitting()) {
+          return;
+        }
+        void this.loadSnapshot({ replace: this.messages.length === 0 });
+        ws = new globalThis.WebSocket(socketUrl);
+        this.ws = ws;
+      } catch (err) {
+        if (generation === this.connectGeneration) {
+          console.warn("[terminal] WS creation failed:", err);
+          this.scheduleReconnect();
+        }
         return;
+      } finally {
+        if (generation === this.connectGeneration) {
+          this.connectRequest = null;
+        }
       }
-      void this.loadSnapshot({ replace: this.messages.length === 0 });
-      ws = new globalThis.WebSocket(socketUrl);
-      this.ws = ws;
-    } catch (err) {
-      console.warn("[terminal] WS creation failed:", err);
-      this.scheduleReconnect();
-      return;
-    }
 
-    ws.onopen = () => {
-      if (this.ws !== ws) {
-        return;
-      }
-      console.log("[terminal] Connected");
-      this.reconnectTask.stop();
-      this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
-        immediate: false,
-      });
-    };
+      ws.onopen = () => {
+        if (this.ws !== ws) {
+          return;
+        }
+        console.log("[terminal] Connected");
+        this.reconnectTask.stop();
+        this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
+          immediate: false,
+        });
+      };
 
-    ws.onerror = (ev) => {
-      if (this.ws !== ws) {
-        return;
-      }
-      console.warn("[terminal] WebSocket error:", ev);
-      ws.close();
-    };
+      ws.onerror = (ev) => {
+        if (this.ws !== ws) {
+          return;
+        }
+        console.warn("[terminal] WebSocket error:", ev);
+        ws.close();
+      };
 
-    ws.onclose = (ev) => {
-      if (this.ws !== ws) {
-        return;
-      }
-      console.log("[terminal] Disconnected:", ev.code, ev.reason);
-      this.ws = null;
-      this.scheduleReconnect();
-    };
+      ws.onclose = (ev) => {
+        if (this.ws !== ws) {
+          return;
+        }
+        console.log("[terminal] Disconnected:", ev.code, ev.reason);
+        this.ws = null;
+        this.scheduleReconnect();
+      };
 
-    ws.onmessage = async (event) => {
-      if (this.ws !== ws) {
-        return;
-      }
-      const text = await this.normalizeEventData(event.data);
-      this.pushMessage(this.parseIncomingMessage(text));
-    };
+      ws.onmessage = async (event) => {
+        if (this.ws !== ws) {
+          return;
+        }
+        const text = await this.normalizeEventData(event.data);
+        this.pushMessage(this.parseIncomingMessage(text));
+      };
+    })();
   }
 
   private scheduleReconnect() {

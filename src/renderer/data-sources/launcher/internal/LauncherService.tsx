@@ -101,6 +101,7 @@ export interface LauncherService {
     >;
   } | null>;
   getLauncherLogStreamUrl(): string;
+  getLauncherLogStreamUrlAsync(): Promise<string>;
   fetchLauncherLogSnapshot(tail?: number): Promise<LauncherModelLogsBatch | null>;
   requestLauncherLogClear(): Promise<void>;
 }

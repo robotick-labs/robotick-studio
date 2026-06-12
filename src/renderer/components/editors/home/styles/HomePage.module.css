@@ -45,22 +45,33 @@
 }
 
 .locked {
-  border-color: rgba(255, 164, 103, 0.8);
-  background: rgba(255, 164, 103, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.52);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .locked:hover {
-  background: rgba(255, 164, 103, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  transform: none;
 }
 
 .selected {
   background: rgba(150, 255, 150, 0.1);
 }
 
-.lockStatus {
-  margin-top: 10px;
-  color: #ffcf9d;
-  font-size: 0.95rem;
+.lockBadge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .selectedIndicator {

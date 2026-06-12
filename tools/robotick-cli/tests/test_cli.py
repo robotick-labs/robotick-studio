@@ -12,6 +12,7 @@ import json
 import pytest
 
 import robotick_cli.hub_client as hub_client_module
+import robotick_cli.hub
 import robotick_cli.launcher
 import robotick_cli.studio
 from robotick_cli.app.context import AppContext, ShellState
@@ -418,6 +419,46 @@ def test_launcher_ensure_reads_status_without_launcher_capability_post(
     assert captured["output"]["status"]["service"]["pid"] == record.pid
 
 
+def test_hub_restart_command_reports_restarted_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.hub.restart_hub", lambda _workspace: record)
+    monkeypatch.setattr(
+        "robotick_cli.hub.build_running_hub_status",
+        lambda _record: {
+            "resource_type": "robotick_hub_status",
+            "state": "running",
+            "endpoint": record.endpoint,
+            "pid": record.pid,
+        },
+    )
+    monkeypatch.setattr(
+        "robotick_cli.hub.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.hub.run_hub_command(
+        AppContext(workspace_root=workspace),
+        ["restart"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"] == {
+        "resource_type": "robotick_hub_restart_result",
+        "action": "restarted",
+        "status": {
+            "resource_type": "robotick_hub_status",
+            "state": "running",
+            "endpoint": record.endpoint,
+            "pid": record.pid,
+        },
+    }
+
+
 def test_studio_launcher_status_compares_runtime_and_projection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -472,6 +513,116 @@ def test_studio_launcher_status_compares_runtime_and_projection(
             "freshness": "stopped",
         }
     ]
+
+
+def test_studio_focused_prefers_currently_focused_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    instances = [
+        InstanceRecord(
+            name="studio-1111",
+            pid=1111,
+            mode="dev",
+            started_at="2026-06-12T18:00:00+00:00",
+            control_endpoint="http://127.0.0.1:1111",
+        ),
+        InstanceRecord(
+            name="studio-2222",
+            pid=2222,
+            mode="dev",
+            started_at="2026-06-12T18:01:00+00:00",
+            control_endpoint="http://127.0.0.1:2222",
+        ),
+    ]
+
+    def fake_fetch(_workspace, path):
+        instance_name = path.split("/")[4]
+        return {
+            "resource_type": "robotick_studio_focused",
+            "instance_name": instance_name,
+            "project_name": "pip-e" if instance_name == "studio-1111" else "alf-e",
+            "is_focused": instance_name == "studio-1111",
+            "last_focused_at": "2026-06-12T18:00:00+00:00",
+            "window_id": "main",
+            "workbench_id": "models",
+            "layout_id": "main:models:default",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.list_live_instances", lambda _workspace: instances)
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["focused"],
+    )
+
+    assert result.exit_code == 0
+    output = captured["output"]
+    assert output["instance_name"] == "studio-1111"
+    assert output["project_name"] == "pip-e"
+    assert output["selection_policy"] == "focused-window-then-last-focused-then-newest-instance"
+    assert len(output["candidates"]) == 2
+
+
+def test_studio_focused_falls_back_to_most_recent_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    instances = [
+        InstanceRecord(
+            name="studio-1111",
+            pid=1111,
+            mode="dev",
+            started_at="2026-06-12T18:00:00+00:00",
+            control_endpoint="http://127.0.0.1:1111",
+        ),
+        InstanceRecord(
+            name="studio-2222",
+            pid=2222,
+            mode="dev",
+            started_at="2026-06-12T18:01:00+00:00",
+            control_endpoint="http://127.0.0.1:2222",
+        ),
+    ]
+
+    def fake_fetch(_workspace, path):
+        instance_name = path.split("/")[4]
+        return {
+            "resource_type": "robotick_studio_focused",
+            "instance_name": instance_name,
+            "project_name": instance_name,
+            "is_focused": False,
+            "last_focused_at": (
+                "2026-06-12T18:03:00+00:00"
+                if instance_name == "studio-2222"
+                else "2026-06-12T18:02:00+00:00"
+            ),
+            "window_id": "main",
+            "workbench_id": "remote-control",
+            "layout_id": "main:remote-control:default",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.list_live_instances", lambda _workspace: instances)
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["focused"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["instance_name"] == "studio-2222"
 
 
 def test_launcher_launch_posts_profile_and_intent_payloads(

@@ -72,6 +72,7 @@ type StudioWindowStatus = {
   label: string;
   instance_id: string;
   active_window_id: string | null;
+  is_focused: boolean;
   window_role: StudioWindow["windowRole"];
   default_workbench_id?: string;
   active_workbench_id?: string;
@@ -90,6 +91,9 @@ type StudioInstanceStatus = {
   project_dir: string | null;
   selected_project_path: string | null;
   active_window_id: string | null;
+  focused_window_id: string | null;
+  is_focused: boolean;
+  last_focused_at: string | null;
   state_sources: Record<string, string>;
   windows: StudioWindowStatus[];
 };
@@ -101,6 +105,8 @@ export type StudioRuntimeStatusOptions = {
   selectedProjectPath: string | null;
   workspaceRoot: string | null;
   activeWindowScope: string | null;
+  focusedWindowScope?: string | null;
+  lastFocusedAt?: string | null;
   openWindowScopes: string[];
   activeWorkbenchIds?: Record<string, string>;
   activeLayoutIds?: Record<string, string>;
@@ -218,6 +224,10 @@ export function buildStudioRuntimeTree(
   options: StudioRuntimeStatusOptions
 ): StudioInstanceStatus {
   const activeWindow = activeWindowIdForDocument(document, options.activeWindowScope);
+  const focusedWindow = activeWindowIdForDocument(
+    document,
+    options.focusedWindowScope ?? null
+  );
   const windows = document.windows.map((window) => {
     const defaultWorkbenchId =
       window.defaultWorkbenchId ?? window.workbenches[0]?.id;
@@ -289,6 +299,7 @@ export function buildStudioRuntimeTree(
       label: window.label,
       instance_id: options.instanceName,
       active_window_id: activeWindow.id,
+      is_focused: window.id === focusedWindow.id && options.focusedWindowScope != null,
       window_role: window.windowRole,
       ...(defaultWorkbenchId ? { default_workbench_id: defaultWorkbenchId } : {}),
       ...(activeWorkbenchId ? { active_workbench_id: activeWorkbenchId } : {}),
@@ -312,8 +323,12 @@ export function buildStudioRuntimeTree(
     project_dir: deriveProjectDirectory(options.selectedProjectPath),
     selected_project_path: options.selectedProjectPath,
     active_window_id: activeWindow.id,
+    focused_window_id: options.focusedWindowScope ? focusedWindow.id : null,
+    is_focused: options.focusedWindowScope != null,
+    last_focused_at: options.lastFocusedAt ?? null,
     state_sources: {
       active_window_id: activeWindow.source,
+      focused_window_id: options.focusedWindowScope ? "runtime" : "none",
       selected_project_path: "runtime",
     },
     windows,
@@ -517,6 +532,9 @@ export function resolveStudioRuntimeNode(
       project_dir: node.project_dir,
       selected_project_path: node.selected_project_path,
       active_window_id: node.active_window_id,
+      focused_window_id: node.focused_window_id,
+      is_focused: node.is_focused,
+      last_focused_at: node.last_focused_at,
       state_sources: node.state_sources as Record<string, string>,
       active: false,
       activatable: false,
@@ -533,6 +551,8 @@ export function resolveStudioRuntimeNode(
       id: String(node.id),
       label: node.label,
       instance_id: node.instance_id,
+      active_window_id: node.active_window_id,
+      is_focused: node.is_focused,
       window_role: node.window_role,
       default_workbench_id: node.default_workbench_id,
       active_workbench_id: node.active_workbench_id,

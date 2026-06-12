@@ -27,6 +27,16 @@ Ground rules:
 
 Use this before action commands when the user asks about currently running models. Treat the per-model runtime section as source of truth.
 
+### Inspect current Studio focus
+
+```bash
+./tools/robotick studio focused
+```
+
+Use this when the user asks what they are looking at in Studio, says `:studio`, or asks about the current Studio context. The command is read-only. It reports the currently focused Studio instance/window when one has desktop focus; otherwise it falls back to the most recently focused Studio instance and reports the active window/workbench/layout. Panel and element focus are intentionally future extensions.
+
+Prefer `:studio` as the agent shorthand. Avoid `@studio` in VS Code chat because VS Code may resolve it as the repository `studio` folder instead of leaving it as Robotick shorthand.
+
 ### Compare hub runtime authority with Studio-facing launcher state
 
 ```bash
@@ -53,6 +63,26 @@ Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--lo
 
 Use `--model <id>` or `--models <id,...>` for per-model/subset control. Whole-project control is model fan-out, not a first-class group operation.
 
+### Restart model shorthand in the current Studio project
+
+When a user asks to restart bare model names in `:studio`, first resolve the current Studio project, then prefix bare names with the project id to form model ids.
+
+```bash
+./tools/robotick studio focused
+./tools/robotick launcher restart --project <project> --model <project>-<model-name>
+./tools/robotick launcher wait-ready --project <project> --model <project>-<model-name>
+```
+
+For multiple models:
+
+```bash
+./tools/robotick studio focused
+./tools/robotick launcher restart --project <project> --models <project>-<model-a>,<project>-<model-b>
+./tools/robotick launcher wait-ready --project <project> --models <project>-<model-a>,<project>-<model-b>
+```
+
+Example: if `studio focused` reports `project_name: "pip-e"`, then "restart face and mind" means `--models pip-e-face,pip-e-mind`. Report the readiness result after `wait-ready`, including any model that does not return `running`, `ready`, and `live`.
+
 ### Inspect Studio Terminal log sources without opening Terminal
 
 ```bash
@@ -62,6 +92,15 @@ Use `--model <id>` or `--models <id,...>` for per-model/subset control. Whole-pr
 ```
 
 Use this for agentic log/terminal access. The hub exposes per-model/per-source log channels such as `launcher-worker`, `launcher-control`, and `model-runtime`; Studio Terminal aggregates those channels for display and labels each line with model id plus source kind. Hub and Studio process logs are intentionally separate diagnostics and are not included in the Terminal aggregation by default.
+
+### Verify whether a model YAML edit reached the running engine
+
+```bash
+stat -c '%y %n' robots/<project>/models/<model>.model.yaml robots/<project>/.launcher/<project_slug>/generated/<model_slug>/linux/<model_slug>_model.cpp robots/<project>/.launcher/<project_slug>/generated/<model_slug>/linux/build/<model>
+./tools/robotick launcher logs --project <project> --model <model-id> --tail 220
+```
+
+Use this when a restarted model appears stale in-engine. Restart is stop-plus-launch through the launcher ability; launch runs generation/build/deploy/run for the selected model. If the model YAML timestamp is newer than the generated source or built binary, restart has not run after the latest edit. The launcher log should show generation, build, and engine load lines for the session that Studio is currently using.
 
 ## Workbench Glossary
 
@@ -139,6 +178,8 @@ Current observed behavior: `studio open <project>` can leave the bound control p
 ```
 
 Otherwise, do not invent a workbench switch unless a project-specific default is documented.
+
+If `studio open <project>` is run while that project is already locked by a live Studio instance, the command may report a transient new instance that exits after the project-lock conflict. Prefer `./tools/robotick studio instances` first when a project is already open, then target the existing instance directly.
 
 ### Verify the active main-window workbench
 

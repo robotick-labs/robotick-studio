@@ -103,6 +103,40 @@ def start_tray(stop_hub: Callable[[], None]) -> int:
     menu.addAction(open_studio_action)
     menu.addSeparator()
 
+    restart_action = QAction("Restart Robotick Hub", menu)
+
+    def restart_hub() -> None:
+        robotick_cmd = workspace_root / "tools" / "robotick"
+        log_dir = workspace_root / ".robotick" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "robotick-hub-tray-actions.log"
+        try:
+            with open(log_path, "a", encoding="utf-8") as log_handle:
+                subprocess.Popen(
+                    [str(robotick_cmd), "hub", "restart"],
+                    cwd=workspace_root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_handle,
+                    stderr=log_handle,
+                    start_new_session=True,
+                )
+            restart_action.setEnabled(False)
+            tray.showMessage(
+                "Robotick Hub",
+                "Restarting Robotick Hub...",
+                QSystemTrayIcon.Information,
+                2500,
+            )
+        except OSError as error:
+            QMessageBox.warning(
+                None,
+                "Robotick Hub",
+                f"Failed to restart Robotick Hub: {error}",
+            )
+
+    restart_action.triggered.connect(restart_hub)
+    menu.addAction(restart_action)
+
     quit_action = QAction("Stop Robotick Hub", menu)
 
     def stop_and_quit() -> None:

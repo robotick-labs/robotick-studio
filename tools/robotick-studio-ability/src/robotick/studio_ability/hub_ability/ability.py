@@ -25,6 +25,7 @@ from robotick_hub.workspace import build_workspace_projects
 from robotick.studio_ability.domain import (
     activate_studio_resource,
     get_instance_status,
+    get_studio_focused,
     get_studio_capability_status,
     get_studio_status,
     list_instances,
@@ -80,6 +81,14 @@ class StudioAbility:
         def studio_instance_status(instance_id: str) -> JSONResponse:
             context = context_provider()
             payload = get_studio_status(context.workspace_root, instance_id)
+            if payload is None:
+                raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+            return JSONResponse(payload)
+
+        @router.get("/v1/studio/instances/{instance_id}/focused", response_class=JSONResponse)
+        def studio_instance_focused(instance_id: str) -> JSONResponse:
+            context = context_provider()
+            payload = get_studio_focused(context.workspace_root, instance_id)
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
             return JSONResponse(payload)

@@ -5,7 +5,10 @@ import type {
   StudioControlProjectSelectionResponse,
 } from "../../common/studio-control-contract";
 import type { StudioRuntimeSnapshotProvider } from "./studio-runtime-snapshot";
-import { getStudioRuntimeStatus } from "./studio-runtime-snapshot";
+import {
+  getStudioRuntimeFocused,
+  getStudioRuntimeStatus,
+} from "./studio-runtime-snapshot";
 
 export type StudioControlRouteDependencies = {
   snapshotProvider: StudioRuntimeSnapshotProvider;
@@ -82,6 +85,15 @@ export async function routeStudioControlRequest(
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
   const method = request.method ?? "GET";
+  if (
+    method === "GET" &&
+    (url.pathname === "/v1/focused" || url.pathname === "/v1/studio/focused")
+  ) {
+    const payload = await getStudioRuntimeFocused(dependencies.snapshotProvider);
+    writeJson(response, 200, payload);
+    return;
+  }
+
   const segments = statusPathSegments(url.pathname);
   if (method === "GET" && segments !== null) {
     const payload = await getStudioRuntimeStatus(

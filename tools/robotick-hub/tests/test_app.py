@@ -393,6 +393,11 @@ def test_launcher_runtime_endpoint_projects_live_per_model_truth(
     from robotick.launcher.hub_ability import ability
 
     workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "barr-e.project.yaml").write_text("name: Barr.e\n", encoding="utf-8")
+    for model_name in ("healthy", "missing", "pid-live", "stopping"):
+        (project_dir / f"{model_name}.model.yaml").write_text("name: Test\n", encoding="utf-8")
     records = [
         {
             "project_id": "barr-e",
@@ -473,6 +478,43 @@ def test_launcher_runtime_endpoint_projects_live_per_model_truth(
     assert models["pid-live"]["freshness"] == "failed"
     assert models["stopping"]["lifecycle"] == "stopping"
     assert models["stopping"]["operation"]["action"] == "stopping"
+
+
+def test_launcher_runtime_culls_phonebook_records_for_absent_models() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "pip-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "pip-e.project.yaml").write_text("name: Pip.e\n", encoding="utf-8")
+    (project_dir / "pip-e-face.model.yaml").write_text("name: Face\n", encoding="utf-8")
+    live_record = ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "pip-e",
+            "project_path": str(project_dir / "pip-e.project.yaml"),
+            "model_id": "pip-e-face",
+        },
+    )
+    stale_record = ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "pip-e",
+            "project_path": str(project_dir / "pip-e.project.yaml"),
+            "model_id": "pip-e-brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/launcher/runtime", params={"project_id": "pip-e"})
+
+    assert response.status_code == 200
+    model_ids = [model["model_id"] for model in response.json()["models"]]
+    assert model_ids == ["pip-e-face"]
+    assert live_record["model_id"] == "pip-e-face"
+    assert stale_record["model_id"] == "pip-e-brain"
+    assert ability._runtime_phonebook_path(str(workspace), "pip-e", "pip-e-face").exists()
+    assert not ability._runtime_phonebook_path(str(workspace), "pip-e", "pip-e-brain").exists()
 
 
 def test_launcher_status_does_not_probe_stopped_sessions(

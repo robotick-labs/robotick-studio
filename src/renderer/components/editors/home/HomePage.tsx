@@ -138,14 +138,6 @@ export default function HomePage() {
           {projects.map((p) => {
             const lockStatus = statusesByPath[p.path];
             const isLockedElsewhere = lockStatus?.state === "locked";
-            const statusLabel =
-              lockStatus?.state === "current"
-                ? "Open in this Studio"
-                : isLockedElsewhere
-                  ? lockStatus.instanceName
-                    ? `Locked by ${lockStatus.instanceName}`
-                    : "Locked in another Studio"
-                  : null;
             return (
             <div
               key={p.path}
@@ -153,15 +145,24 @@ export default function HomePage() {
                 selectedPath === p.path ? styles.selected : ""
               } ${isLockedElsewhere ? styles.locked : ""}`.trim()}
               data-project={p.path}
-              onClick={() => selectProject(p.path)}
+              onClick={() => {
+                if (!isLockedElsewhere) selectProject(p.path);
+              }}
+              aria-disabled={isLockedElsewhere}
             >
               <div>
                 <h3>{p.name || "(Unnamed Project)"}</h3>
                 <p>{p.description || "No description provided."}</p>
-                {statusLabel ? (
-                  <p className={styles.lockStatus}>{statusLabel}</p>
-                ) : null}
               </div>
+              {isLockedElsewhere ? (
+                <div
+                  className={styles.lockBadge}
+                  aria-label="Locked in another Studio"
+                  title="Locked in another Studio"
+                >
+                  🔒
+                </div>
+              ) : null}
               <div
                 className={`${styles.selectedIndicator} ${
                   selectedPath === p.path ? styles.selectedIndicatorVisible : ""

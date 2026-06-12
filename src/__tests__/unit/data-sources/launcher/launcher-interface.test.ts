@@ -1008,5 +1008,8 @@ describe("launcher-interface gateway telemetry resolution", () => {
         "assets/demo.glb"
       )
     ).toContain("http://127.0.0.1:53401/query/project-assets/assets/demo.glb");
+    await expect(launcherInterface.getLauncherLogStreamUrlAsync()).resolves.toBe(
+      "ws://127.0.0.1:53401/v1/launcher/models/logs/stream?project_id=barr-e"
+    );
   });
 });

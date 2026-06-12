@@ -1085,6 +1085,7 @@ export async function bootstrapElectron({
       : "";
   let currentProjectPath = "";
   let bootstrapProjectIssue: ProjectSelectionIssue | null = null;
+  let lastFocusedAt: string | null = null;
 
   const registerStudioControlEndpointOnce = () => {
     if (
@@ -1107,7 +1108,18 @@ export async function bootstrapElectron({
     bootstrapIssue: bootstrapProjectIssue,
   });
 
-  const getActiveWindowScope = (): string | null => {
+  const markStudioWindowFocused = (win: BrowserWindowInstance | null) => {
+    if (win) {
+      const metadata = windowMetadataByWindow.get(win);
+      if (metadata) {
+        activeWindowScopeOverride =
+          metadata.scope === PRIMARY_WINDOW_SCOPE ? "main" : metadata.scope;
+      }
+    }
+    lastFocusedAt = new Date().toISOString();
+  };
+
+  const getFocusedWindowScope = (): string | null => {
     for (const [scope, win] of windowByScope.entries()) {
       if (win.isDestroyed?.()) {
         continue;
@@ -1116,7 +1128,11 @@ export async function bootstrapElectron({
         return scope === PRIMARY_WINDOW_SCOPE ? "main" : scope;
       }
     }
-    return activeWindowScopeOverride;
+    return null;
+  };
+
+  const getActiveWindowScope = (): string | null => {
+    return getFocusedWindowScope() ?? activeWindowScopeOverride;
   };
 
   const getOpenWindowScopes = (): string[] =>
@@ -1158,6 +1174,7 @@ export async function bootstrapElectron({
       return;
     }
     activeWindowScopeOverride = windowId;
+    lastFocusedAt = new Date().toISOString();
     if (typeof payload?.workbench_id === "string" && payload.workbench_id.trim()) {
       activeWorkbenchByWindow.set(windowId, payload.workbench_id.trim());
     }
@@ -1413,6 +1430,7 @@ export async function bootstrapElectron({
     if (!metadata.isPrimary) {
       openChildScopes.add(metadata.scope);
     }
+    win.on("focus", () => markStudioWindowFocused(win));
     win.on("closed", () => {
       const mapped = windowByScope.get(metadata.scope);
       if (mapped === win) {
@@ -1751,7 +1769,10 @@ export async function bootstrapElectron({
       getProjectSelectionState()
     );
     ipcMain.handle("robotick-hub:get-endpoint", () =>
-      readCurrentHubEndpoint(resolvedProjectRoot, env.ROBOTICK_HUB_ENDPOINT)
+      readCurrentHubEndpoint(
+        env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+        env.ROBOTICK_HUB_ENDPOINT
+      )
     );
     ipcMain.handle(
       "robotick-project-selection:set",
@@ -1971,6 +1992,8 @@ export async function bootstrapElectron({
         workspaceRoot: env.ROBOTICK_WORKSPACE_ROOT?.trim() || null,
         getSelectedProjectPath: () => currentProjectPath,
         getActiveWindowScope,
+        getFocusedWindowScope,
+        getLastFocusedAt: () => lastFocusedAt,
         getOpenWindowScopes,
         getActiveWorkbenchIds,
         getActiveLayoutIds,

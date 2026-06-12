@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import time
@@ -23,11 +24,13 @@ from robotick_cli.hub_client import (
 from robotick_cli.instances import (
     InstanceRecord,
     get_live_instance,
+    list_live_instances,
     normalize_instance_specifier,
     quit_studio_instance,
 )
 from robotick_cli.language.help import (
     create_help_text,
+    focused_help_text,
     instance_help_text,
     instance_quit_help_text,
     instance_select_project_help_text,
@@ -74,6 +77,9 @@ def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
     if command == "instances":
         handle_instances_command(ctx.workspace_root, rest)
         return CommandResult(exit_code=0)
+    if command == "focused":
+        handle_focused_command(ctx, rest)
+        return CommandResult(exit_code=0)
     if command == "launcher-status":
         handle_launcher_status_command(ctx, rest)
         return CommandResult(exit_code=0)
@@ -116,6 +122,108 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
 
     payload = fetch_studio_hub_json(workspace_root, "/v1/studio/instances")
     write_json(payload)
+
+
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def timestamp_sort_value(value: object) -> float:
+    parsed = parse_timestamp(value)
+    if parsed is None:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def fetch_instance_focused_payload(
+    workspace_root: str | Path,
+    instance: InstanceRecord,
+) -> dict[str, object] | None:
+    try:
+        payload = fetch_studio_hub_json(
+            workspace_root,
+            f"/v1/studio/instances/{instance.name}/focused",
+        )
+    except HubRequestError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload.setdefault("instance_id", instance.name)
+    payload.setdefault("instance_name", instance.name)
+    payload.setdefault("pid", instance.pid)
+    payload.setdefault("mode", instance.mode)
+    payload.setdefault("last_focused_at", None)
+    payload.setdefault("is_focused", False)
+    payload.setdefault("started_at", instance.started_at)
+    return payload
+
+
+def choose_focused_payload(
+    instances: list[InstanceRecord],
+    payloads: list[dict[str, object]],
+) -> dict[str, object] | None:
+    if not payloads:
+        return None
+    started_by_name = {instance.name: instance.started_at for instance in instances}
+
+    def key(payload: dict[str, object]) -> tuple[int, float, float]:
+        instance_name = str(payload.get("instance_name") or payload.get("instance_id") or "")
+        return (
+            1 if payload.get("is_focused") is True else 0,
+            timestamp_sort_value(payload.get("last_focused_at")),
+            timestamp_sort_value(started_by_name.get(instance_name)),
+        )
+
+    return max(payloads, key=key)
+
+
+def handle_focused_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(focused_help_text())
+        return
+    unknown_args = [arg for arg in args if arg != "--json"]
+    if unknown_args:
+        raise CliError(f"Unknown argument for 'focused': {unknown_args[0]}")
+
+    instances = list_live_instances(ctx.workspace_root)
+    payloads = [
+        payload
+        for instance in instances
+        if (payload := fetch_instance_focused_payload(ctx.workspace_root, instance)) is not None
+    ]
+    focused = choose_focused_payload(instances, payloads)
+    if focused is None:
+        raise CliError(
+            "No live Studio instance exposes focus information.",
+            code="studio_focus_unavailable",
+            recovery="Run `robotick studio open [project]` and retry.",
+        )
+    write_json(
+        {
+            **focused,
+            "resource_type": "robotick_studio_focused",
+            "selection_policy": "focused-window-then-last-focused-then-newest-instance",
+            "candidates": [
+                {
+                    "instance_name": payload.get("instance_name") or payload.get("instance_id"),
+                    "is_focused": payload.get("is_focused", False),
+                    "last_focused_at": payload.get("last_focused_at"),
+                    "project_name": payload.get("project_name"),
+                    "window_id": payload.get("window_id"),
+                    "workbench_id": payload.get("workbench_id"),
+                    "layout_id": payload.get("layout_id"),
+                }
+                for payload in payloads
+            ],
+        }
+    )
 
 
 def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:

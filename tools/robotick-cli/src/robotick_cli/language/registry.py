@@ -64,6 +64,17 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         shell_label="instances",
     ),
     CommandSpec(
+        name="focused",
+        usage="robotick studio focused",
+        summary="Report the currently or most recently focused Studio context",
+        shell_label="focused",
+        description_lines=(
+            "Report the Studio instance/window/workbench/layout that should be treated",
+            "as current user focus. If no Studio window currently has desktop focus,",
+            "the most recently focused Studio instance is used.",
+        ),
+    ),
+    CommandSpec(
         name="launcher-status",
         usage="robotick studio launcher-status [project]",
         summary="Compare Studio-facing launcher state with raw hub runtime state",
@@ -150,6 +161,12 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         usage="robotick hub ensure",
         summary="Start or reuse the local Robotick hub and report the result as JSON",
         shell_label="ensure",
+    ),
+    CommandSpec(
+        name="restart",
+        usage="robotick hub restart",
+        summary="Restart the local Robotick hub and report the result as JSON",
+        shell_label="restart",
     ),
     CommandSpec(
         name="projects",
