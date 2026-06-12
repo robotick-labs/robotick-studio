@@ -1,6 +1,6 @@
 import { readStorageValue, setStorageValue } from "../../../services/storage";
 import { launcherEvents } from "./LauncherContext";
-import { getLauncherLogStreamUrl } from "./launcher-interface";
+import type { LauncherModelLogEvent } from "./launcher-interface";
 import { launcherService } from "./LauncherService";
 import { createPollingTask } from "../../../utils/polling";
 import { isAppQuitting } from "../../../utils/appQuitting";
@@ -38,6 +38,31 @@ function writeBoolean(key: string, value: boolean) {
 
 const RECONNECT_MIN_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 8000;
+const SNAPSHOT_TAIL_LINES = 300;
+
+function padDatePart(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+export function formatTerminalLogTimestamp(timestamp?: string): string {
+  const date = timestamp ? new Date(timestamp) : new Date();
+  if (!Number.isFinite(date.getTime())) {
+    return "0000-00-00 00:00:00";
+  }
+  return `${date.getUTCFullYear()}-${padDatePart(
+    date.getUTCMonth() + 1
+  )}-${padDatePart(date.getUTCDate())} ${padDatePart(
+    date.getUTCHours()
+  )}:${padDatePart(date.getUTCMinutes())}:${padDatePart(
+    date.getUTCSeconds()
+  )}`;
+}
+
+export function formatTerminalLogEvent(event: LauncherModelLogEvent): string {
+  return `${formatTerminalLogTimestamp(event.timestamp)} [${event.model_id}][${
+    event.source_kind
+  }] ${event.line}`;
+}
 
 class TerminalLogServiceImpl implements TerminalLogService {
   private messages: string[] = [];
@@ -63,6 +88,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
       console.warn("[terminal] WebSocket unavailable in this environment");
     }
     launcherEvents.addEventListener("run-requested", this.handleRunRequested);
+    launcherService.onProjectChanged(() => {
+      this.reconnect();
+    });
     if (typeof window !== "undefined") {
       window.addEventListener("robotick:app-quitting", this.handleAppQuitting);
     }
@@ -100,8 +128,41 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private handleRunRequested = () => {
     if (this.getClearOnRun()) {
       this.clearMessages();
+      void launcherService.requestLauncherLogClear().catch((error) => {
+        console.warn("[terminal] Failed to clear hub log cursors:", error);
+      });
     }
   };
+
+  private reconnect() {
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // ignore reconnect close failures
+      }
+      this.ws = null;
+    }
+    this.reconnectTask.stop();
+    this.connect();
+  }
+
+  private async loadSnapshot() {
+    try {
+      const snapshot = await launcherService.fetchLauncherLogSnapshot(
+        SNAPSHOT_TAIL_LINES
+      );
+      if (!snapshot) {
+        return;
+      }
+      const events = snapshot.models.flatMap((model) => model.events ?? []);
+      for (const event of events) {
+        this.pushMessage(formatTerminalLogEvent(event));
+      }
+    } catch (error) {
+      console.warn("[terminal] Failed to load log snapshot:", error);
+    }
+  }
 
   private connect() {
     if (this.shuttingDown || isAppQuitting()) {
@@ -120,6 +181,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
       if (!socketUrl) {
         return;
       }
+      void this.loadSnapshot();
       ws = new globalThis.WebSocket(socketUrl);
       this.ws = ws;
     } catch (err) {
@@ -149,7 +211,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
     ws.onmessage = async (event) => {
       const text = await this.normalizeEventData(event.data);
-      this.pushMessage(text);
+      this.pushMessage(this.formatIncomingMessage(text));
     };
   }
 
@@ -222,6 +284,25 @@ class TerminalLogServiceImpl implements TerminalLogService {
     }
 
     return String(data);
+  }
+
+  private formatIncomingMessage(text: string): string {
+    try {
+      const parsed = JSON.parse(text) as Partial<LauncherModelLogEvent> & {
+        resource_type?: string;
+      };
+      if (
+        parsed.resource_type === "robotick_launcher_model_log_event" &&
+        typeof parsed.model_id === "string" &&
+        typeof parsed.source_kind === "string" &&
+        typeof parsed.line === "string"
+      ) {
+        return formatTerminalLogEvent(parsed as LauncherModelLogEvent);
+      }
+    } catch {
+      // fall through to plain text
+    }
+    return text;
   }
 }
 

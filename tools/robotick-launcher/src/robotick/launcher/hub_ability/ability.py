@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -15,7 +16,7 @@ from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
@@ -59,6 +60,7 @@ class LauncherModelLaunchRequest(BaseModel):
     profile: str | None = None
     intent: dict[str, Any] | None = None
     creator: dict[str, Any] = Field(default_factory=dict)
+    clear_logs: bool = False
 
     @model_validator(mode="after")
     def validate_request(self) -> "LauncherModelLaunchRequest":
@@ -75,6 +77,12 @@ class LauncherModelControlRequest(BaseModel):
     profile: str | None = None
     intent: dict[str, Any] | None = None
     creator: dict[str, Any] = Field(default_factory=dict)
+    clear_logs: bool = False
+
+
+class LauncherModelLogsClearRequest(BaseModel):
+    project_id: str
+    model_ids: list[str] = Field(default_factory=list)
 
 
 def _ensure_launcher_import_path() -> None:
@@ -246,6 +254,224 @@ def _runtime_phonebook_record_from_session(
         "operation": operation,
         "last_known_runtime": runtime,
     }
+
+
+def _runtime_phonebook_record(
+    workspace_root: str,
+    project_id: str,
+    model_id: str,
+) -> dict[str, Any] | None:
+    path = _runtime_phonebook_path(workspace_root, project_id, model_id)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _launcher_log_root(workspace_root: str) -> Path:
+    path = Path(workspace_root).resolve() / ".robotick" / "logs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _safe_launcher_log_path(workspace_root: str, raw_path: Any) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    try:
+        path = Path(raw_path).expanduser().resolve()
+        path.relative_to(_launcher_log_root(workspace_root).resolve())
+    except (OSError, ValueError):
+        return None
+    return path
+
+
+def _source_key(source_kind: str, path: Path) -> str:
+    return f"{source_kind}:{path}"
+
+
+def _log_clear_offsets(record: dict[str, Any]) -> dict[str, int]:
+    raw_offsets = record.get("log_clear_offsets")
+    if not isinstance(raw_offsets, dict):
+        return {}
+    offsets: dict[str, int] = {}
+    for key, value in raw_offsets.items():
+        if isinstance(key, str) and isinstance(value, int) and value >= 0:
+            offsets[key] = value
+    return offsets
+
+
+def _read_log_offset(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _log_file_timestamp(path: Path) -> str:
+    try:
+        modified_at = path.stat().st_mtime
+    except OSError:
+        return _utc_now().isoformat()
+    return datetime.fromtimestamp(modified_at, timezone.utc).isoformat()
+
+
+def _read_log_lines(path: Path, *, offset: int = 0, tail: int = 200) -> tuple[list[tuple[int, str]], int]:
+    if tail < 0:
+        tail = 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            handle.seek(max(0, offset))
+            lines: list[tuple[int, str]] = []
+            while True:
+                start = handle.tell()
+                line = handle.readline()
+                if not line:
+                    break
+                lines.append((start, line.rstrip("\n")))
+            end_offset = handle.tell()
+    except OSError:
+        return [], offset
+    if tail:
+        lines = lines[-tail:]
+    return lines, end_offset
+
+
+def _model_log_sources(
+    workspace_root: str,
+    *,
+    project_id: str,
+    model_id: str,
+) -> list[dict[str, Any]]:
+    record = _runtime_phonebook_record(workspace_root, project_id, model_id) or {}
+    sources: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_source(source_kind: str, raw_path: Any, label: str) -> None:
+        path = _safe_launcher_log_path(workspace_root, raw_path)
+        if path is None:
+            return
+        key = (source_kind, str(path))
+        if key in seen:
+            return
+        seen.add(key)
+        sources.append(
+            {
+                "source_kind": source_kind,
+                "path": str(path),
+                "label": label,
+            }
+        )
+
+    add_source("launcher-worker", record.get("log_path"), "launcher worker")
+    operation = record.get("operation")
+    if isinstance(operation, dict):
+        action = str(operation.get("action") or "").strip()
+        if action in {"stopping", "restarting"}:
+            add_source("launcher-control", operation.get("log_path"), "launcher control")
+
+    runtime = record.get("last_known_runtime")
+    if isinstance(runtime, dict):
+        control = runtime.get("control")
+        if isinstance(control, dict):
+            add_source("launcher-control", control.get("log_path"), "launcher control")
+        model_runtime = runtime.get("model_runtime")
+        if isinstance(model_runtime, dict):
+            add_source("model-runtime", model_runtime.get("log_path"), "model runtime")
+
+    return sources
+
+
+def _model_log_snapshot(
+    workspace_root: str,
+    *,
+    project_id: str,
+    model_id: str,
+    tail: int = 200,
+) -> dict[str, Any]:
+    record = _runtime_phonebook_record(workspace_root, project_id, model_id) or {}
+    clear_offsets = _log_clear_offsets(record)
+    source_payloads = []
+    events = []
+    for source in _model_log_sources(workspace_root, project_id=project_id, model_id=model_id):
+        path = Path(source["path"])
+        key = _source_key(source["source_kind"], path)
+        clear_offset = clear_offsets.get(key, 0)
+        lines, end_offset = _read_log_lines(path, offset=clear_offset, tail=tail)
+        timestamp = _log_file_timestamp(path)
+        source_payloads.append(
+            {
+                **source,
+                "clear_offset": clear_offset,
+                "read_offset": end_offset,
+                "available": path.exists(),
+            }
+        )
+        for offset, line in lines:
+            events.append(
+                {
+                    "project_id": project_id,
+                    "model_id": model_id,
+                    "source_kind": source["source_kind"],
+                    "path": str(path),
+                    "offset": offset,
+                    "line": line,
+                    "timestamp": timestamp,
+                }
+            )
+    events.sort(key=lambda item: (str(item["path"]), int(item["offset"])))
+    return {
+        "resource_type": "robotick_launcher_model_logs",
+        "project_id": project_id,
+        "model_id": model_id,
+        "sources": source_payloads,
+        "events": events,
+    }
+
+
+def _clear_model_log_offsets(
+    workspace_root: str,
+    *,
+    project_id: str,
+    model_ids: list[str],
+) -> list[dict[str, Any]]:
+    cleared: list[dict[str, Any]] = []
+    for model_id in model_ids:
+        record = _runtime_phonebook_record(workspace_root, project_id, model_id)
+        if record is None:
+            continue
+        offsets = _log_clear_offsets(record)
+        sources = _model_log_sources(workspace_root, project_id=project_id, model_id=model_id)
+        for source in sources:
+            path = Path(source["path"])
+            offsets[_source_key(source["source_kind"], path)] = _read_log_offset(path)
+        _write_runtime_phonebook_record(
+            workspace_root,
+            {
+                **record,
+                "project_id": project_id,
+                "model_id": model_id,
+                "log_clear_offsets": offsets,
+            },
+        )
+        cleared.append(
+            {
+                "model_id": model_id,
+                "sources": sources,
+            }
+        )
+    return cleared
+
+
+def _all_runtime_model_ids(workspace_root: str, project_id: str) -> list[str]:
+    records = _list_runtime_phonebook_records(workspace_root, project_id=project_id)
+    return sorted(
+        str(record.get("model_id") or "").strip()
+        for record in records
+        if str(record.get("model_id") or "").strip()
+    )
 
 
 def _set_runtime_operation(
@@ -1198,6 +1424,8 @@ def _launch_resolved_models(
     project_name: str,
     project_path: Path,
     resolved: Any,
+    *,
+    clear_logs: bool = False,
 ) -> dict[str, Any]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
@@ -1230,6 +1458,13 @@ def _launch_resolved_models(
                 }
             )
             continue
+
+        if clear_logs:
+            _clear_model_log_offsets(
+                workspace_root,
+                project_id=project_name,
+                model_ids=[model.model_id],
+            )
 
         intent = _model_intent_from_resolved_model(domain, resolved, model)
         group = domain.ModelSessionGroupRecord(
@@ -1709,7 +1944,120 @@ class LauncherAbility:
                     request.project_name,
                     project_path,
                     resolved,
+                    clear_logs=request.clear_logs,
                 )
+            )
+
+        @router.get("/v1/launcher/models/logs", response_class=JSONResponse)
+        def launcher_models_logs(
+            project_id: str = Query(..., description="Project id/name"),
+            model_ids: str | None = Query(None, description="Comma-separated model ids"),
+            tail: int = Query(200, ge=0, le=5000),
+        ) -> JSONResponse:
+            context = context_provider()
+            selected_model_ids = _split_csv_values(model_ids) or _all_runtime_model_ids(context.workspace_root, project_id)
+            return JSONResponse(
+                {
+                    "resource_type": "robotick_launcher_model_logs_batch",
+                    "project_id": project_id,
+                    "models": [
+                        _model_log_snapshot(
+                            context.workspace_root,
+                            project_id=project_id,
+                            model_id=model_id,
+                            tail=tail,
+                        )
+                        for model_id in selected_model_ids
+                    ],
+                }
+            )
+
+        @router.post("/v1/launcher/models/logs/clear", response_class=JSONResponse)
+        def launcher_models_logs_clear(request: LauncherModelLogsClearRequest) -> JSONResponse:
+            context = context_provider()
+            model_ids = request.model_ids or _all_runtime_model_ids(context.workspace_root, request.project_id)
+            return JSONResponse(
+                {
+                    "resource_type": "robotick_launcher_model_logs_clear_result",
+                    "project_id": request.project_id,
+                    "cleared_models": _clear_model_log_offsets(
+                        context.workspace_root,
+                        project_id=request.project_id,
+                        model_ids=model_ids,
+                    ),
+                }
+            )
+
+        @router.websocket("/v1/launcher/models/logs/stream")
+        async def launcher_models_logs_stream(
+            websocket: WebSocket,
+            project_id: str,
+            model_ids: str | None = None,
+        ) -> None:
+            await websocket.accept()
+            context = context_provider()
+            selected_model_ids = _split_csv_values(model_ids) or _all_runtime_model_ids(context.workspace_root, project_id)
+            offsets: dict[str, int] = {}
+            try:
+                while True:
+                    for model_id in selected_model_ids:
+                        record = _runtime_phonebook_record(context.workspace_root, project_id, model_id) or {}
+                        clear_offsets = _log_clear_offsets(record)
+                        for source in _model_log_sources(context.workspace_root, project_id=project_id, model_id=model_id):
+                            path = Path(source["path"])
+                            key = _source_key(source["source_kind"], path)
+                            start_offset = max(offsets.get(key, 0), clear_offsets.get(key, 0))
+                            lines, end_offset = _read_log_lines(path, offset=start_offset, tail=0)
+                            offsets[key] = end_offset
+                            for offset, line in lines:
+                                await websocket.send_json(
+                                    {
+                                        "resource_type": "robotick_launcher_model_log_event",
+                                        "project_id": project_id,
+                                        "model_id": model_id,
+                                        "source_kind": source["source_kind"],
+                                        "path": str(path),
+                                        "offset": offset,
+                                        "line": line,
+                                        "timestamp": _utc_now().isoformat(),
+                                    }
+                                )
+                    await asyncio.sleep(0.25)
+            except WebSocketDisconnect:
+                return
+
+        @router.get("/v1/launcher/models/{model_id}/logs", response_class=JSONResponse)
+        def launcher_model_logs(
+            model_id: str,
+            project_id: str = Query(..., description="Project id/name"),
+            tail: int = Query(200, ge=0, le=5000),
+        ) -> JSONResponse:
+            context = context_provider()
+            return JSONResponse(
+                _model_log_snapshot(
+                    context.workspace_root,
+                    project_id=project_id,
+                    model_id=model_id,
+                    tail=tail,
+                )
+            )
+
+        @router.post("/v1/launcher/models/{model_id}/logs/clear", response_class=JSONResponse)
+        def launcher_model_logs_clear(
+            model_id: str,
+            request: LauncherModelLogsClearRequest,
+        ) -> JSONResponse:
+            context = context_provider()
+            return JSONResponse(
+                {
+                    "resource_type": "robotick_launcher_model_logs_clear_result",
+                    "project_id": request.project_id,
+                    "cleared_models": _clear_model_log_offsets(
+                        context.workspace_root,
+                        project_id=request.project_id,
+                        model_ids=[model_id],
+                    ),
+                }
             )
 
         @router.post("/v1/launcher/models/stop", response_class=JSONResponse)
@@ -1771,6 +2119,7 @@ class LauncherAbility:
                 request.project_name,
                 project_path,
                 resolved,
+                clear_logs=request.clear_logs,
             )
             return JSONResponse(
                 {

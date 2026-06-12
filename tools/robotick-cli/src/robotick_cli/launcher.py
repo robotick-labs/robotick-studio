@@ -199,12 +199,13 @@ def handle_logs_command(ctx: AppContext, args: list[str]) -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln(
             "Usage:\n"
-            "  robotick launcher logs [--group <id> | --project <project> | --session <id>] [--model <id>]\n"
+            "  robotick launcher logs --project <project> [--model <id> | --models <id,...>] [--tail <n>]\n"
+            "  robotick launcher logs [--group <id> | --session <id>] [--model <id>]\n"
         )
         return
     parsed = parse_launcher_args(
         args,
-        value_flags={"--group", "--session", "--project", "--model", "--models"},
+        value_flags={"--group", "--session", "--project", "--model", "--models", "--tail"},
         repeatable_flags={"--session", "--model"},
         boolean_flags={"--json"},
     )
@@ -215,8 +216,19 @@ def handle_logs_command(ctx: AppContext, args: list[str]) -> None:
 
     session_ids = selection["session_ids"]
     model_ids = selection["model_ids"]
+    tail = single_flag_value(parsed, "--tail")
     if len(session_ids) == 1 and not selection["group_id"] and not selection["project_id"] and not model_ids:
         write_json(fetch_hub_json(record, f"/v1/launcher/sessions/{session_ids[0]}/logs"))
+        return
+
+    if selection["project_id"] and not selection["group_id"] and not session_ids:
+        query_params = {"project_id": selection["project_id"]}
+        if model_ids:
+            query_params["model_ids"] = ",".join(model_ids)
+        if tail:
+            query_params["tail"] = tail
+        path = f"/v1/launcher/models/logs?{urlencode(query_params)}"
+        write_json(fetch_hub_json(record, path))
         return
 
     group = resolve_group_selection(payload, selection, command_name="launcher logs")

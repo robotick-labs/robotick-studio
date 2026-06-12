@@ -348,6 +348,9 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         projectPendingModelTargets(prev, { ...pendingModelTargetsRef.current, [modelId]: "running" })
       );
       wakeFastPolling();
+      launcherEvents.dispatchEvent(
+        new CustomEvent("run-requested", { detail: { modelId } })
+      );
       try {
         await launcherService.requestLauncherRunModel(projectPath, platform, modelId);
       } catch (err) {

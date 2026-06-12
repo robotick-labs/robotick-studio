@@ -52,6 +52,16 @@ Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--lo
 
 Use `--model <id>` or `--models <id,...>` for per-model/subset control. Whole-project control is model fan-out, not a first-class group operation.
 
+### Inspect Studio Terminal log sources without opening Terminal
+
+```bash
+./tools/robotick launcher logs --project <project> --tail 200
+./tools/robotick launcher logs --project <project> --model <model-id> --tail 200
+./tools/robotick launcher logs --project <project> --models <model-a>,<model-b> --tail 200
+```
+
+Use this for agentic log/terminal access. The hub exposes per-model/per-source log channels such as `launcher-worker`, `launcher-control`, and `model-runtime`; Studio Terminal aggregates those channels for display and labels each line with model id plus source kind. Hub and Studio process logs are intentionally separate diagnostics and are not included in the Terminal aggregation by default.
+
 ## Workbench Glossary
 
 These are the current common main-window workbench ids used in Studio project documents.

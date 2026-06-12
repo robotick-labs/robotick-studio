@@ -762,7 +762,7 @@ def test_launcher_stop_rejects_legacy_group_or_session_selection(
         )
 
 
-def test_launcher_logs_prefers_session_route_and_supports_group_filters(
+def test_launcher_logs_prefers_model_resources_and_keeps_session_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -801,7 +801,14 @@ def test_launcher_logs_prefers_session_route_and_supports_group_filters(
         ["logs", "--project", "barr-e", "--model", "brain"],
     )
     assert result.exit_code == 0
-    assert captured["path"] == "/v1/launcher/groups/msg_barr/logs?model_ids=brain"
+    assert captured["path"] == "/v1/launcher/models/logs?project_id=barr-e&model_ids=brain"
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["logs", "--project", "barr-e", "--models", "brain,face", "--tail", "50"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/logs?project_id=barr-e&model_ids=brain%2Cface&tail=50"
 
 
 def test_launcher_wait_ready_polls_until_session_is_ready(

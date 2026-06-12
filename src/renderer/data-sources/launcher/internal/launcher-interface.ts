@@ -52,10 +52,20 @@ export function buildUrl(
   return url.toString();
 }
 
-export function buildWebSocketUrl(baseUrl: string, path: string): string {
+export function buildWebSocketUrl(
+  baseUrl: string,
+  path: string,
+  params?: Record<string, string | number | undefined>
+): string {
   const url =
     tryBuildRoutedTelemetryUrl(baseUrl, path) ??
     new URL(path, ensureTrailingSlash(baseUrl));
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined) continue;
+      url.searchParams.set(key, String(value));
+    }
+  }
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
@@ -1475,8 +1485,78 @@ export async function fetchLauncherStatus(): Promise<LegacyLauncherStatus | null
   };
 }
 
+export type LauncherModelLogEvent = {
+  project_id: string;
+  model_id: string;
+  source_kind: string;
+  path: string;
+  offset: number;
+  line: string;
+  timestamp?: string;
+};
+
+export type LauncherModelLogsSnapshot = {
+  resource_type: "robotick_launcher_model_logs";
+  project_id: string;
+  model_id: string;
+  sources: Array<{
+    source_kind: string;
+    path: string;
+    label?: string;
+    clear_offset?: number;
+    read_offset?: number;
+    available?: boolean;
+  }>;
+  events: LauncherModelLogEvent[];
+};
+
+export type LauncherModelLogsBatch = {
+  resource_type: "robotick_launcher_model_logs_batch";
+  project_id: string;
+  models: LauncherModelLogsSnapshot[];
+};
+
 export function getLauncherLogStreamUrl(): string {
-  return "";
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return "";
+  }
+  return buildWebSocketUrl(
+    getLauncherApiBaseSync(),
+    "/v1/launcher/models/logs/stream",
+    {
+      project_id: projectName,
+    }
+  );
+}
+
+export async function fetchLauncherLogSnapshot(
+  tail = 300
+): Promise<LauncherModelLogsBatch | null> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return null;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs", {
+    project_id: projectName,
+    tail,
+  });
+  return await tryFetchJSON<LauncherModelLogsBatch>(url);
+}
+
+export async function requestLauncherLogClear(): Promise<void> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs/clear");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_id: projectName }),
+  });
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
@@ -1695,6 +1775,8 @@ const currentProject: LauncherService = {
   requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
+  fetchLauncherLogSnapshot,
+  requestLauncherLogClear,
 };
 
 export default currentProject;

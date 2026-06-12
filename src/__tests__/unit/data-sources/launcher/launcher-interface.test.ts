@@ -1198,6 +1198,60 @@ describe("launcher-interface gateway telemetry resolution", () => {
     ).toContain("http://127.0.0.1:44493/query/project-assets/assets/demo.glb");
   });
 
+  it("builds and uses hub-backed per-model log resources for the selected project", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/barr-e/barr-e.project.yaml";
+      }
+      return "";
+    });
+    vi.stubGlobal("window", {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:44493",
+        },
+      },
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/models/logs") {
+        expect(url.origin).toBe("http://127.0.0.1:44493");
+        expect(url.searchParams.get("project_id")).toBe("barr-e");
+        expect(url.searchParams.get("tail")).toBe("50");
+        return createJsonResponse({
+          resource_type: "robotick_launcher_model_logs_batch",
+          project_id: "barr-e",
+          models: [],
+        });
+      }
+      if (url.pathname === "/v1/launcher/models/logs/clear") {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ project_id: "barr-e" });
+        return createJsonResponse({
+          resource_type: "robotick_launcher_model_logs_clear_result",
+          project_id: "barr-e",
+          cleared_models: [],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    expect(launcherInterface.getLauncherLogStreamUrl()).toBe(
+      "ws://127.0.0.1:44493/v1/launcher/models/logs/stream?project_id=barr-e"
+    );
+    await expect(launcherInterface.fetchLauncherLogSnapshot(50)).resolves.toMatchObject({
+      project_id: "barr-e",
+      models: [],
+    });
+    await expect(launcherInterface.requestLauncherLogClear()).resolves.toBeUndefined();
+  });
+
   it("prefers the current hub endpoint bridge over the startup environment endpoint", async () => {
     vi.mocked(readStorageValue).mockImplementation((key: string) =>
       key === "robotick-studio.projectPath"

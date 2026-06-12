@@ -200,7 +200,7 @@ The practical command shape becomes:
 - `launch`: resolve a project/model selector, fan out selected model launches, and return launched/skipped model ids plus runtime projection.
 - `wait-ready`: wait for selected runtime readiness, while reporting service-level readiness separately from runtime readiness.
 - `status`: report ability health and per-model runtime lifecycle without relying on ambient singleton launcher state.
-- `logs`: return launcher worker, build, startup, and runtime log references scoped to available diagnostics.
+- `logs`: return per-model/per-source launcher worker, control, startup, and runtime log references scoped to available diagnostics.
 - `stop`: stop a project, explicit model, or explicit model set by fan-out across the selected models.
 - `restart`: simple stop-plus-launch for a project, explicit model, or explicit model set.
 
@@ -210,7 +210,9 @@ Current implementation clarification:
 - `launch`, `stop`, and `restart` use `/v1/launcher/models/*`; group/session records are diagnostic/history scaffolding in the MVP path.
 - Launcher group/session responses now include hardened convenience fields such as `resolved_scope`, `target_policy`, `stage_policy`, `creator`, `freshness`, `actionable_diagnostics`, and per-session `log_refs`, so Studio and CLI do not need to reconstruct those views independently.
 - `wait-ready` now benefits from launcher refresh logic that hands sessions off to runtime authority when live health succeeds, and reduces them to `stale` when live confirmation ages out.
-- `logs` now exposes launcher worker/control log references plus runtime probe references from the stored session runtime metadata.
+- `logs` now exposes per-model log snapshots from hub model-log resources, with diagnostic group/session log access kept as fallback for explicit session or group inspection.
+- Studio Terminal is a read-only aggregation of hub per-model log channels. Hub does not create or own a whole-project aggregate log file.
+- Terminal clear-on-run resets hub UI-log cursors for selected model channels and never truncates raw diagnostic log files.
 - Studio now discovers launcher state from the per-model runtime projection in `/v1/launcher/status`, rather than by binding to a hidden singleton launcher process owned by the renderer.
 
 ## Resource Model
@@ -434,7 +436,7 @@ Current implementation clarification:
 - Persisted state is never presented as live unless it has been recently confirmed.
 - `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on hub-hosted launcher resources, with current state derived from per-model runtime truth.
 - Service-level readiness is reported separately from group/session runtime readiness.
-- Per-model build, launch, runtime, and failure details are agent-accessible without attaching to terminals manually.
+- Per-model build, launch, runtime, and failure details are agent-accessible through `robotick launcher logs --project <project> [--model <id> | --models <id,...>]`, without attaching to terminals manually.
 - Legacy ambient launcher status/control paths are removed or replaced by model runtime resources.
 
 ## Open Decisions

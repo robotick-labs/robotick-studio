@@ -1390,6 +1390,142 @@ def test_launcher_model_stop_and_restart_target_selected_models_only(
     assert [model_by_session_id[session_id] for session_id in stopped_sessions] == ["face", "brain"]
 
 
+def test_launcher_model_logs_snapshot_and_clear_use_per_model_offsets() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+    log_path.write_text("old one\nold two\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(log_path),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        first = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+        clear = client.post(
+            "/v1/launcher/models/brain/logs/clear",
+            json={"project_id": "barr-e"},
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write("new one\n")
+        second = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+
+    assert first.status_code == 200
+    assert [event["line"] for event in first.json()["events"]] == ["old one", "old two"]
+    assert all(isinstance(event.get("timestamp"), str) for event in first.json()["events"])
+    assert first.json()["sources"][0]["source_kind"] == "launcher-worker"
+    assert clear.status_code == 200
+    assert clear.json()["cleared_models"][0]["model_id"] == "brain"
+    assert second.status_code == 200
+    assert [event["line"] for event in second.json()["events"]] == ["new one"]
+
+
+def test_launcher_model_logs_batch_keeps_models_and_sources_separate() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    brain_log = log_dir / "brain.log"
+    face_log = log_dir / "face.log"
+    brain_log.write_text("brain line\n", encoding="utf-8")
+    face_log.write_text("face line\n", encoding="utf-8")
+    for model_id, path in {"brain": brain_log, "face": face_log}.items():
+        ability._write_runtime_phonebook_record(
+            str(workspace),
+            {
+                "project_id": "barr-e",
+                "model_id": model_id,
+                "log_path": str(path),
+                "last_session_id": f"ms_{model_id}",
+            },
+        )
+
+    with build_client(workspace) as client:
+        response = client.get(
+            "/v1/launcher/models/logs",
+            params={"project_id": "barr-e", "model_ids": "brain,face", "tail": 10},
+        )
+
+    assert response.status_code == 200
+    models = {model["model_id"]: model for model in response.json()["models"]}
+    assert [event["line"] for event in models["brain"]["events"]] == ["brain line"]
+    assert [event["line"] for event in models["face"]["events"]] == ["face line"]
+
+
+def test_launcher_model_logs_reject_unsafe_paths() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    unsafe_log = Path(tempfile.mkdtemp()) / "outside.log"
+    unsafe_log.write_text("should not leak\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(unsafe_log),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+    assert response.json()["events"] == []
+
+
+def test_launcher_model_logs_stream_emits_labelled_per_model_events() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+    log_path.write_text("stream line\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(log_path),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        with client.websocket_connect(
+            "/v1/launcher/models/logs/stream?project_id=barr-e&model_ids=brain"
+        ) as websocket:
+            event = websocket.receive_json()
+
+    assert event["resource_type"] == "robotick_launcher_model_log_event"
+    assert event["project_id"] == "barr-e"
+    assert event["model_id"] == "brain"
+    assert event["source_kind"] == "launcher-worker"
+    assert event["line"] == "stream line"
+    assert isinstance(event["timestamp"], str)
+
+
 def test_launcher_allows_new_all_run_when_previous_group_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
