@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { AnsiUp } from "ansi_up";
 import { terminalLogService } from "../../../data-sources/launcher";
+import type { TerminalLogMessage } from "../../../data-sources/launcher";
 import {
   definePanelPersistence,
   defineStudioPanel,
@@ -19,6 +20,31 @@ const DEFAULT_TERMINAL_PANEL_SETTINGS: TerminalPanelSettings = {
   wrapText: true,
   autoScroll: true,
 };
+
+function padTimePart(value: number, length = 2): string {
+  return value.toString().padStart(length, "0");
+}
+
+export function formatTerminalDisplayTime(timestamp?: string): string {
+  const date = timestamp ? new Date(timestamp) : new Date();
+  if (!Number.isFinite(date.getTime())) {
+    return "00:00:00.000";
+  }
+  return `${padTimePart(date.getHours())}:${padTimePart(
+    date.getMinutes()
+  )}:${padTimePart(date.getSeconds())}.${padTimePart(
+    date.getMilliseconds(),
+    3
+  )}`;
+}
+
+function terminalMessageText(message: TerminalLogMessage): string {
+  if (message.kind === "text") {
+    return message.text;
+  }
+  const event = message.event;
+  return `${formatTerminalDisplayTime(event.timestamp)} ${event.model_id} ${event.source_kind} ${event.line}`;
+}
 
 export const terminalPagePersistence =
   definePanelPersistence<TerminalPanelSettings>({
@@ -81,11 +107,33 @@ export function TerminalPage() {
     if (!ansiUp) return null;
 
     return messages
-      .filter((msg) =>
-        filter ? msg.toLowerCase().includes(filter.toLowerCase()) : true
+      .filter((message) =>
+        filter
+          ? terminalMessageText(message)
+              .toLowerCase()
+              .includes(filter.toLowerCase())
+          : true
       )
-      .map((msg, i) => {
-        const html = ansiUp.ansi_to_html(msg);
+      .map((message, i) => {
+        if (message.kind === "launcher-event") {
+          const event = message.event;
+          const html = ansiUp.ansi_to_html(event.line);
+          return (
+            <div key={i} className={styles.logEntry}>
+              <span className={styles.logTimestamp}>
+                {formatTerminalDisplayTime(event.timestamp)}
+              </span>
+              <span className={styles.logModel}>{event.model_id}</span>
+              <span className={styles.logSource}>{event.source_kind}</span>
+              <span
+                className={styles.logMessage}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            </div>
+          );
+        }
+
+        const html = ansiUp.ansi_to_html(message.text);
         return <div key={i} dangerouslySetInnerHTML={{ __html: html }} />;
       });
   }

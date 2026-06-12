@@ -7,9 +7,19 @@ import { isAppQuitting } from "../../../utils/appQuitting";
 
 type TerminalLogSubscriber = () => void;
 
+export type TerminalLogMessage =
+  | {
+      kind: "text";
+      text: string;
+    }
+  | {
+      kind: "launcher-event";
+      event: LauncherModelLogEvent;
+    };
+
 export interface TerminalLogService {
   subscribe(listener: TerminalLogSubscriber): () => void;
-  getMessages(): string[];
+  getMessages(): TerminalLogMessage[];
   clearMessages(): void;
   getClearOnRun(): boolean;
   setClearOnRun(enabled: boolean): void;
@@ -40,32 +50,30 @@ const RECONNECT_MIN_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 8000;
 const SNAPSHOT_TAIL_LINES = 300;
 
-function padDatePart(value: number): string {
-  return value.toString().padStart(2, "0");
-}
-
-export function formatTerminalLogTimestamp(timestamp?: string): string {
-  const date = timestamp ? new Date(timestamp) : new Date();
-  if (!Number.isFinite(date.getTime())) {
-    return "0000-00-00 00:00:00";
+export function parseTerminalLogMessage(text: string): TerminalLogMessage {
+  try {
+    const parsed = JSON.parse(text) as Partial<LauncherModelLogEvent> & {
+      resource_type?: string;
+    };
+    if (
+      parsed.resource_type === "robotick_launcher_model_log_event" &&
+      typeof parsed.model_id === "string" &&
+      typeof parsed.source_kind === "string" &&
+      typeof parsed.line === "string"
+    ) {
+      return {
+        kind: "launcher-event",
+        event: parsed as LauncherModelLogEvent,
+      };
+    }
+  } catch {
+    // Plain text streams remain supported for diagnostics and compatibility.
   }
-  return `${date.getUTCFullYear()}-${padDatePart(
-    date.getUTCMonth() + 1
-  )}-${padDatePart(date.getUTCDate())} ${padDatePart(
-    date.getUTCHours()
-  )}:${padDatePart(date.getUTCMinutes())}:${padDatePart(
-    date.getUTCSeconds()
-  )}`;
-}
-
-export function formatTerminalLogEvent(event: LauncherModelLogEvent): string {
-  return `${formatTerminalLogTimestamp(event.timestamp)} [${event.model_id}][${
-    event.source_kind
-  }] ${event.line}`;
+  return { kind: "text", text };
 }
 
 class TerminalLogServiceImpl implements TerminalLogService {
-  private messages: string[] = [];
+  private messages: TerminalLogMessage[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
   private ws: WebSocket | null = null;
   private reconnectTask = createPollingTask(
@@ -157,7 +165,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
       }
       const events = snapshot.models.flatMap((model) => model.events ?? []);
       for (const event of events) {
-        this.pushMessage(formatTerminalLogEvent(event));
+        this.pushMessage({ kind: "launcher-event", event });
       }
     } catch (error) {
       console.warn("[terminal] Failed to load log snapshot:", error);
@@ -211,7 +219,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
     ws.onmessage = async (event) => {
       const text = await this.normalizeEventData(event.data);
-      this.pushMessage(this.formatIncomingMessage(text));
+      this.pushMessage(this.parseIncomingMessage(text));
     };
   }
 
@@ -246,7 +254,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
     }
   };
 
-  private pushMessage(message: string) {
+  private pushMessage(message: TerminalLogMessage) {
     const next = [...this.messages, message];
     if (next.length > MAX_MESSAGES) {
       this.messages = next.slice(next.length - MAX_MESSAGES);
@@ -286,23 +294,8 @@ class TerminalLogServiceImpl implements TerminalLogService {
     return String(data);
   }
 
-  private formatIncomingMessage(text: string): string {
-    try {
-      const parsed = JSON.parse(text) as Partial<LauncherModelLogEvent> & {
-        resource_type?: string;
-      };
-      if (
-        parsed.resource_type === "robotick_launcher_model_log_event" &&
-        typeof parsed.model_id === "string" &&
-        typeof parsed.source_kind === "string" &&
-        typeof parsed.line === "string"
-      ) {
-        return formatTerminalLogEvent(parsed as LauncherModelLogEvent);
-      }
-    } catch {
-      // fall through to plain text
-    }
-    return text;
+  private parseIncomingMessage(text: string): TerminalLogMessage {
+    return parseTerminalLogMessage(text);
   }
 }
 

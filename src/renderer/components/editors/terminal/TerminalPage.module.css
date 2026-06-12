@@ -76,3 +76,42 @@
   overflow-x: auto;
   font-size: large;
 }
+
+.logEntry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.logTimestamp {
+  flex: 0 0 auto;
+  color: #ffd15c;
+  font-weight: 700;
+}
+
+.logModel {
+  flex: 0 0 auto;
+  color: #8fd7ff;
+}
+
+.logSource {
+  flex: 0 0 auto;
+  color: #66d39e;
+  opacity: 0.82;
+}
+
+.logModel::before,
+.logSource::before {
+  content: "[";
+  color: #647081;
+}
+
+.logModel::after,
+.logSource::after {
+  content: "]";
+  color: #647081;
+}
+
+.logMessage {
+  min-width: 0;
+}

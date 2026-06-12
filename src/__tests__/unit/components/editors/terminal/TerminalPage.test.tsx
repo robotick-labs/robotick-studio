@@ -13,7 +13,10 @@ const terminalLogServiceMock = vi.hoisted(() => {
         subscribers.delete(listener);
       };
     }),
-    getMessages: vi.fn(() => ["alpha log", "beta log"]),
+    getMessages: vi.fn(() => [
+      { kind: "text", text: "alpha log" },
+      { kind: "text", text: "beta log" },
+    ]),
     clearMessages: vi.fn(),
     getClearOnRun: vi.fn(() => true),
     setClearOnRun: vi.fn(),
@@ -25,7 +28,9 @@ vi.mock("../../../../../renderer/data-sources/launcher", () => ({
   terminalLogService: terminalLogServiceMock.service,
 }));
 
-import TerminalPage from "../../../../../renderer/components/editors/terminal/TerminalPage";
+import TerminalPage, {
+  formatTerminalDisplayTime,
+} from "../../../../../renderer/components/editors/terminal/TerminalPage";
 import { PanelInstanceProvider } from "../../../../../renderer/components/workbenches/PanelInstanceContext";
 
 function PanelHost({
@@ -74,6 +79,49 @@ describe("TerminalPage panel settings", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    terminalLogServiceMock.service.getMessages.mockReturnValue([
+      { kind: "text", text: "alpha log" },
+      { kind: "text", text: "beta log" },
+    ]);
+  });
+
+  it("lets Studio render structured launcher log events with readable timestamps", async () => {
+    terminalLogServiceMock.service.getMessages.mockReturnValue([
+      {
+        kind: "launcher-event",
+        event: {
+          project_id: "barr-e",
+          model_id: "barr-e-face",
+          source_kind: "launcher-worker",
+          path: "/tmp/face.log",
+          offset: 12,
+          line: "face ready",
+          timestamp: "2026-06-12T13:54:27.140Z",
+        },
+      },
+    ]);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelHost panelId="panel-a" workbenchId="workbench">
+          <TerminalPage />
+        </PanelHost>
+      );
+      await Promise.resolve();
+    });
+
+    expect(formatTerminalDisplayTime("2026-06-12T13:54:27.140Z")).toMatch(
+      /^\d{2}:\d{2}:\d{2}\.140$/
+    );
+    expect(container.textContent).toContain("barr-e-face");
+    expect(container.textContent).toContain("launcher-worker");
+    expect(container.textContent).toContain("face ready");
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("stores the text filter per panel instance", async () => {

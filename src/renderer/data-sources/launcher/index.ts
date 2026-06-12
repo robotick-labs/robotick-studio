@@ -181,4 +181,5 @@ export { createMockLauncherService } from "./internal/__mocks__/LauncherService"
 export {
   terminalLogService,
   type TerminalLogService,
+  type TerminalLogMessage,
 } from "./internal/terminal-log-service";
