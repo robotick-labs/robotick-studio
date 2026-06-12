@@ -383,7 +383,8 @@ def test_launcher_status_endpoint_reports_embedded_ability_health() -> None:
             "state": "stopped",
             "models": [],
         }
-        assert status_response.json()["groups"] == []
+        assert "groups" not in status_response.json()
+        assert "sessions" not in status_response.json()
 
 
 def test_launcher_runtime_endpoint_projects_live_per_model_truth(
@@ -531,7 +532,7 @@ def test_launcher_status_does_not_probe_stopped_sessions(
     monkeypatch.setattr("robotick.launcher.hub_ability.ability._probe_runtime_authority", fail_probe)
 
     with build_client(workspace) as client:
-        status_response = client.get("/v1/launcher/status")
+        status_response = client.get(f"/v1/launcher/groups/{group.id}/sessions")
 
         assert status_response.status_code == 200
         session = status_response.json()["sessions"][0]
@@ -791,9 +792,8 @@ def test_launcher_status_and_group_resources_expose_failed_and_stale_payloads() 
         missing_session = client.get("/v1/launcher/sessions/ms_missing")
 
         assert status_response.status_code == 200
-        group_statuses = {group["id"]: group["status"] for group in status_response.json()["groups"]}
-        assert group_statuses["msg_failed"] == "failed"
-        assert group_statuses["msg_stale"] == "stale"
+        assert "groups" not in status_response.json()
+        assert "sessions" not in status_response.json()
         assert failed_group.status_code == 200
         assert failed_group.json()["readiness"] == "failed"
         assert stale_group.status_code == 200

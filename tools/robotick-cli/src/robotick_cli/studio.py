@@ -138,17 +138,10 @@ def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
     if project_name:
         runtime_path = f"{runtime_path}?{urlencode({'project_id': project_name})}"
     hub_runtime = fetch_hub_json(record, runtime_path)
-    status_payload = fetch_hub_json(record, "/v1/launcher/status")
-    if project_name:
-        status_payload = launcher_cli.filter_status_payload(
-            status_payload,
-            {
-                "group_id": None,
-                "project_id": project_name,
-                "session_ids": [],
-                "model_ids": [],
-            },
-        )
+    status_payload = {
+        "resource_type": "robotick_launcher_status",
+        "runtime": hub_runtime,
+    }
     studio_projection = launcher_cli.format_launcher_status_payload(status_payload)
     raw_state = str(hub_runtime.get("state") or hub_runtime.get("status") or "")
     projected_state = str((studio_projection.get("service") or {}).get("state") or "")

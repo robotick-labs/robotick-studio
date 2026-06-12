@@ -129,42 +129,40 @@ export function LauncherControls() {
             tooltipSummary={tooltipSummary}
           />
         </button>
-        <div className={styles.statusTooltip} role="menu" aria-label="Launcher model controls">
+          <div className={styles.statusTooltip} role="menu" aria-label="Launcher model controls">
           <div className={styles.statusTooltipTitle}>Launcher Models</div>
-          {tooltipSummary.running.length > 0 ? (
-            <div className={styles.statusTooltipSection}>
-              <div className={styles.statusTooltipLabel}>Running</div>
-              {tooltipSummary.running.map((model) => (
-                <ModelStatusRow
-                  key={model.name}
-                  model={model}
-                  isBusy={isBusy}
-                  isAwaitingStatus={isAwaitingStatus}
-                  stopModel={stopModel}
-                  runModel={runModel}
-                  restartModel={restartModel}
-                />
-              ))}
-            </div>
-          ) : null}
-          {tooltipSummary.notRunning.length > 0 ? (
-            <div className={styles.statusTooltipSection}>
-              <div className={styles.statusTooltipLabel}>Not Running</div>
-              {tooltipSummary.notRunning.map((model) => (
-                <ModelStatusRow
-                  key={model.name}
-                  model={model}
-                  isBusy={isBusy}
-                  isAwaitingStatus={isAwaitingStatus}
-                  stopModel={stopModel}
-                  runModel={runModel}
-                  restartModel={restartModel}
-                />
-              ))}
-            </div>
-          ) : null}
+          {renderModelSection("Running", tooltipSummary.running, {
+            isBusy,
+            isAwaitingStatus,
+            stopModel,
+            runModel,
+            restartModel,
+          })}
+          {renderModelSection("Unhealthy", tooltipSummary.unhealthy, {
+            isBusy,
+            isAwaitingStatus,
+            stopModel,
+            runModel,
+            restartModel,
+          })}
+          {renderModelSection("Pending", tooltipSummary.pending, {
+            isBusy,
+            isAwaitingStatus,
+            stopModel,
+            runModel,
+            restartModel,
+          })}
+          {renderModelSection("Stopped", tooltipSummary.stopped, {
+            isBusy,
+            isAwaitingStatus,
+            stopModel,
+            runModel,
+            restartModel,
+          })}
           {tooltipSummary.running.length === 0 &&
-          tooltipSummary.notRunning.length === 0 ? (
+          tooltipSummary.unhealthy.length === 0 &&
+          tooltipSummary.pending.length === 0 &&
+          tooltipSummary.stopped.length === 0 ? (
             <div className={styles.statusTooltipEmpty}>
               No launcher model status available.
             </div>
@@ -185,6 +183,7 @@ type TooltipRow = {
   name: string;
   modelId: string;
   isRunning: boolean;
+  group: TooltipGroup;
   modelStatus: LauncherStatus;
   stateLabel: string;
   launcherStage: string | null;
@@ -194,6 +193,33 @@ type TooltipRow = {
   launcherFreshness: string | null;
   healthAlive: boolean;
 };
+
+type TooltipGroup = "running" | "unhealthy" | "pending" | "stopped";
+
+type ModelSectionHandlers = {
+  isBusy: boolean;
+  isAwaitingStatus: boolean;
+  stopModel: (modelId: string) => Promise<void>;
+  runModel: (modelId: string) => Promise<void>;
+  restartModel: (modelId: string) => Promise<void>;
+};
+
+function renderModelSection(
+  label: string,
+  models: TooltipRow[],
+  handlers: ModelSectionHandlers
+) {
+  if (models.length === 0) return null;
+
+  return (
+    <div className={styles.statusTooltipSection}>
+      <div className={styles.statusTooltipLabel}>{label}</div>
+      {models.map((model) => (
+        <ModelStatusRow key={model.name} model={model} {...handlers} />
+      ))}
+    </div>
+  );
+}
 
 function ModelStatusRow({
   model,
@@ -276,10 +302,8 @@ function ModelStatusRow({
             status={model.modelStatus}
             robotAlive={model.healthAlive || model.modelStatus !== "running"}
             tooltipSummary={{
-              running:
-                model.modelStatus === "running" ? [{ name: model.name }] : [],
-              notRunning:
-                model.modelStatus !== "running" ? [{ name: model.name }] : [],
+              running: model.group === "running" ? [{ name: model.name }] : [],
+              notRunning: model.group !== "running" ? [{ name: model.name }] : [],
             }}
           />
         </div>
@@ -297,8 +321,6 @@ function buildTooltipSummary(
       lifecycle?: string;
       readiness?: string;
       freshness?: string;
-      groupId?: string;
-      sessionId?: string;
       diagnostics?: Array<{ code?: string; message?: string }>;
       logRefs?: Array<{ kind?: string; path?: string }>;
     }
@@ -315,6 +337,9 @@ function buildTooltipSummary(
   projectModels: Array<{ modelShortName: string }>
 ): {
   running: TooltipRow[];
+  unhealthy: TooltipRow[];
+  pending: TooltipRow[];
+  stopped: TooltipRow[];
   notRunning: TooltipRow[];
 } {
   const modelKeys = projectModels
@@ -329,7 +354,9 @@ function buildTooltipSummary(
   ).sort((left, right) => left.localeCompare(right));
 
   const running: TooltipRow[] = [];
-  const notRunning: TooltipRow[] = [];
+  const unhealthy: TooltipRow[] = [];
+  const pending: TooltipRow[] = [];
+  const stopped: TooltipRow[] = [];
 
   for (const name of names) {
     const launcherModel = launcherModels[name];
@@ -342,38 +369,39 @@ function buildTooltipSummary(
     const launcherFreshness = launcherModel?.freshness ?? null;
     const healthAlive = health?.alive === true;
 
-    if (presentation.isRunning) {
-      running.push({
-        name,
-        modelId: name,
-        isRunning: true,
-        modelStatus: presentation.modelStatus,
-        stateLabel: presentation.stateLabel,
-        launcherStage,
-        launcherStatus,
-        launcherLifecycle,
-        launcherReadiness,
-        launcherFreshness,
-        healthAlive,
-      });
+    const row: TooltipRow = {
+      name,
+      modelId: name,
+      isRunning: presentation.modelStatus === "running",
+      group: presentation.group,
+      modelStatus: presentation.modelStatus,
+      stateLabel: presentation.stateLabel,
+      launcherStage,
+      launcherStatus,
+      launcherLifecycle,
+      launcherReadiness,
+      launcherFreshness,
+      healthAlive,
+    };
+
+    if (presentation.group === "running") {
+      running.push(row);
+    } else if (presentation.group === "unhealthy") {
+      unhealthy.push(row);
+    } else if (presentation.group === "pending") {
+      pending.push(row);
     } else {
-      notRunning.push({
-        name,
-        modelId: name,
-        isRunning: false,
-        modelStatus: presentation.modelStatus,
-        stateLabel: presentation.stateLabel,
-        launcherStage,
-        launcherStatus,
-        launcherLifecycle,
-        launcherReadiness,
-        launcherFreshness,
-        healthAlive,
-      });
+      stopped.push(row);
     }
   }
 
-  return { running, notRunning };
+  return {
+    running,
+    unhealthy,
+    pending,
+    stopped,
+    notRunning: [...unhealthy, ...pending, ...stopped],
+  };
 }
 
 function deriveTooltipPresentation(
@@ -383,8 +411,6 @@ function deriveTooltipPresentation(
     lifecycle?: string;
     readiness?: string;
     freshness?: string;
-    groupId?: string;
-    sessionId?: string;
     diagnostics?: Array<{ code?: string; message?: string }>;
     logRefs?: Array<{ kind?: string; path?: string }>;
   },
@@ -402,29 +428,75 @@ function deriveTooltipPresentation(
   const readiness = launcherModel?.readiness?.trim();
 
   if (freshness === "stale" || lifecycle === "stale") {
-    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "stale" };
+    return {
+      group: "unhealthy" as TooltipGroup,
+      modelStatus: "stopped" as LauncherStatus,
+      stateLabel: "stale",
+    };
   }
   if (status === "starting") {
-    return { isRunning: true, modelStatus: "launching" as LauncherStatus, stateLabel: "launching" };
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "launching" as LauncherStatus,
+      stateLabel: "launching",
+    };
   }
   if (status === "stopping") {
-    return { isRunning: true, modelStatus: "stopping" as LauncherStatus, stateLabel: "stopping" };
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "stopping" as LauncherStatus,
+      stateLabel: "stopping",
+    };
   }
   if (
     stage === "run" &&
     (status === "running" || status === "succeeded")
   ) {
+    if (readiness === "pending" || freshness === "pending" || health?.loading) {
+      return {
+        group: "pending" as TooltipGroup,
+        modelStatus: "launching" as LauncherStatus,
+        stateLabel: "pending",
+      };
+    }
+    if (health && !health.alive) {
+      return {
+        group: "unhealthy" as TooltipGroup,
+        modelStatus: "running" as LauncherStatus,
+        stateLabel: "unhealthy",
+      };
+    }
     const stateLabel = readiness === "ready" || status === "running" ? "running" : "launched";
-    return { isRunning: true, modelStatus: "running" as LauncherStatus, stateLabel };
+    return {
+      group: "running" as TooltipGroup,
+      modelStatus: "running" as LauncherStatus,
+      stateLabel,
+    };
   }
   if (status === "failed" || lifecycle === "failed") {
-    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "failed" };
+    return {
+      group: "unhealthy" as TooltipGroup,
+      modelStatus: "stopped" as LauncherStatus,
+      stateLabel: "failed",
+    };
   }
   if (health?.loading) {
-    return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "checking" };
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "stopped" as LauncherStatus,
+      stateLabel: "checking",
+    };
   }
   if (health?.alive) {
-    return { isRunning: true, modelStatus: "running" as LauncherStatus, stateLabel: "running" };
+    return {
+      group: "running" as TooltipGroup,
+      modelStatus: "running" as LauncherStatus,
+      stateLabel: "running",
+    };
   }
-  return { isRunning: false, modelStatus: "stopped" as LauncherStatus, stateLabel: "stopped" };
+  return {
+    group: "stopped" as TooltipGroup,
+    modelStatus: "stopped" as LauncherStatus,
+    stateLabel: "stopped",
+  };
 }

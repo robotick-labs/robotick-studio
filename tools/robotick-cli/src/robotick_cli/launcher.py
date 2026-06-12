@@ -62,8 +62,8 @@ def handle_status_command(ctx: AppContext, args: list[str]) -> None:
         return
     parsed = parse_launcher_args(
         args,
-        value_flags={"--group", "--session", "--project", "--model", "--models"},
-        repeatable_flags={"--session", "--model"},
+        value_flags={"--project", "--model", "--models"},
+        repeatable_flags={"--model"},
         boolean_flags={"--json"},
     )
     ensure_no_positionals(parsed, "launcher status")
@@ -74,13 +74,15 @@ def handle_status_command(ctx: AppContext, args: list[str]) -> None:
         write_json(unavailable_launcher_status())
         return
     try:
-        payload = fetch_launcher_status_through_hub(record)
+        payload = fetch_launcher_runtime_through_hub(
+            record,
+            project_id=selection["project_id"],
+            model_ids=selection["model_ids"],
+        )
     except HubRequestError:
         write_json(unavailable_launcher_status())
         return
-    if selection["group_id"] or selection["session_ids"] or selection["project_id"] or selection["model_ids"]:
-        payload = filter_status_payload(payload, selection)
-    write_json(format_launcher_status_payload(payload))
+    write_json(format_launcher_status_payload({"resource_type": "robotick_launcher_status", "runtime": payload}))
 
 
 def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:
@@ -200,46 +202,28 @@ def handle_logs_command(ctx: AppContext, args: list[str]) -> None:
         writeln(
             "Usage:\n"
             "  robotick launcher logs --project <project> [--model <id> | --models <id,...>] [--tail <n>]\n"
-            "  robotick launcher logs [--group <id> | --session <id>] [--model <id>]\n"
         )
         return
     parsed = parse_launcher_args(
         args,
-        value_flags={"--group", "--session", "--project", "--model", "--models", "--tail"},
-        repeatable_flags={"--session", "--model"},
+        value_flags={"--project", "--model", "--models", "--tail"},
+        repeatable_flags={"--model"},
         boolean_flags={"--json"},
     )
     ensure_no_positionals(parsed, "launcher logs")
     selection = build_selection_options(parsed)
     record = ensure_hub(ctx.workspace_root)
-    payload = fetch_launcher_status_through_hub(record)
 
-    session_ids = selection["session_ids"]
     model_ids = selection["model_ids"]
     tail = single_flag_value(parsed, "--tail")
-    if len(session_ids) == 1 and not selection["group_id"] and not selection["project_id"] and not model_ids:
-        write_json(fetch_hub_json(record, f"/v1/launcher/sessions/{session_ids[0]}/logs"))
-        return
-
-    if selection["project_id"] and not selection["group_id"] and not session_ids:
-        query_params = {"project_id": selection["project_id"]}
-        if model_ids:
-            query_params["model_ids"] = ",".join(model_ids)
-        if tail:
-            query_params["tail"] = tail
-        path = f"/v1/launcher/models/logs?{urlencode(query_params)}"
-        write_json(fetch_hub_json(record, path))
-        return
-
-    group = resolve_group_selection(payload, selection, command_name="launcher logs")
-    query_params: dict[str, str] = {}
+    if not selection["project_id"]:
+        raise CliError("launcher logs requires --project.")
+    query_params = {"project_id": selection["project_id"]}
     if model_ids:
         query_params["model_ids"] = ",".join(model_ids)
-    if session_ids:
-        query_params["session_ids"] = ",".join(session_ids)
-    path = f"/v1/launcher/groups/{group['id']}/logs"
-    if query_params:
-        path = f"{path}?{urlencode(query_params)}"
+    if tail:
+        query_params["tail"] = tail
+    path = f"/v1/launcher/models/logs?{urlencode(query_params)}"
     write_json(fetch_hub_json(record, path))
 
 
@@ -252,8 +236,8 @@ def handle_stop_command(ctx: AppContext, args: list[str]) -> None:
         return
     parsed = parse_launcher_args(
         args,
-        value_flags={"--group", "--session", "--project", "--model", "--models"},
-        repeatable_flags={"--session", "--model"},
+        value_flags={"--project", "--model", "--models"},
+        repeatable_flags={"--model"},
         boolean_flags={"--json"},
     )
     ensure_no_positionals(parsed, "launcher stop")
@@ -270,8 +254,8 @@ def handle_restart_command(ctx: AppContext, args: list[str]) -> None:
         return
     parsed = parse_launcher_args(
         args,
-        value_flags={"--group", "--session", "--project", "--model", "--models"},
-        repeatable_flags={"--session", "--model"},
+        value_flags={"--project", "--model", "--models"},
+        repeatable_flags={"--model"},
         boolean_flags={"--json"},
     )
     ensure_no_positionals(parsed, "launcher restart")
@@ -283,21 +267,19 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
     if any(is_help_flag(arg) for arg in args):
         writeln(
             "Usage:\n"
-            "  robotick launcher wait-ready [--group <id> | --project <project> | --session <id>] [--model <id>] [--timeout-seconds <n>] [--poll-ms <n>]\n"
+            "  robotick launcher wait-ready --project <project> [--model <id> | --models <id,...>] [--timeout-seconds <n>] [--poll-ms <n>]\n"
         )
         return CommandResult(exit_code=0)
     parsed = parse_launcher_args(
         args,
         value_flags={
-            "--group",
-            "--session",
             "--project",
             "--model",
             "--models",
             "--timeout-seconds",
             "--poll-ms",
         },
-        repeatable_flags={"--session", "--model"},
+        repeatable_flags={"--model"},
         boolean_flags={"--json"},
     )
     ensure_no_positionals(parsed, "launcher wait-ready")
@@ -310,14 +292,20 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
 
     selection = build_selection_options(parsed)
     record = ensure_hub(ctx.workspace_root)
-    status_payload = fetch_launcher_status_through_hub(record)
-    wait_target = resolve_wait_target(status_payload, selection)
+    if not selection["project_id"]:
+        raise CliError("launcher wait-ready requires --project.")
     deadline = time.time() + timeout_seconds
     last_payload: dict[str, Any] | None = None
     while time.time() <= deadline:
-        last_payload = fetch_hub_json(record, wait_target["path"])
-        readiness = str(last_payload.get("readiness") or "pending")
-        if readiness == "ready":
+        last_payload = fetch_launcher_runtime_through_hub(
+            record,
+            project_id=selection["project_id"],
+            model_ids=selection["model_ids"],
+        )
+        models = runtime_model_payloads({"runtime": last_payload})
+        readiness_values = {str(model.get("readiness") or "pending") for model in models}
+        lifecycle_values = {str(model.get("lifecycle") or "pending") for model in models}
+        if models and readiness_values == {"ready"}:
             write_json(
                 {
                     "resource_type": "robotick_launcher_wait_ready_result",
@@ -326,11 +314,11 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
                 }
             )
             return CommandResult(exit_code=0)
-        if readiness in {"failed", "stale"}:
+        if "failed" in readiness_values or "failed" in lifecycle_values or "stale" in readiness_values:
             write_json(
                 {
                     "resource_type": "robotick_launcher_wait_ready_result",
-                    "status": readiness,
+                    "status": "failed" if "failed" in readiness_values or "failed" in lifecycle_values else "stale",
                     "target": last_payload,
                 }
             )
@@ -342,37 +330,21 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
             "resource_type": "robotick_launcher_wait_ready_result",
             "status": "timeout",
             "target": last_payload,
-            "selection": wait_target["selection"],
+            "selection": {
+                "project_id": selection["project_id"],
+                "model_ids": selection["model_ids"],
+            },
         }
     )
     return CommandResult(exit_code=1)
 
 
-def run_group_action(ctx: AppContext, parsed: dict[str, Any], *, action: str) -> dict[str, Any]:
-    selection = build_selection_options(parsed)
-    record = ensure_hub(ctx.workspace_root)
-    payload = fetch_launcher_status_through_hub(record)
-    group = resolve_group_selection(payload, selection, command_name=f"launcher {action}")
-    request_payload = {
-        "model_ids": selection["model_ids"],
-        "session_ids": selection["session_ids"],
-    }
-    return post_hub_json(
-        record,
-        f"/v1/launcher/groups/{group['id']}/{action}",
-        request_payload,
-        timeout_seconds=120,
-    )
-
-
 def run_model_action(ctx: AppContext, parsed: dict[str, Any], *, action: str) -> dict[str, Any]:
     selection = build_selection_options(parsed)
-    if selection["group_id"] or selection["session_ids"]:
-        raise CliError(f"launcher {action} now targets projects/models; use --project and --model/--models.")
     project_id = selection["project_id"]
     if not project_id:
-        payload = fetch_launcher_status_through_hub(ensure_hub(ctx.workspace_root))
-        runtime_models = runtime_model_payloads(payload)
+        runtime = fetch_launcher_runtime_through_hub(ensure_hub(ctx.workspace_root))
+        runtime_models = runtime_model_payloads({"runtime": runtime})
         project_ids = sorted(
             {
                 str(model.get("project_id") or "").strip()
@@ -481,20 +453,10 @@ def split_csv_values(raw_value: str | None) -> list[str]:
 
 def build_selection_options(parsed: dict[str, Any]) -> dict[str, Any]:
     return {
-        "group_id": single_flag_value(parsed, "--group"),
         "project_id": single_flag_value(parsed, "--project"),
-        "session_ids": collect_repeated_values(parsed, "--session"),
         "model_ids": collect_repeated_values(parsed, "--model")
         + split_csv_values(single_flag_value(parsed, "--models")),
     }
-
-
-def group_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [group for group in payload.get("groups") or [] if isinstance(group, dict)]
-
-
-def session_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [session for session in payload.get("sessions") or [] if isinstance(session, dict)]
 
 
 def runtime_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -505,140 +467,6 @@ def runtime_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
 def runtime_model_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
     runtime = runtime_payload(payload) or {}
     return [model for model in runtime.get("models") or [] if isinstance(model, dict)]
-
-
-def filter_status_payload(payload: dict[str, Any], selection: dict[str, Any]) -> dict[str, Any]:
-    groups = group_payloads(payload)
-    sessions = session_payloads(payload)
-    runtime = runtime_payload(payload)
-    runtime_models = runtime_model_payloads(payload)
-
-    requested_group_id = selection["group_id"]
-    requested_project_id = selection["project_id"]
-    requested_session_ids = set(selection["session_ids"])
-    requested_model_ids = set(selection["model_ids"])
-
-    if requested_group_id and not any(group.get("id") == requested_group_id for group in groups):
-        raise CliError(f"Unknown launcher group: {requested_group_id}")
-    if requested_session_ids:
-        found_session_ids = {str(session.get("id")) for session in sessions}
-        missing_session_ids = sorted(requested_session_ids - found_session_ids)
-        if missing_session_ids:
-            raise CliError(f"Unknown launcher session: {missing_session_ids[0]}")
-
-    filtered_groups = groups
-    filtered_sessions = sessions
-    if requested_project_id:
-        filtered_groups = [group for group in filtered_groups if group.get("project_id") == requested_project_id]
-        filtered_sessions = [session for session in filtered_sessions if session.get("project_id") == requested_project_id]
-        runtime_models = [model for model in runtime_models if model.get("project_id") == requested_project_id]
-        if not filtered_groups and not filtered_sessions and not runtime_models:
-            raise CliError(f"No launcher runtime found for project: {requested_project_id}")
-    if requested_group_id:
-        filtered_groups = [group for group in filtered_groups if group.get("id") == requested_group_id]
-        filtered_sessions = [session for session in filtered_sessions if session.get("group_id") == requested_group_id]
-    if requested_session_ids:
-        filtered_sessions = [session for session in filtered_sessions if session.get("id") in requested_session_ids]
-        session_group_ids = {str(session.get("group_id")) for session in filtered_sessions}
-        filtered_groups = [group for group in filtered_groups if group.get("id") in session_group_ids]
-    if requested_model_ids:
-        filtered_sessions = [session for session in filtered_sessions if session.get("model_id") in requested_model_ids]
-        runtime_models = [model for model in runtime_models if model.get("model_id") in requested_model_ids]
-        session_group_ids = {str(session.get("group_id")) for session in filtered_sessions}
-        filtered_groups = [group for group in filtered_groups if group.get("id") in session_group_ids]
-        if not filtered_sessions and not runtime_models:
-            raise CliError(f"No launcher runtime matched the requested model selection: {sorted(requested_model_ids)[0]}")
-
-    filtered_runtime = None
-    if runtime is not None:
-        filtered_runtime = {
-            **runtime,
-            "models": runtime_models,
-        }
-
-    return {
-        "resource_type": "robotick_launcher_status",
-        "ability": payload.get("ability"),
-        "runtime": filtered_runtime,
-        "groups": filtered_groups,
-        "sessions": filtered_sessions,
-    }
-
-
-def resolve_group_selection(
-    payload: dict[str, Any],
-    selection: dict[str, Any],
-    *,
-    command_name: str,
-) -> dict[str, Any]:
-    groups = group_payloads(payload)
-    sessions = session_payloads(payload)
-    group_id = selection["group_id"]
-    project_id = selection["project_id"]
-    session_ids = selection["session_ids"]
-
-    if group_id is not None:
-        for group in groups:
-            if group.get("id") == group_id:
-                return group
-        raise CliError(f"Unknown launcher group for '{command_name}': {group_id}")
-
-    if session_ids:
-        selected_sessions = [session for session in sessions if session.get("id") in set(session_ids)]
-        if len(selected_sessions) != len(set(session_ids)):
-            known_ids = {str(session.get('id')) for session in sessions}
-            missing = next(session_id for session_id in session_ids if session_id not in known_ids)
-            raise CliError(f"Unknown launcher session for '{command_name}': {missing}")
-        group_ids = {str(session.get("group_id")) for session in selected_sessions}
-        if len(group_ids) != 1:
-            raise CliError(f"Launcher session selection for '{command_name}' spans multiple groups; choose one group explicitly.")
-        target_group_id = next(iter(group_ids))
-        for group in groups:
-            if group.get("id") == target_group_id:
-                return group
-        raise CliError(f"Unknown launcher group for '{command_name}': {target_group_id}")
-
-    if project_id is not None:
-        project_groups = [group for group in groups if group.get("project_id") == project_id]
-        if not project_groups:
-            raise CliError(f"No launcher groups found for project '{project_id}'.")
-        if len(project_groups) > 1:
-            raise CliError(f"Multiple launcher groups found for project '{project_id}'. Use --group to disambiguate.")
-        return project_groups[0]
-
-    if len(groups) == 1:
-        return groups[0]
-    if not groups:
-        raise CliError(f"No launcher groups are available for '{command_name}'.")
-    raise CliError(f"Launcher selection for '{command_name}' is ambiguous. Use --group, --project, or --session.")
-
-
-def resolve_wait_target(payload: dict[str, Any], selection: dict[str, Any]) -> dict[str, Any]:
-    session_ids = selection["session_ids"]
-    model_ids = selection["model_ids"]
-    if len(session_ids) == 1 and not selection["group_id"] and not selection["project_id"] and not model_ids:
-        return {
-            "path": f"/v1/launcher/sessions/{session_ids[0]}",
-            "selection": {"session_id": session_ids[0]},
-        }
-
-    group = resolve_group_selection(payload, selection, command_name="launcher wait-ready")
-    if len(model_ids) == 1:
-        matching_sessions = [
-            session
-            for session in session_payloads(payload)
-            if session.get("group_id") == group.get("id") and session.get("model_id") == model_ids[0]
-        ]
-        if matching_sessions:
-            latest = max(matching_sessions, key=lambda session: int(session.get("generation") or 0))
-            return {
-                "path": f"/v1/launcher/sessions/{latest['id']}",
-                "selection": {"group_id": group["id"], "model_id": model_ids[0], "session_id": latest["id"]},
-            }
-    return {
-        "path": f"/v1/launcher/groups/{group['id']}",
-        "selection": {"group_id": group["id"]},
-    }
 
 
 def fetch_read_only_launcher_status(ctx: AppContext) -> dict[str, Any]:
@@ -656,6 +484,23 @@ def fetch_launcher_status_through_hub(record: HubRecord) -> dict[str, Any]:
     return fetch_hub_json(record, "/v1/launcher/status")
 
 
+def fetch_launcher_runtime_through_hub(
+    record: HubRecord,
+    *,
+    project_id: str | None = None,
+    model_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    query_params: dict[str, str] = {}
+    if project_id:
+        query_params["project_id"] = project_id
+    if model_ids:
+        query_params["model_ids"] = ",".join(model_ids)
+    path = "/v1/launcher/runtime"
+    if query_params:
+        path = f"{path}?{urlencode(query_params)}"
+    return fetch_hub_json(record, path)
+
+
 def unavailable_launcher_status() -> dict[str, Any]:
     return {
         "resource_type": "robotick_launcher_status",
@@ -670,7 +515,6 @@ def unavailable_launcher_status() -> dict[str, Any]:
 
 def format_launcher_status_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("resource_type") == "robotick_launcher_status":
-        groups = payload.get("groups") or []
         runtime = runtime_payload(payload)
         runtime_models = runtime_model_payloads(payload)
         if runtime is not None:
@@ -697,39 +541,15 @@ def format_launcher_status_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 },
                 "ability": payload.get("ability"),
                 "runtime": {**runtime, "status": runtime.get("status") or state},
-                "groups": groups,
-                "sessions": payload.get("sessions") or [],
             }
-
-        group_statuses = [
-            str(group.get("status") or "")
-            for group in groups
-            if isinstance(group, dict)
-        ]
-        if not group_statuses:
-            state = "stopped"
-        elif any(status == "running" for status in group_statuses):
-            state = "running"
-        elif any(status == "starting" for status in group_statuses):
-            state = "starting"
-        elif any(status == "degraded" for status in group_statuses):
-            state = "degraded"
-        elif any(status == "failed" for status in group_statuses):
-            state = "failed"
-        elif any(status == "stale" for status in group_statuses):
-            state = "stale"
-        else:
-            state = "stopped"
         return {
             "resource_type": "robotick_launcher_status",
             "service": {
-                "state": state,
+                "state": "stopped",
                 "endpoint": None,
                 "pid": None,
             },
             "ability": payload.get("ability"),
-            "groups": groups,
-            "sessions": payload.get("sessions") or [],
             "runtime": None,
         }
 

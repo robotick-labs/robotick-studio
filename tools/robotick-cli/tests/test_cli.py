@@ -390,8 +390,11 @@ def test_launcher_ensure_reads_status_without_launcher_capability_post(
         "robotick_cli.launcher.fetch_launcher_status_through_hub",
         lambda _record: {
             "resource_type": "robotick_launcher_status",
-            "groups": [],
-            "sessions": [],
+            "runtime": {
+                "resource_type": "robotick_launcher_runtime_status",
+                "state": "stopped",
+                "models": [],
+            },
         },
     )
     monkeypatch.setattr(
@@ -436,46 +439,6 @@ def test_studio_launcher_status_compares_runtime_and_projection(
                         "lifecycle": "stopped",
                         "freshness": "stopped",
                     }
-                ],
-            }
-        if path == "/v1/launcher/status":
-            return {
-                "resource_type": "robotick_launcher_status",
-                "runtime": {
-                    "resource_type": "robotick_launcher_runtime_status",
-                    "state": "stopped",
-                    "models": [
-                        {
-                            "project_id": "barr-e",
-                            "model_id": "face",
-                            "lifecycle": "stopped",
-                            "freshness": "stopped",
-                        },
-                        {
-                            "project_id": "pip-e",
-                            "model_id": "face",
-                            "lifecycle": "running",
-                            "freshness": "live",
-                        },
-                    ],
-                },
-                "groups": [
-                    {"id": "msg_stale", "project_id": "barr-e", "status": "stale"},
-                    {"id": "msg_pip", "project_id": "pip-e", "status": "running"},
-                ],
-                "sessions": [
-                    {
-                        "id": "ms_stale",
-                        "group_id": "msg_stale",
-                        "project_id": "barr-e",
-                        "model_id": "face",
-                    },
-                    {
-                        "id": "ms_pip",
-                        "group_id": "msg_pip",
-                        "project_id": "pip-e",
-                        "model_id": "face",
-                    },
                 ],
             }
         raise AssertionError(f"Unexpected path: {path}")
@@ -573,22 +536,22 @@ def test_launcher_status_filters_project_and_model_selection(
     record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
     captured: dict[str, object] = {}
     payload = {
-        "resource_type": "robotick_launcher_status",
-        "ability": {"name": "launcher", "status": "available"},
-        "groups": [
-            {"id": "msg_barr", "project_id": "barr-e", "status": "running"},
-            {"id": "msg_pip", "project_id": "pip-e", "status": "starting"},
-        ],
-        "sessions": [
-            {"id": "ms_brain", "group_id": "msg_barr", "project_id": "barr-e", "model_id": "brain"},
-            {"id": "ms_face", "group_id": "msg_barr", "project_id": "barr-e", "model_id": "face"},
-            {"id": "ms_pip", "group_id": "msg_pip", "project_id": "pip-e", "model_id": "brain"},
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "running",
+        "models": [
+            {"project_id": "barr-e", "model_id": "brain", "lifecycle": "running", "freshness": "live"},
         ],
     }
 
     monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
     monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
-    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_status_through_hub", lambda _record: payload)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
+        return payload
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
     monkeypatch.setattr(
         "robotick_cli.launcher.write_json",
         lambda result: captured.__setitem__("output", result),
@@ -599,65 +562,36 @@ def test_launcher_status_filters_project_and_model_selection(
         ["status", "--project", "barr-e", "--model", "brain"],
     )
     assert result.exit_code == 0
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
     assert captured["output"]["service"]["state"] == "running"
-    assert [group["id"] for group in captured["output"]["groups"]] == ["msg_barr"]
-    assert [session["id"] for session in captured["output"]["sessions"]] == ["ms_brain"]
+    assert "groups" not in captured["output"]
+    assert "sessions" not in captured["output"]
 
 
-def test_launcher_status_prefers_runtime_projection_over_stale_history(
+def test_launcher_status_uses_runtime_projection_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
     record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
     captured: dict[str, object] = {}
     payload = {
-        "resource_type": "robotick_launcher_status",
-        "ability": {"name": "launcher", "status": "available"},
-        "runtime": {
-            "resource_type": "robotick_launcher_runtime_status",
-            "state": "stopped",
-            "models": [
-                {
-                    "project_id": "barr-e",
-                    "model_id": "face",
-                    "lifecycle": "stopped",
-                    "readiness": "pending",
-                    "freshness": "stopped",
-                },
-                {
-                    "project_id": "pip-e",
-                    "model_id": "face",
-                    "lifecycle": "running",
-                    "readiness": "ready",
-                    "freshness": "live",
-                },
-            ],
-        },
-        "groups": [
-            {"id": "msg_barr_stale", "project_id": "barr-e", "status": "stale"},
-            {"id": "msg_pip", "project_id": "pip-e", "status": "running"},
-        ],
-        "sessions": [
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "stopped",
+        "models": [
             {
-                "id": "ms_face_stale",
-                "group_id": "msg_barr_stale",
                 "project_id": "barr-e",
                 "model_id": "face",
-                "lifecycle": "stale",
-            },
-            {
-                "id": "ms_pip_face",
-                "group_id": "msg_pip",
-                "project_id": "pip-e",
-                "model_id": "face",
-                "lifecycle": "running",
+                "lifecycle": "stopped",
+                "readiness": "pending",
+                "freshness": "stopped",
             },
         ],
     }
 
     monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
     monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
-    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_status_through_hub", lambda _record: payload)
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", lambda *_args, **_kwargs: payload)
     monkeypatch.setattr(
         "robotick_cli.launcher.write_json",
         lambda result: captured.__setitem__("output", result),
@@ -679,8 +613,8 @@ def test_launcher_status_prefers_runtime_projection_over_stale_history(
             "freshness": "stopped",
         }
     ]
-    assert [group["id"] for group in captured["output"]["groups"]] == ["msg_barr_stale"]
-    assert [session["id"] for session in captured["output"]["sessions"]] == ["ms_face_stale"]
+    assert "groups" not in captured["output"]
+    assert "sessions" not in captured["output"]
 
 
 def test_launcher_stop_and_restart_use_model_control_endpoints(
@@ -689,20 +623,8 @@ def test_launcher_stop_and_restart_use_model_control_endpoints(
     workspace = create_fake_workspace()
     record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
     captured: dict[str, object] = {}
-    status_payload = {
-        "resource_type": "robotick_launcher_status",
-        "groups": [
-            {"id": "msg_barr", "project_id": "barr-e", "status": "running"},
-            {"id": "msg_pip", "project_id": "pip-e", "status": "running"},
-        ],
-        "sessions": [
-            {"id": "ms_brain", "group_id": "msg_barr", "project_id": "barr-e", "model_id": "brain"},
-            {"id": "ms_pip", "group_id": "msg_pip", "project_id": "pip-e", "model_id": "brain"},
-        ],
-    }
 
     monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
-    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_status_through_hub", lambda _record: status_payload)
 
     def fake_post(_record, path, payload=None, *, timeout_seconds=2):
         captured["path"] = path
@@ -750,34 +672,26 @@ def test_launcher_stop_rejects_legacy_group_or_session_selection(
 
     monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
 
-    with pytest.raises(CliError, match="now targets projects/models"):
+    with pytest.raises(CliError, match="Unknown argument: --group"):
         robotick_cli.launcher.run_launcher_command(
             AppContext(workspace_root=workspace),
             ["stop", "--group", "msg_demo"],
         )
-    with pytest.raises(CliError, match="now targets projects/models"):
+    with pytest.raises(CliError, match="Unknown argument: --session"):
         robotick_cli.launcher.run_launcher_command(
             AppContext(workspace_root=workspace),
             ["restart", "--session", "ms_demo"],
         )
 
 
-def test_launcher_logs_prefers_model_resources_and_keeps_session_diagnostics(
+def test_launcher_logs_uses_model_resources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
     record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
     captured: dict[str, object] = {}
-    status_payload = {
-        "resource_type": "robotick_launcher_status",
-        "groups": [{"id": "msg_barr", "project_id": "barr-e", "status": "running"}],
-        "sessions": [
-            {"id": "ms_brain", "group_id": "msg_barr", "project_id": "barr-e", "model_id": "brain"},
-        ],
-    }
 
     monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
-    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_status_through_hub", lambda _record: status_payload)
 
     def fake_fetch(_record, path):
         captured["path"] = path
@@ -789,12 +703,11 @@ def test_launcher_logs_prefers_model_resources_and_keeps_session_diagnostics(
         lambda result: captured.__setitem__("output", result),
     )
 
-    result = robotick_cli.launcher.run_launcher_command(
-        AppContext(workspace_root=workspace),
-        ["logs", "--session", "ms_brain"],
-    )
-    assert result.exit_code == 0
-    assert captured["path"] == "/v1/launcher/sessions/ms_brain/logs"
+    with pytest.raises(CliError, match="Unknown argument: --session"):
+        robotick_cli.launcher.run_launcher_command(
+            AppContext(workspace_root=workspace),
+            ["logs", "--session", "ms_brain"],
+        )
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
@@ -811,38 +724,40 @@ def test_launcher_logs_prefers_model_resources_and_keeps_session_diagnostics(
     assert captured["path"] == "/v1/launcher/models/logs?project_id=barr-e&model_ids=brain%2Cface&tail=50"
 
 
-def test_launcher_wait_ready_polls_until_session_is_ready(
+def test_launcher_wait_ready_polls_until_runtime_is_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
     record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
     captured: dict[str, object] = {}
-    status_payload = {
-        "resource_type": "robotick_launcher_status",
-        "groups": [{"id": "msg_barr", "project_id": "barr-e", "status": "starting"}],
-        "sessions": [
-            {
-                "id": "ms_brain",
-                "group_id": "msg_barr",
-                "project_id": "barr-e",
-                "model_id": "brain",
-                "generation": 2,
-            }
-        ],
-    }
     poll_count = {"value": 0}
 
     monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
-    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_status_through_hub", lambda _record: status_payload)
 
-    def fake_fetch(_record, path):
-        captured["path"] = path
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
         poll_count["value"] += 1
+        readiness = "pending" if poll_count["value"] == 1 else "ready"
         if poll_count["value"] == 1:
-            return {"id": "ms_brain", "readiness": "pending"}
-        return {"id": "ms_brain", "readiness": "ready"}
+            lifecycle = "starting"
+        else:
+            lifecycle = "running"
+        return {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "pending" if readiness == "pending" else "running",
+            "models": [
+                {
+                    "project_id": project_id,
+                    "model_id": model_ids[0],
+                    "lifecycle": lifecycle,
+                    "readiness": readiness,
+                    "freshness": "pending" if readiness == "pending" else "live",
+                }
+            ],
+        }
 
-    monkeypatch.setattr("robotick_cli.launcher.fetch_hub_json", fake_fetch)
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
     monkeypatch.setattr("robotick_cli.launcher.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
         "robotick_cli.launcher.write_json",
@@ -854,7 +769,8 @@ def test_launcher_wait_ready_polls_until_session_is_ready(
         ["wait-ready", "--project", "barr-e", "--model", "brain", "--timeout-seconds", "1", "--poll-ms", "1"],
     )
     assert result.exit_code == 0
-    assert captured["path"] == "/v1/launcher/sessions/ms_brain"
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
     assert captured["output"]["status"] == "ready"
 
 

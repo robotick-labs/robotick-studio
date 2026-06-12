@@ -1348,7 +1348,6 @@ def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
             "checked_at": now,
         },
         "log_path": record.get("log_path"),
-        "last_session_id": record.get("last_session_id"),
         "updated_at": record.get("updated_at"),
     }
 
@@ -1559,15 +1558,18 @@ def _latest_runtime_sessions_for_models(
     project_name: str,
     model_ids: list[str],
 ) -> list[Any]:
-    domain = _launcher_domain()
     store = _json_store(workspace_root)
-    runtime_projection = _launcher_runtime_projection(workspace_root, project_id=project_name, model_ids=model_ids)
+    model_id_set = set(model_ids)
+    runtime_records = [
+        record
+        for record in _list_runtime_phonebook_records(workspace_root)
+        if str(record.get("project_id") or "") == project_name
+        and (not model_id_set or str(record.get("model_id") or "") in model_id_set)
+    ]
     session_ids = [
-        str(model.get("last_session_id") or "").strip()
-        for model in runtime_projection.get("models") or []
-        if isinstance(model, dict)
-        and _runtime_model_blocks_launch(model)
-        and str(model.get("last_session_id") or "").strip()
+        str(record.get("last_session_id") or "").strip()
+        for record in runtime_records
+        if str(record.get("last_session_id") or "").strip()
     ]
     sessions = [store.get_session(session_id) for session_id in session_ids]
     return [
@@ -1905,18 +1907,12 @@ class LauncherAbility:
         @router.get("/v1/launcher/status", response_class=JSONResponse)
         def launcher_status() -> JSONResponse:
             context = context_provider()
-            _refresh_state(context.workspace_root)
-            groups = list_model_session_groups(context.workspace_root)
-            sessions = list_model_sessions(context.workspace_root)
             ability_status = self.get_status(context)
-            enriched_groups, enriched_sessions = _enrich_groups_and_sessions(groups, sessions)
             return JSONResponse(
                 {
                     "resource_type": "robotick_launcher_status",
                     "ability": ability_status.model_dump(),
                     "runtime": _launcher_runtime_projection(context.workspace_root),
-                    "groups": enriched_groups,
-                    "sessions": enriched_sessions,
                 }
             )
 
@@ -2729,23 +2725,12 @@ class LauncherAbility:
         return router
 
     def get_status(self, context: HubContext) -> AbilityStatus:
-        _refresh_state(context.workspace_root)
-        groups = list_model_session_groups(context.workspace_root)
-        sessions = list_model_sessions(context.workspace_root)
         runtimes = _list_runtime_phonebook_records(context.workspace_root)
-        running_workers = 0
-        for session in sessions:
-            worker = dict((session.get("runtime") or {}).get("worker") or {})
-            if _pid_alive(worker.get("pid")):
-                running_workers += 1
         return AbilityStatus(
             name=self.manifest.name,
             version=self.manifest.version,
             status="available",
             details={
-                "group_count": len(groups),
-                "session_count": len(sessions),
                 "model_runtime_count": len(runtimes),
-                "running_worker_count": running_workers,
             },
         )

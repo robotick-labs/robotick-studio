@@ -5,6 +5,7 @@ Purpose: give agents a Studio-local index of common workbench names, resource pa
 Use this file when:
 
 - a user uses shorthand such as `Rc`, `Telemetry`, or `Terminal`
+- a user says `studio` and expects the default operator workbench
 - a request implies a Studio context but does not provide the exact resource path
 - you need a default Studio workflow that is more specific than the workspace-level recipe index
 
@@ -24,7 +25,7 @@ Ground rules:
 ./tools/robotick launcher status
 ```
 
-Use this before action commands when the user asks about currently running models. Treat the per-model runtime section as source of truth; group/session history is diagnostic context only.
+Use this before action commands when the user asks about currently running models. Treat the per-model runtime section as source of truth.
 
 ### Compare hub runtime authority with Studio-facing launcher state
 
@@ -71,6 +72,12 @@ These are the current common main-window workbench ids used in Studio project do
 - Workbench id: `remote-control`
 - Path: `windows main workbenches remote-control`
 - Typical use: operator-facing robot control view
+
+### `Studio`
+
+- Default workbench id: `remote-control`
+- Path: `windows main workbenches remote-control`
+- Typical use: default operator-facing Studio entry when no other workbench is named
 
 ### `Telemetry`
 
@@ -119,7 +126,13 @@ Example:
 ./tools/robotick studio open <project>
 ```
 
-Do not invent a workbench switch unless a project-specific default is documented.
+If the user explicitly asks for `studio` without naming a view, open the project into `remote-control` instead:
+
+```bash
+./tools/robotick studio open <project> windows main workbenches remote-control activate
+```
+
+Otherwise, do not invent a workbench switch unless a project-specific default is documented.
 
 ### Verify the active main-window workbench
 
@@ -146,3 +159,4 @@ Check `active_workbench_id` in the JSON result.
 - There is not yet a first-class pre-launch command for listing activatable targets by label or alias.
 - There is not yet a first-class capture command or capture-readiness contract.
 - Recipe entries here should not be treated as proof of runtime readiness.
+- `.robotick/launcher/model-session-groups`, `.robotick/launcher/model-sessions`, and `.robotick/logs/launcher-sessions` are historical/debug accumulation areas, not live runtime truth. Prefer `/v1/launcher/runtime` and model log resources for current status.

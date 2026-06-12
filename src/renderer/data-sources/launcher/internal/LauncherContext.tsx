@@ -28,8 +28,6 @@ export type LauncherModelStatus = {
     message?: string;
     details?: Record<string, unknown>;
   }>;
-  groupId?: string;
-  sessionId?: string;
   logRefs?: Array<{
     kind?: string;
     path?: string;

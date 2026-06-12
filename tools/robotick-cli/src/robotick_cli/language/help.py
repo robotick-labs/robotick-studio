@@ -123,7 +123,7 @@ def get_launcher_help_text() -> str:
             "Output:",
             "  status returns JSON and never starts the launcher service.",
             "  launch, stop, and restart target project/model runtime resources through robotick-hub.",
-            "  status summarizes live per-model runtime truth; logs and wait-ready may include diagnostic session refs.",
+            "  status, logs, and wait-ready use live per-model runtime truth.",
             "  ensure makes the hub-backed launcher control plane available, then returns current runtime status as JSON.",
             "",
             "Examples:",

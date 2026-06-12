@@ -153,9 +153,11 @@ describe("LauncherControls", () => {
 
     expect(container.textContent).toContain("Launcher Models");
     expect(container.textContent).toContain("Running");
+    expect(container.textContent).toContain("Unhealthy");
     expect(container.textContent).toContain("sample-robot-face");
     expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("running");
+    expect(container.textContent).toContain("unhealthy");
     expect(container.textContent).not.toContain("flatlined");
     unmount();
   });
@@ -180,7 +182,7 @@ describe("LauncherControls", () => {
     expect(container.textContent).toContain("Running");
     expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("launched");
-    expect(container.textContent).not.toContain("Not Running");
+    expect(container.textContent).not.toContain("Stopped");
     unmount();
   });
 
@@ -210,7 +212,7 @@ describe("LauncherControls", () => {
     expect(container.textContent).toContain("Running");
     expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("launched");
-    expect(container.textContent).not.toContain("Not Running");
+    expect(container.textContent).not.toContain("Stopped");
     unmount();
   });
 
@@ -252,10 +254,57 @@ describe("LauncherControls", () => {
     });
     const { container, unmount } = renderControl();
 
-    expect(container.textContent).toContain("Not Running");
+    expect(container.textContent).toContain("Unhealthy");
     expect(container.textContent).toContain("sample-robot-spine");
     expect(container.textContent).toContain("stale");
     expect(container.textContent).not.toContain("telemetry heartbeat expired");
+    unmount();
+  });
+
+  it("orders launcher model sections as running, unhealthy, pending, then stopped", () => {
+    useProjectDataMock.mockReturnValue({
+      projectModels: {
+        data: [
+          { modelShortName: "demo-running" },
+          { modelShortName: "demo-unhealthy" },
+          { modelShortName: "demo-pending" },
+          { modelShortName: "demo-stopped" },
+        ],
+        loading: false,
+        error: null,
+      },
+    });
+    useLauncherContextMock.mockReturnValue({
+      ...baseContextValue,
+      status: "running" as LauncherStatus,
+      reportedStatus: "running",
+      launcherModels: {
+        "demo-running": { stage: "run", status: "running", readiness: "ready" },
+        "demo-unhealthy": { stage: "run", status: "running", readiness: "ready" },
+        "demo-pending": { stage: "run", status: "starting", readiness: "pending" },
+      },
+      modelHealth: {
+        "demo-running": { alive: true, loading: false, error: null },
+        "demo-unhealthy": { alive: false, loading: false, error: "down" },
+        "demo-pending": { alive: false, loading: true, error: null },
+      },
+    });
+
+    const { container, unmount } = renderControl();
+    const text = container.textContent ?? "";
+    const runningIndex = text.indexOf("Running");
+    const unhealthyIndex = text.indexOf("Unhealthy");
+    const pendingIndex = text.indexOf("Pending");
+    const stoppedIndex = text.indexOf("Stopped");
+
+    expect(runningIndex).toBeGreaterThanOrEqual(0);
+    expect(unhealthyIndex).toBeGreaterThan(runningIndex);
+    expect(pendingIndex).toBeGreaterThan(unhealthyIndex);
+    expect(stoppedIndex).toBeGreaterThan(pendingIndex);
+    expect(text).toContain("demo-running");
+    expect(text).toContain("demo-unhealthy");
+    expect(text).toContain("demo-pending");
+    expect(text).toContain("demo-stopped");
     unmount();
   });
 
@@ -323,7 +372,7 @@ describe("LauncherControls", () => {
     });
 
     const { container, unmount } = renderControl();
-    expect(container.textContent).toContain("Not Running");
+    expect(container.textContent).toContain("Stopped");
     expect(container.textContent).toContain("demo-robot-simulator");
     unmount();
   });

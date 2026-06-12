@@ -207,13 +207,13 @@ The practical command shape becomes:
 Current implementation clarification:
 
 - `robotick launcher launch`, `status`, `wait-ready`, `logs`, `stop`, and `restart` now exist as JSON-first CLI commands over the hub-hosted launcher ability.
-- `launch`, `stop`, and `restart` use `/v1/launcher/models/*`; group/session records are diagnostic/history scaffolding in the MVP path.
-- Launcher group/session responses now include hardened convenience fields such as `resolved_scope`, `target_policy`, `stage_policy`, `creator`, `freshness`, `actionable_diagnostics`, and per-session `log_refs`, so Studio and CLI do not need to reconstruct those views independently.
-- `wait-ready` now benefits from launcher refresh logic that hands sessions off to runtime authority when live health succeeds, and reduces them to `stale` when live confirmation ages out.
-- `logs` now exposes per-model log snapshots from hub model-log resources, with diagnostic group/session log access kept as fallback for explicit session or group inspection.
+- `launch`, `stop`, and `restart` use `/v1/launcher/models/*`; current runtime projection is the supported control and status surface.
+- Launcher group/session records are retained only as implementation/debug records for now. They must not be returned from hot status paths or used by Studio/CLI to reconstruct current state.
+- `wait-ready` now checks current runtime projection directly.
+- `logs` now exposes per-model log snapshots from hub model-log resources.
 - Studio Terminal is a read-only aggregation of hub per-model log channels. Hub does not create or own a whole-project aggregate log file.
 - Terminal clear-on-run resets hub UI-log cursors for selected model channels and never truncates raw diagnostic log files.
-- Studio now discovers launcher state from the per-model runtime projection in `/v1/launcher/status`, rather than by binding to a hidden singleton launcher process owned by the renderer.
+- Studio now discovers launcher state from the per-model runtime projection in `/v1/launcher/runtime`, rather than by binding to a hidden singleton launcher process owned by the renderer.
 
 ## Resource Model
 
