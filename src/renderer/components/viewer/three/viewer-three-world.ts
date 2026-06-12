@@ -385,10 +385,6 @@ export class ViewerWorld {
       .setTranscoderPath(`${THREE_PATH}/examples/jsm/libs/basis/`)
       .detectSupport(this.renderer);
     this.gltfLoader = new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2);
-    const meshoptDecoder = await loadMeshoptDecoder();
-    if (meshoptDecoder) {
-      this.gltfLoader.setMeshoptDecoder(meshoptDecoder);
-    }
 
     // models
     for (const m of this.worldConfig.models) {
