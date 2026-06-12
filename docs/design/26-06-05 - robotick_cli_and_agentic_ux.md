@@ -4,6 +4,10 @@ Date: 2026-06-05
 Baseline project: `robots/barr-e`
 Status: authoritative living design for the CLI, hub, launcher, and Studio control surface
 
+Follow-on design notes:
+
+- `26-06-12 - studio_diagnostics_capability_mcp_plan.md` covers Studio diagnostics, thin Studio ability ownership, capability/resource publication, plugin extensibility, and MCP alignment beyond this MVP scope.
+
 ## Executive Summary
 
 Robotick Studio is already a powerful human workbench. It can open robot projects, launch runtime profiles, inspect models, show telemetry, drive viewports, and shape expressive behaviour. The gap is that much of its operational truth still lives in an operator's head: which project script to run, which window matters, which log line is bad, whether a blank viewport means "not ready yet" or "broken", and when it is safe to capture evidence or shut everything down.
