@@ -76,6 +76,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private messages: TerminalLogMessage[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
   private ws: WebSocket | null = null;
+  private snapshotRequest: Promise<void> | null = null;
   private reconnectTask = createPollingTask(
     () => {
       if (this.ws || !HAS_WEBSOCKET) {
@@ -107,6 +108,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   subscribe(listener: TerminalLogSubscriber) {
     this.subscribers.add(listener);
     listener();
+    if (this.messages.length === 0) {
+      void this.loadSnapshot({ replace: true });
+    }
     return () => {
       this.subscribers.delete(listener);
     };
@@ -140,6 +144,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
         console.warn("[terminal] Failed to clear hub log cursors:", error);
       });
     }
+    this.reconnect();
   };
 
   private reconnect() {
@@ -155,21 +160,40 @@ class TerminalLogServiceImpl implements TerminalLogService {
     this.connect();
   }
 
-  private async loadSnapshot() {
-    try {
-      const snapshot = await launcherService.fetchLauncherLogSnapshot(
-        SNAPSHOT_TAIL_LINES
-      );
-      if (!snapshot) {
-        return;
-      }
-      const events = snapshot.models.flatMap((model) => model.events ?? []);
-      for (const event of events) {
-        this.pushMessage({ kind: "launcher-event", event });
-      }
-    } catch (error) {
-      console.warn("[terminal] Failed to load log snapshot:", error);
+  private async loadSnapshot(options?: { replace?: boolean }) {
+    if (this.snapshotRequest) {
+      return this.snapshotRequest;
     }
+    const replace = options?.replace ?? false;
+    this.snapshotRequest = (async () => {
+      try {
+        const snapshot = await launcherService.fetchLauncherLogSnapshot(
+          SNAPSHOT_TAIL_LINES
+        );
+        if (!snapshot) {
+          return;
+        }
+        const messages = snapshot.models.flatMap((model) =>
+          (model.events ?? []).map((event) => ({
+            kind: "launcher-event" as const,
+            event,
+          }))
+        );
+        if (replace) {
+          this.messages = messages.slice(-MAX_MESSAGES);
+          this.notify();
+          return;
+        }
+        for (const message of messages) {
+          this.pushMessage(message);
+        }
+      } catch (error) {
+        console.warn("[terminal] Failed to load log snapshot:", error);
+      } finally {
+        this.snapshotRequest = null;
+      }
+    })();
+    return this.snapshotRequest;
   }
 
   private connect() {
@@ -189,7 +213,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
       if (!socketUrl) {
         return;
       }
-      void this.loadSnapshot();
+      void this.loadSnapshot({ replace: this.messages.length === 0 });
       ws = new globalThis.WebSocket(socketUrl);
       this.ws = ws;
     } catch (err) {
@@ -199,6 +223,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
     }
 
     ws.onopen = () => {
+      if (this.ws !== ws) {
+        return;
+      }
       console.log("[terminal] Connected");
       this.reconnectTask.stop();
       this.reconnectTask.setIntervalMs(RECONNECT_MIN_DELAY_MS, {
@@ -207,17 +234,26 @@ class TerminalLogServiceImpl implements TerminalLogService {
     };
 
     ws.onerror = (ev) => {
+      if (this.ws !== ws) {
+        return;
+      }
       console.warn("[terminal] WebSocket error:", ev);
       ws.close();
     };
 
     ws.onclose = (ev) => {
+      if (this.ws !== ws) {
+        return;
+      }
       console.log("[terminal] Disconnected:", ev.code, ev.reason);
       this.ws = null;
       this.scheduleReconnect();
     };
 
     ws.onmessage = async (event) => {
+      if (this.ws !== ws) {
+        return;
+      }
       const text = await this.normalizeEventData(event.data);
       this.pushMessage(this.parseIncomingMessage(text));
     };

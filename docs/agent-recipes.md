@@ -132,6 +132,12 @@ If the user explicitly asks for `studio` without naming a view, open the project
 ./tools/robotick studio open <project> windows main workbenches remote-control activate
 ```
 
+Current observed behavior: `studio open <project>` can leave the bound control path on `windows/main/workbenches/terminal` even when the project switch succeeds. If the user expects the operator-facing Studio view, follow with:
+
+```bash
+./tools/robotick studio <instance> windows main workbenches remote-control activate
+```
+
 Otherwise, do not invent a workbench switch unless a project-specific default is documented.
 
 ### Verify the active main-window workbench
@@ -145,6 +151,7 @@ Check `active_workbench_id` in the JSON result.
 ### Discover live Studio structure after launch
 
 - Use `./tools/robotick studio instances` to find the running instance id.
+- If `studio instances` reports `project_name: null`, use `./tools/robotick studio <instance> status` as the authority for the selected project.
 - Use `./tools/robotick studio <instance> windows main status` for main-window structure and active workbench.
 - Use bound-instance `ls`, `cd`, and `status` in the immediate shell when interactive exploration is more efficient.
 
@@ -158,5 +165,7 @@ Check `active_workbench_id` in the JSON result.
 
 - There is not yet a first-class pre-launch command for listing activatable targets by label or alias.
 - There is not yet a first-class capture command or capture-readiness contract.
+- `studio instances` may omit the selected project name for a live instance; confirm via per-instance `status`.
+- `studio open <project>` may bind the control path to `terminal`, so agent workflows that mean "open Studio" often need an explicit `remote-control activate`.
 - Recipe entries here should not be treated as proof of runtime readiness.
 - `.robotick/launcher/model-session-groups`, `.robotick/launcher/model-sessions`, and `.robotick/logs/launcher-sessions` are historical/debug accumulation areas, not live runtime truth. Prefer `/v1/launcher/runtime` and model log resources for current status.
