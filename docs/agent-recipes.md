@@ -261,6 +261,21 @@ Read the results in this order:
 
 If `provider_unavailable` is returned, the instance is live in the hub registry but the Studio control endpoint is stale or missing. Reopen the Studio instance so it registers the current control server.
 
+### Treat Studio instance liveness as provider liveness
+
+Use this whenever an instance record exists but commands report stale, missing, or contradictory Studio state.
+
+A tracked Studio instance is only useful when it still looks like a real Studio UI provider:
+
+- the tracked process is alive
+- the tracked process still looks like Studio, not an unrelated surviving PID
+- the Studio control endpoint is registered and reachable
+- live `status`, `focused`, activation, and diagnostics calls are forwarded to that endpoint
+
+Do not treat a surviving PID or a stale `.robotick/studio/instances/*.json` record as proof that Studio is available. If the process is gone, no longer looks like Studio, or lacks a reachable control endpoint, the correct result is `provider_unavailable` with recovery guidance, not config-derived fallback state.
+
+For missing deep Studio paths on a live provider, expect unknown-context/not-found style errors. For stale instances or missing control endpoints, expect `provider_unavailable`.
+
 ### Check selected project display-name mismatches
 
 ```bash

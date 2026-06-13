@@ -109,4 +109,6 @@ Current ownership is intentionally split like this:
 - diagnostics history should be Studio-owned and queryable without DevTools: Electron main should broker the shared diagnostics/logging pipeline, while renderer and plugin surfaces publish into it as structured events
 - the visible `Terminal` UI should become a target-log viewer over separate sources, not separate duplicated panels for runtime and Studio logs
 
+A tracked Studio instance is considered live only when it still has a live-looking Studio UI process and a reachable Studio control endpoint. A surviving PID or stale instance record is not enough. If the provider is missing or stale, hub should return structured `provider_unavailable` recovery guidance rather than synthesizing live Studio state from config.
+
 The current CLI spelling is still mostly hard-coded, but live Studio status and diagnostics now come from the Studio control endpoint rather than hub-synthesized fallback state. The long-term direction is a Studio-owned command registry in main with hub acting as a thin bootstrap and forwarding layer.

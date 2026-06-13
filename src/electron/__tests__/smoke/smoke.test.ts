@@ -709,6 +709,30 @@ describe("electron launch paths", () => {
       )
     ).toBe(true);
 
+    const snapshotResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/snapshot`
+    );
+    expect(snapshotResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_snapshot",
+        status: { resource_type: "studio_diagnostics_status" },
+        endpoints: { resource_type: "studio_diagnostics_endpoints" },
+        renderer: { resource_type: "studio_diagnostics_renderer" },
+        console: {
+          records: [
+            expect.objectContaining({
+              level: "error",
+              message: "Renderer smoke failure",
+            }),
+          ],
+        },
+        fetch_check: { resource_type: "studio_diagnostics_fetch_check" },
+        telemetry: { resource_type: "studio_diagnostics_telemetry" },
+        dom_summary: { resource_type: "studio_diagnostics_dom_summary" },
+      },
+    });
+
     for (const handler of mocks.windows[0].handlers.get("closed") ?? []) {
       handler();
     }

@@ -2,13 +2,43 @@
 
 Date: 2026-06-12
 
-Status: Proposed architecture
+Status: MVP implemented; future capability/MCP work moved to ticket tracking
 
 Related docs:
 
 - `docs/design/26-06-05 - robotick_cli_and_agentic_ux.md`
 - `docs/design/26-06-11 - launcher_ability_model_session_groups_tdd.md`
 - `docs/agent-recipes.md`
+
+## MVP Completion Notes
+
+The MVP diagnostics surface was implemented and validated on 2026-06-13.
+
+Implemented and validated surfaces:
+
+- thin hub Studio ability with hub-owned bootstrap/lifecycle and Studio-owned live provider behavior
+- Electron command registry for the current live Studio commands
+- Studio diagnostics: status, endpoints, renderer, console, fetch-check, telemetry, DOM summary/query, CSS query, screenshot, and snapshot
+- renderer-assisted diagnostics commands that execute through Electron-owned command definitions
+- Studio-owned diagnostics/logging pipeline that captures main-process events, renderer console records, renderer diagnostics, fetch failures, and websocket failures
+- `Terminal` target logs for runtime and Studio diagnostics, with both targets enabled by default
+- busy-stream log rendering safeguards, bounded batching, target-aware tail rendering, stable auto-scroll behavior, and optional sequence visibility
+- structured `provider_unavailable` behavior for stale/missing Studio providers, distinct from missing-resource/not-found behavior on live providers
+- project identity diagnostics that distinguish machine id, selected project path, project directory, project file `name`, and UI-rendered label
+- production-build diagnostics without DevTools or Vite
+- renderer redaction for input values, tokens, auth headers, and sensitive query params
+
+Validation commands used for the completed MVP:
+
+```bash
+npx vitest --run --project electron src/electron/__tests__/smoke/smoke.test.ts src/electron/__tests__/unit/studio-control.test.ts src/electron/__tests__/unit/studio-control-contract.test.ts src/electron/__tests__/unit/studio-diagnostics.test.ts
+npx vitest --run --project renderer src/__tests__/unit/services/studio-diagnostics.test.ts src/__tests__/unit/data-sources/launcher/terminal-log-service.test.ts src/__tests__/unit/data-sources/telemetry/internal/telemetry-store.test.ts src/__tests__/unit/data-sources/launcher/launcher-interface.test.ts
+PYTHONPATH=src pytest -q tests/test_cli.py -k "diagnostics or live_instance or provider_unavailable or missing_resource or open_json or terminal"
+PYTHONPATH=../robotick-studio-ability/src:src pytest -q tests/test_app.py -k "studio_diagnostics_endpoint or provider_unavailable or resource_not_found or control_endpoint"
+npm run build:studio
+```
+
+The remaining capability discovery, plugin extensibility, and MCP adapter work is intentionally outside this MVP and is tracked separately.
 
 ## Goal
 
