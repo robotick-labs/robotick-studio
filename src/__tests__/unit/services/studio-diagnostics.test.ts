@@ -6,6 +6,7 @@ import {
   recordRendererWebSocketFailure,
   registerRendererDiagnosticsProvider,
   requestRendererCommand,
+  resetProjectScopedRendererDiagnostics,
   resetRendererDiagnosticsForTests,
 } from "../../../renderer/services/studio-diagnostics";
 
@@ -117,6 +118,48 @@ describe("renderer studio diagnostics", () => {
         level: "error",
       }),
     ]);
+  });
+
+  it("clears project-scoped failures and telemetry on project scope reset", () => {
+    recordRendererFetchFailure({
+      source: "launcher-interface",
+      operation: "GET /api/telemetry-gateway/models",
+      url: "http://old-project-host/api/telemetry-gateway/models",
+      message: "Failed to fetch",
+    });
+    recordRendererWebSocketFailure({
+      source: "telemetry-ws-client",
+      phase: "error",
+      url: "ws://old-project-host/api/telemetry/ws",
+      message: "telemetry websocket error",
+    });
+    publishRendererDiagnosticsPatch({
+      telemetry: {
+        models: [
+          {
+            model_id: "old-project-face",
+            telemetry_base_url: "http://old-project-host",
+          },
+        ],
+      },
+    });
+
+    resetProjectScopedRendererDiagnostics("/tmp/new-project.project.yaml");
+
+    expect(snapshots.at(-1)).toMatchObject({
+      fetch_failures: [],
+      websocket_failures: [],
+      telemetry: null,
+      project_diagnostics_scope: {
+        project_path: "/tmp/new-project.project.yaml",
+        reset_at: expect.any(String),
+      },
+    });
+    expect(getRendererDiagnosticsSnapshot()).toMatchObject({
+      fetch_failures: [],
+      websocket_failures: [],
+      telemetry: null,
+    });
   });
 
   it("routes renderer-assisted command requests through the preload bridge", async () => {

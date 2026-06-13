@@ -77,10 +77,31 @@
   font-size: large;
 }
 
+.renderSummary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  color: #9cb0c8;
+  background: rgba(10, 14, 24, 0.92);
+  border: 1px solid #293244;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 .logEntry {
   display: flex;
   align-items: baseline;
   gap: 0.55rem;
+}
+
+.logLineNumber {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+  text-align: right;
+  color: #5f6b7d;
+  user-select: none;
 }
 
 .logTimestamp {

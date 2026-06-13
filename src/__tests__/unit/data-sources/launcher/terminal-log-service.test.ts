@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseTerminalLogMessage,
   sortTerminalMessages,
+  terminalLogService,
 } from "../../../../renderer/data-sources/launcher/internal/terminal-log-service";
 
 describe("terminal log service", () => {
@@ -84,5 +85,14 @@ describe("terminal log service", () => {
       "launcher-event",
       "studio-event",
     ]);
+  });
+
+  it("publishes terminal log stats for busy-stream rendering decisions", () => {
+    expect(terminalLogService.getStats()).toEqual({
+      totalReceived: expect.any(Number),
+      bufferedCount: expect.any(Number),
+      droppedCount: expect.any(Number),
+      flushIntervalMs: 32,
+    });
   });
 });

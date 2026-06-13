@@ -31,10 +31,18 @@ export type TerminalLogMessage =
 export interface TerminalLogService {
   subscribe(listener: TerminalLogSubscriber): () => void;
   getMessages(): TerminalLogMessage[];
+  getStats(): TerminalLogStats;
   clearMessages(): void;
   getClearOnRun(): boolean;
   setClearOnRun(enabled: boolean): void;
 }
+
+export type TerminalLogStats = {
+  totalReceived: number;
+  bufferedCount: number;
+  droppedCount: number;
+  flushIntervalMs: number;
+};
 
 const MAX_MESSAGES = 5000;
 const STORAGE_KEYS = {
@@ -61,6 +69,7 @@ const RECONNECT_MIN_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 8000;
 const SNAPSHOT_TAIL_LINES = 300;
 const STUDIO_SNAPSHOT_TAIL_LINES = 300;
+const FLUSH_INTERVAL_MS = 32;
 
 export function parseTerminalLogMessage(text: string): TerminalLogMessage {
   try {
@@ -143,6 +152,8 @@ export function sortTerminalMessages(messages: TerminalLogMessage[]): TerminalLo
 class TerminalLogServiceImpl implements TerminalLogService {
   private messages: TerminalLogMessage[] = [];
   private subscribers = new Set<TerminalLogSubscriber>();
+  private pendingMessages: TerminalLogMessage[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private ws: WebSocket | null = null;
   private connectGeneration = 0;
   private connectRequest: Promise<void> | null = null;
@@ -161,6 +172,8 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
   private shuttingDown = false;
   private initialLoadRequest: Promise<void> | null = null;
+  private totalReceived = 0;
+  private droppedCount = 0;
 
   constructor() {
     if (HAS_WEBSOCKET && !IS_TEST_ENV) {
@@ -202,9 +215,21 @@ class TerminalLogServiceImpl implements TerminalLogService {
     return this.messages;
   }
 
+  getStats(): TerminalLogStats {
+    return {
+      totalReceived: this.totalReceived,
+      bufferedCount: this.messages.length,
+      droppedCount: this.droppedCount,
+      flushIntervalMs: FLUSH_INTERVAL_MS,
+    };
+  }
+
   clearMessages() {
     if (this.messages.length === 0) return;
     this.messages = [];
+    this.pendingMessages = [];
+    this.totalReceived = 0;
+    this.droppedCount = 0;
     this.notify();
   }
 
@@ -428,6 +453,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
     this.reconnectTask.stop();
     this.diagnosticsUnsubscribe?.();
     this.diagnosticsUnsubscribe = null;
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     if (this.ws) {
       try {
         this.ws.close();
@@ -439,7 +468,8 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private pushMessage(message: TerminalLogMessage) {
-    this.mergeMessages([message]);
+    this.pendingMessages.push(message);
+    this.scheduleFlush();
   }
 
   private mergeMessages(
@@ -450,9 +480,35 @@ class TerminalLogServiceImpl implements TerminalLogService {
     const next = sortTerminalMessages(
       replace ? [...incoming] : [...this.messages, ...incoming]
     );
-    this.messages =
-      next.length > MAX_MESSAGES ? next.slice(next.length - MAX_MESSAGES) : next;
+    this.totalReceived = replace
+      ? incoming.length
+      : this.totalReceived + incoming.length;
+    if (next.length > MAX_MESSAGES) {
+      this.droppedCount += next.length - MAX_MESSAGES;
+      this.messages = next.slice(next.length - MAX_MESSAGES);
+    } else {
+      this.messages = next;
+    }
     this.notify();
+  }
+
+  private scheduleFlush() {
+    if (this.flushTimer !== null) {
+      return;
+    }
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flushPendingMessages();
+    }, FLUSH_INTERVAL_MS);
+  }
+
+  private flushPendingMessages() {
+    if (this.pendingMessages.length === 0) {
+      return;
+    }
+    const pending = this.pendingMessages;
+    this.pendingMessages = [];
+    this.mergeMessages(pending);
   }
 
   private notify() {

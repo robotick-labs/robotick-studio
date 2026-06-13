@@ -180,6 +180,7 @@ export type { LauncherService } from "./internal/LauncherService";
 export { createMockLauncherService } from "./internal/__mocks__/LauncherService";
 export {
   getTerminalMessageSource,
+  type TerminalLogStats,
   getTerminalMessageTarget,
   getTerminalMessageTimestamp,
   terminalMessageText,

@@ -111,6 +111,23 @@ export function publishRendererDiagnosticsPatch(
   publishCurrentSnapshot();
 }
 
+export function resetProjectScopedRendererDiagnostics(
+  projectPath?: string
+): void {
+  currentSnapshot = {
+    ...currentSnapshot,
+    fetch_failures: [],
+    websocket_failures: [],
+    telemetry: null,
+    project_diagnostics_scope: {
+      project_path: projectPath?.trim() || null,
+      reset_at: new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  };
+  publishCurrentSnapshot();
+}
+
 export function registerRendererDiagnosticsProvider(
   id: string,
   provider: RendererDiagnosticsProvider

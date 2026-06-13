@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useReducer, useRef } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { AnsiUp } from "ansi_up";
 import {
   getTerminalMessageSource,
@@ -21,7 +28,15 @@ type TerminalPanelSettings = {
   autoScroll: boolean;
   showRuntime: boolean;
   showStudio: boolean;
+  showLineNumbers: boolean;
 };
+
+type VisibleTerminalEntry = {
+  message: TerminalLogMessage;
+  lineNumber: number;
+};
+
+const MAX_RENDERED_MESSAGES = 600;
 
 const DEFAULT_TERMINAL_PANEL_SETTINGS: TerminalPanelSettings = {
   filter: "",
@@ -29,6 +44,7 @@ const DEFAULT_TERMINAL_PANEL_SETTINGS: TerminalPanelSettings = {
   autoScroll: true,
   showRuntime: true,
   showStudio: true,
+  showLineNumbers: false,
 } as const;
 
 function padTimePart(value: number, length = 2): string {
@@ -57,6 +73,50 @@ function terminalMessageSearchText(message: TerminalLogMessage): string {
     return `${formatTerminalDisplayTime(timestamp)} ${target} ${message.event.model_id} ${source} ${text}`;
   }
   return `${formatTerminalDisplayTime(timestamp)} ${target} ${source} ${text}`;
+}
+
+function selectTargetAwareTail(
+  entries: VisibleTerminalEntry[],
+  limit: number
+): VisibleTerminalEntry[] {
+  if (entries.length <= limit) {
+    return entries;
+  }
+
+  const targets = Array.from(
+    new Set(entries.map((entry) => getTerminalMessageTarget(entry.message)))
+  );
+  if (targets.length <= 1) {
+    return entries.slice(-limit);
+  }
+
+  const selected = new Set<number>();
+  const quota = Math.max(1, Math.floor(limit / targets.length));
+  for (const target of targets) {
+    let selectedForTarget = 0;
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (getTerminalMessageTarget(entries[index].message) !== target) {
+        continue;
+      }
+      selected.add(index);
+      selectedForTarget += 1;
+      if (selectedForTarget >= quota) {
+        break;
+      }
+    }
+  }
+
+  for (
+    let index = entries.length - 1;
+    selected.size < limit && index >= 0;
+    index -= 1
+  ) {
+    selected.add(index);
+  }
+
+  return Array.from(selected)
+    .sort((a, b) => a - b)
+    .map((index) => entries[index]);
 }
 
 export const terminalPagePersistence =
@@ -89,6 +149,10 @@ export const terminalPagePersistence =
           typeof input.showStudio === "boolean"
             ? input.showStudio
             : DEFAULT_TERMINAL_PANEL_SETTINGS.showStudio,
+        showLineNumbers:
+          typeof input.showLineNumbers === "boolean"
+            ? input.showLineNumbers
+            : DEFAULT_TERMINAL_PANEL_SETTINGS.showLineNumbers,
       };
     },
   });
@@ -98,6 +162,7 @@ export function TerminalPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const ansiUpRef = useRef<AnsiUp | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+  const [renderWindowEnd, setRenderWindowEnd] = useState<number | null>(null);
   const [settings, updateSettings] = usePanelSettings(terminalPagePersistence);
 
   useEffect(() => {
@@ -109,23 +174,71 @@ export function TerminalPage() {
   }, []);
 
   const messages = terminalLogService.getMessages();
-  const { filter, wrapText, autoScroll, showRuntime, showStudio } = settings;
+  const stats = terminalLogService.getStats();
+  const {
+    filter,
+    wrapText,
+    autoScroll,
+    showRuntime,
+    showStudio,
+    showLineNumbers,
+  } = settings;
   const clearOnRun = terminalLogService.getClearOnRun();
-  const visibleMessages = messages.filter((message) => {
-    const target = getTerminalMessageTarget(message);
-    if (target === "runtime" && !showRuntime) {
-      return false;
+  const visibleEntries = useMemo(() => {
+    const filterValue = filter.toLowerCase();
+    const lineNumberBase = Math.max(0, stats.totalReceived - messages.length);
+    return messages.reduce<VisibleTerminalEntry[]>((entries, message, index) => {
+      const target = getTerminalMessageTarget(message);
+      if (target === "runtime" && !showRuntime) {
+        return entries;
+      }
+      if (target === "studio" && !showStudio) {
+        return entries;
+      }
+      if (
+        filterValue &&
+        !terminalMessageSearchText(message).toLowerCase().includes(filterValue)
+      ) {
+        return entries;
+      }
+      entries.push({
+        message,
+        lineNumber: lineNumberBase + index + 1,
+      });
+      return entries;
+    }, []);
+  }, [filter, messages, showRuntime, showStudio, stats.totalReceived]);
+  const renderedEntries = useMemo(() => {
+    if (visibleEntries.length <= MAX_RENDERED_MESSAGES) {
+      return visibleEntries;
     }
-    if (target === "studio" && !showStudio) {
-      return false;
+    if (autoScroll) {
+      return selectTargetAwareTail(visibleEntries, MAX_RENDERED_MESSAGES);
     }
-    if (!filter) {
-      return true;
+    const end = Math.min(
+      visibleEntries.length,
+      Math.max(MAX_RENDERED_MESSAGES, renderWindowEnd ?? visibleEntries.length)
+    );
+    return visibleEntries.slice(end - MAX_RENDERED_MESSAGES, end);
+  }, [autoScroll, renderWindowEnd, visibleEntries]);
+  const isWindowedRendering = renderedEntries.length < visibleEntries.length;
+  const renderedStart = renderedEntries[0]?.lineNumber;
+  const renderedEnd = renderedEntries.at(-1)?.lineNumber;
+
+  useEffect(() => {
+    if (autoScroll) {
+      setRenderWindowEnd((current) =>
+        current === visibleEntries.length ? current : visibleEntries.length
+      );
+      return;
     }
-    return terminalMessageSearchText(message)
-      .toLowerCase()
-      .includes(filter.toLowerCase());
-  });
+    setRenderWindowEnd((current) => {
+      if (current === null) {
+        return visibleEntries.length;
+      }
+      return current > visibleEntries.length ? visibleEntries.length : current;
+    });
+  }, [autoScroll, visibleEntries.length]);
 
   useLayoutEffect(() => {
     if (!autoScroll) return;
@@ -136,13 +249,13 @@ export function TerminalPage() {
       if (!el) return;
       el.scrollTop = el.scrollHeight;
     });
-  }, [messages, filter, autoScroll]);
+  }, [renderedEntries, filter, autoScroll]);
 
   function renderMessages() {
     const ansiUp = ansiUpRef.current;
     if (!ansiUp) return null;
 
-    if (visibleMessages.length === 0) {
+    if (renderedEntries.length === 0) {
       return (
         <div className={styles.emptyState}>
           No log entries match the current target selection and filter.
@@ -150,7 +263,7 @@ export function TerminalPage() {
       );
     }
 
-    return visibleMessages.map((message, i) => {
+    return renderedEntries.map(({ message, lineNumber }, i) => {
       const target = getTerminalMessageTarget(message);
       const source = getTerminalMessageSource(message);
       if (message.kind === "launcher-event") {
@@ -158,6 +271,9 @@ export function TerminalPage() {
         const html = ansiUp.ansi_to_html(event.line);
         return (
           <div key={i} className={styles.logEntry}>
+            {showLineNumbers ? (
+              <span className={styles.logLineNumber}>{lineNumber}</span>
+            ) : null}
             <span className={styles.logTimestamp}>
               {formatTerminalDisplayTime(event.timestamp)}
             </span>
@@ -176,6 +292,9 @@ export function TerminalPage() {
         const html = ansiUp.ansi_to_html(message.event.message);
         return (
           <div key={i} className={styles.logEntry}>
+            {showLineNumbers ? (
+              <span className={styles.logLineNumber}>{lineNumber}</span>
+            ) : null}
             <span className={styles.logTimestamp}>
               {formatTerminalDisplayTime(message.event.recorded_at)}
             </span>
@@ -193,6 +312,9 @@ export function TerminalPage() {
       const html = ansiUp.ansi_to_html(message.text);
       return (
         <div key={i} className={styles.logEntry}>
+          {showLineNumbers ? (
+            <span className={styles.logLineNumber}>{lineNumber}</span>
+          ) : null}
           <span className={styles.logTarget}>{target}</span>
           <span className={styles.logSource}>{source}</span>
           <span
@@ -280,6 +402,18 @@ export function TerminalPage() {
           Studio
         </label>
 
+        <label>
+          <input
+            id="show-line-numbers"
+            type="checkbox"
+            checked={showLineNumbers}
+            onChange={(event) =>
+              updateSettings({ showLineNumbers: event.target.checked })
+            }
+          />
+          Line Numbers
+        </label>
+
         <label className={styles.globalSetting} title="Affects all terminal panels">
           <input
             id="clear-on-run"
@@ -295,6 +429,12 @@ export function TerminalPage() {
       </div>
 
       <div className={styles.container} ref={containerRef}>
+        {isWindowedRendering ? (
+          <div className={styles.renderSummary}>
+            Rendering {renderedEntries.length} of {visibleEntries.length} visible
+            lines ({renderedStart}-{renderedEnd})
+          </div>
+        ) : null}
         <pre
           id="log"
           style={{

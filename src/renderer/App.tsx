@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { BrowserRouter, HashRouter } from "react-router-dom";
 import { AppHeader } from "./components/header/AppHeader";
 import { GenericDialog } from "./components/dialog/GenericDialog";
@@ -11,6 +11,7 @@ import {
 } from "./data-sources/launcher";
 import {
   getTelemetryDiagnostics,
+  resetTelemetryStore,
   TelemetryServiceProvider,
   telemetryService,
   useTelemetryService,
@@ -23,7 +24,10 @@ import {
 import { AppRoutes } from "./Router";
 import styles from "./styles/App.module.css";
 import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
-import { publishRendererDiagnosticsPatch } from "./services/studio-diagnostics";
+import {
+  publishRendererDiagnosticsPatch,
+  resetProjectScopedRendererDiagnostics,
+} from "./services/studio-diagnostics";
 import { getLauncherRendererDiagnosticsSnapshot } from "./data-sources/launcher/internal/launcher-interface";
 
 type RouterSelectionOptions = {
@@ -200,8 +204,20 @@ function ProjectBootstrapIssueDialog() {
 }
 
 function RendererDiagnosticsPublisher() {
+  const { projectPath } = useProjectContext();
   const { projectModels } = useProjectData();
   const telemetry = useTelemetryService();
+  const lastProjectPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const normalizedProjectPath = projectPath.trim();
+    if (lastProjectPathRef.current === normalizedProjectPath) {
+      return;
+    }
+    lastProjectPathRef.current = normalizedProjectPath;
+    resetTelemetryStore();
+    resetProjectScopedRendererDiagnostics(normalizedProjectPath);
+  }, [projectPath]);
 
   useEffect(() => {
     const publish = () =>
