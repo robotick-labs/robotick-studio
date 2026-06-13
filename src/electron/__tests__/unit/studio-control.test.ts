@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { StudioDocument } from "../../main/studio-persistence";
 import {
   buildStudioRuntimeTree,
@@ -974,7 +974,18 @@ describe("Studio control runtime status", () => {
 
   it("captures screenshot diagnostics into the workspace diagnostics directory", async () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-screenshot-"));
-    const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const activateResource = vi.fn(() => ({
+      accepted: true,
+      changed: true,
+      activated_path: ["windows", "main", "workbenches", "remote-control"],
+      previous_active_path: null,
+      message: "activated",
+    }));
+    const imageBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0xf0,
+    ]);
     const response = {
       statusCode: 0,
       body: "",
@@ -988,7 +999,7 @@ describe("Studio control runtime status", () => {
 
     await routeStudioControlRequest(
       {
-        url: "/v1/studio/diagnostics/screenshot",
+        url: "/v1/studio/diagnostics/screenshot?resource_path=windows/main/workbenches/remote-control&wait_ms=1&expected_resource=remote-control",
         method: "GET",
         async *[Symbol.asyncIterator]() {},
       } as any,
@@ -998,8 +1009,13 @@ describe("Studio control runtime status", () => {
           workspaceRoot,
           getActiveWindowScope: () => "main",
           getOpenWindowScopes: () => ["main"],
+          getWindowUrl: () => "http://localhost:5173/remote-control",
+          getActiveWorkbenchIds: () => ({ main: "remote-control" }),
+          getActiveLayoutIds: () => ({ main: "main:remote-control:default" }),
+          getActivePanelIds: () => ({ main: "panel-remote-control" }),
           captureScreenshot: async () => imageBytes,
         },
+        activateResource,
       })
     );
 
@@ -1010,9 +1026,164 @@ describe("Studio control runtime status", () => {
       instance_id: "studio-1234",
       window_id: "main",
       mime_type: "image/png",
+      dimensions: { width: 320, height: 240 },
+      active_window_url: "http://localhost:5173/remote-control",
+      active_workbench_id: "remote-control",
+      active_layout_id: "main:remote-control:default",
+      active_panel_id: null,
+      capture_source: "electron_capture_page",
+      validation: {
+        nonblank_pixel_check: true,
+        dominant_content_area: { x: 0, y: 0, width: 320, height: 240 },
+      },
     });
     expect(body.output_path).toContain(path.join(workspaceRoot, ".robotick", "diagnostics"));
     expect(fs.readFileSync(body.output_path)).toEqual(imageBytes);
+    expect(activateResource).toHaveBeenCalledWith(
+      ["windows", "main", "workbenches", "remote-control"],
+      false
+    );
+  });
+
+  it("returns DOM and CSS diagnostics from renderer inspection commands", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-dom-"));
+    const request = async (url: string) => {
+      const response = {
+        statusCode: 0,
+        body: "",
+        writeHead(statusCode: number) {
+          this.statusCode = statusCode;
+        },
+        end(chunk: string) {
+          this.body += chunk;
+        },
+      };
+      await routeStudioControlRequest(
+        {
+          url,
+          method: "GET",
+          async *[Symbol.asyncIterator]() {},
+        } as any,
+        response as any,
+        createControlDependencies(workspaceRoot, {
+          diagnosticsProvider: {
+            getActiveWindowScope: () => "main",
+            getOpenWindowScopes: () => ["main"],
+            executeRendererDiagnosticsScript: async (_windowId, script) => {
+              if (script.includes("studio_diagnostics_dom_summary")) {
+                return {
+                  resource_type: "studio_diagnostics_dom_summary",
+                  window_id: "main",
+                  url: "http://localhost:5173/remote-control",
+                  document_title: "Robotick Studio",
+                  active_route: "/remote-control",
+                  visible_workbench_root: "main Remote Control",
+                  focused_element_summary: "button Launch",
+                  selected_project_text: "Barr.e",
+                  redactions: [],
+                  truncation: {
+                    truncated: false,
+                    original_count: 10,
+                    returned_count: 10,
+                    limit: 50,
+                  },
+                };
+              }
+              if (script.includes("studio_diagnostics_dom_query")) {
+                return {
+                  resource_type: "studio_diagnostics_dom_query",
+                  window_id: "main",
+                  selector: "[data-project-picker]",
+                  match_count: 1,
+                  matches: [
+                    {
+                      text: "Barr.e",
+                      attributes: { "data-testid": "project-picker" },
+                      rect: { x: 1, y: 2, width: 3, height: 4 },
+                      visible: true,
+                      disabled: false,
+                      aria_label: "Project",
+                      aria_name: "Project",
+                      selected_value: "[redacted]",
+                    },
+                  ],
+                  redactions: [
+                    {
+                      path: "matches[0].selected_value",
+                      reason: "input_value",
+                      replacement: "[redacted]",
+                    },
+                  ],
+                  truncation: {
+                    truncated: false,
+                    original_count: 1,
+                    returned_count: 1,
+                    limit: 20,
+                  },
+                };
+              }
+              return {
+                resource_type: "studio_diagnostics_css_query",
+                window_id: "main",
+                selector: "[data-project-picker]",
+                match_count: 1,
+                matches: [
+                  {
+                    computed_styles: { display: "flex", visibility: "visible" },
+                    layout: {
+                      x: 1,
+                      y: 2,
+                      width: 3,
+                      height: 4,
+                      overflow_x: "visible",
+                      overflow_y: "visible",
+                    },
+                  },
+                ],
+                loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+                failed_stylesheet_urls: [],
+                truncation: {
+                  truncated: false,
+                  original_count: 1,
+                  returned_count: 1,
+                  limit: 20,
+                },
+              };
+            },
+          },
+        })
+      );
+      return { statusCode: response.statusCode, body: JSON.parse(response.body) };
+    };
+
+    await expect(request("/v1/studio/diagnostics/dom/summary")).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_summary",
+        instance_id: "studio-1234",
+        selected_project_text: "Barr.e",
+      },
+    });
+    await expect(
+      request("/v1/studio/diagnostics/dom/query?selector=%5Bdata-project-picker%5D")
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_query",
+        selector: "[data-project-picker]",
+        redactions: [{ reason: "input_value" }],
+      },
+    });
+    await expect(
+      request("/v1/studio/diagnostics/css/query?selector=%5Bdata-project-picker%5D&properties=display,visibility")
+    ).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_css_query",
+        selector: "[data-project-picker]",
+        loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+      },
+    });
   });
 
   it("returns diagnostics unavailable when screenshot capture has no live image", async () => {
@@ -1072,8 +1243,36 @@ describe("Studio control runtime status", () => {
         diagnosticsProvider: {
           getOpenWindowScopes: () => ["main"],
           getActiveWindowScope: () => "main",
+          fetchDiagnosticUrl: async (target) => ({
+            target_id: target.target_id,
+            effective_url: target.url,
+            method: target.method,
+            origin: target.origin,
+            ok: target.target_id !== "project-settings",
+            status_code: target.target_id === "project-settings" ? 503 : 200,
+            response_headers: {},
+            error_name: null,
+            error_message:
+              target.target_id === "project-settings"
+                ? "Request failed 503"
+                : null,
+            failure_classification:
+              target.target_id === "project-settings" ? "non_ok_http" : null,
+          }),
           getRendererDiagnostics: () => ({
             updated_at: "2026-06-12T21:00:02.000Z",
+            launcher: {
+              current_project_path: "/tmp/barr-e.project.yaml",
+              launcher_profile: "native",
+              static_hub_endpoint: "http://127.0.0.1:7000",
+              cached_hub_endpoint: "http://127.0.0.1:7000",
+              launcher_api_base: "http://127.0.0.1:7001",
+              terminal_log_stream_url:
+                "ws://127.0.0.1:7001/v1/launcher/models/logs/stream",
+              bootstrap_issue: null,
+              last_runtime_fetch_at: null,
+              last_runtime_fetch_error: null,
+            },
             fetch_failures: [
               {
                 recorded_at: "2026-06-12T21:00:01.000Z",
@@ -1103,6 +1302,19 @@ describe("Studio control runtime status", () => {
     expect(JSON.parse(response.body)).toMatchObject({
       resource_type: "studio_diagnostics_fetch_check",
       active_window_id: "main",
+      checks: expect.arrayContaining([
+        expect.objectContaining({ target_id: "hub-project-list", ok: true }),
+        expect.objectContaining({ target_id: "launcher-runtime", ok: true }),
+        expect.objectContaining({ target_id: "terminal-log-snapshot", ok: true }),
+        expect.objectContaining({
+          target_id: "project-settings",
+          failure_classification: "non_ok_http",
+        }),
+        expect.objectContaining({
+          target_id: "terminal-log-websocket",
+          failure_classification: "websocket_upgrade_failure",
+        }),
+      ]),
       fetch_failures: [expect.objectContaining({ source: "launcher-interface" })],
       websocket_failures: [expect.objectContaining({ source: "terminal-log-service" })],
     });
@@ -1132,6 +1344,18 @@ describe("Studio control runtime status", () => {
         diagnosticsProvider: {
           getOpenWindowScopes: () => ["main"],
           getActiveWindowScope: () => "main",
+          fetchDiagnosticUrl: async (target) => ({
+            target_id: target.target_id,
+            effective_url: target.url,
+            method: target.method,
+            origin: target.origin,
+            ok: true,
+            status_code: 200,
+            response_headers: {},
+            error_name: null,
+            error_message: null,
+            failure_classification: null,
+          }),
           getRendererDiagnostics: () => ({
             updated_at: "2026-06-12T21:00:02.000Z",
             telemetry: {
@@ -1160,6 +1384,14 @@ describe("Studio control runtime status", () => {
     expect(JSON.parse(response.body)).toMatchObject({
       resource_type: "studio_diagnostics_telemetry",
       active_window_id: "main",
+      model_health: [
+        expect.objectContaining({
+          model_id: "barr-e-face",
+          hub_health_ok: true,
+          renderer_health_ok: true,
+          websocket_ok: true,
+        }),
+      ],
       windows: [
         {
           window_id: "main",

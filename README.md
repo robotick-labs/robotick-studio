@@ -56,6 +56,10 @@ The current read-only diagnostics surface is available through the workspace `ro
 ./tools/robotick studio <instance> diagnostics renderer
 ./tools/robotick studio <instance> diagnostics fetch-check
 ./tools/robotick studio <instance> diagnostics telemetry
+./tools/robotick studio <instance> diagnostics dom summary
+./tools/robotick studio <instance> diagnostics dom query
+./tools/robotick studio <instance> diagnostics css query
+./tools/robotick studio <instance> diagnostics screenshot
 ```
 
 Use these when Studio is open but the UI appears stale, telemetry is missing, or launcher-facing state does not match what the renderer is showing.
@@ -63,8 +67,11 @@ Use these when Studio is open but the UI appears stale, telemetry is missing, or
 - `status` reports live project identity and current focus/workbench state
 - `endpoints` compares startup, current, and workspace hub endpoints
 - `renderer` returns the renderer-published snapshot plus bounded renderer errors
-- `fetch-check` reports captured fetch and websocket failures from the UI layer
-- `telemetry` reports renderer-side telemetry diagnostics for the open windows
+- `fetch-check` reports active HTTP checks for launcher/project/terminal dependencies plus renderer-observed websocket failures
+- `telemetry` reports per-model runtime health, renderer telemetry state, websocket state, and last sample/error details
+- `dom summary` and `dom query` inspect the live renderer DOM with input values redacted by default
+- `css query` reports computed styles, layout boxes, and stylesheet load visibility
+- `screenshot` captures the active window with dimensions, route/resource metadata, and basic validation signals
 
 The Studio control service also exposes bounded console diagnostics and screenshot capture. The MVP CLI surface must expose these as:
 

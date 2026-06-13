@@ -213,6 +213,20 @@ Read the `studio open` result for `<instance>` and `<control-endpoint>`. Until `
 
 Do not treat a successful screenshot as proof that the requested operator state is visible. First verify the active workbench is `remote-control`; then, if the user asked for the robot rather than just the Studio shell, launch the runtime and wait for `launcher wait-ready` to report `running`, `ready`, and `live`. Use `diagnostics telemetry` to confirm the renderer has consumed live model state before taking the final screenshot.
 
+For UI-side inspection without opening DevTools, use the live control endpoint diagnostics:
+
+```bash
+curl -sS '<control-endpoint>/v1/studio/diagnostics/dom/summary'
+curl -sS '<control-endpoint>/v1/studio/diagnostics/dom/query?selector=%5Bdata-project-picker%5D'
+curl -sS '<control-endpoint>/v1/studio/diagnostics/css/query?selector=%5Bdata-project-picker%5D'
+```
+
+Screenshot capture can also activate a resource and briefly wait for the renderer to settle before capture:
+
+```bash
+curl -sS '<control-endpoint>/v1/studio/diagnostics/screenshot?resource_path=windows/main/workbenches/remote-control&wait_for_render=true'
+```
+
 If the first capture shows "Launch your robot to enable remote control.", the Studio window is correct but the project runtime is not launched or not yet reflected in the renderer. Launch/wait, then recapture.
 
 ### Discover live Studio structure after launch
@@ -243,7 +257,7 @@ Read the results in this order:
 
 1. `endpoints`: confirm startup hub endpoint, current hub endpoint, and `.robotick/hub.json` agree.
 2. `renderer`: inspect the renderer snapshot for stale cached launcher base URLs and recent renderer errors.
-3. `fetch-check`: inspect captured fetch and websocket failures to see whether the UI is hitting the wrong endpoint or failing after connect.
+3. `fetch-check`: inspect active HTTP checks and renderer-observed websocket failures to see whether Studio is hitting the wrong endpoint, getting a non-OK response, or failing after websocket connect.
 
 If `provider_unavailable` is returned, the instance is live in the hub registry but the Studio control endpoint is stale or missing. Reopen the Studio instance so it registers the current control server.
 

@@ -91,7 +91,7 @@ The CLI should be a convenient local surface over the same capability/resource r
 
 The intended implementation is not "query DevTools history". Studio should own a bounded diagnostics log pipeline and expose filtered snapshots from that pipeline. Chromium console events from renderer windows should be captured through `webContents` events and normalized into the same event stream as main-process diagnostics, renderer-published errors, fetch failures, websocket failures, and future plugin diagnostics.
 
-`studio diagnostics fetch-check <target>` should ask the renderer to perform the same request the UI uses and report:
+`studio diagnostics fetch-check <target>` should report the same dependency path the UI uses. For the MVP, HTTP probes run from Electron main using renderer-published URLs, while browser-only CORS evidence and websocket state come from renderer-published failure records. A later renderer-executed probe can be added where exact browser fetch semantics matter. Each check should report:
 
 - effective URL
 - method
@@ -126,6 +126,8 @@ Initial targets:
 - `summary`: title, URL, active route, visible workbench root, focused element, selected project control text
 - `query <selector>`: matching count, text content, attributes, bounding rect, visibility, disabled state, aria label/name, and selected value for form controls
 - output must be size bounded and redact input values by default
+
+Electron main should own these diagnostics commands and route browser-context inspection through a bounded renderer script execution bridge. Renderer code should not grow ad hoc diagnostics endpoints; it should execute the Electron-owned command and return bounded, redacted results.
 
 `studio diagnostics css query <selector>` should return:
 

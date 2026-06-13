@@ -1306,6 +1306,18 @@ export async function bootstrapElectron({
     return image?.toPNG?.() ?? null;
   };
 
+  const executeRendererDiagnosticsScript = async (
+    windowId: string,
+    script: string
+  ): Promise<unknown> => {
+    const normalizedScope = windowId === "main" ? PRIMARY_WINDOW_SCOPE : windowId;
+    const win = windowByScope.get(normalizedScope);
+    if (!win || win.isDestroyed?.()) {
+      return null;
+    }
+    return await win.webContents.executeJavaScript?.(script);
+  };
+
   const getActiveWorkbenchIds = (): Record<string, string> =>
     Object.fromEntries(activeWorkbenchByWindow.entries());
 
@@ -2411,6 +2423,7 @@ export async function bootstrapElectron({
         getRendererErrors,
         getConsoleRecords,
         captureScreenshot,
+        executeRendererDiagnosticsScript,
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,

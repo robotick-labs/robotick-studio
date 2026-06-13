@@ -178,6 +178,18 @@ describe("studio control contracts", () => {
       window_id: "main",
       output_path: "/tmp/.robotick/diagnostics/main.png",
       mime_type: "image/png",
+      generated_at: "2026-06-13T10:02:00.000Z",
+      dimensions: { width: 320, height: 240 },
+      active_window_url: "http://localhost:5173/remote-control",
+      active_workbench_id: "remote-control",
+      active_layout_id: "main:remote-control:default",
+      active_panel_id: "panel-remote-control",
+      capture_source: "electron_capture_page",
+      validation: {
+        nonblank_pixel_check: true,
+        dominant_content_area: { x: 0, y: 0, width: 320, height: 240 },
+        expected_resource_match: true,
+      },
     };
     const status: StudioControlDiagnosticsStatus = {
       resource_type: "studio_diagnostics_status",
@@ -249,7 +261,7 @@ describe("studio control contracts", () => {
       consoleRecord: { level: "error", payload: { code: "network_error" } },
       fetchCheck: { failure_classification: "refused_connection" },
       telemetry: { websocket_ok: false, model_id: "pip-e-brain" },
-      screenshot: { mime_type: "image/png" },
+      screenshot: { mime_type: "image/png", dimensions: { width: 320, height: 240 } },
       snapshot: {
         resource_type: "studio_diagnostics_snapshot",
         redactions: [{ reason: "token" }],

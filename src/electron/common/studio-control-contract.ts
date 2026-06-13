@@ -278,6 +278,7 @@ export type StudioControlDiagnosticsFetchCheck = {
   resource_type: "studio_diagnostics_fetch_check";
   instance_id: string;
   active_window_id: string | null;
+  checks: StudioControlDiagnosticsFetchCheckResult[];
   fetch_failures: StudioControlRendererFetchFailureRecord[];
   websocket_failures: StudioControlRendererWebSocketFailureRecord[];
   limitations: string[];
@@ -315,6 +316,7 @@ export type StudioControlDiagnosticsTelemetry = {
   resource_type: "studio_diagnostics_telemetry";
   instance_id: string;
   active_window_id: string | null;
+  model_health: StudioControlDiagnosticsTelemetryModelHealth[];
   windows: StudioControlDiagnosticsTelemetryWindow[];
   limitations: string[];
 };
@@ -402,6 +404,26 @@ export type StudioControlDiagnosticsScreenshot = {
   window_id: string;
   output_path: string;
   mime_type: "image/png";
+  generated_at: string;
+  dimensions: {
+    width: number;
+    height: number;
+  } | null;
+  active_window_url: string | null;
+  active_workbench_id: string | null;
+  active_layout_id: string | null;
+  active_panel_id: string | null;
+  capture_source: "electron_capture_page";
+  validation: {
+    nonblank_pixel_check: boolean | null;
+    dominant_content_area: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    } | null;
+    expected_resource_match: boolean | null;
+  };
 };
 
 export type StudioControlDiagnosticsConsole = {

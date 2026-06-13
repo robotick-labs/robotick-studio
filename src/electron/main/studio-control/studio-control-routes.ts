@@ -51,7 +51,7 @@ export async function routeStudioControlRequest(
       : null;
   const result = await dispatchStudioControlCommand(
     method,
-    url.pathname,
+    `${url.pathname}${url.search}`,
     dependencies,
     body
   );

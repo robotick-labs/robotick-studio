@@ -4,6 +4,9 @@ import type {
 } from "./studio-control-routes";
 import {
   getStudioDiagnosticsConsole,
+  getStudioDiagnosticsCssQuery,
+  getStudioDiagnosticsDomQuery,
+  getStudioDiagnosticsDomSummary,
   getStudioDiagnosticsEndpoints,
   getStudioDiagnosticsFetchCheck,
   getStudioDiagnosticsRenderer,
@@ -33,7 +36,11 @@ type StudioControlCommandHandler = (
 ) => Promise<StudioControlCommandResult>;
 
 type StudioControlRegisteredCommand = StudioControlCommandDescriptor & {
-  match: (method: string, pathname: string) => StudioControlCommandMatch | null;
+  match: (
+    method: string,
+    pathname: string,
+    searchParams: URLSearchParams
+  ) => StudioControlCommandMatch | null;
   execute: StudioControlCommandHandler;
 };
 
@@ -46,6 +53,36 @@ function decodePathSegments(resourcePath: string): string[] | null {
   } catch {
     return null;
   }
+}
+
+function resourcePathParam(value: unknown): string[] | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  return decodePathSegments(value.trim().replace(/^\/+/, ""));
+}
+
+function waitForMs(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, Math.min(5000, ms)));
+}
+
+function screenshotSettleMs(params: Record<string, unknown>): number {
+  if (typeof params.wait_ms === "string") {
+    const parsed = Number.parseInt(params.wait_ms, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  if (params.wait_for_render === "1" || params.wait_for_render === "true") {
+    return 250;
+  }
+  if (params.wait_for_telemetry === "1" || params.wait_for_telemetry === "true") {
+    return 500;
+  }
+  return 0;
 }
 
 function statusPathSegments(pathname: string): string[] | null {
@@ -81,6 +118,9 @@ function diagnosticsKind(
   | "console"
   | "fetch-check"
   | "telemetry"
+  | "dom-summary"
+  | "dom-query"
+  | "css-query"
   | "screenshot"
   | null {
   if (
@@ -118,6 +158,24 @@ function diagnosticsKind(
     pathname === "/v1/studio/diagnostics/telemetry"
   ) {
     return "telemetry";
+  }
+  if (
+    pathname === "/v1/diagnostics/dom/summary" ||
+    pathname === "/v1/studio/diagnostics/dom/summary"
+  ) {
+    return "dom-summary";
+  }
+  if (
+    pathname === "/v1/diagnostics/dom/query" ||
+    pathname === "/v1/studio/diagnostics/dom/query"
+  ) {
+    return "dom-query";
+  }
+  if (
+    pathname === "/v1/diagnostics/css/query" ||
+    pathname === "/v1/studio/diagnostics/css/query"
+  ) {
+    return "css-query";
   }
   if (
     pathname === "/v1/diagnostics/screenshot" ||
@@ -332,7 +390,7 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
         };
       },
     },
-    ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "screenshot"] as const).map(
+    ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "dom-summary", "dom-query", "css-query", "screenshot"] as const).map(
       (kind) => {
         const commandId = `studio.diagnostics.${kind}`;
         return {
@@ -349,18 +407,21 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
               kind === "console" ||
               kind === "fetch-check" ||
               kind === "telemetry" ||
+              kind === "dom-summary" ||
+              kind === "dom-query" ||
+              kind === "css-query" ||
               kind === "screenshot",
             resource_scope: "diagnostics",
           },
           read_only: true,
           destructive: false,
-          match(method: string, pathname: string) {
+          match(method: string, pathname: string, searchParams: URLSearchParams) {
             if (method !== "GET" || diagnosticsKind(pathname) !== kind) {
               return null;
             }
-            return { commandId, params: {} };
+            return { commandId, params: Object.fromEntries(searchParams.entries()) };
           },
-          async execute(_params: Record<string, unknown>, dependencies: StudioControlRouteDependencies) {
+          async execute(params: Record<string, unknown>, dependencies: StudioControlRouteDependencies) {
             const payload =
               kind === "status"
                 ? await getStudioDiagnosticsStatus(dependencies.diagnosticsProvider)
@@ -374,7 +435,20 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
                         ? await getStudioDiagnosticsFetchCheck(dependencies.diagnosticsProvider)
                         : kind === "telemetry"
                           ? await getStudioDiagnosticsTelemetry(dependencies.diagnosticsProvider)
-                          : await getStudioDiagnosticsScreenshot(dependencies.diagnosticsProvider);
+                          : kind === "dom-summary"
+                            ? await getStudioDiagnosticsDomSummary(dependencies.diagnosticsProvider, params)
+                            : kind === "dom-query"
+                              ? await getStudioDiagnosticsDomQuery(dependencies.diagnosticsProvider, params)
+                              : kind === "css-query"
+                                ? await getStudioDiagnosticsCssQuery(dependencies.diagnosticsProvider, params)
+                                : await (async () => {
+                                    const resourcePath = resourcePathParam(params.resource_path);
+                                    if (resourcePath) {
+                                      dependencies.activateResource(resourcePath, false);
+                                    }
+                                    await waitForMs(screenshotSettleMs(params));
+                                    return await getStudioDiagnosticsScreenshot(dependencies.diagnosticsProvider, params);
+                                  })();
             return { statusCode: payload ? 200 : 503, payload: payload ?? { error: "diagnostics_unavailable" } };
           },
         } satisfies StudioControlRegisteredCommand;
@@ -405,8 +479,9 @@ export async function dispatchStudioControlCommand(
   dependencies: StudioControlRouteDependencies,
   body: unknown
 ): Promise<StudioControlCommandResult | null> {
+  const url = new URL(pathname, "http://127.0.0.1");
   for (const command of COMMAND_REGISTRY) {
-    const matched = command.match(method, pathname);
+    const matched = command.match(method, url.pathname, url.searchParams);
     if (!matched) {
       continue;
     }

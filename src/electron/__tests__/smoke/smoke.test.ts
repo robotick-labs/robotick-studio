@@ -29,6 +29,7 @@ type BrowserWindowMock = {
     on: ReturnType<typeof vi.fn>;
     getURL: ReturnType<typeof vi.fn>;
     capturePage: ReturnType<typeof vi.fn>;
+    executeJavaScript: ReturnType<typeof vi.fn>;
   };
   handlers: Map<string, Array<(...args: unknown[]) => void>>;
   webContentsHandlers: Map<string, Array<(...args: unknown[]) => void>>;
@@ -64,8 +65,65 @@ const createElectronMocks = () => {
           on: vi.fn(),
           getURL: vi.fn(() => "http://localhost:5173"),
           capturePage: vi.fn(async () => ({
-            toPNG: () => Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            toPNG: () =>
+              Buffer.from([
+                0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+                0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x05, 0x78, 0x00, 0x00, 0x03, 0x84,
+              ]),
           })),
+          executeJavaScript: vi.fn(async (script: string) => {
+            if (script.includes("studio_diagnostics_dom_summary")) {
+              return {
+                resource_type: "studio_diagnostics_dom_summary",
+                window_id: "main",
+                url: "http://localhost:5173/remote-control",
+                document_title: "Robotick Studio",
+                active_route: "/remote-control",
+                visible_workbench_root: "main Remote Control",
+                focused_element_summary: null,
+                selected_project_text: "Barr.e",
+                redactions: [],
+                truncation: {
+                  truncated: false,
+                  original_count: 1,
+                  returned_count: 1,
+                  limit: 50,
+                },
+              };
+            }
+            if (script.includes("studio_diagnostics_dom_query")) {
+              return {
+                resource_type: "studio_diagnostics_dom_query",
+                window_id: "main",
+                selector: "[data-project-picker]",
+                match_count: 1,
+                matches: [],
+                redactions: [],
+                truncation: {
+                  truncated: false,
+                  original_count: 1,
+                  returned_count: 0,
+                  limit: 20,
+                },
+              };
+            }
+            return {
+              resource_type: "studio_diagnostics_css_query",
+              window_id: "main",
+              selector: "[data-project-picker]",
+              match_count: 1,
+              matches: [],
+              loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+              failed_stylesheet_urls: [],
+              truncation: {
+                truncated: false,
+                original_count: 1,
+                returned_count: 0,
+                limit: 20,
+              },
+            };
+          }),
         },
         handlers: new Map<string, Array<(...args: unknown[]) => void>>(),
         webContentsHandlers: new Map<string, Array<(...args: unknown[]) => void>>(),
@@ -602,6 +660,39 @@ describe("electron launch paths", () => {
       },
     });
 
+    const domSummaryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/dom/summary`
+    );
+    expect(domSummaryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_summary",
+        selected_project_text: "Barr.e",
+      },
+    });
+
+    const domQueryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/dom/query?selector=%5Bdata-project-picker%5D`
+    );
+    expect(domQueryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_query",
+        selector: "[data-project-picker]",
+      },
+    });
+
+    const cssQueryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/css/query?selector=%5Bdata-project-picker%5D`
+    );
+    expect(cssQueryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_css_query",
+        loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+      },
+    });
+
     const screenshotResponse = await getJson(
       `${controlEndpoint}/v1/studio/diagnostics/screenshot`
     );
@@ -610,6 +701,7 @@ describe("electron launch paths", () => {
       resource_type: "studio_diagnostics_screenshot",
       window_id: "main",
       mime_type: "image/png",
+      dimensions: { width: 1400, height: 900 },
     });
     expect(
       fs.existsSync(
