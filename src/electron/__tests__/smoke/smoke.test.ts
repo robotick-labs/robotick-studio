@@ -504,6 +504,40 @@ describe("electron launch paths", () => {
     );
   });
 
+  it("handles renderer-owned diagnostics events and Electron-owned renderer commands", async () => {
+    const mocks = await bootstrapWithMocks();
+    const diagnosticsEventHandler = mocks.ipcOnHandlers.get(
+      "robotick-renderer-diagnostics-event"
+    );
+    const commandHandler = mocks.ipcHandleHandlers.get("robotick-renderer-command");
+    expect(diagnosticsEventHandler).toBeDefined();
+    expect(commandHandler).toBeDefined();
+
+    diagnosticsEventHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        source: "renderer_fetch",
+        level: "error",
+        message: "Renderer fetch failed",
+        payload: { operation: "GET /v1/launcher/runtime" },
+      }
+    );
+
+    expect(
+      await commandHandler?.(
+        { sender: mocks.windows[0].webContents },
+        { commandId: "studio.renderer.location", input: {} }
+      )
+    ).toEqual(
+      expect.objectContaining({
+        accepted: true,
+        command_id: "studio.renderer.location",
+        window_id: "main",
+        url: "http://localhost:5173",
+      })
+    );
+  });
+
   it.each([
     ["dev", "1"],
     ["production", ""],

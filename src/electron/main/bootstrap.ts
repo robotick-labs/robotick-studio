@@ -158,6 +158,18 @@ type RendererErrorPayload = {
 
 type RendererDiagnosticsSnapshotPayload = Record<string, unknown>;
 
+type RendererDiagnosticsEventPayload = {
+  source?: unknown;
+  level?: unknown;
+  message?: unknown;
+  payload?: unknown;
+};
+
+type RendererCommandRequestPayload = {
+  commandId?: unknown;
+  input?: unknown;
+};
+
 type RendererDiagnosticsRecord = {
   updated_at: string | null;
   [key: string]: unknown;
@@ -1997,12 +2009,71 @@ export async function bootstrapElectron({
       }
     );
     ipcMain.on(
+      "robotick-renderer-diagnostics-event",
+      (event, payload: RendererDiagnosticsEventPayload | undefined) => {
+        const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+        const source =
+          typeof payload?.source === "string" && payload.source.trim().length > 0
+            ? payload.source.trim()
+            : "renderer";
+        const message =
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message.trim()
+            : "";
+        if (!message) {
+          return;
+        }
+        diagnosticsLogStore.record({
+          source:
+            source === "renderer_fetch" || source === "renderer_websocket"
+              ? source
+              : "renderer_error",
+          window_id: windowId,
+          level: normalizeConsoleLevel(payload?.level),
+          message,
+          payload:
+            payload?.payload && typeof payload.payload === "object"
+              ? (payload.payload as Record<string, unknown>)
+              : { source },
+        });
+      }
+    );
+    ipcMain.on(
       "robotick-studio-runtime:active-resource",
       (
         event: IpcMainEvent,
         payload: StudioRuntimeActiveResourcePayload | undefined
       ) => {
         recordActiveStudioResource(resolveBrowserWindowFromEvent(event), payload);
+      }
+    );
+
+    ipcMain.handle(
+      "robotick-renderer-command",
+      (event: IpcMainInvokeEvent, payload: RendererCommandRequestPayload | undefined) => {
+        const target = resolveBrowserWindowFromEvent(event);
+        const commandId =
+          typeof payload?.commandId === "string" ? payload.commandId.trim() : "";
+        if (!target || target.isDestroyed?.()) {
+          return { accepted: false, error: "window_not_found" as const };
+        }
+        if (!commandId) {
+          return { accepted: false, error: "renderer_command_required" as const };
+        }
+        if (commandId === "studio.renderer.location") {
+          const windowId = windowIdFromBrowserWindow(target);
+          return {
+            accepted: true,
+            command_id: commandId,
+            window_id: windowId,
+            url: target.webContents.getURL?.() ?? null,
+          };
+        }
+        return {
+          accepted: false,
+          command_id: commandId,
+          error: "renderer_command_unknown" as const,
+        };
       }
     );
 

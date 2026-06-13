@@ -89,6 +89,16 @@ export interface RobotickStudioControl {
 
 export interface RobotickDiagnosticsBridge {
   readonly publishSnapshot: (snapshot: Record<string, unknown>) => void;
+  readonly publishEvent?: (event: {
+    source: string;
+    level?: "debug" | "info" | "warn" | "error";
+    message: string;
+    payload?: Record<string, unknown> | null;
+  }) => void;
+  readonly requestCommand?: (
+    commandId: string,
+    input?: Record<string, unknown>
+  ) => Promise<unknown>;
 }
 
 export interface RobotickProjectSelectionIssue {

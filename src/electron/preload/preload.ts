@@ -213,6 +213,20 @@ const expose = () => {
     publishSnapshot(snapshot: Record<string, unknown>) {
       ipcRenderer.send("robotick-renderer-diagnostics", snapshot);
     },
+    publishEvent(event: {
+      source: string;
+      level?: "debug" | "info" | "warn" | "error";
+      message: string;
+      payload?: Record<string, unknown> | null;
+    }) {
+      ipcRenderer.send("robotick-renderer-diagnostics-event", event);
+    },
+    requestCommand(commandId: string, input?: Record<string, unknown>) {
+      return ipcRenderer.invoke("robotick-renderer-command", {
+        commandId,
+        input: input ?? {},
+      });
+    },
   };
 
   const cesiumToken = process.env.CESIUM_TOKEN?.trim();
