@@ -210,6 +210,63 @@ Check `active_workbench_id` in the JSON result.
 2. Open the requested project with `./tools/robotick studio open <project> windows main workbenches <workbench-id> activate`.
 3. Verify the active workbench with `./tools/robotick studio <instance> windows main status`.
 
+### Debug "failed to fetch" in a live Studio instance
+
+```bash
+./tools/robotick studio instances
+./tools/robotick studio <instance> diagnostics endpoints
+./tools/robotick studio <instance> diagnostics renderer
+./tools/robotick studio <instance> diagnostics fetch-check
+```
+
+Use this when Studio is open but panels say "failed to fetch" or appear disconnected from launcher/runtime state.
+
+Read the results in this order:
+
+1. `endpoints`: confirm startup hub endpoint, current hub endpoint, and `.robotick/hub.json` agree.
+2. `renderer`: inspect the renderer snapshot for stale cached launcher base URLs and recent renderer errors.
+3. `fetch-check`: inspect captured fetch and websocket failures to see whether the UI is hitting the wrong endpoint or failing after connect.
+
+If `provider_unavailable` is returned, the instance is live in the hub registry but the Studio control endpoint is stale or missing. Reopen the Studio instance so it registers the current control server.
+
+### Check selected project display-name mismatches
+
+```bash
+./tools/robotick studio <instance> diagnostics status
+./tools/robotick studio <instance> diagnostics renderer
+./tools/robotick studio <instance> status
+```
+
+Use this when Studio shows the wrong project label or falls back to a file stem such as `barr-e` instead of the project file `name`.
+
+Check:
+
+- `diagnostics status` for `selected_project_id`, `project_file_name`, `project_display_name`, and `ui_project_label`
+- `diagnostics renderer` for the project picker `rendered_label` and `project_display_name`
+- instance `status` for the live Studio resource tree identity fields
+
+The project file `name` is the intended human-facing display label. File-derived ids should only be treated as machine identity.
+
+### Check telemetry when model processes are running but Studio is empty
+
+```bash
+./tools/robotick launcher status
+./tools/robotick studio <instance> diagnostics endpoints
+./tools/robotick studio <instance> diagnostics telemetry
+./tools/robotick studio <instance> diagnostics renderer
+```
+
+Use this when model processes exist but Studio shows no telemetry panels or stale views.
+
+Check:
+
+- `launcher status` for hub-side model runtime truth
+- `diagnostics endpoints` for stale hub endpoint mismatches
+- `diagnostics telemetry` for renderer-side model diagnostics and last telemetry errors
+- `diagnostics renderer` for the current telemetry snapshot and any bounded renderer errors
+
+If launcher says models are running but `diagnostics telemetry` is empty or stale, treat the renderer/hub wiring as suspect before treating the model runtime as broken.
+
 ## Known Gaps
 
 - There is not yet a first-class pre-launch command for listing activatable targets by label or alias.

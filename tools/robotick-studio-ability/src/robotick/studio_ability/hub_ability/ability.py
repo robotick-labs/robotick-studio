@@ -25,7 +25,6 @@ from robotick_hub.workspace import build_workspace_projects
 from robotick.studio_ability.domain import (
     activate_studio_resource,
     get_studio_diagnostics,
-    get_instance_status,
     get_studio_focused,
     get_studio_capability_status,
     get_studio_status,

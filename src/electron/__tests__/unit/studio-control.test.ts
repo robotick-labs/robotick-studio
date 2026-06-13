@@ -7,6 +7,10 @@ import {
   buildStudioRuntimeTree,
   resolveStudioRuntimeNode,
 } from "../../main/studio-control/studio-context-resolver";
+import {
+  dispatchStudioControlCommand,
+  listStudioControlCommands,
+} from "../../main/studio-control/studio-command-registry";
 import { routeStudioControlRequest } from "../../main/studio-control/studio-control-routes";
 import type { StudioControlRouteDependencies } from "../../main/studio-control/studio-control-routes";
 
@@ -222,8 +226,10 @@ describe("Studio control runtime status", () => {
 
     expect(status).toMatchObject({
       resource_type: "studio_instance",
+      project_id: "pip-e",
       project_name: "pip-e",
       project_dir: "/tmp/robots/pip-e",
+      project_file_name: "pip-e.project.yaml",
       selected_project_path: selectedProjectPath,
     });
   });
@@ -589,6 +595,126 @@ describe("Studio control runtime status", () => {
       active_workbench_id: "remote-control",
       active_layout_id: "main:remote-control:default",
       diagnostics_capability_versions: { status: 1, endpoints: 1, renderer: 1 },
+    });
+  });
+
+  it("publishes the current live commands through the Electron command registry", () => {
+    expect(listStudioControlCommands()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "studio.resource.status",
+          provider: "electron_main",
+          read_only: true,
+          availability: expect.objectContaining({
+            resource_scope: "resource",
+          }),
+        }),
+        expect.objectContaining({
+          id: "studio.resource.activate",
+          provider: "electron_main",
+          read_only: false,
+          destructive: false,
+        }),
+        expect.objectContaining({
+          id: "studio.project.select",
+          provider: "electron_main",
+          availability: expect.objectContaining({
+            resource_scope: "project",
+          }),
+        }),
+        expect.objectContaining({
+          id: "studio.diagnostics.renderer",
+          provider: "electron_main",
+          availability: expect.objectContaining({
+            requires_renderer: true,
+            resource_scope: "diagnostics",
+          }),
+        }),
+      ])
+    );
+  });
+
+  it("dispatches Studio control commands through the Electron registry", async () => {
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-command-"));
+    const projectPath = path.join(projectDir, "pip-e.project.yaml");
+    fs.writeFileSync(projectPath, 'name: "Pip.e"\n', "utf-8");
+    writeStudioDocumentFixture(projectDir);
+
+    const dependencies = createControlDependencies(projectPath, {
+      snapshotProvider: {
+        getFocusedWindowScope: () => "main",
+      },
+      diagnosticsProvider: {
+        getFocusedWindowScope: () => "main",
+      },
+      activateResource: (pathSegments) => ({
+        accepted: true,
+        changed: true,
+        activated_path: pathSegments,
+        previous_active_path: null,
+        message: "Activated Studio resource.",
+      }),
+      selectProject: (nextProjectPath) => ({
+        accepted: true,
+        currentProjectPath: nextProjectPath,
+        issue: null,
+      }),
+    });
+
+    const statusResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/studio/status",
+      dependencies,
+      null
+    );
+    const focusedResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/focused",
+      dependencies,
+      null
+    );
+    const activateResult = await dispatchStudioControlCommand(
+      "POST",
+      "/v1/studio/windows/main/workbenches/models/activate",
+      dependencies,
+      {}
+    );
+    const selectProjectResult = await dispatchStudioControlCommand(
+      "POST",
+      "/v1/project/select",
+      dependencies,
+      { project_path: projectPath }
+    );
+
+    expect(statusResult).toMatchObject({
+      statusCode: 200,
+      payload: expect.objectContaining({
+        resource_type: "studio_instance",
+        project_id: "pip-e",
+        project_name: "Pip.e",
+      }),
+    });
+    expect(focusedResult).toMatchObject({
+      statusCode: 200,
+      payload: expect.objectContaining({
+        resource_type: "robotick_studio_focused",
+        project_id: "pip-e",
+        project_display_name: "Pip.e",
+      }),
+    });
+    expect(activateResult).toMatchObject({
+      statusCode: 200,
+      payload: expect.objectContaining({
+        accepted: true,
+        activated_path: ["windows", "main", "workbenches", "models"],
+      }),
+    });
+    expect(selectProjectResult).toMatchObject({
+      statusCode: 200,
+      payload: expect.objectContaining({
+        accepted: true,
+        currentProjectPath: projectPath,
+      }),
     });
   });
 

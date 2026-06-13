@@ -11,6 +11,7 @@ import type {
   StudioWindow,
   StudioWorkbench,
 } from "../studio-persistence";
+import { readProjectMetadata } from "./studio-project-metadata";
 
 type StudioPanelStatus = {
   resource_type: "studio_panel";
@@ -87,8 +88,12 @@ type StudioInstanceStatus = {
   pid: number;
   mode: string;
   state: "running";
+  project_id: string | null;
   project_name: string | null;
   project_dir: string | null;
+  project_file_name: string | null;
+  project_display_name: string | null;
+  ui_project_label: string | null;
   selected_project_path: string | null;
   active_window_id: string | null;
   focused_window_id: string | null;
@@ -122,17 +127,6 @@ export type StudioRuntimeStatusOptions = {
   activeLayoutIds?: Record<string, string>;
   activePanelIds?: Record<string, string>;
 };
-
-function deriveProjectName(selectedProjectPath: string | null): string | null {
-  if (!selectedProjectPath) {
-    return null;
-  }
-  const basename = path.basename(selectedProjectPath).trim();
-  if (!basename) {
-    return null;
-  }
-  return basename.replace(/\.project\.ya?ml$/i, "") || null;
-}
 
 function deriveProjectDirectory(selectedProjectPath: string | null): string | null {
   if (!selectedProjectPath) {
@@ -233,6 +227,7 @@ export function buildStudioRuntimeTree(
   document: StudioDocument,
   options: StudioRuntimeStatusOptions
 ): StudioInstanceStatus {
+  const projectMetadata = readProjectMetadata(options.selectedProjectPath);
   const activeWindow = activeWindowIdForDocument(document, options.activeWindowScope);
   const focusedWindow = activeWindowIdForDocument(
     document,
@@ -329,8 +324,14 @@ export function buildStudioRuntimeTree(
     pid: options.pid,
     mode: process.env.ROBOTICK_STUDIO_MODE ?? options.mode,
     state: "running",
-    project_name: deriveProjectName(options.selectedProjectPath),
-    project_dir: deriveProjectDirectory(options.selectedProjectPath),
+    project_id: projectMetadata.projectId,
+    project_name: projectMetadata.projectDisplayName ?? projectMetadata.projectId,
+    project_dir:
+      projectMetadata.projectDirectory ??
+      deriveProjectDirectory(options.selectedProjectPath),
+    project_file_name: projectMetadata.projectFileName,
+    project_display_name: projectMetadata.projectDisplayName,
+    ui_project_label: projectMetadata.projectDisplayName,
     selected_project_path: options.selectedProjectPath,
     active_window_id: activeWindow.id,
     focused_window_id: options.focusedWindowScope ? focusedWindow.id : null,
@@ -623,8 +624,12 @@ export function resolveStudioRuntimeNode(
       pid: node.pid,
       mode: node.mode,
       state: node.state,
+      project_id: node.project_id,
       project_name: node.project_name,
       project_dir: node.project_dir,
+      project_file_name: node.project_file_name,
+      project_display_name: node.project_display_name,
+      ui_project_label: node.ui_project_label,
       selected_project_path: node.selected_project_path,
       active_window_id: node.active_window_id,
       focused_window_id: node.focused_window_id,

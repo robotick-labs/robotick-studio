@@ -4,6 +4,29 @@ export type StudioControlCollection = {
   item_count: number;
 };
 
+export type StudioControlCommandProvider =
+  | "electron_main"
+  | "renderer_assisted"
+  | "renderer";
+
+export type StudioControlCommandAvailability = {
+  requires_live_instance: boolean;
+  requires_renderer: boolean;
+  resource_scope: "instance" | "resource" | "diagnostics" | "project";
+};
+
+export type StudioControlCommandDescriptor = {
+  id: string;
+  title: string;
+  description: string;
+  provider: StudioControlCommandProvider;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  availability: StudioControlCommandAvailability;
+  read_only: boolean;
+  destructive: boolean;
+};
+
 export type StudioControlResourceSummary = {
   resource_type: string;
   id: string;
@@ -56,6 +79,27 @@ export type StudioControlDiagnosticsLimits = {
   console_buffer_entries: number | null;
   fetch_failure_entries: number | null;
   websocket_failure_entries: number | null;
+};
+
+export type StudioControlRedactionReason =
+  | "input_value"
+  | "token"
+  | "auth_header"
+  | "environment_secret"
+  | "sensitive_query_param"
+  | "plugin_defined";
+
+export type StudioControlRedactionNotice = {
+  path: string;
+  reason: StudioControlRedactionReason;
+  replacement: string;
+};
+
+export type StudioControlTruncationMetadata = {
+  truncated: boolean;
+  original_count: number | null;
+  returned_count: number;
+  limit: number | null;
 };
 
 export type StudioControlDiagnosticsStatus = {
@@ -128,6 +172,18 @@ export type StudioControlRendererErrorRecord = {
   lineno: number | null;
   colno: number | null;
   stack: string | null;
+};
+
+export type StudioControlDiagnosticsConsoleRecord = {
+  window_id: string | null;
+  recorded_at: string;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+  source_url: string | null;
+  line: number | null;
+  column: number | null;
+  stack: string | null;
+  payload: Record<string, unknown> | null;
 };
 
 export type StudioControlRendererLauncherDiagnostics = {
@@ -225,6 +281,29 @@ export type StudioControlDiagnosticsFetchCheck = {
   limitations: string[];
 };
 
+export type StudioControlDiagnosticsFetchCheckFailureClass =
+  | "stale_endpoint"
+  | "cors"
+  | "refused_connection"
+  | "timeout"
+  | "dns"
+  | "non_ok_http"
+  | "websocket_upgrade_failure"
+  | "unknown";
+
+export type StudioControlDiagnosticsFetchCheckResult = {
+  target_id: string;
+  effective_url: string;
+  method: string;
+  origin: string | null;
+  ok: boolean;
+  status_code: number | null;
+  response_headers: Record<string, string>;
+  error_name: string | null;
+  error_message: string | null;
+  failure_classification: StudioControlDiagnosticsFetchCheckFailureClass | null;
+};
+
 export type StudioControlDiagnosticsTelemetryWindow = {
   window_id: string;
   telemetry: StudioControlRendererTelemetryDiagnostics | null;
@@ -236,4 +315,107 @@ export type StudioControlDiagnosticsTelemetry = {
   active_window_id: string | null;
   windows: StudioControlDiagnosticsTelemetryWindow[];
   limitations: string[];
+};
+
+export type StudioControlDiagnosticsTelemetryModelHealth = {
+  model_id: string;
+  telemetry_base_url: string;
+  hub_health_ok: boolean | null;
+  renderer_health_ok: boolean | null;
+  websocket_ok: boolean | null;
+  last_sample_at: string | null;
+  ingress_rate_hz: number | null;
+  presentation_rate_hz: number | null;
+  last_error: string | null;
+};
+
+export type StudioControlDiagnosticsDomSummary = {
+  resource_type: "studio_diagnostics_dom_summary";
+  instance_id: string;
+  window_id: string;
+  url: string | null;
+  document_title: string | null;
+  active_route: string | null;
+  visible_workbench_root: string | null;
+  focused_element_summary: string | null;
+  selected_project_text: string | null;
+  redactions: StudioControlRedactionNotice[];
+  truncation: StudioControlTruncationMetadata;
+};
+
+export type StudioControlDiagnosticsDomQueryMatch = {
+  text: string | null;
+  attributes: Record<string, string>;
+  rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  visible: boolean | null;
+  disabled: boolean | null;
+  aria_label: string | null;
+  aria_name: string | null;
+  selected_value: string | null;
+};
+
+export type StudioControlDiagnosticsDomQuery = {
+  resource_type: "studio_diagnostics_dom_query";
+  instance_id: string;
+  window_id: string;
+  selector: string;
+  match_count: number;
+  matches: StudioControlDiagnosticsDomQueryMatch[];
+  redactions: StudioControlRedactionNotice[];
+  truncation: StudioControlTruncationMetadata;
+};
+
+export type StudioControlDiagnosticsCssQueryMatch = {
+  computed_styles: Record<string, string>;
+  layout: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    overflow_x: string | null;
+    overflow_y: string | null;
+  } | null;
+};
+
+export type StudioControlDiagnosticsCssQuery = {
+  resource_type: "studio_diagnostics_css_query";
+  instance_id: string;
+  window_id: string;
+  selector: string;
+  match_count: number;
+  matches: StudioControlDiagnosticsCssQueryMatch[];
+  loaded_stylesheet_urls: string[];
+  failed_stylesheet_urls: string[];
+  truncation: StudioControlTruncationMetadata;
+};
+
+export type StudioControlDiagnosticsScreenshot = {
+  resource_type: "studio_diagnostics_screenshot";
+  instance_id: string;
+  window_id: string;
+  output_path: string;
+  mime_type: "image/png";
+};
+
+export type StudioControlDiagnosticsSnapshot = {
+  resource_type: "studio_diagnostics_snapshot";
+  instance_id: string;
+  generated_at: string;
+  status: StudioControlDiagnosticsStatus | null;
+  endpoints: StudioControlDiagnosticsEndpoints | null;
+  renderer: StudioControlDiagnosticsRenderer | null;
+  console: {
+    records: StudioControlDiagnosticsConsoleRecord[];
+    truncation: StudioControlTruncationMetadata;
+  } | null;
+  fetch_check: StudioControlDiagnosticsFetchCheck | null;
+  telemetry: StudioControlDiagnosticsTelemetry | null;
+  dom_summary: StudioControlDiagnosticsDomSummary | null;
+  screenshot: StudioControlDiagnosticsScreenshot | null;
+  redactions: StudioControlRedactionNotice[];
 };

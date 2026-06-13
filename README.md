@@ -43,3 +43,47 @@ robotick studio open pip-e windows main workbenches terminal activate
 See [docs/design/26-06-05 - robotick_cli_and_agentic_ux.md](./docs/design/26-06-05%20-%20robotick_cli_and_agentic_ux.md) for the canonical CLI, hub, launcher, and Studio control design.
 
 This is structural inspection only. Panel/viewer readiness, recovery, and deeper diagnosability remain separate follow-on work.
+
+## Studio diagnostics
+
+The current read-only diagnostics surface is available through the workspace `robotick` CLI:
+
+```bash
+./tools/robotick studio <instance> diagnostics status
+./tools/robotick studio <instance> diagnostics endpoints
+./tools/robotick studio <instance> diagnostics renderer
+./tools/robotick studio <instance> diagnostics fetch-check
+./tools/robotick studio <instance> diagnostics telemetry
+```
+
+Use these when Studio is open but the UI appears stale, telemetry is missing, or launcher-facing state does not match what the renderer is showing.
+
+- `status` reports live project identity and current focus/workbench state
+- `endpoints` compares startup, current, and workspace hub endpoints
+- `renderer` returns the renderer-published snapshot plus bounded renderer errors
+- `fetch-check` reports captured fetch and websocket failures from the UI layer
+- `telemetry` reports renderer-side telemetry diagnostics for the open windows
+
+The current diagnostics surface works in both dev and production Electron builds. Console capture, DOM/CSS inspection, screenshots, and aggregated snapshots remain follow-on work.
+
+Production-build examples:
+
+```bash
+./tools/robotick studio instances
+./tools/robotick studio <instance> diagnostics status
+./tools/robotick studio <instance> diagnostics endpoints
+./tools/robotick studio <instance> diagnostics renderer
+./tools/robotick studio <instance> diagnostics telemetry
+```
+
+These are intended to replace the old habit of opening DevTools just to confirm project identity, hub endpoint wiring, renderer snapshot state, or telemetry subscriptions.
+
+## Ownership split
+
+Current ownership is intentionally split like this:
+
+- hub owns bootstrap and lifecycle concerns: project discovery, Studio open/create, tracked instances, control-endpoint registration, quit, and unavailable-provider handling
+- Studio Electron main owns live Studio behavior: resource tree, focused state, activation, project selection, and diagnostics
+- renderer publishes view-local state upward for diagnostics, but it is not the authority for process, window, or resource truth
+
+The current CLI spelling is still mostly hard-coded, but live Studio status and diagnostics now come from the Studio control endpoint rather than hub-synthesized fallback state. The long-term direction is a Studio-owned Electron command registry with hub acting as a thin bootstrap and forwarding layer.

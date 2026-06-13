@@ -2076,6 +2076,7 @@ def test_studio_status_prefers_registered_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -2223,6 +2224,7 @@ def test_studio_project_select_proxies_to_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -2324,6 +2326,7 @@ def test_studio_activation_proxies_to_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(

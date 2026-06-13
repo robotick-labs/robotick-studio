@@ -252,6 +252,44 @@ Example resource-published action shape:
 
 The hub-hosted Studio ability should become a thin bootstrap and proxy layer. Studio itself should own the bulky behavior because it has the authoritative process/window/renderer state, makes hub less brittle, and gives Studio plugins a natural place to publish their own commands, diagnostics, resources, and future MCP endpoints.
 
+Current route inventory and classification:
+
+Hub-hosted Studio routes:
+
+- `GET /v1/studio/projects` -> bootstrap/discovery
+- `GET /v1/studio/instances` -> bootstrap/discovery
+- `POST /v1/studio/open` -> bootstrap/lifecycle
+- `POST /v1/studio/instances/{instance_id}/quit` -> lifecycle/recovery
+- `POST /v1/studio/instances/{instance_id}/control-endpoint` -> provider registration
+- `GET /v1/studio/instances/{instance_id}/status` -> live Studio-owned capability, forwarded
+- `GET /v1/studio/instances/{instance_id}/focused` -> live Studio-owned capability, forwarded
+- `GET /v1/studio/instances/{instance_id}/diagnostics/{kind}` -> live Studio-owned capability, forwarded
+- `POST /v1/studio/instances/{instance_id}/project/select` -> live Studio-owned capability, forwarded
+- `POST /v1/studio/instances/{instance_id}/activate`
+- `POST /v1/studio/instances/{instance_id}/{resource_path}/activate` -> live Studio-owned capability, forwarded
+- `GET /v1/studio/instances/{instance_id}/{resource_path}/status` -> live Studio-owned capability, forwarded
+- `POST /v1/apps/studio/instances/closing` -> lifecycle/recovery
+
+Electron control-service routes:
+
+- `GET /v1/focused` and `GET /v1/studio/focused` -> live Studio-owned capability
+- `GET /v1/status` and `GET /v1/studio/status` -> live Studio-owned capability
+- `GET /v1/studio/{resource_path}/status` -> live Studio-owned capability
+- `POST /v1/activate` and `POST /v1/studio/activate` -> live Studio-owned capability
+- `POST /v1/studio/{resource_path}/activate` -> live Studio-owned capability
+- `POST /v1/project/select` -> live Studio-owned capability
+- `GET /v1/diagnostics/status` -> live Studio-owned capability
+- `GET /v1/diagnostics/endpoints` -> live Studio-owned capability
+- `GET /v1/diagnostics/renderer` -> live Studio-owned capability
+- `GET /v1/diagnostics/fetch-check` -> live Studio-owned capability
+- `GET /v1/diagnostics/telemetry` -> live Studio-owned capability
+
+This is the current intended line:
+
+- hub owns bootstrap/discovery/lifecycle/provider-availability behavior
+- Electron control service owns live Studio state and command execution
+- renderer assists only where browser context is required
+
 Hub-owned Studio responsibilities:
 
 - list registered workspace projects before any Studio process exists
@@ -262,6 +300,16 @@ Hub-owned Studio responsibilities:
 - aggregate Studio-published capabilities into hub capability discovery
 - aggregate Studio plugin-published capabilities and resources without knowing each plugin's internal command model
 - report provider availability when an instance is missing, stale, or lacks a control endpoint
+
+Minimal hub-owned Studio ability contract:
+
+- registered workspace projects
+- known Studio instances from instance records
+- Studio open/create
+- Studio quit/recovery
+- Studio control-endpoint registration and validation
+- provider availability and structured `provider_unavailable` responses
+- forwarding of current useful live Studio commands until higher-level capability discovery is in place
 
 Studio-owned capabilities:
 

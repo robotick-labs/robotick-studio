@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { parse } from "yaml";
 import type {
   StudioControlDiagnosticsEndpoints,
   StudioControlDiagnosticsFetchCheck,
@@ -20,6 +19,7 @@ import {
   getStudioRuntimeFocused,
   getStudioRuntimeStatus,
 } from "./studio-runtime-snapshot";
+import { readProjectMetadata } from "./studio-project-metadata";
 
 export type StudioDiagnosticsProvider = StudioRuntimeSnapshotProvider & {
   startedAt?: string | null;
@@ -31,13 +31,6 @@ export type StudioDiagnosticsProvider = StudioRuntimeSnapshotProvider & {
   fetchHubHealth?: (
     endpoint: string
   ) => Promise<StudioControlDiagnosticsHubHealth | null>;
-};
-
-type ProjectMetadata = {
-  projectId: string | null;
-  projectDirectory: string | null;
-  projectFileName: string | null;
-  projectDisplayName: string | null;
 };
 
 type HubRecordFile = {
@@ -64,41 +57,6 @@ function trimOrNull(value: string | null | undefined): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function deriveProjectId(projectPath: string): string {
-  return path.basename(projectPath).replace(/\.project\.ya?ml$/i, "");
-}
-
-function readProjectMetadata(projectPath: string | null): ProjectMetadata {
-  if (!projectPath) {
-    return {
-      projectId: null,
-      projectDirectory: null,
-      projectFileName: null,
-      projectDisplayName: null,
-    };
-  }
-  const projectFileName = path.basename(projectPath);
-  const projectDirectory = path.dirname(projectPath);
-  const projectId = deriveProjectId(projectPath);
-  let projectDisplayName: string | null = null;
-  try {
-    const loaded = parse(fs.readFileSync(projectPath, "utf-8")) as {
-      name?: unknown;
-    } | null;
-    if (loaded && typeof loaded === "object" && typeof loaded.name === "string") {
-      projectDisplayName = trimOrNull(loaded.name);
-    }
-  } catch {
-    // Fall back to the project id below.
-  }
-  return {
-    projectId,
-    projectDirectory,
-    projectFileName,
-    projectDisplayName: projectDisplayName ?? projectId,
-  };
 }
 
 function readWorkspaceHubRecord(

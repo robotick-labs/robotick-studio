@@ -895,18 +895,6 @@ def get_instance(workspace_root: str | Path, instance_name: str) -> dict[str, ob
     return summarize_instance(instance)
 
 
-def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[str, object] | None:
-    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
-    if instance is None:
-        return None
-    if not is_instance_alive(instance):
-        reap_instance_process_group(instance)
-        release_project_lock(instance)
-        remove_instance_record(workspace_root, instance.name)
-        return None
-    return build_instance_status(workspace_root, instance)
-
-
 def get_live_instance_record(
     workspace_root: str | Path,
     instance_name: str,
