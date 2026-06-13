@@ -7,6 +7,9 @@ import {
   requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
+  getLauncherLogStreamUrlAsync,
+  fetchLauncherLogSnapshot,
+  requestLauncherLogClear,
   fetchProjectModelPaths,
 } from "./launcher-interface";
 
@@ -24,6 +27,9 @@ export const LauncherRest = {
   stopModel: requestLauncherStopModel,
   status: fetchLauncherStatus,
   logsStreamUrl: getLauncherLogStreamUrl,
+  logsStreamUrlAsync: getLauncherLogStreamUrlAsync,
+  logsSnapshot: fetchLauncherLogSnapshot,
+  logsClear: requestLauncherLogClear,
   fetchProjectRemoteControlSettings,
   fetchProjectSettingsData,
 } as const;

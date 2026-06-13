@@ -41,6 +41,8 @@ type StoreEntry = {
   wsUnsubscribe: (() => void) | null;
   layoutWaiters: Set<LayoutWaiter>;
   ingressTimestampsMs: number[];
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
 };
 
 type TelemetryStoreDeps = {
@@ -60,6 +62,13 @@ export type TelemetryStore = {
   refreshLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   getLatestModel: (baseUrl: string) => ITelemetryModel | null;
   getIngressRateHz: (baseUrl: string, windowMs?: number) => number;
+  getDiagnostics: (baseUrl: string) => {
+    subscriberCount: number;
+    layoutLoaded: boolean;
+    lastFrameAt: string | null;
+    lastErrorAt: string | null;
+    lastErrorMessage: string | null;
+  };
   reset: () => void;
 };
 
@@ -105,6 +114,8 @@ export function createTelemetryStore(
         wsUnsubscribe: null,
         layoutWaiters: new Set(),
         ingressTimestampsMs: [],
+        lastErrorAt: null,
+        lastErrorMessage: null,
       };
       stores.set(baseUrl, entry);
     }
@@ -243,6 +254,8 @@ export function createTelemetryStore(
         updateModelFromFrame(entry, frame);
       },
       onError: (error) => {
+        entry.lastErrorAt = new Date().toISOString();
+        entry.lastErrorMessage = error instanceof Error ? error.message : String(error);
         entry.subscribers.forEach((sub) => sub.error?.(error));
       },
     });
@@ -476,6 +489,19 @@ export function createTelemetryStore(
     return ((active.length - 1) * 1000) / spanMs;
   }
 
+  function getDiagnostics(baseUrl: string) {
+    const entry = stores.get(baseUrl);
+    return {
+      subscriberCount: entry?.subscribers.size ?? 0,
+      layoutLoaded: entry?.layout !== null && entry?.layout !== undefined,
+      lastFrameAt: entry?.lastRaw
+        ? new Date(entry.lastRaw.timestamp).toISOString()
+        : null,
+      lastErrorAt: entry?.lastErrorAt ?? null,
+      lastErrorMessage: entry?.lastErrorMessage ?? null,
+    };
+  }
+
   function reset() {
     for (const entry of stores.values()) {
       teardownWsSubscription(entry);
@@ -498,6 +524,7 @@ export function createTelemetryStore(
     refreshLayout,
     getLatestModel,
     getIngressRateHz,
+    getDiagnostics,
     reset,
   };
 }
@@ -509,4 +536,5 @@ export const ensureTelemetryLayout = defaultTelemetryStore.ensureLayout;
 export const refreshTelemetryLayout = defaultTelemetryStore.refreshLayout;
 export const getLatestTelemetryModel = defaultTelemetryStore.getLatestModel;
 export const getTelemetryIngressRateHz = defaultTelemetryStore.getIngressRateHz;
+export const getTelemetryDiagnostics = defaultTelemetryStore.getDiagnostics;
 export const resetTelemetryStore = () => defaultTelemetryStore.reset();

@@ -6,7 +6,7 @@ import signal
 
 import pytest
 
-from robotick_hub.studio import (
+from robotick.studio_ability.domain import (
     StudioInstanceRecord,
     get_instance,
     list_instances,
@@ -66,13 +66,13 @@ def test_open_studio_registers_instance(monkeypatch: pytest.MonkeyPatch) -> None
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
+    monkeypatch.setattr("robotick.studio_ability.domain.ensure_launcher_with_action", lambda _: (None, "reused"))
 
     class FakeChild:
         pid = 1234
 
-    monkeypatch.setattr("robotick_hub.studio.subprocess.Popen", lambda *args, **kwargs: FakeChild())
-    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: instance.pid == 1234)
+    monkeypatch.setattr("robotick.studio_ability.domain.subprocess.Popen", lambda *args, **kwargs: FakeChild())
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda instance: instance.pid == 1234)
     summary, support = open_studio(workspace, project_name="barr-e")
     assert summary["name"] == "studio-1234"
     assert summary["project_name"] == "barr-e"
@@ -86,7 +86,7 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
+    monkeypatch.setattr("robotick.studio_ability.domain.ensure_launcher_with_action", lambda _: (None, "reused"))
     launched: dict[str, object] = {}
 
     class FakeChild:
@@ -97,8 +97,8 @@ def test_open_studio_project_uses_shared_runner_with_project_env(
         launched["env"] = kwargs["env"]
         return FakeChild()
 
-    monkeypatch.setattr("robotick_hub.studio.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: instance.pid == 5678)
+    monkeypatch.setattr("robotick.studio_ability.domain.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda instance: instance.pid == 5678)
 
     summary, support = open_studio(workspace, project_name="barr-e")
 
@@ -115,7 +115,7 @@ def test_open_studio_allows_same_project_to_launch_multiple_instances(
     workspace = create_workspace()
     monkeypatch.setenv("ROBOTICK_HUB_PORT", "7099")
     monkeypatch.setenv("ROBOTICK_HUB_HOST", "127.0.0.1")
-    monkeypatch.setattr("robotick_hub.studio.ensure_launcher_with_action", lambda _: (None, "reused"))
+    monkeypatch.setattr("robotick.studio_ability.domain.ensure_launcher_with_action", lambda _: (None, "reused"))
     next_pid = iter([5678, 6789])
 
     class FakeChild:
@@ -123,11 +123,11 @@ def test_open_studio_allows_same_project_to_launch_multiple_instances(
             self.pid = pid
 
     monkeypatch.setattr(
-        "robotick_hub.studio.subprocess.Popen",
+        "robotick.studio_ability.domain.subprocess.Popen",
         lambda *args, **kwargs: FakeChild(next(next_pid)),
     )
     monkeypatch.setattr(
-        "robotick_hub.studio.is_instance_alive",
+        "robotick.studio_ability.domain.is_instance_alive",
         lambda instance: instance.pid in {5678, 6789},
     )
 
@@ -148,7 +148,7 @@ def test_list_instances_cleans_stale_records(monkeypatch: pytest.MonkeyPatch) ->
         started_at="2026-06-06T12:00:00+00:00",
     )
     write_instance_record(workspace, record)
-    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda instance: False)
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda instance: False)
     assert list_instances(workspace) == []
     assert get_instance(workspace, "studio-2222") is None
 
@@ -168,10 +168,10 @@ def test_quit_instance_prefers_signal_fallback_when_no_control_endpoint(
     write_instance_record(workspace, record)
     signals: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(
-        "robotick_hub.studio.signal_instance_process_tree",
+        "robotick.studio_ability.domain.signal_instance_process_tree",
         lambda pid, sig: signals.append((pid, sig)),
     )
-    monkeypatch.setattr("robotick_hub.studio.wait_for_instance_exit", lambda pid, timeout_ms: True)
+    monkeypatch.setattr("robotick.studio_ability.domain.wait_for_instance_exit", lambda pid, timeout_ms: True)
     accepted, message, instance = quit_instance(workspace, "studio-3333")
     assert accepted is True
     assert "closed" in message
@@ -192,7 +192,7 @@ def test_list_instances_reaps_stale_dev_stack_without_ui(
     )
     write_instance_record(workspace, record)
     monkeypatch.setattr(
-        "robotick_hub.studio.list_unix_process_group_processes",
+        "robotick.studio_ability.domain.list_unix_process_group_processes",
         lambda _pid: [
             {"pid": 4444, "pgid": 4444, "args": "bash run-studio-dev.sh"},
             {"pid": 4445, "pgid": 4444, "args": "node concurrently"},
@@ -201,11 +201,11 @@ def test_list_instances_reaps_stale_dev_stack_without_ui(
     )
     signals: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(
-        "robotick_hub.studio.signal_instance_process_tree",
+        "robotick.studio_ability.domain.signal_instance_process_tree",
         lambda pid, sig: signals.append((pid, sig)),
     )
     monkeypatch.setattr(
-        "robotick_hub.studio.wait_for_instance_exit",
+        "robotick.studio_ability.domain.wait_for_instance_exit",
         lambda pid, timeout_ms: True,
     )
 
@@ -225,17 +225,17 @@ def test_reap_instance_process_group_escalates_when_needed(
         started_at="2026-06-06T12:00:00+00:00",
     )
     monkeypatch.setattr(
-        "robotick_hub.studio.list_unix_process_group_members",
+        "robotick.studio_ability.domain.list_unix_process_group_members",
         lambda _pid: [5555, 5556],
     )
     signals: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(
-        "robotick_hub.studio.signal_instance_process_tree",
+        "robotick.studio_ability.domain.signal_instance_process_tree",
         lambda pid, sig: signals.append((pid, sig)),
     )
     waits = iter([False, True])
     monkeypatch.setattr(
-        "robotick_hub.studio.wait_for_instance_exit",
+        "robotick.studio_ability.domain.wait_for_instance_exit",
         lambda pid, timeout_ms: next(waits),
     )
 
@@ -257,7 +257,7 @@ def test_notify_instance_closing_matches_process_member(
     )
     write_instance_record(workspace, record)
     monkeypatch.setattr(
-        "robotick_hub.studio.list_unix_process_group_members",
+        "robotick.studio_ability.domain.list_unix_process_group_members",
         lambda pid: [6666, 7777] if pid == 6666 else [],
     )
 

@@ -462,13 +462,19 @@ describe("launcher-interface gateway telemetry resolution", () => {
           return createJsonResponse(["robots/sample-robot/sample-robot.project.yaml"]);
         }
 
-        if (url.pathname === "/launcher/run") {
+        if (url.pathname === "/v1/launcher/models/launch") {
           expect(init?.method).toBe("POST");
-          expect(url.searchParams.get("project_path")).toBe(
-            "/workspace/robots/sample-robot/sample-robot.project.yaml",
-          );
-          expect(url.searchParams.get("profile")).toBe("native:ALL");
-          return createJsonResponse({ status: "launching" });
+          expect(init?.headers).toEqual({
+            "Content-Type": "application/json",
+          });
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+            profile: "native:ALL",
+            creator: {
+              client: "studio",
+            },
+          });
+          return createJsonResponse({ sessions: [] });
         }
 
         throw new Error(`Unexpected fetch: ${url.toString()}`);
@@ -493,6 +499,229 @@ describe("launcher-interface gateway telemetry resolution", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses live runtime projection", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      if (key === "robotick-studio.launcherProfile") {
+        return "local:ALL";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      expect(url.searchParams.get("project_id")).toBe("sample-robot");
+      return createJsonResponse({
+        resource_type: "robotick_launcher_runtime_status",
+        state: "stopped",
+        models: [
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-face",
+            lifecycle: "stopped",
+            readiness: "pending",
+            freshness: "stopped",
+            pid_alive: false,
+            health: {
+              configured: true,
+              healthy: false,
+              error: "connection refused",
+            },
+          },
+        ],
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toEqual({
+      status: "stopped",
+      phase: null,
+      profile: "local:ALL",
+      models: {
+        "sample-robot-face": {
+          stage: "stop",
+          status: "succeeded",
+          lifecycle: "stopped",
+          readiness: "pending",
+          freshness: "stopped",
+          logRefs: [],
+        },
+      },
+    });
+  });
+
+  it("stops the current project through the model control endpoint", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/launcher/models/stop") {
+          expect(init?.method).toBe("POST");
+          expect(init?.headers).toEqual({
+            "Content-Type": "application/json",
+          });
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+          });
+          return createJsonResponse({ stopped_models: ["sample-robot-face"] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await launcherInterface.requestLauncherStop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops one model through the model control endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/launcher/models/stop") {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+            model_ids: ["sample-robot-face"],
+          });
+          return createJsonResponse({ stopped_models: ["sample-robot-face"] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await launcherInterface.requestLauncherStopModel(
+      "/workspace/robots/sample-robot/sample-robot.project.yaml",
+      "native",
+      "sample-robot-face",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reduces launcher status from runtime models", async () => {
+    const readStorage = vi.mocked(readStorageValue);
+    readStorage.mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      if (key === "robotick-studio.launcherProfile") {
+        return "native:ALL";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      expect(url.searchParams.get("project_id")).toBe("sample-robot");
+      return createJsonResponse({
+        resource_type: "robotick_launcher_runtime_status",
+        state: "stopped",
+        models: [
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-face",
+            lifecycle: "stopped",
+            freshness: "stopped",
+          },
+        ],
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toEqual({
+      status: "stopped",
+      phase: null,
+      profile: "native:ALL",
+      models: {
+        "sample-robot-face": {
+          stage: "stop",
+          status: "succeeded",
+          lifecycle: "stopped",
+          freshness: "stopped",
+          logRefs: [],
+        },
+      },
+    });
+    readStorage.mockImplementation(() => "");
+  });
+
+  it("records launcher fetch failures in the renderer diagnostics snapshot", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      return {
+        ok: false,
+        status: 503,
+        statusText: "Unavailable",
+        json: async () => ({}),
+        text: async () => "hub unavailable",
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+    const diagnostics = await import("../../../../renderer/services/studio-diagnostics");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toBeNull();
+
+    expect(launcherInterface.getLauncherRendererDiagnosticsSnapshot()).toMatchObject({
+      last_runtime_fetch_error: "Request failed 503 Unavailable: hub unavailable",
+    });
+    expect(diagnostics.getRendererDiagnosticsSnapshot()).toMatchObject({
+      fetch_failures: [
+        expect.objectContaining({
+          source: "launcher-interface",
+          operation: "GET /v1/launcher/runtime",
+          status_code: 503,
+        }),
+      ],
+    });
   });
 
   it("resolves absolute project directories to project yaml paths before settings requests", async () => {
@@ -680,9 +909,13 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
-      if (url.pathname === "/launcher/status") {
+      if (url.pathname === "/v1/launcher/runtime") {
         expect(url.origin).toBe("http://127.0.0.1:44493");
-        return createJsonResponse({ status: "stopped" });
+        return createJsonResponse({
+          resource_type: "robotick_launcher_runtime_status",
+          state: "stopped",
+          models: [],
+        });
       }
       throw new Error(`Unexpected fetch: ${url.toString()}`);
     });
@@ -694,9 +927,12 @@ describe("launcher-interface gateway telemetry resolution", () => {
 
     await expect(launcherInterface.fetchLauncherStatus()).resolves.toEqual({
       status: "stopped",
+      phase: null,
+      profile: null,
+      models: {},
     });
     expect(launcherInterface.getLauncherLogStreamUrl()).toBe(
-      "ws://127.0.0.1:44493/launcher/ws/log"
+      "ws://127.0.0.1:44493/v1/launcher/models/logs/stream?project_id=sample-robot"
     );
     expect(
       launcherInterface.buildProjectAssetUrl(
@@ -704,5 +940,122 @@ describe("launcher-interface gateway telemetry resolution", () => {
         "assets/demo.glb"
       )
     ).toContain("http://127.0.0.1:44493/query/project-assets/assets/demo.glb");
+  });
+
+  it("builds and uses hub-backed per-model log resources for the selected project", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/barr-e/barr-e.project.yaml";
+      }
+      return "";
+    });
+    vi.stubGlobal("window", {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:44493",
+        },
+      },
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/models/logs") {
+        expect(url.origin).toBe("http://127.0.0.1:44493");
+        expect(url.searchParams.get("project_id")).toBe("barr-e");
+        expect(url.searchParams.get("tail")).toBe("50");
+        return createJsonResponse({
+          resource_type: "robotick_launcher_model_logs_batch",
+          project_id: "barr-e",
+          models: [],
+        });
+      }
+      if (url.pathname === "/v1/launcher/models/logs/clear") {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ project_id: "barr-e" });
+        return createJsonResponse({
+          resource_type: "robotick_launcher_model_logs_clear_result",
+          project_id: "barr-e",
+          cleared_models: [],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    expect(launcherInterface.getLauncherLogStreamUrl()).toBe(
+      "ws://127.0.0.1:44493/v1/launcher/models/logs/stream?project_id=barr-e"
+    );
+    await expect(launcherInterface.fetchLauncherLogSnapshot(50)).resolves.toMatchObject({
+      project_id: "barr-e",
+      models: [],
+    });
+    await expect(launcherInterface.requestLauncherLogClear()).resolves.toBeUndefined();
+  });
+
+  it("prefers the current hub endpoint bridge over the startup environment endpoint", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) =>
+      key === "robotick-studio.projectPath"
+        ? "/tmp/barr-e/barr-e.project.yaml"
+        : ""
+    );
+    vi.stubGlobal("window", {
+      robotick: {
+        environment: {
+          hubEndpoint: "http://127.0.0.1:37115",
+        },
+        hub: {
+          getEndpoint: () => "http://127.0.0.1:53401",
+        },
+      },
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/runtime") {
+        expect(url.origin).toBe("http://127.0.0.1:53401");
+        return createJsonResponse({
+          resource_type: "robotick_launcher_runtime_status",
+          state: "running",
+          models: [
+            {
+              project_id: "barr-e",
+              model_id: "barr-e-face",
+              lifecycle: "running",
+              readiness: "ready",
+              freshness: "live",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toMatchObject({
+      status: "running",
+      models: {
+        "barr-e-face": {
+          status: "running",
+          readiness: "ready",
+        },
+      },
+    });
+    expect(
+      launcherInterface.buildProjectAssetUrl(
+        "/tmp/demo/demo.project.yaml",
+        "assets/demo.glb"
+      )
+    ).toContain("http://127.0.0.1:53401/query/project-assets/assets/demo.glb");
+    await expect(launcherInterface.getLauncherLogStreamUrlAsync()).resolves.toBe(
+      "ws://127.0.0.1:53401/v1/launcher/models/logs/stream?project_id=barr-e"
+    );
   });
 });

@@ -21,4 +21,4 @@ export ROBOTICK_STUDIO_INSTANCE_NAME="${ROBOTICK_STUDIO_INSTANCE_NAME:-studio-$$
 # Production launch should build the packaged renderer/runtime, not rerun the
 # full Studio verification suite on every start.
 ROBOTICK_WORKSPACE_ROOT="$WORKSPACE_ROOT" npm --prefix "$STUDIO_DIR" run build
-ROBOTICK_WORKSPACE_ROOT="$WORKSPACE_ROOT" npm --prefix "$STUDIO_DIR" run electron:direct
+ROBOTICK_WORKSPACE_ROOT="$WORKSPACE_ROOT" npm --prefix "$STUDIO_DIR" run studio:direct

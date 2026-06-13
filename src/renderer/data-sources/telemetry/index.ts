@@ -33,6 +33,7 @@ export { useTelemetryStream } from "./internal/useTelemetryStream";
 // Low-level subscription for non-React code (e.g. viewer engines) that manage
 // their own lifecycle and need raw access to telemetry updates.
 export { subscribeTelemetry } from "./internal/telemetry-store";
+export { getTelemetryDiagnostics } from "./internal/telemetry-store";
 
 export {
   TelemetryServiceProvider,

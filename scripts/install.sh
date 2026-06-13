@@ -91,8 +91,8 @@ echo "[install] Installing npm deps (npm ci)..."
 echo "[install] Building renderer bundle..."
 (cd "$src_dir" && npm run build >/dev/null)
 
-echo "[install] Building electron main process..."
-(cd "$src_dir" && npm run build:electron >/dev/null)
+echo "[install] Building Studio desktop runtime..."
+(cd "$src_dir" && npm run build:studio >/dev/null)
 
 version_file="$src_dir/.studio-version"
 cat >"$version_file" <<EOF

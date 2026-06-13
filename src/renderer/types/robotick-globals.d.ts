@@ -64,6 +64,10 @@ export interface RobotickStudioProcess {
   readonly getStats: () => Promise<RobotickStudioProcessStats>;
 }
 
+export interface RobotickHub {
+  readonly getEndpoint: () => Promise<string | undefined>;
+}
+
 export interface RobotickStudioActiveResource {
   readonly window_id: string;
   readonly workbench_id?: string;
@@ -81,6 +85,41 @@ export interface RobotickStudioControl {
   readonly onActivationChanged?: (
     callback: (event: RobotickStudioActivationEvent) => void
   ) => () => void;
+}
+
+export interface RobotickDiagnosticsBridge {
+  readonly publishSnapshot: (snapshot: Record<string, unknown>) => void;
+  readonly publishEvent?: (event: {
+    source: string;
+    level?: "debug" | "info" | "warn" | "error";
+    message: string;
+    payload?: Record<string, unknown> | null;
+  }) => void;
+  readonly requestCommand?: (
+    commandId: string,
+    input?: Record<string, unknown>
+  ) => Promise<unknown>;
+  readonly getLogSnapshot?: (options?: {
+    tail?: number;
+    target?: "studio";
+  }) => Promise<RobotickDiagnosticsLogRecord[]>;
+  readonly onLogEvent?: (
+    callback: (record: RobotickDiagnosticsLogRecord) => void
+  ) => () => void;
+}
+
+export interface RobotickDiagnosticsLogRecord {
+  readonly target: "runtime" | "studio";
+  readonly source: string;
+  readonly window_id: string | null;
+  readonly recorded_at: string;
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly message: string;
+  readonly source_url: string | null;
+  readonly line: number | null;
+  readonly column: number | null;
+  readonly stack: string | null;
+  readonly payload: Record<string, unknown> | null;
 }
 
 export interface RobotickProjectSelectionIssue {
@@ -125,9 +164,11 @@ export interface RobotickProjectSelection {
 
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
+  readonly hub?: RobotickHub;
   readonly windowControls?: RobotickWindowControls;
   readonly studioProcess?: RobotickStudioProcess;
   readonly studioControl?: RobotickStudioControl;
+  readonly diagnostics?: RobotickDiagnosticsBridge;
   readonly storage?: RobotickStorage;
   readonly studioPersistence?: RobotickStudioPersistence;
   readonly projectSelection?: RobotickProjectSelection;

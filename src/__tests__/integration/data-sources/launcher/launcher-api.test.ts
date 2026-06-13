@@ -56,7 +56,10 @@ vi.mock("../../../../renderer/data-sources/launcher/internal/react-api", () => (
   },
 }));
 
-const launcherServiceMock = { marker: "launcher-service" };
+const launcherServiceMock = {
+  marker: "launcher-service",
+  onProjectChanged: vi.fn(() => () => {}),
+};
 
 vi.mock("../../../../renderer/data-sources/launcher/internal/LauncherService", () => ({
   LauncherServiceProvider: vi.fn(),

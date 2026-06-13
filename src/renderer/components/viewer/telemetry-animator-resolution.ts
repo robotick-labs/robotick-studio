@@ -56,3 +56,15 @@ export function resolveAnimatorWorkloadName(
   const workloadName = (animator.workloadName ?? "").trim();
   return workloadName || null;
 }
+
+export function resolveAnimatorTelemetryWorkloadName(
+  animator: TelemetryAnimator,
+  descriptor: ProjectModelDescriptor | null
+): string | null {
+  const workloadId = (animator.workloadId ?? "").trim();
+  if (workloadId) {
+    return workloadId;
+  }
+
+  return resolveAnimatorWorkloadName(animator, descriptor);
+}

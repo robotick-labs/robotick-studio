@@ -64,6 +64,27 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         shell_label="instances",
     ),
     CommandSpec(
+        name="focused",
+        usage="robotick studio focused",
+        summary="Report the currently or most recently focused Studio context",
+        shell_label="focused",
+        description_lines=(
+            "Report the Studio instance/window/workbench/layout that should be treated",
+            "as current user focus. If no Studio window currently has desktop focus,",
+            "the most recently focused Studio instance is used.",
+        ),
+    ),
+    CommandSpec(
+        name="launcher-status",
+        usage="robotick studio launcher-status [project]",
+        summary="Compare Studio-facing launcher state with raw hub runtime state",
+        shell_label="launcher-status [project]",
+        description_lines=(
+            "Report the launcher state as Studio-facing code sees it, alongside",
+            "the raw hub runtime projection used as launcher authority.",
+        ),
+    ),
+    CommandSpec(
         name="create",
         usage="robotick studio create [project]",
         summary="Primitive instance creation without changing shell context",
@@ -98,6 +119,18 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_bound_instance=True,
     ),
     CommandSpec(
+        name="diagnostics",
+        usage="robotick studio <instance> diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
+        summary="Query read-only Studio diagnostics through the control service",
+        shell_label="diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
+        description_lines=(
+            "Query read-only diagnostics published by the targeted Studio instance.",
+            "Diagnostics include status, endpoints, renderer, console, fetch-check, telemetry, DOM, CSS, screenshot, and snapshot data.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
         name="select-project",
         usage="robotick studio <instance> select-project <project>",
         summary="Switch the selected project inside this Studio instance",
@@ -119,10 +152,13 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="quit",
-        usage="robotick studio <instance> quit",
+        usage="robotick studio <instance> quit [--wait]",
         summary="Close this Studio instance",
         shell_label="quit",
-        description_lines=("Request shutdown of the targeted Studio instance.",),
+        description_lines=(
+            "Request shutdown of the targeted Studio instance.",
+            "Use --wait when automation should not continue until the instance is gone.",
+        ),
         visible_in_studio_root=False,
         visible_in_bound_instance=True,
     ),
@@ -142,6 +178,12 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         shell_label="ensure",
     ),
     CommandSpec(
+        name="restart",
+        usage="robotick hub restart",
+        summary="Restart the local Robotick hub and report the result as JSON",
+        shell_label="restart",
+    ),
+    CommandSpec(
         name="projects",
         usage="robotick hub projects",
         summary="List workspace projects through the hub API",
@@ -151,6 +193,12 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
 
 LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
+        name="launch",
+        usage="robotick launcher launch <project> [profile]",
+        summary="Launch selected project/model runtimes",
+        shell_label="launch [project]",
+    ),
+    CommandSpec(
         name="status",
         usage="robotick launcher status",
         summary="Query launcher service status as JSON without starting it",
@@ -159,8 +207,32 @@ LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
         name="ensure",
         usage="robotick launcher ensure",
-        summary="Start or reuse the launcher service and report the result as JSON",
+        summary="Ensure the hub-backed launcher control plane is available and report status as JSON",
         shell_label="ensure",
+    ),
+    CommandSpec(
+        name="wait-ready",
+        usage="robotick launcher wait-ready --project <project>",
+        summary="Wait for launcher runtime readiness",
+        shell_label="wait-ready",
+    ),
+    CommandSpec(
+        name="logs",
+        usage="robotick launcher logs --project <project>",
+        summary="Return launcher worker/control log references",
+        shell_label="logs",
+    ),
+    CommandSpec(
+        name="stop",
+        usage="robotick launcher stop --project <project> [--model <id>]",
+        summary="Stop selected project/model launcher runtimes",
+        shell_label="stop",
+    ),
+    CommandSpec(
+        name="restart",
+        usage="robotick launcher restart --project <project> [--model <id>]",
+        summary="Restart selected project/model launcher runtimes",
+        shell_label="restart",
     ),
 )
 

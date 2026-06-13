@@ -16,11 +16,19 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel
 import yaml
 
-from robotick_hub.launcher import ensure_launcher_with_action
 from robotick_hub.manifest import Manifest, load_manifest
 
 ACTIVE_STUDIO_CHILDREN: dict[int, subprocess.Popen[object]] = {}
 ACTIVE_STUDIO_CHILDREN_LOCK = threading.Lock()
+
+
+class StudioControlResourceNotFoundError(Exception):
+    pass
+
+
+def ensure_launcher_with_action(_workspace_root: str | Path) -> tuple[None, str]:
+    # Studio now talks to the launcher ability hosted inside robotick-hub.
+    return None, "reused"
 
 
 class StudioInstanceRecord(BaseModel):
@@ -891,7 +899,10 @@ def get_instance(workspace_root: str | Path, instance_name: str) -> dict[str, ob
     return summarize_instance(instance)
 
 
-def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[str, object] | None:
+def get_live_instance_record(
+    workspace_root: str | Path,
+    instance_name: str,
+) -> StudioInstanceRecord | None:
     instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
     if instance is None:
         return None
@@ -900,7 +911,22 @@ def get_instance_status(workspace_root: str | Path, instance_name: str) -> dict[
         release_project_lock(instance)
         remove_instance_record(workspace_root, instance.name)
         return None
-    return build_instance_status(workspace_root, instance)
+    return instance
+
+
+def build_provider_unavailable_error(
+    instance: StudioInstanceRecord,
+    provider_name: str,
+    *,
+    recovery: str,
+) -> dict[str, object]:
+    return {
+        "error": {
+            "code": "provider_unavailable",
+            "message": f"Studio provider '{provider_name}' is not available for {instance.name}.",
+            "recovery": recovery,
+        }
+    }
 
 
 def validate_studio_control_endpoint(endpoint: str) -> None:
@@ -925,6 +951,10 @@ def fetch_studio_control_status(
     try:
         with urlopen(url, timeout=1.5) as response:
             loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except HTTPError as error:
+        if int(error.code) == 404:
+            raise StudioControlResourceNotFoundError(url) from error
+        return None
     except URLError:
         return None
     if not isinstance(loaded, dict):
@@ -932,14 +962,79 @@ def fetch_studio_control_status(
     return loaded
 
 
+def fetch_studio_control_focused(
+    instance: StudioInstanceRecord,
+) -> dict[str, object] | None:
+    if not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    try:
+        with urlopen(f"{instance.control_endpoint}/v1/focused", timeout=1.5) as response:
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except URLError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return loaded
+
+
+def fetch_studio_control_diagnostics(
+    instance: StudioInstanceRecord,
+    kind: str,
+) -> dict[str, object] | None:
+    if not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    try:
+        with urlopen(f"{instance.control_endpoint}/v1/diagnostics/{quote(kind, safe='/?=&%:,')}", timeout=1.5) as response:
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except URLError:
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    return loaded
+
+
+def get_studio_focused(
+    workspace_root: str | Path,
+    instance_name: str,
+) -> dict[str, object] | None:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
+        return None
+    if not instance.control_endpoint:
+        return build_provider_unavailable_error(
+            instance,
+            "focused",
+            recovery="Reopen the Studio instance so it registers the current control-service focused route.",
+        )
+    control_focused = fetch_studio_control_focused(instance)
+    if control_focused is not None:
+        return control_focused
+    return build_provider_unavailable_error(
+        instance,
+        "focused",
+        recovery="Reopen the Studio instance so it registers the current control-service focused route.",
+    )
+
+
 def select_studio_project(
     workspace_root: str | Path,
     instance_name: str,
     project_path: str,
 ) -> tuple[int, dict[str, object]] | None:
-    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
-    if instance is None or not instance.control_endpoint:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
         return None
+    if not instance.control_endpoint:
+        return (
+            503,
+            build_provider_unavailable_error(
+                instance,
+                "project-select",
+                recovery="Reopen the Studio instance so it registers the current control-service project selection route.",
+            ),
+        )
     validate_studio_control_endpoint(instance.control_endpoint)
     request = Request(
         f"{instance.control_endpoint}/v1/project/select",
@@ -955,7 +1050,14 @@ def select_studio_project(
         status_code = int(error.code)
         loaded = yaml.safe_load(error.read().decode("utf-8"))
     except URLError:
-        return None
+        return (
+            503,
+            build_provider_unavailable_error(
+                instance,
+                "project-select",
+                recovery="Reopen the Studio instance so it registers the current control-service project selection route.",
+            ),
+        )
     if not isinstance(loaded, dict):
         return None
     return status_code, loaded
@@ -966,9 +1068,18 @@ def activate_studio_resource(
     instance_name: str,
     path_segments: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, object]] | None:
-    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
-    if instance is None or not instance.control_endpoint:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
         return None
+    if not instance.control_endpoint:
+        return (
+            503,
+            build_provider_unavailable_error(
+                instance,
+                "activate",
+                recovery="Reopen the Studio instance so it registers the current control-service activation route.",
+            ),
+        )
     validate_studio_control_endpoint(instance.control_endpoint)
     resource_path = "/".join(quote(segment, safe="") for segment in path_segments)
     url = (
@@ -985,7 +1096,14 @@ def activate_studio_resource(
         status_code = int(error.code)
         loaded = yaml.safe_load(error.read().decode("utf-8"))
     except URLError:
-        return None
+        return (
+            503,
+            build_provider_unavailable_error(
+                instance,
+                "activate",
+                recovery="Reopen the Studio instance so it registers the current control-service activation route.",
+            ),
+        )
     if not isinstance(loaded, dict):
         return None
     return status_code, loaded
@@ -996,27 +1114,56 @@ def get_studio_status(
     instance_name: str,
     path_segments: tuple[str, ...] = (),
 ) -> dict[str, object] | None:
-    instance = read_instance_record(workspace_root, normalize_instance_specifier(instance_name))
+    instance = get_live_instance_record(workspace_root, instance_name)
     if instance is None:
         return None
-    control_status = fetch_studio_control_status(instance, path_segments)
+    if not instance.control_endpoint:
+        return build_provider_unavailable_error(
+            instance,
+            "status",
+            recovery="Reopen the Studio instance so it registers the current control-service status routes.",
+        )
+    try:
+        control_status = fetch_studio_control_status(instance, path_segments)
+    except StudioControlResourceNotFoundError:
+        if path_segments:
+            return None
+        return build_provider_unavailable_error(
+            instance,
+            "status",
+            recovery="Reopen the Studio instance so it registers the current control-service status routes.",
+        )
     if control_status is not None:
         return control_status
+    return build_provider_unavailable_error(
+        instance,
+        "status",
+        recovery="Reopen the Studio instance so it registers the current control-service status routes.",
+    )
 
-    if not is_instance_alive(instance):
-        reap_instance_process_group(instance)
-        release_project_lock(instance)
-        remove_instance_record(workspace_root, instance.name)
-        return None
 
-    instance_status = build_instance_status(workspace_root, instance)
-    if instance_status is None:
+def get_studio_diagnostics(
+    workspace_root: str | Path,
+    instance_name: str,
+    kind: str,
+) -> dict[str, object] | None:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
         return None
-    try:
-        node = resolve_status_node(instance_status, path_segments)
-    except KeyError:
-        return None
-    return build_status_view(node)
+    if not instance.control_endpoint:
+        return build_provider_unavailable_error(
+            instance,
+            f"diagnostics:{kind}",
+            recovery="Reopen the Studio instance so it registers the current control-service diagnostics routes.",
+        )
+    diagnostics = fetch_studio_control_diagnostics(instance, kind)
+    if diagnostics is not None:
+        return diagnostics
+    return build_provider_unavailable_error(
+        instance,
+        f"diagnostics:{kind}",
+        recovery="Reopen the Studio instance so it registers the current control-service diagnostics routes.",
+    )
 
 
 def find_instance_record_by_process_member(
@@ -1159,7 +1306,6 @@ def open_studio(
 ) -> tuple[dict[str, object], dict[str, object]]:
     workspace_root = Path(workspace_root).resolve()
     manifest = load_manifest(workspace_root)
-    _, launcher_action = ensure_launcher_with_action(workspace_root)
     selected_project_dir, selected_project = resolve_project_selection(
         workspace_root, manifest, project_name
     )
@@ -1208,7 +1354,7 @@ def open_studio(
         control_endpoint=None,
     )
     write_instance_record(workspace_root, record)
-    return summarize_instance(record), {"launcher_service": {"action": launcher_action}}
+    return summarize_instance(record), {"launcher_service": {"action": "reused"}}
 
 
 def signal_instance_process_tree(pid: int, sig: signal.Signals) -> None:

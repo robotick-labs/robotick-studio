@@ -3,6 +3,7 @@ import {
   removeStorageValue,
   setStorageValue,
 } from "../../../services/storage";
+import { recordRendererFetchFailure } from "../../../services/studio-diagnostics";
 import type { LauncherService } from "./LauncherService";
 
 /**
@@ -52,10 +53,20 @@ export function buildUrl(
   return url.toString();
 }
 
-export function buildWebSocketUrl(baseUrl: string, path: string): string {
+export function buildWebSocketUrl(
+  baseUrl: string,
+  path: string,
+  params?: Record<string, string | number | undefined>
+): string {
   const url =
     tryBuildRoutedTelemetryUrl(baseUrl, path) ??
     new URL(path, ensureTrailingSlash(baseUrl));
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined) continue;
+      url.searchParams.set(key, String(value));
+    }
+  }
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
@@ -68,14 +79,32 @@ function encodePathPreservingSlashes(path: string): string {
 }
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(
-      `Request failed ${response.status} ${response.statusText}: ${text}`
-    );
+  try {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const message = `Request failed ${response.status} ${response.statusText}: ${text}`;
+      recordRendererFetchFailure({
+        source: "launcher-interface",
+        operation: `${init?.method ?? "GET"} ${new URL(url).pathname}`,
+        url,
+        statusCode: response.status,
+        message,
+      });
+      throw new Error(message);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (!(error instanceof Error && error.message.startsWith("Request failed "))) {
+      recordRendererFetchFailure({
+        source: "launcher-interface",
+        operation: `${init?.method ?? "GET"} ${new URL(url).pathname}`,
+        url,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
   }
-  return (await response.json()) as T;
 }
 
 async function tryFetchJSON<T>(
@@ -221,6 +250,10 @@ export type WorkloadsRegistryResponse = {
 const projectListeners = new Set<ProjectChangedListener>();
 const profileListeners = new Set<LauncherProfileChangedListener>();
 const projectSelectionStateListeners = new Set<ProjectSelectionStateChangedListener>();
+let latestProjectSelectionState: ProjectSelectionState = {
+  currentProjectPath: "",
+  bootstrapIssue: null,
+};
 
 type ModelCacheEntry = {
   projectPath: string;
@@ -231,6 +264,8 @@ let cachedModels: ModelCacheEntry | null = null;
 let modelsPromise: Promise<ProjectModelDescriptor[]> | null = null;
 let knownProjectPaths: string[] = [];
 let bridgeProjectSelectionUnsubscribe: (() => void) | null = null;
+let lastLauncherRuntimeFetchAt: string | null = null;
+let lastLauncherRuntimeFetchError: string | null = null;
 
 function getProjectSelectionBridge() {
   if (typeof window === "undefined") {
@@ -261,6 +296,10 @@ function notifyProjectSelectionStateChanged(state: ProjectSelectionState) {
 
 function applyProjectSelectionState(state: ProjectSelectionState) {
   const nextProjectPath = state.currentProjectPath?.trim() || "";
+  latestProjectSelectionState = {
+    currentProjectPath: nextProjectPath,
+    bootstrapIssue: state.bootstrapIssue ?? null,
+  };
   if (getProjectPath() !== nextProjectPath) {
     applyProjectPath(nextProjectPath);
   }
@@ -294,7 +333,9 @@ function getWorkspaceRoot(): string {
   return typeof workspaceRoot === "string" ? workspaceRoot.trim() : "";
 }
 
-function getHubEndpoint(): string {
+let cachedHubEndpoint = "";
+
+function getStaticHubEndpoint(): string {
   if (typeof window === "undefined") {
     return "";
   }
@@ -302,8 +343,33 @@ function getHubEndpoint(): string {
   return typeof hubEndpoint === "string" ? hubEndpoint.trim() : "";
 }
 
-function getLauncherApiBase(): string {
-  return getHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
+async function resolveHubEndpoint(): Promise<string> {
+  if (typeof window !== "undefined") {
+    try {
+      const hubEndpoint = await window.robotick?.hub?.getEndpoint?.();
+      if (typeof hubEndpoint === "string" && hubEndpoint.trim()) {
+        cachedHubEndpoint = hubEndpoint.trim();
+        return cachedHubEndpoint;
+      }
+    } catch {
+      // Fall through to cached/static endpoint resolution.
+    }
+  }
+
+  const staticEndpoint = getStaticHubEndpoint();
+  if (staticEndpoint) {
+    cachedHubEndpoint = staticEndpoint;
+    return staticEndpoint;
+  }
+  return cachedHubEndpoint;
+}
+
+async function getLauncherApiBase(): Promise<string> {
+  return (await resolveHubEndpoint()) || LAUNCHER_LOCAL_API_BASE;
+}
+
+function getLauncherApiBaseSync(): string {
+  return cachedHubEndpoint || getStaticHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
 }
 
 function looksAbsolutePath(path: string): boolean {
@@ -520,10 +586,12 @@ async function getProjectSelectionState(): Promise<ProjectSelectionState> {
   ensureProjectSelectionBridgeSubscription();
   const bridge = getProjectSelectionBridge();
   if (!bridge?.getState) {
-    return {
+    const fallbackState = {
       currentProjectPath: getProjectPath(),
       bootstrapIssue: null,
     };
+    latestProjectSelectionState = fallbackState;
+    return fallbackState;
   }
   const state = await bridge.getState();
   const normalizedState = {
@@ -642,6 +710,76 @@ type GatewayRegistryResponse = {
   models?: GatewayRegistryEntry[];
 };
 
+type LauncherDiagnostics = {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
+type LauncherLogRef = {
+  kind?: string;
+  path?: string;
+};
+
+type LauncherRuntimeModelRecord = {
+  id?: string;
+  project_id?: string;
+  project_path?: string;
+  model_id?: string;
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stopped" | "pending" | "failed";
+  operation?: {
+    action?: string;
+    pid?: number;
+    pid_alive?: boolean;
+  } | null;
+  pid?: number;
+  pid_alive?: boolean;
+  health?: {
+    configured?: boolean;
+    healthy?: boolean;
+    error?: string | null;
+    checked_at?: string;
+  };
+  log_path?: string | null;
+  updated_at?: string;
+};
+
+type LauncherRuntimeStatusResponse = {
+  resource_type?: string;
+  state?: string;
+  models?: LauncherRuntimeModelRecord[];
+};
+
+type LauncherStatusResponse = {
+  resource_type?: string;
+  ability?: {
+    name?: string;
+    version?: string;
+    status?: string;
+    details?: Record<string, unknown>;
+  };
+  runtime?: LauncherRuntimeStatusResponse;
+};
+
+type LegacyLauncherModelStatus = {
+  stage?: string;
+  status?: string;
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+  diagnostics?: LauncherDiagnostics[];
+  logRefs?: LauncherLogRef[];
+};
+
+type LegacyLauncherStatus = {
+  status: string;
+  phase?: string | null;
+  profile?: string | null;
+  models?: Record<string, LegacyLauncherModelStatus>;
+};
+
 async function tryFetchGatewayRegistry(
   gatewayBaseUrl: string
 ): Promise<Map<string, GatewayRegistryEntry> | null> {
@@ -671,8 +809,137 @@ function buildModelShortName(modelPath: string): string {
   return filename;
 }
 
+function stripYamlExtension(value: string): string {
+  return value.replace(/\.ya?ml$/i, "");
+}
+
+function deriveProjectName(projectPath: string): string {
+  const trimmedPath = projectPath.trim();
+  if (!trimmedPath) {
+    return "";
+  }
+  const basename = getPathBasename(trimmedPath);
+  return stripYamlExtension(basename).replace(/\.project$/i, "");
+}
+
+function mapRuntimeModelToLegacyModelStatus(
+  model: LauncherRuntimeModelRecord
+): LegacyLauncherModelStatus | null {
+  const modelId = model.model_id?.trim();
+  if (!modelId) {
+    return null;
+  }
+  const baseStatus = {
+    lifecycle: model.lifecycle,
+    readiness: model.readiness,
+    freshness: model.freshness,
+    logRefs: model.log_path ? [{ kind: "worker", path: model.log_path }] : [],
+  } satisfies Omit<LegacyLauncherModelStatus, "stage" | "status">;
+
+  switch (model.lifecycle) {
+    case "starting":
+      return { ...baseStatus, stage: "run", status: "starting" };
+    case "running":
+      return { ...baseStatus, stage: "run", status: "running" };
+    case "stopping":
+      return { ...baseStatus, stage: "stop", status: "stopping" };
+    case "stopped":
+      return { ...baseStatus, stage: "stop", status: "succeeded" };
+    default:
+      if (model.freshness === "failed") {
+        return { ...baseStatus, stage: "run", status: "running" };
+      }
+      return null;
+  }
+}
+
+function buildRuntimeModelStatusMap(
+  models: LauncherRuntimeModelRecord[]
+): Record<string, LegacyLauncherModelStatus> {
+  const byModel: Record<string, LegacyLauncherModelStatus> = {};
+  for (const model of models) {
+    const modelId = model.model_id?.trim();
+    if (!modelId) {
+      continue;
+    }
+    const status = mapRuntimeModelToLegacyModelStatus(model);
+    if (status) {
+      byModel[modelId] = status;
+    }
+  }
+  return byModel;
+}
+
+function reduceRuntimeLauncherStatus(
+  models: LauncherRuntimeModelRecord[]
+): "stopped" | "launching" | "running" | "stopping" {
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  if (models.some((model) => model.lifecycle === "starting")) {
+    return "launching";
+  }
+  if (
+    models.some(
+      (model) => model.lifecycle === "running" || model.freshness === "live"
+    )
+  ) {
+    return "running";
+  }
+  return "stopped";
+}
+
+function reduceRuntimeLauncherPhase(
+  models: LauncherRuntimeModelRecord[]
+): string | null {
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stop";
+  }
+  if (
+    models.some((model) =>
+      ["starting", "running"].includes(model.lifecycle ?? "")
+    )
+  ) {
+    return "run";
+  }
+  return null;
+}
+
+async function fetchLauncherSnapshot(): Promise<LauncherStatusResponse | null> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return null;
+  }
+  lastLauncherRuntimeFetchAt = new Date().toISOString();
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/runtime", {
+    project_id: projectName,
+  });
+  try {
+    const runtime = await fetchJSON<LauncherRuntimeStatusResponse>(url);
+    lastLauncherRuntimeFetchError = null;
+    return { resource_type: "robotick_launcher_status", runtime };
+  } catch (error) {
+    lastLauncherRuntimeFetchError =
+      error instanceof Error ? error.message : String(error);
+    return null;
+  }
+}
+
+async function createLauncherGroupRequest(
+  payload: Record<string, unknown>
+): Promise<void> {
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/launch");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchProjectPaths(): Promise<string[]> {
-  const url = buildUrl(getLauncherApiBase(), "/query/list-projects");
+  const url = buildUrl(await getLauncherApiBase(), "/query/list-projects");
   const projects = await fetchJSON<string[]>(url);
   const sortedProjects = projects.sort();
   cacheProjectPaths(sortedProjects);
@@ -683,7 +950,7 @@ export async function fetchProjectSettingsData<T = Record<string, unknown>>(
   projectPath: string
 ): Promise<T> {
   const normalizedProjectPath = await resolveProjectSettingsPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-project-settings", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-project-settings", {
     project_path: normalizedProjectPath,
   });
   return await fetchJSON<T>(url);
@@ -694,7 +961,7 @@ export async function fetchProjectRemoteControlSettings<
 >(projectPath: string, signal?: AbortSignal): Promise<T> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    getLauncherApiBase(),
+    await getLauncherApiBase(),
     "/query/get-project-rc-settings",
     {
       project_path: normalizedProjectPath,
@@ -713,7 +980,7 @@ export function buildProjectAssetUrl(
     : joinWorkspacePath(getWorkspaceRoot(), normalizedProjectPath);
   const normalizedAssetPath = assetPath.trim().replace(/^\/+/, "");
   return buildUrl(
-    getLauncherApiBase(),
+    getLauncherApiBaseSync(),
     `/query/project-assets/${encodePathPreservingSlashes(normalizedAssetPath)}`,
     {
       project_path: absoluteProjectPath,
@@ -726,11 +993,14 @@ export async function requestLauncherRun(
   launcherProfile: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/run", {
-    project_path: normalizedProjectPath,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  await createLauncherGroupRequest({
+    project_name: projectName,
     profile: launcherProfile,
+    creator: {
+      client: "studio",
+    },
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
 export async function requestLauncherRunModel(
@@ -739,17 +1009,40 @@ export async function requestLauncherRunModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/run-model", {
-    project_path: normalizedProjectPath,
-    platform,
-    model_id: modelId,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  await createLauncherGroupRequest({
+    project_name: projectName,
+    intent: {
+      project: projectName,
+      scope: {
+        kind: "model",
+        value: modelId,
+      },
+      target_policy: platform,
+      created_by: {
+        client: "studio",
+      },
+    },
+    creator: {
+      client: "studio",
+    },
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
 export async function requestLauncherStop(): Promise<void> {
-  const url = buildUrl(getLauncherApiBase(), "/launcher/stop");
-  await fetchJSON(url, { method: "POST" });
+  const projectPath = getProjectPath();
+  const projectName = deriveProjectName(projectPath);
+  if (!projectName) {
+    return;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_name: projectName }),
+  });
 }
 
 export async function requestLauncherStopModel(
@@ -758,36 +1051,166 @@ export async function requestLauncherStopModel(
   modelId: string
 ): Promise<void> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/launcher/stop-model", {
-    project_path: normalizedProjectPath,
-    platform,
-    model_id: modelId,
+  const projectName = deriveProjectName(normalizedProjectPath);
+  if (!projectName) {
+    return;
+  }
+  void platform;
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_name: projectName, model_ids: [modelId] }),
   });
-  await fetchJSON(url, { method: "POST" });
 }
 
-export async function fetchLauncherStatus(): Promise<{
-  status: string;
-  phase?: string | null;
-  profile?: string | null;
-  models?: Record<string, { stage?: string; status?: string }>;
-} | null> {
-  const url = buildUrl(getLauncherApiBase(), "/launcher/status");
-  return await tryFetchJSON<{
-    status: string;
-    phase?: string | null;
-    profile?: string | null;
-    models?: Record<string, { stage?: string; status?: string }>;
-  }>(url);
+export async function fetchLauncherStatus(): Promise<LegacyLauncherStatus | null> {
+  const projectPath = getProjectPath();
+  const projectName = deriveProjectName(projectPath);
+  if (!projectName) {
+    return {
+      status: "stopped",
+      phase: null,
+      profile: getLauncherProfile().trim() || null,
+      models: {},
+    };
+  }
+
+  const snapshot = await fetchLauncherSnapshot();
+  if (!snapshot) {
+    return null;
+  }
+
+  const runtimeModels = (snapshot.runtime?.models ?? []).filter(
+    (model) => model.project_id?.trim() === projectName
+  );
+  return {
+    status: reduceRuntimeLauncherStatus(runtimeModels),
+    phase: reduceRuntimeLauncherPhase(runtimeModels),
+    profile: getLauncherProfile().trim() || null,
+    models: buildRuntimeModelStatusMap(runtimeModels),
+  };
 }
+
+export type LauncherModelLogEvent = {
+  project_id: string;
+  model_id: string;
+  source_kind: string;
+  path: string;
+  offset: number;
+  line: string;
+  timestamp?: string;
+};
+
+export type LauncherModelLogsSnapshot = {
+  resource_type: "robotick_launcher_model_logs";
+  project_id: string;
+  model_id: string;
+  sources: Array<{
+    source_kind: string;
+    path: string;
+    label?: string;
+    clear_offset?: number;
+    read_offset?: number;
+    available?: boolean;
+  }>;
+  events: LauncherModelLogEvent[];
+};
+
+export type LauncherModelLogsBatch = {
+  resource_type: "robotick_launcher_model_logs_batch";
+  project_id: string;
+  models: LauncherModelLogsSnapshot[];
+};
 
 export function getLauncherLogStreamUrl(): string {
-  return buildWebSocketUrl(getLauncherApiBase(), "/launcher/ws/log");
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return "";
+  }
+  return buildWebSocketUrl(
+    getLauncherApiBaseSync(),
+    "/v1/launcher/models/logs/stream",
+    {
+      project_id: projectName,
+    }
+  );
+}
+
+export async function getLauncherLogStreamUrlAsync(): Promise<string> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return "";
+  }
+  return buildWebSocketUrl(
+    await getLauncherApiBase(),
+    "/v1/launcher/models/logs/stream",
+    {
+      project_id: projectName,
+    }
+  );
+}
+
+export type LauncherRendererDiagnosticsSnapshot = {
+  current_project_path: string;
+  launcher_profile: string;
+  static_hub_endpoint: string | null;
+  cached_hub_endpoint: string | null;
+  launcher_api_base: string;
+  terminal_log_stream_url: string;
+  bootstrap_issue: ProjectSelectionIssue | null;
+  last_runtime_fetch_at: string | null;
+  last_runtime_fetch_error: string | null;
+};
+
+export function getLauncherRendererDiagnosticsSnapshot(): LauncherRendererDiagnosticsSnapshot {
+  return {
+    current_project_path: getProjectPath(),
+    launcher_profile: getLauncherProfile(),
+    static_hub_endpoint: getStaticHubEndpoint() || null,
+    cached_hub_endpoint: cachedHubEndpoint || null,
+    launcher_api_base: getLauncherApiBaseSync(),
+    terminal_log_stream_url: getLauncherLogStreamUrl(),
+    bootstrap_issue: latestProjectSelectionState.bootstrapIssue,
+    last_runtime_fetch_at: lastLauncherRuntimeFetchAt,
+    last_runtime_fetch_error: lastLauncherRuntimeFetchError,
+  };
+}
+
+export async function fetchLauncherLogSnapshot(
+  tail = 300
+): Promise<LauncherModelLogsBatch | null> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return null;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs", {
+    project_id: projectName,
+    tail,
+  });
+  return await tryFetchJSON<LauncherModelLogsBatch>(url);
+}
+
+export async function requestLauncherLogClear(): Promise<void> {
+  const projectName = deriveProjectName(getProjectPath());
+  if (!projectName) {
+    return;
+  }
+  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs/clear");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ project_id: projectName }),
+  });
 }
 
 export async function fetchProjectModelPaths(projectPath: string) {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/list-project-models", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/list-project-models", {
     project_path: normalizedProjectPath,
   });
   const models = await fetchJSON<string[]>(url);
@@ -799,7 +1222,7 @@ async function fetchProjectModelData(
   modelPath: string
 ): Promise<unknown> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-model", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-model", {
     project_path: normalizedProjectPath,
     model_path: modelPath,
   });
@@ -812,7 +1235,7 @@ export async function fetchProjectWorkloadsRegistry(
 ): Promise<WorkloadsRegistryResponse> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
   const url = buildUrl(
-    getLauncherApiBase(),
+    await getLauncherApiBase(),
     "/query/get-workloads-registry",
     {
       project_path: normalizedProjectPath,
@@ -827,7 +1250,7 @@ export async function fetchProjectCoreModelSchema(
   target = "linux"
 ): Promise<Record<string, unknown>> {
   const normalizedProjectPath = await resolveProjectPath(projectPath);
-  const url = buildUrl(getLauncherApiBase(), "/query/get-core-model-schema", {
+  const url = buildUrl(await getLauncherApiBase(), "/query/get-core-model-schema", {
     project_path: normalizedProjectPath,
     target,
   });
@@ -1001,6 +1424,9 @@ const currentProject: LauncherService = {
   requestLauncherStopModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
+  getLauncherLogStreamUrlAsync,
+  fetchLauncherLogSnapshot,
+  requestLauncherLogClear,
 };
 
 export default currentProject;

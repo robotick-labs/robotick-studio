@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import importlib
 import os
+import signal
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
 
 from fastapi.testclient import TestClient
 import pytest
 
 from robotick_hub.app import create_app
-from robotick_hub.launcher import LauncherRecord
 from robotick_hub.runtime import get_hub_record_path
-from robotick_hub.studio import StudioInstanceRecord, write_instance_record
 from robotick_hub.tray import get_bundled_icon_path, should_use_tray
+from robotick.studio_ability.domain import StudioInstanceRecord, write_instance_record
 
 
 def create_fake_workspace() -> Path:
@@ -59,6 +62,18 @@ def build_client(workspace: Path):
                 os.environ[key] = value
 
 
+class FakeWorkerProcess:
+    def __init__(self, pid: int, returncode: int = 0, on_wait=None):
+        self.pid = pid
+        self._returncode = returncode
+        self._on_wait = on_wait
+
+    def wait(self) -> int:
+        if self._on_wait is not None:
+            self._on_wait(self.pid)
+        return self._returncode
+
+
 def test_health_and_registry_record() -> None:
     workspace = create_fake_workspace()
     with build_client(workspace) as client:
@@ -88,19 +103,61 @@ def test_capabilities_endpoint() -> None:
         ]
 
 
+def test_ability_registry_and_status_endpoints() -> None:
+    workspace = create_fake_workspace()
+    with build_client(workspace) as client:
+        abilities = client.get("/v1/abilities")
+        launcher_status = client.get("/v1/abilities/launcher/status")
+        studio_status = client.get("/v1/abilities/studio/status")
+
+        assert abilities.status_code == 200
+        assert [item["name"] for item in abilities.json()["abilities"]] == ["studio", "launcher"]
+        assert launcher_status.status_code == 200
+        assert launcher_status.json()["name"] == "launcher"
+        assert studio_status.status_code == 200
+        assert studio_status.json()["name"] == "studio"
+
+
+def test_launcher_stop_worker_entrypoint_imports_without_ability_cycle() -> None:
+    module = importlib.import_module("robotick.launcher.workers.hub_launcher_worker")
+
+    assert module.build_parser().prog == "python -m robotick.launcher.workers.hub_launcher_worker"
+
+
+def test_launcher_pid_alive_treats_zombies_as_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    class FakeStatPath:
+        def __init__(self, _path: str):
+            pass
+
+        def exists(self) -> bool:
+            return True
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            return "123 (python) Z 1 123 123 0 -1 0"
+
+    monkeypatch.setattr(ability.os, "kill", lambda _pid, _signal: None)
+    monkeypatch.setattr(ability, "Path", FakeStatPath)
+
+    assert ability._pid_alive(123) is False
+
+
 def test_capabilities_reflect_launcher_provider_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
 
     monkeypatch.setattr(
-        "robotick_hub.app.get_launcher_status",
-        lambda _: {
-            "capability_status": "healthy",
-            "endpoint": "http://127.0.0.1:7081",
-            "pid": 1234,
-            "listener_status": {"status": "stopped"},
-        },
+        "robotick.launcher.hub_ability.ability.LauncherAbility.get_status",
+        lambda self, _context: type(
+            "FakeStatus",
+            (),
+            {"name": "launcher", "version": "0.1.0", "status": "available", "details": {}},
+        )(),
     )
 
     with build_client(workspace) as client:
@@ -218,42 +275,63 @@ def test_workspace_query_endpoints_reject_unregistered_project_paths() -> None:
         assert "not registered in this workspace" in settings_response.json()["detail"]
 
 
-def test_launcher_proxy_routes_delegate_to_launcher(
+def test_legacy_launcher_routes_are_gone_and_query_schema_is_in_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
-    monkeypatch.setattr(
-        "robotick_hub.app.ensure_launcher",
-        lambda _: LauncherRecord(
-            endpoint="http://127.0.0.1:7081",
-            pid=4321,
-            workspace_root=str(workspace),
+    (workspace / "robots" / "barr-e").mkdir(parents=True)
+    (workspace / "robots" / "barr-e" / "engine" / "schemas").mkdir(parents=True)
+    project_path = workspace / "robots" / "barr-e" / "barr-e.project.yaml"
+    project_path.write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
         ),
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "barr-e" / "brain.model.yaml").write_text("name: Brain\n", encoding="utf-8")
+    (workspace / "robots" / "barr-e" / "engine" / "schemas" / "core_model_envelope.schema.json").write_text(
+        '{"type":"object"}\n',
+        encoding="utf-8",
+    )
+    (workspace / "robots" / "barr-e" / "engine" / "schemas" / "workloads_layout.schema.json").write_text(
+        '{"type":"object"}\n',
+        encoding="utf-8",
     )
     monkeypatch.setattr(
-        "robotick_hub.app.proxy_launcher_request",
-        lambda _record, _method, _path, **_kwargs: (
-            200,
-            b'{"status":"ok"}',
-            {"Content-Type": "application/json"},
-        ),
+        "robotick.launcher.hub_ability.ability._launcher_query",
+        lambda: type(
+            "FakeQuery",
+            (),
+            {
+                "build_workloads_registry": staticmethod(
+                    lambda _project_path, _target: {"project": str(project_path), "target": "linux", "workloads": [], "types": [], "writable_inputs": [], "validation_errors": []}
+                ),
+                "get_core_model_schema": staticmethod(lambda _project_path, _target: {"type": "object"}),
+            },
+        )(),
     )
     with build_client(workspace) as client:
         status_response = client.get("/launcher/status")
         run_response = client.post(
             "/launcher/run",
-            params={"project_path": "/tmp/demo.project.yaml", "profile": "local:ALL"},
         )
         workloads_response = client.get(
             "/query/get-workloads-registry",
-            params={"project_path": "/tmp/demo.project.yaml", "target": "linux"},
+            params={"project_path": str(project_path), "target": "linux"},
         )
-        assert status_response.status_code == 200
-        assert status_response.json()["status"] == "ok"
-        assert run_response.status_code == 200
-        assert run_response.json()["status"] == "ok"
+        schema_response = client.get(
+            "/query/get-core-model-schema",
+            params={"project_path": str(project_path), "target": "linux"},
+        )
+        assert status_response.status_code == 404
+        assert run_response.status_code == 404
         assert workloads_response.status_code == 200
-        assert workloads_response.json()["status"] == "ok"
+        assert workloads_response.json()["project"] == str(project_path)
+        assert schema_response.status_code == 200
+        assert schema_response.json()["type"] == "object"
 
 
 def test_hub_allows_localhost_and_null_cors_origins() -> None:
@@ -276,7 +354,7 @@ def test_studio_projects_can_reflect_selected_target_project(
 ) -> None:
     workspace = create_fake_workspace()
     monkeypatch.setattr(
-        "robotick_hub.app.get_studio_status",
+        "robotick.studio_ability.hub_ability.ability.get_studio_status",
         lambda _workspace, instance_id: {
             "name": instance_id,
             "resource_type": "studio_instance",
@@ -295,50 +373,1652 @@ def test_studio_projects_can_reflect_selected_target_project(
         assert studio_response.json()["selected_target_project"] == "barr-e"
 
 
-def test_launcher_ensure_and_status_endpoints(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_launcher_status_endpoint_reports_embedded_ability_health() -> None:
     workspace = create_fake_workspace()
 
-    monkeypatch.setattr(
-        "robotick_hub.app.ensure_launcher",
-        lambda _: LauncherRecord(
-            endpoint="http://127.0.0.1:7081",
-            pid=2222,
-            workspace_root=str(workspace),
-        ),
-    )
-    monkeypatch.setattr(
-        "robotick_hub.app.get_launcher_status",
-        lambda _: {
-            "capability_status": "healthy",
-            "endpoint": "http://127.0.0.1:7081",
+    with build_client(workspace) as client:
+        status_response = client.get("/v1/launcher/status")
+        assert status_response.status_code == 200
+        assert status_response.json()["ability"]["status"] == "available"
+        assert status_response.json()["runtime"] == {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "stopped",
+            "models": [],
+        }
+        assert "groups" not in status_response.json()
+        assert "sessions" not in status_response.json()
+
+
+def test_launcher_runtime_endpoint_projects_live_per_model_truth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "barr-e.project.yaml").write_text("name: Barr.e\n", encoding="utf-8")
+    for model_name in ("healthy", "missing", "pid-live", "stopping"):
+        (project_dir / f"{model_name}.model.yaml").write_text("name: Test\n", encoding="utf-8")
+    records = [
+        {
+            "project_id": "barr-e",
+            "project_path": "/workspace/robots/barr-e/barr-e.project.yaml",
+            "model_id": "healthy",
+            "pid": 1111,
+            "health_urls": ["http://localhost:7111/health"],
+            "operation": {"action": "launching", "pid": 1111},
+        },
+        {
+            "project_id": "barr-e",
+            "project_path": "/workspace/robots/barr-e/barr-e.project.yaml",
+            "model_id": "missing",
             "pid": 2222,
-            "listener_status": {"status": "stopped", "phase": None, "profile": None, "models": {}},
+            "health_urls": ["http://localhost:7222/health"],
+        },
+        {
+            "project_id": "barr-e",
+            "project_path": "/workspace/robots/barr-e/barr-e.project.yaml",
+            "model_id": "pid-live",
+            "pid": 3333,
+            "health_urls": ["http://localhost:7333/health"],
+        },
+        {
+            "project_id": "barr-e",
+            "project_path": "/workspace/robots/barr-e/barr-e.project.yaml",
+            "model_id": "stopping",
+            "pid": 4444,
+            "health_urls": ["http://localhost:7444/health"],
+            "operation": {"action": "stopping", "pid": 5555},
+        },
+        {
+            "project_id": "pip-e",
+            "project_path": "/workspace/robots/pip-e/pip-e.project.yaml",
+            "model_id": "other-project",
+            "pid": 6666,
+            "health_urls": ["http://localhost:7666/health"],
+        },
+    ]
+    for record in records:
+        ability._write_runtime_phonebook_record(str(workspace), record)
+
+    def probe(record, *, timeout=0.25):
+        if record["model_id"] == "healthy":
+            return {
+                "configured": True,
+                "healthy": True,
+                "health_url": record["health_urls"][0],
+                "error": None,
+            }
+        return {
+            "configured": True,
+            "healthy": False,
+            "health_url": record["health_urls"][0],
+            "error": "connection refused",
+        }
+
+    monkeypatch.setattr(ability, "_probe_runtime_phonebook_record", probe)
+    monkeypatch.setattr(ability, "_pid_alive", lambda pid: pid in {1111, 3333, 5555})
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/launcher/runtime", params={"project_id": "barr-e"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["resource_type"] == "robotick_launcher_runtime_status"
+    assert payload["state"] == "pending"
+    models = {model["model_id"]: model for model in payload["models"]}
+    assert set(models) == {"healthy", "missing", "pid-live", "stopping"}
+    assert models["healthy"]["lifecycle"] == "running"
+    assert models["healthy"]["readiness"] == "ready"
+    assert models["healthy"]["freshness"] == "live"
+    assert models["healthy"]["operation"] is None
+    assert models["missing"]["lifecycle"] == "stopped"
+    assert models["missing"]["freshness"] == "stopped"
+    assert models["pid-live"]["lifecycle"] == "running"
+    assert models["pid-live"]["readiness"] == "failed"
+    assert models["pid-live"]["freshness"] == "failed"
+    assert models["stopping"]["lifecycle"] == "stopping"
+    assert models["stopping"]["operation"]["action"] == "stopping"
+
+
+def test_launcher_runtime_culls_phonebook_records_for_absent_models() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "pip-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "pip-e.project.yaml").write_text("name: Pip.e\n", encoding="utf-8")
+    (project_dir / "pip-e-face.model.yaml").write_text("name: Face\n", encoding="utf-8")
+    live_record = ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "pip-e",
+            "project_path": str(project_dir / "pip-e.project.yaml"),
+            "model_id": "pip-e-face",
         },
     )
-    monkeypatch.setattr(
-        "robotick_hub.app.stop_launcher",
-        lambda _: {
-            "capability_status": "stopped",
-            "endpoint": "http://127.0.0.1:7081",
-            "pid": 2222,
-            "listener_status": None,
+    stale_record = ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "pip-e",
+            "project_path": str(project_dir / "pip-e.project.yaml"),
+            "model_id": "pip-e-brain",
         },
     )
 
     with build_client(workspace) as client:
-        ensure_response = client.post("/v1/capabilities/launcher/ensure")
-        status_response = client.get("/v1/launcher/status")
-        stop_response = client.post("/v1/launcher/stop")
-        assert ensure_response.status_code == 200
-        assert ensure_response.json()["capability_status"] == "healthy"
-        assert ensure_response.json()["endpoint"] == "http://127.0.0.1:7081"
+        response = client.get("/v1/launcher/runtime", params={"project_id": "pip-e"})
+
+    assert response.status_code == 200
+    model_ids = [model["model_id"] for model in response.json()["models"]]
+    assert model_ids == ["pip-e-face"]
+    assert live_record["model_id"] == "pip-e-face"
+    assert stale_record["model_id"] == "pip-e-brain"
+    assert ability._runtime_phonebook_path(str(workspace), "pip-e", "pip-e-face").exists()
+    assert not ability._runtime_phonebook_path(str(workspace), "pip-e", "pip-e-brain").exists()
+
+
+def test_launcher_status_does_not_probe_stopped_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher import domain
+
+    workspace = create_fake_workspace()
+    store = domain.LauncherSessionStore(workspace)
+    intent = domain.LaunchIntent(
+        project="barr-e",
+        scope=domain.LaunchScope(kind=domain.ScopeKind.MODEL, value="barr-e-face"),
+        target_policy=domain.TargetPolicy.LOCAL,
+    )
+    group = store.create_group(
+        domain.ModelSessionGroupRecord(
+            workspace_id="robotick-knitware",
+            project_id="barr-e",
+            project_path="/tmp/barr-e.project.yaml",
+            intent=intent,
+            resolved_model_ids=["barr-e-face"],
+            status=domain.GroupStatus.STOPPED,
+        )
+    )
+    store.create_session(
+        domain.ModelSessionRecord(
+            group_id=group.id,
+            project_id="barr-e",
+            model_id="barr-e-face",
+            target=domain.TargetOverride(platform="linux"),
+            lifecycle=domain.SessionLifecycle.STALE,
+            readiness="stale",
+            diagnostics=[
+                domain.Diagnostics(
+                    code="runtime_probe_stale",
+                    message="stale before stop cleanup",
+                )
+            ],
+            runtime={
+                "control": {
+                    "action": "stop",
+                    "returncode": 0,
+                },
+                "stopped_at": "2026-06-11T20:00:00Z",
+                "probe": {
+                    "authority": "robotick-engine",
+                    "configured": True,
+                    "health_urls": ["http://localhost:7090/api/telemetry/health"],
+                }
+            },
+        )
+    )
+
+    def fail_probe(*_args, **_kwargs):
+        raise AssertionError("stopped sessions must not be runtime probed")
+
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._probe_runtime_authority", fail_probe)
+
+    with build_client(workspace) as client:
+        status_response = client.get(f"/v1/launcher/groups/{group.id}/sessions")
+
         assert status_response.status_code == 200
-        assert status_response.json()["capability_status"] == "healthy"
-        assert status_response.json()["listener_status"]["status"] == "stopped"
+        session = status_response.json()["sessions"][0]
+        assert session["lifecycle"] == "stopped"
+        assert session["readiness"] == "pending"
+        assert session["freshness"] == "pending"
+        assert session["diagnostics"] == []
+
+
+def test_launcher_group_and_session_resource_endpoints() -> None:
+    workspace = create_fake_workspace()
+    launcher_state = workspace / ".robotick" / "launcher"
+    group_dir = launcher_state / "model-session-groups"
+    session_dir = launcher_state / "model-sessions"
+    group_dir.mkdir(parents=True, exist_ok=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (group_dir / "msg_demo.json").write_text(
+        """
+{
+  "resource_type": "model_session_group",
+  "id": "msg_demo",
+  "workspace_id": "robotick-knitware",
+  "project_id": "barr-e",
+  "project_path": "/tmp/barr-e.project.yaml",
+  "intent": {
+    "project": "barr-e",
+    "scope": {"kind": "ALL", "value": "ALL"},
+    "target_policy": "native",
+    "target_overrides": {},
+    "stage_policy": {"kind": "default", "stages": []},
+    "dependency_policy": "exact",
+    "desired_runtime": {"telemetry": true, "control": true},
+    "created_by": {"client": "robotick-cli", "instance_id": "cli-1"}
+  },
+  "resolved_model_ids": ["brain"],
+  "status": "starting",
+  "readiness": "pending",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "session_ids": ["ms_demo"],
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "ms_demo.json").write_text(
+        """
+{
+  "resource_type": "model_session",
+  "id": "ms_demo",
+  "group_id": "msg_demo",
+  "project_id": "barr-e",
+  "model_id": "brain",
+  "generation": 1,
+  "target": {"platform": "linux", "variant": null, "host": null, "stages": []},
+  "lifecycle": "planned",
+  "readiness": "pending",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "runtime": {
+    "authority": "launcher-worker",
+    "worker": {"log_path": "/tmp/ms_demo.log"},
+    "control": {"log_path": "/tmp/ms_demo-stop.log"}
+  },
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with build_client(workspace) as client:
+        groups_response = client.get("/v1/launcher/groups")
+        group_response = client.get("/v1/launcher/groups/msg_demo")
+        sessions_response = client.get("/v1/launcher/groups/msg_demo/sessions")
+        session_response = client.get("/v1/launcher/sessions/ms_demo")
+        group_logs_response = client.get("/v1/launcher/groups/msg_demo/logs")
+        session_logs_response = client.get("/v1/launcher/sessions/ms_demo/logs")
+
+        assert groups_response.status_code == 200
+        assert groups_response.json()["groups"][0]["id"] == "msg_demo"
+        assert groups_response.json()["groups"][0]["resolved_scope"] == {
+            "kind": "ALL",
+            "value": "ALL",
+            "resolved_model_ids": ["brain"],
+        }
+        assert groups_response.json()["groups"][0]["target_policy"] == "native"
+        assert groups_response.json()["groups"][0]["stage_policy"] == {
+            "kind": "default",
+            "stages": [],
+        }
+        assert groups_response.json()["groups"][0]["creator"] == {
+            "client": "robotick-cli",
+            "instance_id": "cli-1",
+        }
+        assert groups_response.json()["groups"][0]["freshness"] == "pending"
+        assert group_response.status_code == 200
+        assert group_response.json()["resolved_model_ids"] == ["brain"]
+        assert group_response.json()["actionable_diagnostics"] == []
+        assert sessions_response.status_code == 200
+        assert sessions_response.json()["sessions"][0]["id"] == "ms_demo"
+        assert sessions_response.json()["sessions"][0]["freshness"] == "pending"
+        assert sessions_response.json()["sessions"][0]["target_policy"] == "native"
+        assert sessions_response.json()["sessions"][0]["stage_policy"] == {
+            "kind": "default",
+            "stages": [],
+        }
+        assert sessions_response.json()["sessions"][0]["creator"] == {
+            "client": "robotick-cli",
+            "instance_id": "cli-1",
+        }
+        assert sessions_response.json()["sessions"][0]["log_refs"] == [
+            {"kind": "worker", "path": "/tmp/ms_demo.log"},
+            {"kind": "control", "path": "/tmp/ms_demo-stop.log"},
+        ]
+        assert session_response.status_code == 200
+        assert session_response.json()["model_id"] == "brain"
+        assert session_response.json()["freshness"] == "pending"
+        assert group_logs_response.status_code == 200
+        assert group_logs_response.json()["session_logs"][0]["log_refs"] == [
+            {"kind": "worker", "path": "/tmp/ms_demo.log"},
+            {"kind": "control", "path": "/tmp/ms_demo-stop.log"},
+        ]
+        assert group_logs_response.json()["session_logs"][0]["target_policy"] == "native"
+        assert group_logs_response.json()["session_logs"][0]["freshness"] == "pending"
+        assert session_logs_response.status_code == 200
+        assert session_logs_response.json()["session_logs"][0]["session_id"] == "ms_demo"
+
+
+def test_launcher_status_and_group_resources_expose_failed_and_stale_payloads() -> None:
+    workspace = create_fake_workspace()
+    launcher_state = workspace / ".robotick" / "launcher"
+    group_dir = launcher_state / "model-session-groups"
+    session_dir = launcher_state / "model-sessions"
+    group_dir.mkdir(parents=True, exist_ok=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (group_dir / "msg_failed.json").write_text(
+        """
+{
+  "resource_type": "model_session_group",
+  "id": "msg_failed",
+  "workspace_id": "robotick-knitware",
+  "project_id": "barr-e",
+  "project_path": "/tmp/barr-e.project.yaml",
+  "intent": {
+    "project": "barr-e",
+    "scope": {"kind": "ALL", "value": "ALL"},
+    "target_policy": "native",
+    "target_overrides": {},
+    "stage_policy": {"kind": "default", "stages": []},
+    "dependency_policy": "exact",
+    "desired_runtime": {"telemetry": true, "control": true},
+    "created_by": {"client": "robotick-cli", "instance_id": "cli-1"}
+  },
+  "resolved_model_ids": ["brain"],
+  "status": "failed",
+  "readiness": "failed",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [{"code": "launch_failed", "message": "build failed", "details": {}}],
+  "session_ids": ["ms_failed"],
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (group_dir / "msg_stale.json").write_text(
+        """
+{
+  "resource_type": "model_session_group",
+  "id": "msg_stale",
+  "workspace_id": "robotick-knitware",
+  "project_id": "barr-e",
+  "project_path": "/tmp/barr-e.project.yaml",
+  "intent": {
+    "project": "barr-e",
+    "scope": {"kind": "ALL", "value": "ALL"},
+    "target_policy": "native",
+    "target_overrides": {},
+    "stage_policy": {"kind": "default", "stages": []},
+    "dependency_policy": "exact",
+    "desired_runtime": {"telemetry": true, "control": true},
+    "created_by": {"client": "robotick-cli", "instance_id": "cli-1"}
+  },
+  "resolved_model_ids": ["brain"],
+  "status": "stale",
+  "readiness": "stale",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "session_ids": ["ms_stale"],
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "ms_failed.json").write_text(
+        """
+{
+  "resource_type": "model_session",
+  "id": "ms_failed",
+  "group_id": "msg_failed",
+  "project_id": "barr-e",
+  "model_id": "brain",
+  "generation": 1,
+  "target": {"platform": "linux", "variant": null, "host": null, "stages": []},
+  "lifecycle": "failed",
+  "readiness": "failed",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [{"code": "launch_failed", "message": "build failed", "details": {}}],
+  "runtime": {},
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "ms_stale.json").write_text(
+        """
+{
+  "resource_type": "model_session",
+  "id": "ms_stale",
+  "group_id": "msg_stale",
+  "project_id": "barr-e",
+  "model_id": "brain",
+  "generation": 1,
+  "target": {"platform": "linux", "variant": null, "host": null, "stages": []},
+  "lifecycle": "stale",
+  "readiness": "stale",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "runtime": {},
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": null
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with build_client(workspace) as client:
+        status_response = client.get("/v1/launcher/status")
+        failed_group = client.get("/v1/launcher/groups/msg_failed")
+        stale_group = client.get("/v1/launcher/groups/msg_stale")
+        missing_session = client.get("/v1/launcher/sessions/ms_missing")
+
+        assert status_response.status_code == 200
+        assert "groups" not in status_response.json()
+        assert "sessions" not in status_response.json()
+        assert failed_group.status_code == 200
+        assert failed_group.json()["readiness"] == "failed"
+        assert stale_group.status_code == 200
+        assert stale_group.json()["readiness"] == "stale"
+        assert missing_session.status_code == 404
+
+
+def test_launcher_group_create_stop_and_restart_use_resource_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+                "profiles:",
+                "  face-pack:",
+                "    models:",
+                "      - brain",
+                "      - face",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "brain.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "face.model.yaml").write_text(
+        "\n".join(
+            [
+                "launcher:",
+                "  auto_launch: false",
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spawned_session_pids = iter([1234, 2345])
+    stop_worker_pids = iter([3456, 4567, 5678])
+    stop_spawned: list[int] = []
+    stop_waited: list[int] = []
+    spawned_count_at_wait: list[int] = []
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = next(spawned_session_pids)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    def spawn_stop_worker(*_args, **_kwargs):
+        pid = next(stop_worker_pids)
+        stop_spawned.append(pid)
+        return FakeWorkerProcess(
+            pid,
+            on_wait=lambda waited_pid: (
+                stop_waited.append(waited_pid),
+                spawned_count_at_wait.append(len(stop_spawned)),
+            ),
+        ), f"/tmp/{pid}-stop.log", [
+            "python",
+            "-m",
+            "robotick.launcher.workers.hub_launcher_worker",
+        ]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_stop_session_worker",
+        spawn_stop_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        create_response = client.post(
+            "/v1/launcher/groups",
+            json={
+                "project_name": "barr-e",
+                "profile": "native:face-pack",
+                "creator": {"client": "robotick-cli", "instance_id": "cli-1"},
+            },
+        )
+        assert create_response.status_code == 200
+        payload = create_response.json()
+        assert payload["group"]["project_id"] == "barr-e"
+        assert len(payload["sessions"]) == 2
+        auto_launch_disabled = [
+            session for session in payload["sessions"] if session["model_id"] == "face"
+        ][0]
+        assert auto_launch_disabled["lifecycle"] == "stopped"
+
+        group_id = payload["group"]["id"]
+        invalid_stop = client.post(
+            f"/v1/launcher/groups/{group_id}/stop",
+            json={"session_ids": ["ms_missing"]},
+        )
+        assert invalid_stop.status_code == 400
+
+        restart_response = client.post(
+            f"/v1/launcher/groups/{group_id}/restart",
+            json={"model_ids": ["brain"]},
+        )
+        assert restart_response.status_code == 200
+        restart_payload = restart_response.json()
+        assert restart_payload["group"]["id"] == group_id
+        assert [session["generation"] for session in restart_payload["restarted_sessions"]] == [2]
+        assert restart_payload["stopped_sessions"][0]["readiness"] == "pending"
+        assert restart_payload["restarted_sessions"][0]["runtime"]["worker"]["restarted_from_session_id"] == (
+            restart_payload["stopped_sessions"][0]["id"]
+        )
+
+        stop_spawned.clear()
+        stop_waited.clear()
+        spawned_count_at_wait.clear()
+        stop_response = client.post(f"/v1/launcher/groups/{group_id}/stop")
         assert stop_response.status_code == 200
-        assert stop_response.json()["capability_status"] == "stopped"
+        assert stop_response.json()["group"]["id"] == group_id
+        stopped_generations = sorted(
+            session["generation"] for session in stop_response.json()["stopped_sessions"]
+        )
+        assert stopped_generations == [1, 2]
+        assert {
+            session["readiness"] for session in stop_response.json()["stopped_sessions"]
+        } == {"pending"}
+        assert stop_waited
+        assert spawned_count_at_wait[0] == len(stop_spawned)
+
+
+def test_launcher_groups_remain_independent_across_projects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    for project_name in ("barr-e", "pip-e"):
+        project_dir = workspace / "robots" / project_name
+        project_dir.mkdir(parents=True)
+        (project_dir / "engine").mkdir()
+        (project_dir / f"{project_name}.project.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  engine: ./engine",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (project_dir / "brain.model.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  target_platform: linux",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    spawned_session_pids = iter([1234, 2345])
+    stop_worker_pids = iter([3456])
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = next(spawned_session_pids)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    def spawn_stop_worker(*_args, **_kwargs):
+        pid = next(stop_worker_pids)
+        return FakeWorkerProcess(pid), f"/tmp/{pid}-stop.log", [
+            "python",
+            "-m",
+            "robotick.launcher.workers.hub_launcher_worker",
+        ]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_stop_session_worker",
+        spawn_stop_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        barr_create = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        pip_create = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "pip-e", "profile": "native:ALL"},
+        )
+
+        assert barr_create.status_code == 200
+        assert pip_create.status_code == 200
+        barr_group_id = barr_create.json()["group"]["id"]
+        pip_group_id = pip_create.json()["group"]["id"]
+
+        stop_response = client.post(f"/v1/launcher/groups/{barr_group_id}/stop")
+        assert stop_response.status_code == 200
+        pip_group_response = client.get(f"/v1/launcher/groups/{pip_group_id}")
+        assert pip_group_response.status_code == 200
+        assert pip_group_response.json()["project_id"] == "pip-e"
+        assert pip_group_response.json()["id"] == pip_group_id
+
+
+def test_launcher_rejects_duplicate_active_all_run_for_same_project_and_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "brain.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spawned_pids: list[int] = []
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = 1200 + len(spawned_pids)
+        spawned_pids.append(pid)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        first_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        second_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        assert second_response.json()["coalesced"] is True
+        assert second_response.json()["group"]["id"] == first_response.json()["group"]["id"]
+        assert len(spawned_pids) == 1
+
+
+def test_launcher_rejects_overlapping_active_model_session_across_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "spine.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spawned_pids: list[int] = []
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = 2200 + len(spawned_pids)
+        spawned_pids.append(pid)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        first_response = client.post(
+            "/v1/launcher/groups",
+            json={
+                "project_name": "barr-e",
+                "intent": {
+                    "project": "barr-e",
+                    "scope": {"kind": "model", "value": "spine"},
+                    "target_policy": "local",
+                },
+            },
+        )
+        second_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+
+        assert first_response.status_code == 200
+        assert second_response.status_code == 409
+        assert second_response.json()["detail"]["code"] == "active_model_session_conflict"
+        assert second_response.json()["detail"]["conflicts"] == [
+            {
+                "model_id": "spine",
+                "session_id": first_response.json()["sessions"][0]["id"],
+                "group_id": first_response.json()["group"]["id"],
+                "lifecycle": "starting",
+                "readiness": "pending",
+            }
+        ]
+        assert len(spawned_pids) == 1
+
+
+def test_launcher_all_launch_skips_models_with_live_runtime_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for model_name in ("brain", "face"):
+        (project_dir / f"{model_name}.model.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  target_platform: linux",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    spawned_models: list[str] = []
+
+    def spawn_session_worker(_workspace_root, _project_name, _project_dir, session, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        spawned_models.append(session.model_id)
+        pid = 4200 + len(spawned_models)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._launcher_runtime_projection",
+        lambda *_args, **_kwargs: {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "running",
+            "models": [
+                {
+                    "project_id": "barr-e",
+                    "model_id": "brain",
+                    "lifecycle": "running",
+                    "readiness": "ready",
+                    "freshness": "live",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/launcher/models/launch",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+
+    assert response.status_code == 200
+    assert spawned_models == ["face"]
+    assert response.json()["launched_models"] == ["face"]
+    assert response.json()["skipped_models"] == [
+        {
+            "model_id": "brain",
+            "reason": "already_running",
+            "message": "Model already has live runtime authority.",
+        }
+    ]
+    sessions = {session["model_id"]: session for session in response.json()["sessions"]}
+    assert sessions["face"]["lifecycle"] == "starting"
+
+
+def test_launcher_model_endpoints_fan_out_and_coalesce_active_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for model_name in ("brain", "face", "spine"):
+        (project_dir / f"{model_name}.model.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  target_platform: linux",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    spawned_models: list[str] = []
+    live_pids: set[int] = set()
+
+    def spawn_session_worker(_workspace_root, _project_name, _project_dir, session, **_kwargs):
+        assert _kwargs.get("selected", True) is True
+        spawned_models.append(session.model_id)
+        pid = 5200 + len(spawned_models)
+        live_pids.add(pid)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda pid: int(pid) in live_pids)
+
+    with build_client(workspace) as client:
+        all_response = client.post(
+            "/v1/launcher/models/launch",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        duplicate_subset_response = client.post(
+            "/v1/launcher/models/launch",
+            json={
+                "project_name": "barr-e",
+                "intent": {
+                    "project": "barr-e",
+                    "scope": {"kind": "models", "value": ["brain", "face"]},
+                    "target_policy": "native",
+                },
+            },
+        )
+
+    assert all_response.status_code == 200
+    assert sorted(all_response.json()["launched_models"]) == ["brain", "face", "spine"]
+    assert duplicate_subset_response.status_code == 200
+    assert duplicate_subset_response.json()["launched_models"] == []
+    assert {
+        item["model_id"]: item["reason"]
+        for item in duplicate_subset_response.json()["skipped_models"]
+    } == {"brain": "already_running", "face": "already_running"}
+    assert spawned_models == ["brain", "face", "spine"]
+
+
+def test_launcher_model_stop_and_restart_target_selected_models_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for model_name in ("brain", "face", "spine"):
+        (project_dir / f"{model_name}.model.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  target_platform: linux",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    spawned_models: list[str] = []
+    stopped_sessions: list[str] = []
+    live_pids: set[int] = set()
+    session_pid_by_model: dict[str, int] = {}
+    model_by_session_id: dict[str, str] = {}
+
+    def spawn_session_worker(_workspace_root, _project_name, _project_dir, session, **_kwargs):
+        spawned_models.append(session.model_id)
+        pid = 6200 + len(spawned_models)
+        live_pids.add(pid)
+        session_pid_by_model[session.model_id] = pid
+        model_by_session_id[session.id] = session.model_id
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    def spawn_stop_session_worker(_workspace_root, session_id):
+        stop_pid = 7200 + len(stopped_sessions)
+
+        def on_wait(_pid):
+            stopped_sessions.append(session_id)
+            model_id = model_by_session_id[session_id]
+            live_pids.discard(session_pid_by_model[model_id])
+
+        return FakeWorkerProcess(stop_pid, on_wait=on_wait), f"/tmp/{stop_pid}-stop.log", ["python", "-m", "stop"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_stop_session_worker",
+        spawn_stop_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda pid: int(pid) in live_pids)
+
+    with build_client(workspace) as client:
+        launch_response = client.post(
+            "/v1/launcher/models/launch",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        face_stop_response = client.post(
+            "/v1/launcher/models/stop",
+            json={"project_name": "barr-e", "model_ids": ["face"]},
+        )
+        brain_restart_response = client.post(
+            "/v1/launcher/models/restart",
+            json={
+                "project_name": "barr-e",
+                "intent": {
+                    "project": "barr-e",
+                    "scope": {"kind": "model", "value": "brain"},
+                    "target_policy": "native",
+                },
+            },
+        )
+
+    assert launch_response.status_code == 200
+    assert face_stop_response.status_code == 200
+    assert brain_restart_response.status_code == 200
+    assert face_stop_response.json()["stopped_models"] == ["face"]
+    assert brain_restart_response.json()["stopped_models"] == ["brain"]
+    assert brain_restart_response.json()["launched_models"] == ["brain"]
+    assert spawned_models == ["brain", "face", "spine", "brain"]
+    assert [model_by_session_id[session_id] for session_id in stopped_sessions] == ["face", "brain"]
+
+
+def test_launcher_model_logs_snapshot_and_clear_use_per_model_offsets() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+    log_path.write_text("old one\nold two\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(log_path),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        first = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+        clear = client.post(
+            "/v1/launcher/models/brain/logs/clear",
+            json={"project_id": "barr-e"},
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write("new one\n")
+        second = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+
+    assert first.status_code == 200
+    assert [event["line"] for event in first.json()["events"]] == ["old one", "old two"]
+    assert all(isinstance(event.get("timestamp"), str) for event in first.json()["events"])
+    assert first.json()["sources"][0]["source_kind"] == "launcher-worker"
+    assert clear.status_code == 200
+    assert clear.json()["cleared_models"][0]["model_id"] == "brain"
+    assert second.status_code == 200
+    assert [event["line"] for event in second.json()["events"]] == ["new one"]
+
+
+def test_launcher_model_logs_batch_keeps_models_and_sources_separate() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    brain_log = log_dir / "brain.log"
+    face_log = log_dir / "face.log"
+    brain_log.write_text("brain line\n", encoding="utf-8")
+    face_log.write_text("face line\n", encoding="utf-8")
+    for model_id, path in {"brain": brain_log, "face": face_log}.items():
+        ability._write_runtime_phonebook_record(
+            str(workspace),
+            {
+                "project_id": "barr-e",
+                "model_id": model_id,
+                "log_path": str(path),
+                "last_session_id": f"ms_{model_id}",
+            },
+        )
+
+    with build_client(workspace) as client:
+        response = client.get(
+            "/v1/launcher/models/logs",
+            params={"project_id": "barr-e", "model_ids": "brain,face", "tail": 10},
+        )
+
+    assert response.status_code == 200
+    models = {model["model_id"]: model for model in response.json()["models"]}
+    assert [event["line"] for event in models["brain"]["events"]] == ["brain line"]
+    assert [event["line"] for event in models["face"]["events"]] == ["face line"]
+
+
+def test_launcher_model_logs_reject_unsafe_paths() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    unsafe_log = Path(tempfile.mkdtemp()) / "outside.log"
+    unsafe_log.write_text("should not leak\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(unsafe_log),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get(
+            "/v1/launcher/models/brain/logs",
+            params={"project_id": "barr-e", "tail": 10},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+    assert response.json()["events"] == []
+
+
+def test_launcher_model_logs_stream_emits_labelled_per_model_events() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+    log_path.write_text("stream line\n", encoding="utf-8")
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "model_id": "brain",
+            "log_path": str(log_path),
+            "last_session_id": "ms_brain",
+        },
+    )
+
+    with build_client(workspace) as client:
+        with client.websocket_connect(
+            "/v1/launcher/models/logs/stream?project_id=barr-e&model_ids=brain"
+        ) as websocket:
+            event = websocket.receive_json()
+
+    assert event["resource_type"] == "robotick_launcher_model_log_event"
+    assert event["project_id"] == "barr-e"
+    assert event["model_id"] == "brain"
+    assert event["source_kind"] == "launcher-worker"
+    assert event["line"] == "stream line"
+    assert isinstance(event["timestamp"], str)
+
+
+def test_launcher_model_log_tail_is_bounded(tmp_path: Path) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    log_path = tmp_path / "model.log"
+    log_path.write_text("\n".join(f"line-{index}" for index in range(20)), encoding="utf-8")
+
+    lines, end_offset = ability._read_log_lines(log_path, tail=3)
+
+    assert [line for _offset, line in lines] == ["line-17", "line-18", "line-19"]
+    assert end_offset == log_path.stat().st_size
+
+
+def test_launcher_worker_stop_uses_pid_signaling_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    signals: list[tuple[int, signal.Signals]] = []
+
+    monkeypatch.setattr(ability.os, "name", "nt")
+    monkeypatch.setattr(ability, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(
+        ability.os,
+        "kill",
+        lambda pid, sig: signals.append((pid, sig)),
+    )
+
+    ability._signal_worker_process_group(1234)
+
+    assert signals == [(1234, signal.SIGTERM)]
+
+
+def test_launcher_model_logs_stream_discovers_models_after_connection() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+
+    with build_client(workspace) as client:
+        with client.websocket_connect(
+            "/v1/launcher/models/logs/stream?project_id=barr-e"
+        ) as websocket:
+            log_path.write_text("late stream line\n", encoding="utf-8")
+            ability._write_runtime_phonebook_record(
+                str(workspace),
+                {
+                    "project_id": "barr-e",
+                    "model_id": "brain",
+                    "log_path": str(log_path),
+                    "last_session_id": "ms_brain",
+                },
+            )
+            event = websocket.receive_json()
+
+    assert event["model_id"] == "brain"
+    assert event["line"] == "late stream line"
+
+
+def test_launcher_allows_new_all_run_when_previous_group_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "brain.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spawned_pids: list[int] = []
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = 3200 + len(spawned_pids)
+        spawned_pids.append(pid)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        first_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        assert first_response.status_code == 200
+
+        store = ability._json_store(str(workspace))
+        group = store.get_group(first_response.json()["group"]["id"])
+        session = store.get_session(first_response.json()["sessions"][0]["id"])
+        assert group is not None
+        assert session is not None
+        store.update_group(group.model_copy(update={"status": "stale", "readiness": "stale"}))
+        store.update_session(
+            session.model_copy(
+                update={"lifecycle": "stale", "readiness": "stale"}
+            )
+        )
+
+        second_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+
+        assert second_response.status_code == 200
+        assert second_response.json().get("coalesced") is not True
+        assert second_response.json()["group"]["id"] != first_response.json()["group"]["id"]
+        assert len(spawned_pids) == 2
+
+
+def test_launcher_ignores_stale_model_session_for_overlap_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "spine.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spawned_pids: list[int] = []
+
+    def spawn_session_worker(*_args, **_kwargs):
+        if not _kwargs.get("selected", True):
+            return None, None, None
+        pid = 4200 + len(spawned_pids)
+        spawned_pids.append(pid)
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        first_response = client.post(
+            "/v1/launcher/groups",
+            json={
+                "project_name": "barr-e",
+                "intent": {
+                    "project": "barr-e",
+                    "scope": {"kind": "model", "value": "spine"},
+                    "target_policy": "local",
+                },
+            },
+        )
+        assert first_response.status_code == 200
+
+        store = ability._json_store(str(workspace))
+        session = store.get_session(first_response.json()["sessions"][0]["id"])
+        assert session is not None
+        store.update_session(
+            session.model_copy(
+                update={"lifecycle": "stale", "readiness": "stale"}
+            )
+        )
+
+        second_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+
+        assert second_response.status_code == 200
+        assert second_response.json().get("coalesced") is not True
+        assert len(spawned_pids) == 2
+
+
+def test_launcher_runtime_authority_handoff_marks_session_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "brain.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+                "telemetry:",
+                "  port: 7090",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        lambda *_args, **_kwargs: (1234, "/tmp/1234.log", ["python", "-m", "robotick.launcher.cli"]),
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._probe_runtime_authority",
+        lambda _session, timeout=0.25: {
+            "configured": True,
+            "healthy": True,
+            "health_url": "http://localhost:7090/api/telemetry/health",
+            "error": None,
+            "authority": "robotick-engine",
+        },
+    )
+
+    with build_client(workspace) as client:
+        create_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        assert create_response.status_code == 200
+        session_id = create_response.json()["sessions"][0]["id"]
+        group_id = create_response.json()["group"]["id"]
+
+        session_response = client.get(f"/v1/launcher/sessions/{session_id}")
+        group_response = client.get(f"/v1/launcher/groups/{group_id}")
+        logs_response = client.get(f"/v1/launcher/sessions/{session_id}/logs")
+
+        assert session_response.status_code == 200
+        assert session_response.json()["lifecycle"] == "handed_off"
+        assert session_response.json()["readiness"] == "ready"
+        assert session_response.json()["runtime"]["authority"] == "robotick-engine"
+        assert session_response.json()["runtime"]["observation"]["source_of_truth"] == "runtime-authority"
+        assert session_response.json()["last_confirmed_at"] is not None
+        assert any(
+            diagnostic["code"] == "worker_exited_after_runtime_handoff"
+            for diagnostic in session_response.json()["diagnostics"]
+        )
+        assert logs_response.status_code == 200
+        assert {"kind": "runtime-health", "path": "http://localhost:7090/api/telemetry/health"} in logs_response.json()["session_logs"][0]["log_refs"]
+
+        assert group_response.status_code == 200
+        assert group_response.json()["status"] == "running"
+        assert group_response.json()["readiness"] == "ready"
+        assert group_response.json()["last_confirmed_at"] is not None
+
+
+def test_launcher_runtime_probe_failure_marks_session_stale_after_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    launcher_state = workspace / ".robotick" / "launcher"
+    group_dir = launcher_state / "model-session-groups"
+    session_dir = launcher_state / "model-sessions"
+    group_dir.mkdir(parents=True, exist_ok=True)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (group_dir / "msg_demo.json").write_text(
+        """
+{
+  "resource_type": "model_session_group",
+  "id": "msg_demo",
+  "workspace_id": "robotick-knitware",
+  "project_id": "barr-e",
+  "project_path": "/tmp/barr-e.project.yaml",
+  "intent": {
+    "project": "barr-e",
+    "scope": {"kind": "ALL", "value": "ALL"},
+    "target_policy": "native",
+    "target_overrides": {},
+    "stage_policy": {"kind": "default", "stages": []},
+    "dependency_policy": "exact",
+    "desired_runtime": {"telemetry": true, "control": true},
+    "created_by": {"client": "robotick-cli", "instance_id": "cli-1"}
+  },
+  "resolved_model_ids": ["brain"],
+  "status": "running",
+  "readiness": "ready",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "session_ids": ["ms_demo"],
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": "2026-06-11T12:00:00Z"
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_dir / "ms_demo.json").write_text(
+        """
+{
+  "resource_type": "model_session",
+  "id": "ms_demo",
+  "group_id": "msg_demo",
+  "project_id": "barr-e",
+  "model_id": "brain",
+  "generation": 1,
+  "target": {"platform": "linux", "variant": null, "host": null, "stages": []},
+  "lifecycle": "handed_off",
+  "readiness": "ready",
+  "created_by": {"client": "robotick-cli", "instance_id": "cli-1"},
+  "diagnostics": [],
+  "runtime": {
+    "authority": "robotick-engine",
+    "probe": {
+      "authority": "robotick-engine",
+      "configured": true,
+      "health_urls": ["http://localhost:7090/api/telemetry/health", "http://localhost:7090/health"]
+    }
+  },
+  "created_at": "2026-06-11T12:00:00Z",
+  "updated_at": "2026-06-11T12:00:00Z",
+  "last_confirmed_at": "2026-06-11T12:00:00Z"
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._probe_runtime_authority",
+        lambda _session, timeout=0.25: {
+            "configured": True,
+            "healthy": False,
+            "health_url": "http://localhost:7090/api/telemetry/health",
+            "error": "connection refused",
+            "authority": "robotick-engine",
+        },
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+
+    with build_client(workspace) as client:
+        session_response = client.get("/v1/launcher/sessions/ms_demo")
+        group_response = client.get("/v1/launcher/groups/msg_demo")
+
+        assert session_response.status_code == 200
+        assert session_response.json()["lifecycle"] == "stale"
+        assert session_response.json()["readiness"] == "stale"
+        assert session_response.json()["runtime"]["observation"]["source_of_truth"] == "last-known-runtime"
+        assert any(
+            diagnostic["code"] == "runtime_probe_stale"
+            for diagnostic in session_response.json()["diagnostics"]
+        )
+        assert group_response.status_code == 200
+        assert group_response.json()["status"] == "stale"
+        assert group_response.json()["readiness"] == "stale"
+
+
+def test_launcher_runtime_probe_failure_before_handoff_records_worker_exit_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  engine: ./engine",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "brain.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+                "telemetry:",
+                "  port: 7090",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        lambda *_args, **_kwargs: (1234, "/tmp/1234.log", ["python", "-m", "robotick.launcher.cli"]),
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda _pid: False)
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._probe_runtime_authority",
+        lambda _session, timeout=0.25: {
+            "configured": True,
+            "healthy": False,
+            "health_url": "http://localhost:7090/api/telemetry/health",
+            "error": "connection refused",
+            "authority": "robotick-engine",
+        },
+    )
+
+    with build_client(workspace) as client:
+        create_response = client.post(
+            "/v1/launcher/groups",
+            json={"project_name": "barr-e", "profile": "native:ALL"},
+        )
+        assert create_response.status_code == 200
+        session_id = create_response.json()["sessions"][0]["id"]
+
+        session_response = client.get(f"/v1/launcher/sessions/{session_id}")
+
+        assert session_response.status_code == 200
+        assert session_response.json()["lifecycle"] == "stopped"
+        assert session_response.json()["readiness"] == "pending"
+        assert any(
+            diagnostic["code"] == "worker_exited_without_runtime_handoff"
+            for diagnostic in session_response.json()["diagnostics"]
+        )
 
 
 def test_studio_instances_open_and_quit_endpoints(
@@ -365,13 +2045,13 @@ def test_studio_instances_open_and_quit_endpoints(
         "log_path": "/tmp/studio.log",
         "control_endpoint": None,
     }
-    monkeypatch.setattr("robotick_hub.app.list_instances", lambda _: [instances_summary])
+    monkeypatch.setattr("robotick.studio_ability.hub_ability.ability.list_instances", lambda _: [instances_summary])
     monkeypatch.setattr(
-        "robotick_hub.app.open_studio",
+        "robotick.studio_ability.hub_ability.ability.open_studio",
         lambda _, project_name=None: (open_summary, {"launcher_service": {"action": "started"}}),
     )
     monkeypatch.setattr(
-        "robotick_hub.app.quit_instance",
+        "robotick.studio_ability.hub_ability.ability.quit_instance",
         lambda _, instance_id: (True, f"Studio instance {instance_id} closed.", open_summary),
     )
     with build_client(workspace) as client:
@@ -416,7 +2096,7 @@ def test_studio_instance_status_endpoint(
         "child_collections": [{"name": "windows", "resource_type": "studio_windows", "item_count": 1}],
     }
     monkeypatch.setattr(
-        "robotick_hub.app.get_studio_status",
+        "robotick.studio_ability.hub_ability.ability.get_studio_status",
         lambda _, instance_id, path_segments=(): (
             status_payload if instance_id == "studio-1234" and path_segments == () else None
         ),
@@ -456,6 +2136,7 @@ def test_studio_status_prefers_registered_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -477,7 +2158,7 @@ def test_studio_status_prefers_registered_control_endpoint(
         def read(self):
             return b'{"resource_type":"studio_instance","id":"studio-1234","state":"runtime"}'
 
-    monkeypatch.setattr("robotick_hub.studio.urlopen", lambda url, timeout: FakeResponse())
+    monkeypatch.setattr("robotick.studio_ability.domain.urlopen", lambda url, timeout: FakeResponse())
 
     with build_client(workspace) as client:
         response = client.get("/v1/studio/instances/studio-1234/status")
@@ -486,10 +2167,196 @@ def test_studio_status_prefers_registered_control_endpoint(
     assert response.json()["state"] == "runtime"
 
 
+def test_studio_status_endpoint_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_status_endpoint_surfaces_provider_unavailable_for_unreachable_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick.studio_ability.domain.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("connection refused")),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_focused_endpoint_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/focused")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_deep_status_endpoint_surfaces_not_found_for_missing_control_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick.studio_ability.domain.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            HTTPError(
+                "http://127.0.0.1:7123/v1/studio/windows/missing-window/status",
+                404,
+                "Not Found",
+                hdrs=None,
+                fp=None,
+            )
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/windows/missing-window/status")
+
+    assert response.status_code == 404
+    assert "Studio resource not found" in response.json()["detail"]
+
+
+def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    captured_kinds: list[str] = []
+
+    def fake_diagnostics(_, instance_id, kind):
+        captured_kinds.append(kind)
+        if instance_id != "studio-1234":
+            return None
+        return {
+            "resource_type": f"studio_diagnostics_{kind.split('?')[0].replace('-', '_').replace('/', '_')}",
+            "instance_id": instance_id,
+            "current_hub_endpoint": "http://127.0.0.1:7000",
+        }
+
+    monkeypatch.setattr(
+        "robotick.studio_ability.hub_ability.ability.get_studio_diagnostics",
+        fake_diagnostics,
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/diagnostics/endpoints")
+        renderer_response = client.get("/v1/studio/instances/studio-1234/diagnostics/renderer")
+        fetch_check_response = client.get("/v1/studio/instances/studio-1234/diagnostics/fetch-check")
+        telemetry_response = client.get("/v1/studio/instances/studio-1234/diagnostics/telemetry")
+        dom_query_response = client.get(
+            "/v1/studio/instances/studio-1234/diagnostics/dom/query?selector=%5Bdata-project-picker%5D"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["resource_type"] == "studio_diagnostics_endpoints"
+    assert response.json()["instance_id"] == "studio-1234"
+    assert renderer_response.status_code == 200
+    assert renderer_response.json()["resource_type"] == "studio_diagnostics_renderer"
+    assert fetch_check_response.status_code == 200
+    assert fetch_check_response.json()["resource_type"] == "studio_diagnostics_fetch_check"
+    assert telemetry_response.status_code == 200
+    assert telemetry_response.json()["resource_type"] == "studio_diagnostics_telemetry"
+    assert dom_query_response.status_code == 200
+    assert dom_query_response.json()["resource_type"] == "studio_diagnostics_dom_query"
+    assert "dom/query?selector=%5Bdata-project-picker%5D" in captured_kinds
+
+
+def test_studio_diagnostics_endpoint_surfaces_provider_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick.studio_ability.hub_ability.ability.get_studio_diagnostics",
+        lambda *_args: {
+            "error": {
+                "code": "provider_unavailable",
+                "message": "Diagnostics unavailable.",
+                "recovery": "Reopen Studio.",
+            }
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/diagnostics/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
 def test_studio_project_select_proxies_to_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -520,7 +2387,7 @@ def test_studio_project_select_proxies_to_control_endpoint(
         captured["timeout"] = timeout
         return FakeResponse()
 
-    monkeypatch.setattr("robotick_hub.studio.urlopen", fake_urlopen)
+    monkeypatch.setattr("robotick.studio_ability.domain.urlopen", fake_urlopen)
 
     with build_client(workspace) as client:
         response = client.post(
@@ -534,11 +2401,37 @@ def test_studio_project_select_proxies_to_control_endpoint(
     assert '"project_path": "/tmp/barr-e.project.yaml"' in captured["body"]
 
 
+def test_studio_project_select_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/studio/instances/studio-1234/project/select",
+            json={"project_path": "/tmp/barr-e.project.yaml"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
 def test_studio_instances_hide_cached_selected_project_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
-    monkeypatch.setattr("robotick_hub.studio.is_instance_alive", lambda _instance: True)
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -565,6 +2458,7 @@ def test_studio_activation_proxies_to_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
     write_instance_record(
         workspace,
         StudioInstanceRecord(
@@ -600,7 +2494,7 @@ def test_studio_activation_proxies_to_control_endpoint(
         captured["timeout"] = timeout
         return FakeResponse()
 
-    monkeypatch.setattr("robotick_hub.studio.urlopen", fake_urlopen)
+    monkeypatch.setattr("robotick.studio_ability.domain.urlopen", fake_urlopen)
 
     with build_client(workspace) as client:
         response = client.post(
@@ -612,6 +2506,29 @@ def test_studio_activation_proxies_to_control_endpoint(
     assert response.json()["activated_path"] == ["windows", "main"]
     assert captured["url"] == "http://127.0.0.1:7123/v1/studio/windows/main/activate"
     assert captured["body"] == "{}"
+
+
+def test_studio_activation_surfaces_provider_unavailable_without_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.post("/v1/studio/instances/studio-1234/windows/main/activate")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
 
 
 def test_app_instance_closing_endpoint(
@@ -629,7 +2546,7 @@ def test_app_instance_closing_endpoint(
         "control_endpoint": None,
     }
     monkeypatch.setattr(
-        "robotick_hub.app.notify_instance_closing",
+        "robotick.studio_ability.hub_ability.ability.notify_instance_closing",
         lambda *_args, **_kwargs: (True, "Studio instance studio-1234 marked closing.", summary),
     )
     with build_client(workspace) as client:
@@ -660,3 +2577,107 @@ def test_bundled_icon_path_exists() -> None:
     icon_path = get_bundled_icon_path()
     assert icon_path.name == "robotick-icon.png"
     assert icon_path.exists()
+
+
+def test_reconcile_keeps_inflight_stop_sessions_in_stopping_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    domain = ability._launcher_domain()
+    session = domain.ModelSessionRecord(
+        group_id="msg_demo",
+        project_id="barr-e",
+        model_id="brain",
+        lifecycle=domain.SessionLifecycle.STOPPING,
+        readiness="pending",
+        runtime={
+            "control": {
+                "action": "stop",
+                "pid": 4242,
+                "started_at": "2026-06-12T06:00:00Z",
+            },
+            "probe": {
+                "authority": "robotick-engine",
+                "configured": True,
+                "health_urls": ["http://localhost:7090/api/telemetry/health"],
+            },
+        },
+    )
+
+    monkeypatch.setattr(
+        ability,
+        "_probe_runtime_authority",
+        lambda _session, timeout=0.25: {
+            "configured": True,
+            "healthy": True,
+            "health_url": "http://localhost:7090/api/telemetry/health",
+            "error": None,
+            "authority": "robotick-engine",
+        },
+    )
+
+    reconciled = ability._reconcile_session_runtime_state(
+        "/tmp/workspace",
+        session,
+        worker_alive=False,
+    )
+
+    assert reconciled.lifecycle == domain.SessionLifecycle.STOPPING
+    assert reconciled.readiness == "pending"
+    assert "returncode" not in reconciled.runtime["control"]
+
+
+def test_refresh_state_reloads_latest_session_before_reconcile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    stale_session = SimpleNamespace(
+        id="ms_demo",
+        runtime={},
+        updated_at="2026-06-12T06:00:00Z",
+    )
+    fresh_session = SimpleNamespace(
+        id="ms_demo",
+        runtime={"control": {"action": "stop", "returncode": 0}},
+        updated_at="2026-06-12T06:00:05Z",
+    )
+    group = SimpleNamespace(id="msg_demo")
+
+    class FakeStore:
+        def list_groups(self):
+            return [group]
+
+        def list_sessions(self, group_id=None):
+            assert group_id == "msg_demo"
+            return [stale_session]
+
+        def get_session(self, session_id):
+            assert session_id == "ms_demo"
+            return fresh_session
+
+        def update_session(self, session):
+            raise AssertionError("update_session should not be called in this scenario")
+
+    fake_store = FakeStore()
+    seen_updated_at: list[str] = []
+
+    monkeypatch.setattr(
+        ability,
+        "_launcher_domain",
+        lambda: SimpleNamespace(LauncherSessionStore=lambda _workspace_root: fake_store),
+    )
+    monkeypatch.setattr(ability, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(ability, "_refresh_group_record", lambda *_args, **_kwargs: None)
+
+    def fake_reconcile(_workspace_root, session, *, worker_alive):
+        assert worker_alive is False
+        seen_updated_at.append(session.updated_at)
+        return session
+
+    monkeypatch.setattr(ability, "_reconcile_session_runtime_state", fake_reconcile)
+
+    ability._refresh_state("/tmp/workspace")
+
+    assert seen_updated_at == ["2026-06-12T06:00:05Z"]

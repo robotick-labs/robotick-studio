@@ -1,4 +1,5 @@
 import { buildWebSocketUrl } from "../../launcher/internal/launcher-interface";
+import { recordRendererWebSocketFailure } from "../../../services/studio-diagnostics";
 import type { LayoutModel } from "./telemetry-client";
 
 export interface TelemetryWsFrameMeta {
@@ -47,6 +48,7 @@ const WRITE_STATUS_FALLBACK = 400;
 class SharedTelemetryWsClient {
   private readonly listeners = new Set<TelemetryWsListener>();
   private socket: WebSocket | null = null;
+  private suppressCloseFailure = false;
   private reconnectDelayMs = RECONNECT_MIN_DELAY_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingFrameMeta: TelemetryWsFrameMeta | null = null;
@@ -79,6 +81,7 @@ class SharedTelemetryWsClient {
     if (this.socket) {
       const socket = this.socket;
       this.socket = null;
+      this.suppressCloseFailure = true;
       socket.onopen = null;
       socket.onmessage = null;
       socket.onerror = null;
@@ -135,6 +138,12 @@ class SharedTelemetryWsClient {
     try {
       ws = new globalThis.WebSocket(socketUrl);
     } catch (error) {
+      recordRendererWebSocketFailure({
+        source: "telemetry-ws-client",
+        phase: "connect",
+        url: socketUrl,
+        message: error instanceof Error ? error.message : String(error),
+      });
       this.emitError(error);
       this.scheduleReconnect();
       return;
@@ -144,6 +153,7 @@ class SharedTelemetryWsClient {
     this.socket = ws;
 
     ws.onopen = () => {
+      this.suppressCloseFailure = false;
       this.reconnectDelayMs = RECONNECT_MIN_DELAY_MS;
       this.flushWriteQueue();
     };
@@ -153,6 +163,12 @@ class SharedTelemetryWsClient {
     };
 
     ws.onerror = (event) => {
+      recordRendererWebSocketFailure({
+        source: "telemetry-ws-client",
+        phase: "error",
+        url: socketUrl,
+        message: "telemetry websocket error",
+      });
       this.emitError(event);
     };
 
@@ -161,6 +177,15 @@ class SharedTelemetryWsClient {
         this.socket = null;
       }
       this.pendingFrameMeta = null;
+      if (!this.suppressCloseFailure) {
+        recordRendererWebSocketFailure({
+          source: "telemetry-ws-client",
+          phase: "close",
+          url: socketUrl,
+          message: "telemetry websocket disconnected",
+        });
+      }
+      this.suppressCloseFailure = false;
       const active = this.consumeActiveWriteAsNetworkError();
       if (active) {
         active.resolve({

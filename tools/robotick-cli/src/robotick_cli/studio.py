@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import time
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from robotick_cli.app.context import AppContext
 from robotick_cli.app.errors import CliError, HubRequestError
@@ -23,11 +24,13 @@ from robotick_cli.hub_client import (
 from robotick_cli.instances import (
     InstanceRecord,
     get_live_instance,
+    list_live_instances,
     normalize_instance_specifier,
     quit_studio_instance,
 )
 from robotick_cli.language.help import (
     create_help_text,
+    focused_help_text,
     instance_help_text,
     instance_quit_help_text,
     instance_select_project_help_text,
@@ -74,6 +77,12 @@ def run_studio_command(ctx: AppContext, args: list[str]) -> CommandResult:
     if command == "instances":
         handle_instances_command(ctx.workspace_root, rest)
         return CommandResult(exit_code=0)
+    if command == "focused":
+        handle_focused_command(ctx, rest)
+        return CommandResult(exit_code=0)
+    if command == "launcher-status":
+        handle_launcher_status_command(ctx, rest)
+        return CommandResult(exit_code=0)
     if command == "create":
         return handle_create_command(ctx, manifest, rest)
     if command == "open":
@@ -115,23 +124,200 @@ def handle_instances_command(workspace_root: str | Path, args: list[str]) -> Non
     write_json(payload)
 
 
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def timestamp_sort_value(value: object) -> float:
+    parsed = parse_timestamp(value)
+    if parsed is None:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def fetch_instance_focused_payload(
+    workspace_root: str | Path,
+    instance: InstanceRecord,
+) -> dict[str, object] | None:
+    try:
+        payload = fetch_studio_hub_json(
+            workspace_root,
+            f"/v1/studio/instances/{instance.name}/focused",
+        )
+    except HubRequestError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    payload.setdefault("instance_id", instance.name)
+    payload.setdefault("instance_name", instance.name)
+    payload.setdefault("pid", instance.pid)
+    payload.setdefault("mode", instance.mode)
+    payload.setdefault("last_focused_at", None)
+    payload.setdefault("is_focused", False)
+    payload.setdefault("started_at", instance.started_at)
+    return payload
+
+
+def choose_focused_payload(
+    instances: list[InstanceRecord],
+    payloads: list[dict[str, object]],
+) -> dict[str, object] | None:
+    if not payloads:
+        return None
+    started_by_name = {instance.name: instance.started_at for instance in instances}
+
+    def key(payload: dict[str, object]) -> tuple[int, float, float]:
+        instance_name = str(payload.get("instance_name") or payload.get("instance_id") or "")
+        return (
+            1 if payload.get("is_focused") is True else 0,
+            timestamp_sort_value(payload.get("last_focused_at")),
+            timestamp_sort_value(started_by_name.get(instance_name)),
+        )
+
+    return max(payloads, key=key)
+
+
+def handle_focused_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(focused_help_text())
+        return
+    unknown_args = [arg for arg in args if arg != "--json"]
+    if unknown_args:
+        raise CliError(f"Unknown argument for 'focused': {unknown_args[0]}")
+
+    instances = list_live_instances(ctx.workspace_root)
+    payloads = [
+        payload
+        for instance in instances
+        if (payload := fetch_instance_focused_payload(ctx.workspace_root, instance)) is not None
+    ]
+    focused = choose_focused_payload(instances, payloads)
+    if focused is None:
+        raise CliError(
+            "No live Studio instance exposes focus information.",
+            code="studio_focus_unavailable",
+            recovery="Run `robotick studio open [project]` and retry.",
+        )
+    write_json(
+        {
+            **focused,
+            "resource_type": "robotick_studio_focused",
+            "selection_policy": "focused-window-then-last-focused-then-newest-instance",
+            "candidates": [
+                {
+                    "instance_name": payload.get("instance_name") or payload.get("instance_id"),
+                    "is_focused": payload.get("is_focused", False),
+                    "last_focused_at": payload.get("last_focused_at"),
+                    "project_name": payload.get("project_name"),
+                    "window_id": payload.get("window_id"),
+                    "workbench_id": payload.get("workbench_id"),
+                    "layout_id": payload.get("layout_id"),
+                }
+                for payload in payloads
+            ],
+        }
+    )
+
+
+def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(
+            "Usage:\n"
+            "  robotick studio launcher-status [project]\n\n"
+            "Compares raw hub launcher runtime authority with the Studio-facing launcher projection.\n"
+        )
+        return
+    positionals = [arg for arg in args if arg != "--json"]
+    if len(positionals) > 1:
+        raise CliError(f"Unknown argument for 'launcher-status': {positionals[1]}")
+    project_name = positionals[0] if positionals else None
+
+    from robotick_cli import launcher as launcher_cli
+
+    record = ensure_hub(ctx.workspace_root)
+    runtime_path = "/v1/launcher/runtime"
+    if project_name:
+        runtime_path = f"{runtime_path}?{urlencode({'project_id': project_name})}"
+    hub_runtime = fetch_hub_json(record, runtime_path)
+    status_payload = {
+        "resource_type": "robotick_launcher_status",
+        "runtime": hub_runtime,
+    }
+    studio_projection = launcher_cli.format_launcher_status_payload(status_payload)
+    raw_state = str(hub_runtime.get("state") or hub_runtime.get("status") or "")
+    projected_state = str((studio_projection.get("service") or {}).get("state") or "")
+    write_json(
+        {
+            "resource_type": "robotick_studio_launcher_status",
+            "project_name": project_name,
+            "hub_runtime": hub_runtime,
+            "studio_projection": {
+                "service": studio_projection.get("service"),
+                "runtime": studio_projection.get("runtime"),
+            },
+            "comparison": {
+                "state_agrees": raw_state == projected_state,
+                "hub_state": raw_state,
+                "studio_state": projected_state,
+            },
+        }
+    )
+
+
 def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -> CommandResult:
     if any(is_help_flag(arg) for arg in args):
         writeln(instance_quit_help_text(instance_name))
         return CommandResult(exit_code=0)
-    if args:
-        raise CliError(f"Unknown argument for '{instance_name} quit': {args[0]}")
+    wait = False
+    for arg in args:
+        if arg == "--wait":
+            wait = True
+            continue
+        raise CliError(f"Unknown argument for '{instance_name} quit': {arg}")
+
+    accepted = False
+    message = ""
     try:
         payload = post_studio_hub_json(
             ctx.workspace_root,
             f"/v1/studio/instances/{instance_name}/quit",
         )
-        writeln(payload["message"])
-        return CommandResult(exit_code=0 if payload["accepted"] else 1)
+        accepted = bool(payload["accepted"])
+        message = str(payload["message"])
     except HubRequestError:
         accepted, message = quit_studio_instance(ctx.workspace_root, instance_name)
-        writeln(f"{message} (hub fallback)")
+        message = f"{message} (hub fallback)"
+
+    if not wait:
+        writeln(message)
         return CommandResult(exit_code=0 if accepted else 1)
+
+    if wait_for_studio_instance_gone(ctx.workspace_root, instance_name):
+        writeln(f"{message} Instance is no longer running.")
+        return CommandResult(exit_code=0)
+
+    writeln(f"{message} Timed out waiting for instance to exit.")
+    return CommandResult(exit_code=1)
+
+
+def wait_for_studio_instance_gone(
+    workspace_root: str | Path,
+    instance_name: str,
+    timeout_seconds: float = 5.0,
+) -> bool:
+    started_at = time.time()
+    while time.time() - started_at < timeout_seconds:
+        if get_live_instance(workspace_root, instance_name) is None:
+            return True
+        time.sleep(0.1)
+    return get_live_instance(workspace_root, instance_name) is None
 
 
 def print_studio_context_listing(
@@ -163,6 +349,124 @@ def handle_instance_status(
         raise CliError(f"Unknown argument for '{instance_name} status': {args[0]}")
     write_json(fetch_studio_node_status(ctx.workspace_root, instance_name, path_segments))
     return CommandResult(exit_code=0)
+
+
+def handle_instance_diagnostics(
+    ctx: AppContext,
+    instance: InstanceRecord,
+    args: list[str],
+) -> CommandResult:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(instance_help_text(instance.name))
+        return CommandResult(exit_code=0)
+    diagnostics_path = build_diagnostics_path(args)
+    if diagnostics_path is None:
+        raise CliError(
+            f"Usage: robotick studio {instance.name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom summary|dom query <selector>|css query <selector>|screenshot|snapshot>",
+            code="invalid_arguments",
+        )
+    if not instance.control_endpoint:
+        raise CliError(
+            f"Studio instance {instance.name} does not expose the Studio control service.",
+            code="studio_control_unavailable",
+            recovery=(
+                "This instance was likely opened before the control service was added. "
+                f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+            ),
+        )
+    payload = fetch_studio_hub_json(
+        ctx.workspace_root,
+        f"/v1/studio/instances/{instance.name}/diagnostics/{diagnostics_path}",
+    )
+    add_diagnostics_cli_hints(payload)
+    write_json(payload)
+    return CommandResult(exit_code=0)
+
+
+def add_diagnostics_cli_hints(payload: dict[str, object]) -> None:
+    if payload.get("resource_type") != "studio_diagnostics_snapshot":
+        return
+    status = payload.get("status")
+    telemetry = payload.get("telemetry")
+    if not isinstance(status, dict) or not isinstance(telemetry, dict):
+        return
+    model_health = telemetry.get("model_health")
+    if (
+        status.get("active_workbench_id") == "remote-control"
+        and isinstance(model_health, list)
+        and len(model_health) == 0
+    ):
+        payload["cli_hints"] = [
+            {
+                "code": "remote_control_runtime_not_confirmed",
+                "message": (
+                    "Studio is showing Remote Control, but diagnostics has no live telemetry model health. "
+                    "Use `robotick launcher status` or `robotick launcher wait-ready --project <project>` "
+                    "to confirm the robot runtime is launched and ready."
+                ),
+            }
+        ]
+
+
+def build_diagnostics_path(args: list[str]) -> str | None:
+    if not args:
+        return None
+    simple_kinds = {
+        "status",
+        "endpoints",
+        "renderer",
+        "console",
+        "fetch-check",
+        "telemetry",
+        "snapshot",
+    }
+    if len(args) == 1 and args[0] in simple_kinds:
+        return args[0]
+    if args[:2] == ["dom", "summary"] and len(args) == 2:
+        return "dom/summary"
+    if len(args) >= 3 and args[:2] in (["dom", "query"], ["css", "query"]):
+        selector = args[2]
+        rest = args[3:]
+        query: dict[str, str] = {"selector": selector}
+        while rest:
+            option = rest.pop(0)
+            if option == "--limit" and rest:
+                query["limit"] = rest.pop(0)
+                continue
+            if args[:2] == ["css", "query"] and option == "--properties" and rest:
+                query["properties"] = rest.pop(0)
+                continue
+            return None
+        return f"{args[0]}/{args[1]}?{urlencode(query)}"
+    if args[0] == "screenshot":
+        query: dict[str, str] = {}
+        rest = args[1:]
+        while rest:
+            option = rest.pop(0)
+            if option == "--window" and rest:
+                query["window"] = rest.pop(0)
+                continue
+            if option == "--resource-path" and rest:
+                query["resource_path"] = rest.pop(0)
+                continue
+            if option == "--wait-for-render":
+                query["wait_for_render"] = "true"
+                continue
+            if option == "--wait-for-telemetry":
+                query["wait_for_telemetry"] = "true"
+                continue
+            if option == "--validate":
+                query["validate"] = "true"
+                continue
+            if option == "--wait-ms" and rest:
+                query["wait_ms"] = rest.pop(0)
+                continue
+            return None
+        suffix = "screenshot"
+        if query:
+            suffix = f"{suffix}?{urlencode(query)}"
+        return suffix
+    return None
 
 
 def quote_studio_resource_path(path_segments: tuple[str, ...]) -> str:
@@ -263,7 +567,7 @@ def parse_instance_path_args(
         return (), None
     if any(is_help_flag(arg) for arg in args):
         return (), "help"
-    if args == ["quit"]:
+    if args and args[0] == "quit":
         return (), "quit"
     if args and args[0] == "select-project":
         return (), "select-project"
@@ -290,7 +594,9 @@ def run_studio_instance_command(
         writeln(instance_help_text(instance.name))
         return CommandResult(exit_code=0)
     if action == "quit":
-        return handle_instance_quit(ctx, instance.name, [])
+        return handle_instance_quit(ctx, instance.name, args[1:])
+    if args and args[0] == "diagnostics":
+        return handle_instance_diagnostics(ctx, instance, args[1:])
     if action == "select-project":
         return handle_instance_select_project(ctx, instance, args[1:])
     if action == "activate":
@@ -421,7 +727,7 @@ def launch_studio_via_hub(
                 if chained_result is not None
                 else "robotick_studio_open_result"
             ),
-            "project_name": project_name,
+            "project_name": project_name or instance.get("project_name"),
             "support": {
                 "hub": {"action": hub_action},
                 **dict(payload.get("support") or {}),
@@ -528,7 +834,17 @@ def wait_for_studio_control(
                     "endpoint": instance.control_endpoint,
                     "instance": instance.model_dump(),
                 }
-                active_path = fetch_active_studio_path(ctx, instance.name)
+                root_status = fetch_studio_status_or_none(ctx, instance.name)
+                if root_status:
+                    summary["status"] = root_status
+                    instance_summary = summary["instance"]
+                    if (
+                        isinstance(instance_summary, dict)
+                        and not instance_summary.get("project_name")
+                        and isinstance(root_status.get("selected_project_id"), str)
+                    ):
+                        instance_summary["project_name"] = root_status["selected_project_id"]
+                active_path = fetch_active_studio_path(ctx, instance.name, root_status)
                 if active_path:
                     summary["active_path"] = active_path
                 return summary
@@ -549,24 +865,43 @@ def wait_for_studio_control(
         time.sleep(0.1)
 
 
-def fetch_active_studio_path(ctx: AppContext, instance_name: str) -> list[str] | None:
+def fetch_active_studio_path(
+    ctx: AppContext,
+    instance_name: str,
+    root_status: dict[str, object] | None = None,
+) -> list[str] | None:
     try:
-        instance_status = fetch_studio_node_status(ctx.workspace_root, instance_name, ())
+        instance_status = root_status or fetch_studio_node_status(ctx.workspace_root, instance_name, ())
     except Exception:
+        return None
+    active_path = active_path_from_status(instance_status)
+    if not active_path or len(active_path) != 2:
+        return active_path
+    try:
+        window_status = fetch_studio_node_status(ctx.workspace_root, instance_name, tuple(active_path))
+    except Exception:
+        return active_path
+    active_workbench_id = window_status.get("active_workbench_id")
+    if isinstance(active_workbench_id, str) and active_workbench_id:
+        return [*active_path, "workbenches", active_workbench_id]
+    return active_path
+
+
+def fetch_studio_status_or_none(ctx: AppContext, instance_name: str) -> dict[str, object] | None:
+    try:
+        return fetch_studio_node_status(ctx.workspace_root, instance_name, ())
+    except Exception:
+        return None
+
+
+def active_path_from_status(instance_status: dict[str, object] | None) -> list[str] | None:
+    if not instance_status:
         return None
     active_window_id = instance_status.get("active_window_id")
     if not isinstance(active_window_id, str) or not active_window_id:
         return None
     active_path = ["windows", active_window_id]
-    try:
-        window_status = fetch_studio_node_status(
-            ctx.workspace_root,
-            instance_name,
-            ("windows", active_window_id),
-        )
-    except Exception:
-        return active_path
-    active_workbench_id = window_status.get("active_workbench_id")
+    active_workbench_id = instance_status.get("active_workbench_id")
     if isinstance(active_workbench_id, str) and active_workbench_id:
         active_path.extend(["workbenches", active_workbench_id])
     return active_path

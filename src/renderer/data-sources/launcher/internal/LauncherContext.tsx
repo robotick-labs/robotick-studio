@@ -20,6 +20,18 @@ export type LauncherStatus = "stopped" | "launching" | "running" | "stopping";
 export type LauncherModelStatus = {
   stage?: string;
   status?: string;
+  lifecycle?: string;
+  readiness?: string;
+  freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+  diagnostics?: Array<{
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  }>;
+  logRefs?: Array<{
+    kind?: string;
+    path?: string;
+  }>;
 };
 export type LauncherModelHealth = {
   alive: boolean;
@@ -27,6 +39,8 @@ export type LauncherModelHealth = {
   error?: string | null;
   warning?: string | null;
 };
+
+type PendingModelTarget = "running" | "stopped";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
@@ -81,6 +95,10 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   const [launcherModels, setLauncherModels] = useState<
     Record<string, LauncherModelStatus>
   >({});
+  const [pendingModelTargets, setPendingModelTargets] = useState<
+    Record<string, PendingModelTarget>
+  >({});
+  const pendingModelTargetsRef = useRef<Record<string, PendingModelTarget>>({});
   const [modelHealth, setModelHealth] = useState<
     Record<string, LauncherModelHealth>
   >({});
@@ -94,8 +112,17 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     restartPendingRef.current = restartPending;
   }, [restartPending]);
 
+  useEffect(() => {
+    pendingModelTargetsRef.current = pendingModelTargets;
+  }, [pendingModelTargets]);
+
   const wakeFastPolling = useCallback(() => {
     fastPollUntilRef.current = Date.now() + 1500;
+  }, []);
+
+  const setRestartPendingState = useCallback((value: boolean) => {
+    restartPendingRef.current = value;
+    setRestartPending(value);
   }, []);
 
   useEffect(() => {
@@ -110,6 +137,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
         try {
           const launcherSnapshot = await readLauncherStatus(launcherService);
+          const nextPendingModelTargets = reconcilePendingModelTargets(
+            launcherSnapshot.models,
+            pendingModelTargetsRef.current
+          );
+          const projectedLauncherModels = projectPendingModelTargets(
+            launcherSnapshot.models,
+            nextPendingModelTargets
+          );
           const launcherStatus = launcherSnapshot.status;
           const launcherProfile = launcherSnapshot.profile;
           setReportedStatus((prev) =>
@@ -119,9 +154,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             prev === launcherProfile ? prev : launcherProfile
           );
           setLauncherModels((prev) =>
-            areLauncherModelsEqual(prev, launcherSnapshot.models)
+            areLauncherModelsEqual(prev, projectedLauncherModels)
               ? prev
-              : launcherSnapshot.models
+              : projectedLauncherModels
+          );
+          setPendingModelTargets((prev) =>
+            arePendingModelTargetsEqual(prev, nextPendingModelTargets)
+              ? prev
+              : nextPendingModelTargets
           );
 
           const prevStatus = lastStatusRef.current;
@@ -180,7 +220,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             restartPendingRef.current &&
             (launcherStatus === "launching" || launcherStatus === "running")
           ) {
-            setRestartPending(false);
+            setRestartPendingState(false);
           }
 
           setStatus((prev) =>
@@ -231,7 +271,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
     if (cancelRestart) {
       restartGenerationRef.current += 1;
-      setRestartPending(false);
+      setRestartPendingState(false);
     }
     setIsBusy(true);
     setLastError(null);
@@ -298,10 +338,25 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       const platform = resolveProfilePlatform(launcherProfile);
       setIsBusy(true);
       setLastError(null);
+      setPendingModelTargets((prev) => ({
+        ...prev,
+        [modelId]: "running",
+      }));
+      setLauncherModels((prev) =>
+        projectPendingModelTargets(prev, { ...pendingModelTargetsRef.current, [modelId]: "running" })
+      );
       wakeFastPolling();
+      launcherEvents.dispatchEvent(
+        new CustomEvent("run-requested", { detail: { modelId } })
+      );
       try {
         await launcherService.requestLauncherRunModel(projectPath, platform, modelId);
       } catch (err) {
+        setPendingModelTargets((prev) => {
+          const next = { ...prev };
+          delete next[modelId];
+          return next;
+        });
         setLastError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
@@ -345,10 +400,22 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       const platform = resolveProfilePlatform(launcherProfile);
       setIsBusy(true);
       setLastError(null);
+      setPendingModelTargets((prev) => ({
+        ...prev,
+        [modelId]: "stopped",
+      }));
+      setLauncherModels((prev) =>
+        projectPendingModelTargets(prev, { ...pendingModelTargetsRef.current, [modelId]: "stopped" })
+      );
       wakeFastPolling();
       try {
         await launcherService.requestLauncherStopModel(projectPath, platform, modelId);
       } catch (err) {
+        setPendingModelTargets((prev) => {
+          const next = { ...prev };
+          delete next[modelId];
+          return next;
+        });
         setLastError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
@@ -366,7 +433,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
     const generation = restartGenerationRef.current + 1;
     restartGenerationRef.current = generation;
-    setRestartPending(true);
+    setRestartPendingState(true);
     setLastError(null);
     setPendingTarget("running");
     setOptimisticStatus("launching");
@@ -376,13 +443,13 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
     const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
     while (restartGenerationRef.current === generation) {
-      if (Date.now() >= restartStopWaitDeadline) {
-        const message = "Timed out waiting for the launcher to stop during restart.";
-        setLastError(message);
-        setPendingTarget(null);
-        setRestartPending(false);
-        throw new Error(message);
-      }
+        if (Date.now() >= restartStopWaitDeadline) {
+          const message = "Timed out waiting for the launcher to stop during restart.";
+          setLastError(message);
+          setPendingTarget(null);
+          setRestartPendingState(false);
+          throw new Error(message);
+        }
 
       let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
       try {
@@ -399,17 +466,17 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
     if (restartGenerationRef.current !== generation) {
       setPendingTarget(null);
-      setRestartPending(false);
+      setRestartPendingState(false);
       return;
     }
 
     try {
       await requestRun(false);
     } catch (err) {
-      setRestartPending(false);
+      setRestartPendingState(false);
       throw err;
     }
-  }, [launcherService, projectPath, requestRun, requestStop, wakeFastPolling]);
+  }, [launcherService, projectPath, requestRun, requestStop, setRestartPendingState, wakeFastPolling]);
 
   const restartProfile = useCallback(
     async (profile: string) => {
@@ -420,7 +487,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
       const generation = restartGenerationRef.current + 1;
       restartGenerationRef.current = generation;
-      setRestartPending(true);
+      setRestartPendingState(true);
       setLastError(null);
       setPendingTarget("running");
       setOptimisticStatus("launching");
@@ -435,7 +502,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             "Timed out waiting for the launcher to stop during restart.";
           setLastError(message);
           setPendingTarget(null);
-          setRestartPending(false);
+          setRestartPendingState(false);
           throw new Error(message);
         }
 
@@ -454,14 +521,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
       if (restartGenerationRef.current !== generation) {
         setPendingTarget(null);
-        setRestartPending(false);
+        setRestartPendingState(false);
         return;
       }
 
       try {
         await runProfile(profile);
       } catch (err) {
-        setRestartPending(false);
+        setRestartPendingState(false);
         throw err;
       }
     },
@@ -469,6 +536,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       launcherService,
       projectPath,
       requestStop,
+      setRestartPendingState,
       runProfile,
       wakeFastPolling,
     ]
@@ -568,8 +636,110 @@ function isDetachedLaunchedModel(
   launcherModel?: LauncherModelStatus
 ): boolean {
   return (
-    launcherModel?.stage === "run" && launcherModel?.status === "succeeded"
+    launcherModel?.stage === "run" &&
+    (launcherModel?.status === "succeeded" ||
+      launcherModel?.freshness === "stale")
   );
+}
+
+function isModelEffectivelyRunning(
+  launcherModel?: LauncherModelStatus
+): boolean {
+  const lifecycle = launcherModel?.lifecycle?.trim();
+  const readiness = launcherModel?.readiness?.trim();
+  const freshness = launcherModel?.freshness?.trim();
+  return (
+    lifecycle === "running" ||
+    lifecycle === "handed_off" ||
+    readiness === "ready" ||
+    freshness === "live"
+  );
+}
+
+function isModelEffectivelyStopped(
+  launcherModel?: LauncherModelStatus
+): boolean {
+  if (!launcherModel) {
+    return true;
+  }
+  const lifecycle = launcherModel.lifecycle?.trim();
+  const readiness = launcherModel.readiness?.trim();
+  const freshness = launcherModel.freshness?.trim();
+  return (
+    (lifecycle === "stopped" || lifecycle === "failed" || lifecycle === undefined) &&
+    (readiness === "pending" || readiness === "failed" || readiness === undefined) &&
+    freshness !== "live" &&
+    freshness !== "stale"
+  );
+}
+
+function projectPendingModelTargets(
+  launcherModels: Record<string, LauncherModelStatus>,
+  pendingModelTargets: Record<string, PendingModelTarget>
+): Record<string, LauncherModelStatus> {
+  const nextModels = { ...launcherModels };
+  for (const [modelId, target] of Object.entries(pendingModelTargets)) {
+    const current = nextModels[modelId];
+    if (target === "running" && !isModelEffectivelyRunning(current)) {
+      nextModels[modelId] = {
+        ...current,
+        stage: "run",
+        status: "starting",
+        lifecycle: "starting",
+        readiness: "pending",
+        freshness: "pending",
+      };
+      continue;
+    }
+    if (target === "stopped") {
+      nextModels[modelId] = {
+        ...current,
+        stage: "stop",
+        status: "stopping",
+        lifecycle: "stopping",
+        readiness: "pending",
+        freshness: "pending",
+      };
+    }
+  }
+  return nextModels;
+}
+
+function reconcilePendingModelTargets(
+  launcherModels: Record<string, LauncherModelStatus>,
+  pendingModelTargets: Record<string, PendingModelTarget>
+): Record<string, PendingModelTarget> {
+  const nextTargets: Record<string, PendingModelTarget> = {};
+  for (const [modelId, target] of Object.entries(pendingModelTargets)) {
+    const current = launcherModels[modelId];
+    if (target === "running") {
+      if (!isModelEffectivelyRunning(current)) {
+        nextTargets[modelId] = target;
+      }
+      continue;
+    }
+    if (!isModelEffectivelyStopped(current)) {
+      nextTargets[modelId] = target;
+    }
+  }
+  return nextTargets;
+}
+
+function arePendingModelTargetsEqual(
+  left: Record<string, PendingModelTarget>,
+  right: Record<string, PendingModelTarget>
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function checkRobotAlive(

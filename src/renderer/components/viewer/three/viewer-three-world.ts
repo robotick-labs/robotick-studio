@@ -4,7 +4,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
-import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
@@ -23,6 +22,7 @@ import { ProjectData } from "../../../data-sources/launcher/index.js";
 import { resolveViewerAssetUrl } from "../asset-url-resolver.js";
 import {
   resolveAnimatorModelDescriptor,
+  resolveAnimatorTelemetryWorkloadName,
   resolveAnimatorWorkloadName,
 } from "../telemetry-animator-resolution.js";
 
@@ -36,6 +36,7 @@ const TONE_MAPS: Record<ToneMap, THREE.ToneMapping> = {
 const RESIZE_TIMER_SEC = 0.01;
 const ENABLE_PERFORMANCE_STATS = false;
 const ENABLE_CAMERA_OVERLAY = false;
+
 
 type StatsRecord = {
   lastTimestamp: number | null;
@@ -383,10 +384,7 @@ export class ViewerWorld {
     const ktx2 = new KTX2Loader()
       .setTranscoderPath(`${THREE_PATH}/examples/jsm/libs/basis/`)
       .detectSupport(this.renderer);
-    this.gltfLoader = new GLTFLoader()
-      .setDRACOLoader(draco)
-      .setKTX2Loader(ktx2)
-      .setMeshoptDecoder(MeshoptDecoder);
+    this.gltfLoader = new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2);
 
     // models
     for (const m of this.worldConfig.models) {
@@ -685,13 +683,23 @@ export class ViewerWorld {
       });
       const descriptor = resolveAnimatorModelDescriptor(config, descriptors);
       const workloadName = resolveAnimatorWorkloadName(config, descriptor);
+      const telemetryWorkloadName = resolveAnimatorTelemetryWorkloadName(
+        config,
+        descriptor,
+      );
       if (!workloadName) {
         console.warn(
           `[viewer] telemetry animator ${config.id} missing workloadName/workloadId`,
         );
         continue;
       }
-      this.telemetryAnimatorWorkloadNames.set(config.id, workloadName);
+      if (!telemetryWorkloadName) {
+        console.warn(
+          `[viewer] telemetry animator ${config.id} missing telemetry workload lookup key`,
+        );
+        continue;
+      }
+      this.telemetryAnimatorWorkloadNames.set(config.id, telemetryWorkloadName);
       const baseUrl = await this.resolveAnimatorBaseUrl(config, descriptor);
       if (!baseUrl) {
         console.warn(

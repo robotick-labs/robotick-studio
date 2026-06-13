@@ -14,6 +14,7 @@ from robotick_cli.hub_client import (
     is_hub_usable,
     is_pid_alive,
     desktop_tray_expected,
+    restart_hub,
 )
 from robotick_cli.language.help import get_hub_help_text, hub_projects_help_text, hub_status_help_text
 from robotick_cli.output import write_json, writeln
@@ -34,6 +35,9 @@ def run_hub_command(ctx: AppContext, args: list[str]) -> CommandResult:
         return CommandResult(exit_code=0)
     if command == "ensure":
         handle_ensure_command(ctx, rest)
+        return CommandResult(exit_code=0)
+    if command == "restart":
+        handle_restart_command(ctx, rest)
         return CommandResult(exit_code=0)
     if command == "projects":
         handle_projects_command(ctx, rest)
@@ -72,6 +76,24 @@ def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:
         {
             "resource_type": "robotick_hub_ensure_result",
             "action": action,
+            "status": build_running_hub_status(record),
+        }
+    )
+
+
+def handle_restart_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln("Usage:\n  robotick hub restart\n")
+        return
+    unknown_args = [arg for arg in args if arg != "--json"]
+    if unknown_args:
+        raise CliError(f"Unknown argument for 'hub restart': {unknown_args[0]}")
+
+    record = restart_hub(ctx.workspace_root)
+    write_json(
+        {
+            "resource_type": "robotick_hub_restart_result",
+            "action": "restarted",
             "status": build_running_hub_status(record),
         }
     )

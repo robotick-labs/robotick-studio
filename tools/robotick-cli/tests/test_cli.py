@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import json
+from urllib.parse import unquote, urlparse
 
 import pytest
 
 import robotick_cli.hub_client as hub_client_module
+import robotick_cli.hub
+import robotick_cli.launcher
 import robotick_cli.studio
 from robotick_cli.app.context import AppContext, ShellState
 from robotick_cli.app.errors import CliError
@@ -49,6 +55,8 @@ from robotick_cli.studio import CommandResult
 CLI_DIR = Path(__file__).resolve().parents[1]
 CLI_SRC = CLI_DIR / "src"
 HUB_DIR = CLI_DIR.parent / "robotick-hub"
+LAUNCHER_DIR = CLI_DIR.parent / "robotick-launcher"
+STUDIO_ABILITY_DIR = CLI_DIR.parent / "robotick-studio-ability"
 
 
 def compatible_hub_health(*, tray_active: bool = False) -> dict[str, object]:
@@ -154,6 +162,12 @@ def create_fake_workspace() -> Path:
         encoding="utf-8",
     )
     (studio_root / "tools" / "robotick-hub").symlink_to(HUB_DIR, target_is_directory=True)
+    (studio_root / "tools" / "robotick-launcher").symlink_to(
+        LAUNCHER_DIR, target_is_directory=True
+    )
+    (studio_root / "tools" / "robotick-studio-ability").symlink_to(
+        STUDIO_ABILITY_DIR, target_is_directory=True
+    )
     return root
 
 
@@ -220,6 +234,205 @@ def opened_instance_name_from_stdout(stdout: str) -> str:
     return str(payload["instance"]["name"])
 
 
+@contextmanager
+def fake_studio_control_server(
+    responses: dict[str, tuple[int, dict[str, object]]],
+):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            status_code, payload = responses.get(
+                path,
+                (
+                    404,
+                    {
+                        "error": {
+                            "code": "not_found",
+                            "message": f"Unhandled Studio control path: {path}",
+                        }
+                    },
+                ),
+            )
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A003
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}"
+    try:
+        yield endpoint
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def live_studio_instance(
+    workspace: Path,
+    *,
+    instance_name: str = "studio-1234",
+    control_endpoint: str,
+    project_name: str = "barr-e",
+) -> str:
+    from robotick_cli.instances import write_instance_record
+
+    child = subprocess.Popen(
+        ["bash", "-lc", "exec -a run-studio-dev-direct.sh sleep 30"],
+        start_new_session=True,
+    )
+    try:
+        write_instance_record(
+            workspace,
+            InstanceRecord(
+                name=instance_name,
+                pid=child.pid,
+                mode="dev",
+                project_name=project_name,
+                started_at="2026-06-06T12:00:00+00:00",
+                control_endpoint=control_endpoint,
+            ),
+        )
+        yield instance_name
+    finally:
+        terminate_pid(child.pid)
+
+
+@contextmanager
+def managed_headless_hub(workspace: Path):
+    previous = os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS")
+    os.environ["ROBOTICK_HUB_FORCE_HEADLESS"] = "1"
+    record = ensure_hub(workspace)
+    try:
+        yield record
+    finally:
+        terminate_pid(record.pid)
+        if previous is None:
+            os.environ.pop("ROBOTICK_HUB_FORCE_HEADLESS", None)
+        else:
+            os.environ["ROBOTICK_HUB_FORCE_HEADLESS"] = previous
+
+
+def studio_status_fixture(instance_name: str = "studio-1234") -> dict[str, tuple[int, dict[str, object]]]:
+    return {
+        "/v1/status": (
+            200,
+            {
+                "resource_type": "studio_instance",
+                "id": instance_name,
+                "project_name": "barr-e",
+                "state_sources": {"active_window_id": "live"},
+                "child_collections": [{"name": "windows", "resource_type": "studio_windows"}],
+                "children": {
+                    "windows": [
+                        {
+                            "resource_type": "studio_window",
+                            "id": "main",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/status": (
+            200,
+            {
+                "resource_type": "studio_windows",
+                "child_collections": [],
+                "child_resources": [{"id": "main"}, {"id": "child-window-1"}],
+            },
+        ),
+        "/v1/studio/windows/main/status": (
+            200,
+            {
+                "resource_type": "studio_window",
+                "id": "main",
+                "state_sources": {"active_workbench_id": "live"},
+                "child_collections": [{"name": "workbenches", "resource_type": "studio_workbenches"}],
+                "children": {
+                    "workbenches": [
+                        {
+                            "resource_type": "studio_workbench",
+                            "id": "remote-control",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/status": (
+            200,
+            {
+                "resource_type": "studio_workbenches",
+                "child_collections": [],
+                "child_resources": [{"id": "remote-control"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/status": (
+            200,
+            {
+                "resource_type": "studio_workbench",
+                "id": "remote-control",
+                "active_layout_id": "main:remote-control:default",
+                "state_sources": {"active_layout_id": "live"},
+                "child_collections": [{"name": "layouts", "resource_type": "studio_layouts"}],
+                "children": {
+                    "layouts": [
+                        {
+                            "resource_type": "studio_layout",
+                            "id": "main:remote-control:default",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/status": (
+            200,
+            {
+                "resource_type": "studio_layouts",
+                "child_collections": [],
+                "child_resources": [{"id": "main:remote-control:default"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/status": (
+            200,
+            {
+                "resource_type": "studio_layout",
+                "id": "main:remote-control:default",
+                "diagnostics": {"source": "computed", "items": []},
+                "child_collections": [{"name": "panels", "resource_type": "studio_panels"}],
+                "child_resources": [{"id": "panel-face-preview"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/panels/status": (
+            200,
+            {
+                "resource_type": "studio_panels",
+                "child_collections": [],
+                "child_resources": [{"id": "panel-face-preview"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/panels/panel-face-preview/status": (
+            200,
+            {
+                "resource_type": "studio_panel",
+                "id": "panel-face-preview",
+                "settings": {"source": "face-camera"},
+                "diagnostics": {"source": "placeholder", "items": []},
+                "child_collections": [],
+                "child_resources": [],
+            },
+        ),
+    }
+
+
 def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
     text = format_shell_context(ShellState(), str(create_fake_workspace()))
     assert "Available here:" in text
@@ -233,9 +446,14 @@ def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
 def test_launcher_ls_exposes_launcher_actions() -> None:
     text = format_shell_context(ShellState(namespace="launcher"), str(create_fake_workspace()))
     assert "Available in launcher:" in text
-    assert "- status  Query launcher service status as JSON without starting it" in text
-    assert "- ensure  Start or reuse the launcher service and report the result as JSON" in text
-    assert "- back    Return to the parent shell context" in text
+    assert "- launch [project]" in text
+    assert "- status" in text
+    assert "- wait-ready" in text
+    assert "- logs" in text
+    assert "- stop" in text
+    assert "- restart" in text
+    assert "- ensure" in text
+    assert "- back" in text
 
 
 def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> None:
@@ -244,9 +462,13 @@ def test_studio_ls_exposes_instance_folders_as_contexts_and_open_as_action() -> 
     text = format_shell_context(ShellState(namespace="studio"), str(workspace))
     assert "Available in studio:" in text
     assert "Contexts:\n- studio-" in text
-    assert "- projects          List registered Studio projects from robotick.yaml" in text
-    assert "- instances         List live Studio instances tracked in .robotick/instances" in text
-    assert "- open [project]    Convenience launch; in the immediate shell it creates then enters the instance" in text
+    assert "- projects" in text
+    assert "List registered Studio projects from robotick.yaml" in text
+    assert "- instances" in text
+    assert "List live Studio instances tracked in .robotick/instances" in text
+    assert "- launcher-status" in text
+    assert "- open [project]" in text
+    assert "Convenience launch; in the immediate shell it creates then enters the instance" in text
 
 
 def test_top_level_help_is_reference_oriented() -> None:
@@ -272,8 +494,8 @@ def test_launcher_help_describes_status_and_ensure_by_semantics() -> None:
     assert "Current context: launcher" in text
     assert "Commands:" in text
     assert "Output:" in text
-    assert "status returns launcher service state and runtime state as JSON." in text
-    assert "ensure returns the action taken: started, reused, or restarted." in text
+    assert "status returns launcher service state and per-model runtime status as JSON." in text
+    assert "launch, stop, and restart operate on project/model selections." in text
 
 
 def test_bound_studio_help_describes_navigation_and_output() -> None:
@@ -283,7 +505,7 @@ def test_bound_studio_help_describes_navigation_and_output() -> None:
     assert "Current context: studio/studio-12345" in text
     assert "Navigation:" in text
     assert "Output:" in text
-    assert "Some fields may be config-derived until live Studio state is available." in text
+    assert "Live Studio status requires a running control service on the bound instance." in text
 
 
 def test_studio_help_is_generated_from_command_registry() -> None:
@@ -353,8 +575,9 @@ def test_launcher_ensure_starts_hub_managed_launcher_path() -> None:
     payload = json.loads(result.stdout)
     assert payload["resource_type"] == "robotick_launcher_ensure_result"
     assert payload["action"] in {"started", "reused", "restarted"}
-    assert payload["status"]["service"]["state"] == "running"
+    assert payload["status"]["service"]["state"] == "stopped"
     assert payload["status"]["service"]["endpoint"].startswith("http://127.0.0.1:")
+    assert payload["status"]["service"]["pid"] is not None
     assert payload["status"]["runtime"]["status"] == "stopped"
 
     record = discover_hub(workspace)
@@ -364,6 +587,599 @@ def test_launcher_ensure_starts_hub_managed_launcher_path() -> None:
     if launcher_record_path.exists():
         launcher_payload = json.loads(launcher_record_path.read_text(encoding="utf-8"))
         terminate_pid(launcher_payload.get("pid"))
+
+
+def test_launcher_ensure_reads_status_without_launcher_capability_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: None)
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.fetch_launcher_status_through_hub",
+        lambda _record: {
+            "resource_type": "robotick_launcher_status",
+            "runtime": {
+                "resource_type": "robotick_launcher_runtime_status",
+                "state": "stopped",
+                "models": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "robotick_cli.launcher.post_hub_json",
+        lambda *_args, **_kwargs: pytest.fail("launcher ensure should not post to launcher capability routes"),
+    )
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["ensure"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["action"] == "started"
+    assert captured["output"]["status"]["service"]["state"] == "stopped"
+    assert captured["output"]["status"]["service"]["endpoint"] == record.endpoint
+    assert captured["output"]["status"]["service"]["pid"] == record.pid
+
+
+def test_hub_restart_command_reports_restarted_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.hub.restart_hub", lambda _workspace: record)
+    monkeypatch.setattr(
+        "robotick_cli.hub.build_running_hub_status",
+        lambda _record: {
+            "resource_type": "robotick_hub_status",
+            "state": "running",
+            "endpoint": record.endpoint,
+            "pid": record.pid,
+        },
+    )
+    monkeypatch.setattr(
+        "robotick_cli.hub.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.hub.run_hub_command(
+        AppContext(workspace_root=workspace),
+        ["restart"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"] == {
+        "resource_type": "robotick_hub_restart_result",
+        "action": "restarted",
+        "status": {
+            "resource_type": "robotick_hub_status",
+            "state": "running",
+            "endpoint": record.endpoint,
+            "pid": record.pid,
+        },
+    }
+
+
+def test_studio_launcher_status_compares_runtime_and_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.studio.ensure_hub", lambda _workspace: record)
+
+    def fake_fetch(_record, path):
+        if path == "/v1/launcher/runtime?project_id=barr-e":
+            return {
+                "resource_type": "robotick_launcher_runtime_status",
+                "state": "stopped",
+                "models": [
+                    {
+                        "project_id": "barr-e",
+                        "model_id": "face",
+                        "lifecycle": "stopped",
+                        "freshness": "stopped",
+                    }
+                ],
+            }
+        raise AssertionError(f"Unexpected path: {path}")
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["launcher-status", "barr-e"],
+    )
+
+    assert result.exit_code == 0
+    output = captured["output"]
+    assert output["resource_type"] == "robotick_studio_launcher_status"
+    assert output["project_name"] == "barr-e"
+    assert output["comparison"] == {
+        "state_agrees": True,
+        "hub_state": "stopped",
+        "studio_state": "stopped",
+    }
+    assert output["studio_projection"]["service"]["state"] == "stopped"
+    assert output["studio_projection"]["runtime"]["models"] == [
+        {
+            "project_id": "barr-e",
+            "model_id": "face",
+            "lifecycle": "stopped",
+            "freshness": "stopped",
+        }
+    ]
+
+
+def test_studio_focused_prefers_currently_focused_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    instances = [
+        InstanceRecord(
+            name="studio-1111",
+            pid=1111,
+            mode="dev",
+            started_at="2026-06-12T18:00:00+00:00",
+            control_endpoint="http://127.0.0.1:1111",
+        ),
+        InstanceRecord(
+            name="studio-2222",
+            pid=2222,
+            mode="dev",
+            started_at="2026-06-12T18:01:00+00:00",
+            control_endpoint="http://127.0.0.1:2222",
+        ),
+    ]
+
+    def fake_fetch(_workspace, path):
+        instance_name = path.split("/")[4]
+        return {
+            "resource_type": "robotick_studio_focused",
+            "instance_name": instance_name,
+            "project_name": "pip-e" if instance_name == "studio-1111" else "alf-e",
+            "is_focused": instance_name == "studio-1111",
+            "last_focused_at": "2026-06-12T18:00:00+00:00",
+            "window_id": "main",
+            "workbench_id": "models",
+            "layout_id": "main:models:default",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.list_live_instances", lambda _workspace: instances)
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["focused"],
+    )
+
+    assert result.exit_code == 0
+    output = captured["output"]
+    assert output["instance_name"] == "studio-1111"
+    assert output["project_name"] == "pip-e"
+    assert output["selection_policy"] == "focused-window-then-last-focused-then-newest-instance"
+    assert len(output["candidates"]) == 2
+
+
+def test_studio_focused_falls_back_to_most_recent_focus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    instances = [
+        InstanceRecord(
+            name="studio-1111",
+            pid=1111,
+            mode="dev",
+            started_at="2026-06-12T18:00:00+00:00",
+            control_endpoint="http://127.0.0.1:1111",
+        ),
+        InstanceRecord(
+            name="studio-2222",
+            pid=2222,
+            mode="dev",
+            started_at="2026-06-12T18:01:00+00:00",
+            control_endpoint="http://127.0.0.1:2222",
+        ),
+    ]
+
+    def fake_fetch(_workspace, path):
+        instance_name = path.split("/")[4]
+        return {
+            "resource_type": "robotick_studio_focused",
+            "instance_name": instance_name,
+            "project_name": instance_name,
+            "is_focused": False,
+            "last_focused_at": (
+                "2026-06-12T18:03:00+00:00"
+                if instance_name == "studio-2222"
+                else "2026-06-12T18:02:00+00:00"
+            ),
+            "window_id": "main",
+            "workbench_id": "remote-control",
+            "layout_id": "main:remote-control:default",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.list_live_instances", lambda _workspace: instances)
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["focused"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["instance_name"] == "studio-2222"
+
+
+def test_launcher_launch_posts_profile_and_intent_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_post(_record, path, payload=None, *, timeout_seconds=2):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["timeout_seconds"] = timeout_seconds
+        return {"group": {"id": "msg_demo"}, "sessions": []}
+
+    monkeypatch.setattr("robotick_cli.launcher.post_hub_json", fake_post)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["launch", "barr-e", "native:ALL"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/launch"
+    assert captured["timeout_seconds"] == 120
+    assert captured["payload"] == {
+        "project_name": "barr-e",
+        "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "profile": "native:ALL",
+    }
+    assert captured["output"] == {
+        "resource_type": "robotick_launcher_launch_result",
+        "group": {"id": "msg_demo"},
+        "sessions": [],
+    }
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["launch", "barr-e", "--model", "brain", "--local"],
+    )
+    assert result.exit_code == 0
+    assert captured["payload"] == {
+        "project_name": "barr-e",
+        "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "intent": {
+            "project": "barr-e",
+            "scope": {"kind": "model", "value": "brain"},
+            "target_policy": "local",
+        },
+    }
+
+
+def test_launcher_status_filters_project_and_model_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+    payload = {
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "running",
+        "models": [
+            {"project_id": "barr-e", "model_id": "brain", "lifecycle": "running", "freshness": "live"},
+        ],
+    }
+
+    monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
+    monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
+        return payload
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["status", "--project", "barr-e", "--model", "brain"],
+    )
+    assert result.exit_code == 0
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
+    assert captured["output"]["service"]["state"] == "running"
+    assert "groups" not in captured["output"]
+    assert "sessions" not in captured["output"]
+
+
+def test_launcher_status_uses_runtime_projection_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+    payload = {
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "stopped",
+        "models": [
+            {
+                "project_id": "barr-e",
+                "model_id": "face",
+                "lifecycle": "stopped",
+                "readiness": "pending",
+                "freshness": "stopped",
+            },
+        ],
+    }
+
+    monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
+    monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["status", "--project", "barr-e", "--model", "face"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["service"]["state"] == "stopped"
+    assert captured["output"]["runtime"]["models"] == [
+        {
+            "project_id": "barr-e",
+            "model_id": "face",
+            "lifecycle": "stopped",
+            "readiness": "pending",
+            "freshness": "stopped",
+        }
+    ]
+    assert "groups" not in captured["output"]
+    assert "sessions" not in captured["output"]
+
+
+def test_launcher_stop_and_restart_use_model_control_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_post(_record, path, payload=None, *, timeout_seconds=2):
+        captured["path"] = path
+        captured["payload"] = payload
+        captured["timeout_seconds"] = timeout_seconds
+        return {"project_id": "barr-e", "stopped_sessions": []}
+
+    monkeypatch.setattr("robotick_cli.launcher.post_hub_json", fake_post)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["stop", "--project", "barr-e", "--model", "brain"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/stop"
+    assert captured["payload"]["project_name"] == "barr-e"
+    assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["timeout_seconds"] == 120
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["restart", "--project", "barr-e", "--model", "brain"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/restart"
+    assert captured["payload"]["project_name"] == "barr-e"
+    assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["payload"]["intent"] == {
+        "project": "barr-e",
+        "scope": {"kind": "model", "value": "brain"},
+        "target_policy": "native",
+    }
+    assert captured["timeout_seconds"] == 120
+
+
+def test_launcher_stop_rejects_legacy_group_or_session_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    with pytest.raises(CliError, match="Unknown argument: --group"):
+        robotick_cli.launcher.run_launcher_command(
+            AppContext(workspace_root=workspace),
+            ["stop", "--group", "msg_demo"],
+        )
+    with pytest.raises(CliError, match="Unknown argument: --session"):
+        robotick_cli.launcher.run_launcher_command(
+            AppContext(workspace_root=workspace),
+            ["restart", "--session", "ms_demo"],
+        )
+
+
+def test_launcher_logs_uses_model_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_fetch(_record, path):
+        captured["path"] = path
+        return {"resource_type": "robotick_launcher_logs", "path": path}
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    with pytest.raises(CliError, match="Unknown argument: --session"):
+        robotick_cli.launcher.run_launcher_command(
+            AppContext(workspace_root=workspace),
+            ["logs", "--session", "ms_brain"],
+        )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["logs", "--project", "barr-e", "--model", "brain"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/logs?project_id=barr-e&model_ids=brain"
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["logs", "--project", "barr-e", "--models", "brain,face", "--tail", "50"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/logs?project_id=barr-e&model_ids=brain%2Cface&tail=50"
+
+
+def test_launcher_wait_ready_polls_until_runtime_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+    poll_count = {"value": 0}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
+        poll_count["value"] += 1
+        readiness = "pending" if poll_count["value"] == 1 else "ready"
+        if poll_count["value"] == 1:
+            lifecycle = "starting"
+        else:
+            lifecycle = "running"
+        return {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "pending" if readiness == "pending" else "running",
+            "models": [
+                {
+                    "project_id": project_id,
+                    "model_id": model_ids[0],
+                    "lifecycle": lifecycle,
+                    "readiness": readiness,
+                    "freshness": "pending" if readiness == "pending" else "live",
+                }
+            ],
+        }
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr("robotick_cli.launcher.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["wait-ready", "--project", "barr-e", "--model", "brain", "--timeout-seconds", "1", "--poll-ms", "1"],
+    )
+    assert result.exit_code == 0
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
+    assert captured["output"]["status"] == "ready"
+
+
+def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        return {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "running",
+            "models": [
+                {
+                    "project_id": project_id,
+                    "model_id": "old-face",
+                    "lifecycle": "stopped",
+                    "readiness": "pending",
+                    "freshness": "stopped",
+                },
+                {
+                    "project_id": project_id,
+                    "model_id": "brain",
+                    "lifecycle": "running",
+                    "readiness": "ready",
+                    "freshness": "live",
+                },
+            ],
+        }
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["wait-ready", "--project", "barr-e", "--timeout-seconds", "1", "--poll-ms", "1"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["status"] == "ready"
 
 
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
@@ -406,22 +1222,23 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
 
 def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
-    text = format_shell_context(
-        ShellState(namespace="studio", instance_name=instance_name),
-        str(workspace),
-    )
-    assert f"Available in studio/{instance_name}:" in text
-    assert "Contexts:\n- windows/" in text
-    assert "Actions:" in text
-    assert "- status" in text
-    assert "Print the currently bound Studio resource as JSON" in text
-    assert "- select-project [project]  Switch the selected project inside this Studio instance" in text
-    assert "- quit" in text
-    assert "Close this Studio instance" in text
-    assert "- back" in text
-    assert "Return to the parent shell context" in text
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                text = format_shell_context(
+                    ShellState(namespace="studio", instance_name="studio-1234"),
+                    str(workspace),
+                )
+                assert "Available in studio/studio-1234:" in text
+                assert "Contexts:\n- windows/" in text
+                assert "Actions:" in text
+                assert "- status" in text
+                assert "Print the currently bound Studio resource as JSON" in text
+                assert "- select-project [project]  Switch the selected project inside this Studio instance" in text
+                assert "- quit" in text
+                assert "Close this Studio instance" in text
+                assert "- back" in text
+                assert "Return to the parent shell context" in text
 
 
 def test_bound_instance_ls_advertises_activate_for_activatable_resource(
@@ -461,6 +1278,10 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 
     assert result.returncode == 0
     assert f"robotick studio {instance_name} status" in result.stdout
+    assert (
+        f"robotick studio {instance_name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>"
+        in result.stdout
+    )
     assert f"robotick studio {instance_name} <path...> activate" in result.stdout
     assert f"robotick studio {instance_name} select-project <project>" in result.stdout
     assert f"robotick studio {instance_name} windows" in result.stdout
@@ -521,6 +1342,342 @@ def test_instance_select_project_posts_registered_project_path(
         "currentProjectPath": "/tmp/barr-e.project.yaml",
         "issue": None,
     }
+
+
+def test_instance_diagnostics_status_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_status",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "status"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/status"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_status",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_renderer_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_renderer",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "renderer"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/renderer"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_renderer",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_fetch_check_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_fetch_check",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "fetch-check"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/fetch-check"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_fetch_check",
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_telemetry_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "studio_diagnostics_telemetry",
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "telemetry"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/diagnostics/telemetry"
+    assert captured["output"] == {
+        "resource_type": "studio_diagnostics_telemetry",
+        "instance_id": "studio-1234",
+    }
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_path", "resource_type"),
+    [
+        (
+            ["console"],
+            "/v1/studio/instances/studio-1234/diagnostics/console",
+            "studio_diagnostics_console",
+        ),
+        (
+            ["dom", "summary"],
+            "/v1/studio/instances/studio-1234/diagnostics/dom/summary",
+            "studio_diagnostics_dom_summary",
+        ),
+        (
+            ["dom", "query", "[data-project-picker]"],
+            "/v1/studio/instances/studio-1234/diagnostics/dom/query?selector=%5Bdata-project-picker%5D",
+            "studio_diagnostics_dom_query",
+        ),
+        (
+            ["css", "query", "[data-project-picker]", "--properties", "display,visibility"],
+            "/v1/studio/instances/studio-1234/diagnostics/css/query?selector=%5Bdata-project-picker%5D&properties=display%2Cvisibility",
+            "studio_diagnostics_css_query",
+        ),
+        (
+            [
+                "screenshot",
+                "--window",
+                "main",
+                "--resource-path",
+                "windows/main/workbenches/remote-control",
+                "--wait-for-render",
+                "--wait-for-telemetry",
+                "--validate",
+            ],
+            "/v1/studio/instances/studio-1234/diagnostics/screenshot?window=main&resource_path=windows%2Fmain%2Fworkbenches%2Fremote-control&wait_for_render=true&wait_for_telemetry=true&validate=true",
+            "studio_diagnostics_screenshot",
+        ),
+        (
+            ["snapshot"],
+            "/v1/studio/instances/studio-1234/diagnostics/snapshot",
+            "studio_diagnostics_snapshot",
+        ),
+    ],
+)
+def test_instance_diagnostics_extended_surface_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    expected_path: str,
+    resource_type: str,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": resource_type,
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", *args],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == expected_path
+    assert captured["output"] == {
+        "resource_type": resource_type,
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_snapshot_adds_remote_control_runtime_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.fetch_studio_hub_json",
+        lambda _workspace, _path: {
+            "resource_type": "studio_diagnostics_snapshot",
+            "instance_id": "studio-1234",
+            "status": {"active_workbench_id": "remote-control"},
+            "telemetry": {"model_health": []},
+        },
+    )
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "snapshot"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["cli_hints"] == [
+        {
+            "code": "remote_control_runtime_not_confirmed",
+            "message": (
+                "Studio is showing Remote Control, but diagnostics has no live telemetry model health. "
+                "Use `robotick launcher status` or `robotick launcher wait-ready --project <project>` "
+                "to confirm the robot runtime is launched and ready."
+            ),
+        }
+    ]
+
+
+def test_instance_diagnostics_requires_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint=None,
+        ),
+    )
+
+    with pytest.raises(CliError) as error:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "diagnostics", "endpoints"],
+        )
+
+    assert error.value.code == "studio_control_unavailable"
+    assert "does not expose the Studio control service" in str(error.value)
 
 
 def test_instance_select_project_requires_control_endpoint(
@@ -626,53 +1783,56 @@ def test_instance_activate_requires_control_endpoint(
 
 def test_instance_status_returns_structured_payload() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_cli(["studio", "studio-1234", "status"], workspace)
 
-    result = run_cli(["studio", instance_name, "status"], workspace)
-
-    assert result.returncode == 0
-    payload = json.loads(result.stdout)
-    assert payload["resource_type"] == "studio_instance"
-    assert payload["id"] == instance_name
-    assert payload["project_name"] == "barr-e"
-    assert payload["state_sources"]["active_window_id"] == "config"
-    assert payload["children"]["windows"][0]["id"] == "main"
-    assert payload["child_collections"][0]["name"] == "windows"
-    assert payload["child_collections"][0]["resource_type"] == "studio_windows"
+                assert result.returncode == 0
+                payload = json.loads(result.stdout)
+                assert payload["resource_type"] == "studio_instance"
+                assert payload["id"] == "studio-1234"
+                assert payload["project_name"] == "barr-e"
+                assert payload["state_sources"]["active_window_id"] == "live"
+                assert payload["children"]["windows"][0]["id"] == "main"
+                assert payload["child_collections"][0]["name"] == "windows"
+                assert payload["child_collections"][0]["resource_type"] == "studio_windows"
 
 
 def test_deep_studio_navigation_and_status_work_in_repl() -> None:
     workspace = create_fake_workspace()
-    result = run_shell(
-        [
-            "studio",
-            "open barr-e",
-            "status",
-            "cd windows",
-            "ls",
-            "cd main",
-            "cd workbenches",
-            "cd remote-control",
-            "cd layouts",
-            "cd main:remote-control:default",
-            "status",
-            "cd panels",
-            "cd panel-face-preview",
-            "status",
-            "exit",
-        ],
-        workspace,
-    )
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_shell(
+                    [
+                        "studio",
+                        "cd studio-1234",
+                        "status",
+                        "cd windows",
+                        "ls",
+                        "cd main",
+                        "cd workbenches",
+                        "cd remote-control",
+                        "cd layouts",
+                        "cd main:remote-control:default",
+                        "status",
+                        "cd panels",
+                        "cd panel-face-preview",
+                        "status",
+                        "exit",
+                    ],
+                    workspace,
+                )
 
-    assert result.returncode == 0
-    assert '"resource_type": "studio_instance"' in result.stdout
-    assert "robotick:studio:studio-" in result.stdout
-    assert "Contexts:\n- main/\n- child-window-1/" in result.stdout
-    assert '"resource_type": "studio_layout"' in result.stdout
-    assert '"id": "main:remote-control:default"' in result.stdout
-    assert '"resource_type": "studio_panel"' in result.stdout
-    assert '"id": "panel-face-preview"' in result.stdout
+                assert result.returncode == 0
+                assert '"resource_type": "studio_instance"' in result.stdout
+                assert "robotick:studio:studio-1234" in result.stdout
+                assert "Contexts:\n- main/\n- child-window-1/" in result.stdout
+                assert '"resource_type": "studio_layout"' in result.stdout
+                assert '"id": "main:remote-control:default"' in result.stdout
+                assert '"resource_type": "studio_panel"' in result.stdout
+                assert '"id": "panel-face-preview"' in result.stdout
 
 
 def test_repl_cd_then_activate_targets_current_studio_path(
@@ -832,112 +1992,112 @@ def test_repl_back_updates_current_studio_path_before_activate(
 
 def test_one_shot_deep_layout_and_panel_status() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                layout_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "layouts",
+                        "main:remote-control:default",
+                        "status",
+                    ],
+                    workspace,
+                )
+                panel_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "layouts",
+                        "main:remote-control:default",
+                        "panels",
+                        "panel-face-preview",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    layout_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "layouts",
-            "main:remote-control:default",
-            "status",
-        ],
-        workspace,
-    )
-    panel_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "layouts",
-            "main:remote-control:default",
-            "panels",
-            "panel-face-preview",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert layout_result.returncode == 0
-    assert panel_result.returncode == 0
-    layout_payload = json.loads(layout_result.stdout)
-    panel_payload = json.loads(panel_result.stdout)
-    assert layout_payload["resource_type"] == "studio_layout"
-    assert layout_payload["id"] == "main:remote-control:default"
-    assert layout_payload["diagnostics"]["source"] == "computed"
-    assert layout_payload["diagnostics"]["items"] == []
-    assert panel_payload["resource_type"] == "studio_panel"
-    assert panel_payload["id"] == "panel-face-preview"
-    assert panel_payload["settings"]["source"] == "face-camera"
-    assert panel_payload["diagnostics"]["source"] == "placeholder"
-    assert panel_payload["diagnostics"]["items"] == []
+                assert layout_result.returncode == 0
+                assert panel_result.returncode == 0
+                layout_payload = json.loads(layout_result.stdout)
+                panel_payload = json.loads(panel_result.stdout)
+                assert layout_payload["resource_type"] == "studio_layout"
+                assert layout_payload["id"] == "main:remote-control:default"
+                assert layout_payload["diagnostics"]["source"] == "computed"
+                assert layout_payload["diagnostics"]["items"] == []
+                assert panel_payload["resource_type"] == "studio_panel"
+                assert panel_payload["id"] == "panel-face-preview"
+                assert panel_payload["settings"]["source"] == "face-camera"
+                assert panel_payload["diagnostics"]["source"] == "placeholder"
+                assert panel_payload["diagnostics"]["items"] == []
 
 
 def test_one_shot_window_and_workbench_status() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                window_result = run_cli(
+                    ["studio", "studio-1234", "windows", "main", "status"],
+                    workspace,
+                )
+                workbench_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    window_result = run_cli(
-        ["studio", instance_name, "windows", "main", "status"],
-        workspace,
-    )
-    workbench_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert window_result.returncode == 0
-    assert workbench_result.returncode == 0
-    window_payload = json.loads(window_result.stdout)
-    workbench_payload = json.loads(workbench_result.stdout)
-    assert window_payload["resource_type"] == "studio_window"
-    assert window_payload["id"] == "main"
-    assert window_payload["state_sources"]["active_workbench_id"] == "config"
-    assert window_payload["children"]["workbenches"][0]["id"] == "remote-control"
-    assert workbench_payload["resource_type"] == "studio_workbench"
-    assert workbench_payload["id"] == "remote-control"
-    assert workbench_payload["active_layout_id"] == "main:remote-control:default"
-    assert workbench_payload["state_sources"]["active_layout_id"] == "config"
-    assert workbench_payload["children"]["layouts"][0]["id"] == "main:remote-control:default"
+                assert window_result.returncode == 0
+                assert workbench_result.returncode == 0
+                window_payload = json.loads(window_result.stdout)
+                workbench_payload = json.loads(workbench_result.stdout)
+                assert window_payload["resource_type"] == "studio_window"
+                assert window_payload["id"] == "main"
+                assert window_payload["state_sources"]["active_workbench_id"] == "live"
+                assert window_payload["children"]["workbenches"][0]["id"] == "remote-control"
+                assert workbench_payload["resource_type"] == "studio_workbench"
+                assert workbench_payload["id"] == "remote-control"
+                assert workbench_payload["active_layout_id"] == "main:remote-control:default"
+                assert workbench_payload["state_sources"]["active_layout_id"] == "live"
+                assert workbench_payload["children"]["layouts"][0]["id"] == "main:remote-control:default"
 
 
 def test_invalid_deep_studio_context_fails_clearly() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "missing-window",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "missing-window",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert result.returncode == 1
-    payload = json.loads(result.stderr)
-    assert payload["error"]["code"] == "unknown_studio_context"
-    assert payload["error"]["message"] == "Unknown Studio context: missing-window"
+                assert result.returncode == 1
+                payload = json.loads(result.stderr)
+                assert payload["error"]["code"] == "unknown_studio_context"
+                assert payload["error"]["message"] == "Unknown Studio context: missing-window"
 
 
 def test_studio_status_without_bound_instance_fails_with_guidance() -> None:
@@ -950,6 +2110,29 @@ def test_studio_status_without_bound_instance_fails_with_guidance() -> None:
     assert payload["error"]["code"] == "studio_instance_not_bound"
     assert "No Studio instance is currently bound." in payload["error"]["message"]
     assert "robotick studio open [project]" in payload["error"]["recovery"]
+
+
+def test_fetch_active_studio_path_reads_active_workbench_from_window_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured_paths: list[tuple[str, ...]] = []
+
+    def fake_fetch_status(_workspace, _instance_name, path_segments):
+        captured_paths.append(tuple(path_segments))
+        if tuple(path_segments) == ():
+            return {"active_window_id": "main"}
+        if tuple(path_segments) == ("windows", "main"):
+            return {"active_workbench_id": "remote-control"}
+        raise AssertionError(f"unexpected path: {path_segments}")
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_node_status", fake_fetch_status)
+
+    assert robotick_cli.studio.fetch_active_studio_path(
+        AppContext(workspace_root=workspace),
+        "studio-1234",
+    ) == ["windows", "main", "workbenches", "remote-control"]
+    assert captured_paths == [(), ("windows", "main")]
 
 
 def test_open_with_unknown_project_returns_json_error() -> None:
@@ -1181,6 +2364,57 @@ def test_studio_quit_falls_back_when_hub_request_times_out(
     assert result.exit_code == 0
 
 
+def test_studio_quit_waits_until_instance_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    calls = {"waited": 0}
+    monkeypatch.setattr(
+        "robotick_cli.studio.post_studio_hub_json",
+        lambda *_args, **_kwargs: {
+            "accepted": True,
+            "message": "Studio instance studio-2222 close requested.",
+        },
+    )
+
+    def fake_wait(_workspace, instance_name):
+        calls["waited"] += 1
+        assert instance_name == "studio-2222"
+        return True
+
+    monkeypatch.setattr("robotick_cli.studio.wait_for_studio_instance_gone", fake_wait)
+    result = robotick_cli.studio.handle_instance_quit(
+        AppContext(workspace_root=workspace),
+        "studio-2222",
+        ["--wait"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["waited"] == 1
+
+
+def test_studio_quit_wait_times_out_when_instance_remains_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.post_studio_hub_json",
+        lambda *_args, **_kwargs: {
+            "accepted": True,
+            "message": "Studio instance studio-2222 close requested.",
+        },
+    )
+    monkeypatch.setattr("robotick_cli.studio.wait_for_studio_instance_gone", lambda *_args: False)
+
+    result = robotick_cli.studio.handle_instance_quit(
+        AppContext(workspace_root=workspace),
+        "studio-2222",
+        ["--wait"],
+    )
+
+    assert result.exit_code == 1
+
+
 def test_create_without_project_launches_empty_studio_quietly() -> None:
     workspace = create_fake_workspace()
     result = run_cli(["studio", "create"], workspace)
@@ -1233,6 +2467,17 @@ def test_one_shot_quit_closes_live_instance_cleanly() -> None:
         or f"Studio instance {instance_name} force-closed after not exiting cleanly." in quit_result.stdout
     )
     wait_for(lambda: not (workspace / ".robotick" / "instances" / f"{instance_name}.json").exists())
+
+
+def test_one_shot_quit_wait_closes_live_instance_cleanly() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
+
+    quit_result = run_cli(["studio", instance_name, "quit", "--wait"], workspace)
+    assert quit_result.returncode == 0
+    assert "Instance is no longer running." in quit_result.stdout
+    assert not (workspace / ".robotick" / "instances" / f"{instance_name}.json").exists()
 
 
 def test_cd_enters_a_discovered_instance_context() -> None:

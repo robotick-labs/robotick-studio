@@ -4,6 +4,7 @@ import {
   type BrowserWindowConstructor,
 } from "../../main/bootstrap";
 import fs from "fs";
+import http from "http";
 import os from "os";
 import path from "path";
 
@@ -25,8 +26,13 @@ type BrowserWindowMock = {
   webContents: {
     send: ReturnType<typeof vi.fn>;
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    getURL: ReturnType<typeof vi.fn>;
+    capturePage: ReturnType<typeof vi.fn>;
+    executeJavaScript: ReturnType<typeof vi.fn>;
   };
   handlers: Map<string, Array<(...args: unknown[]) => void>>;
+  webContentsHandlers: Map<string, Array<(...args: unknown[]) => void>>;
 };
 
 const createElectronMocks = () => {
@@ -56,14 +62,84 @@ const createElectronMocks = () => {
         webContents: {
           send: vi.fn(),
           setWindowOpenHandler: vi.fn(),
+          on: vi.fn(),
+          getURL: vi.fn(() => "http://localhost:5173"),
+          capturePage: vi.fn(async () => ({
+            toPNG: () =>
+              Buffer.from([
+                0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+                0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x05, 0x78, 0x00, 0x00, 0x03, 0x84,
+              ]),
+          })),
+          executeJavaScript: vi.fn(async (script: string) => {
+            if (script.includes("studio_diagnostics_dom_summary")) {
+              return {
+                resource_type: "studio_diagnostics_dom_summary",
+                window_id: "main",
+                url: "http://localhost:5173/remote-control",
+                document_title: "Robotick Studio",
+                active_route: "/remote-control",
+                visible_workbench_root: "main Remote Control",
+                focused_element_summary: null,
+                selected_project_text: "Barr.e",
+                redactions: [],
+                truncation: {
+                  truncated: false,
+                  original_count: 1,
+                  returned_count: 1,
+                  limit: 50,
+                },
+              };
+            }
+            if (script.includes("studio_diagnostics_dom_query")) {
+              return {
+                resource_type: "studio_diagnostics_dom_query",
+                window_id: "main",
+                selector: "[data-project-picker]",
+                match_count: 1,
+                matches: [],
+                redactions: [],
+                truncation: {
+                  truncated: false,
+                  original_count: 1,
+                  returned_count: 0,
+                  limit: 20,
+                },
+              };
+            }
+            return {
+              resource_type: "studio_diagnostics_css_query",
+              window_id: "main",
+              selector: "[data-project-picker]",
+              match_count: 1,
+              matches: [],
+              loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+              failed_stylesheet_urls: [],
+              truncation: {
+                truncated: false,
+                original_count: 1,
+                returned_count: 0,
+                limit: 20,
+              },
+            };
+          }),
         },
         handlers: new Map<string, Array<(...args: unknown[]) => void>>(),
+        webContentsHandlers: new Map<string, Array<(...args: unknown[]) => void>>(),
       };
       win.on.mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
         const handlers = win.handlers.get(event) ?? [];
         handlers.push(handler);
         win.handlers.set(event, handlers);
       });
+      win.webContents.on.mockImplementation(
+        (event: string, handler: (...args: unknown[]) => void) => {
+          const handlers = win.webContentsHandlers.get(event) ?? [];
+          handlers.push(handler);
+          win.webContentsHandlers.set(event, handlers);
+        }
+      );
       windows.push(win);
       return win;
     }),
@@ -154,6 +230,24 @@ function createWritableProjectPath() {
     `robotick-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     "barr-e.project.yaml"
   );
+}
+
+async function getJson(endpoint: string) {
+  return new Promise<{ statusCode: number; body: unknown }>((resolve, reject) => {
+    http
+      .get(endpoint, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf-8");
+          resolve({
+            statusCode: response.statusCode ?? 0,
+            body: text.length > 0 ? JSON.parse(text) : null,
+          });
+        });
+      })
+      .on("error", reject);
+  });
 }
 
 describe("electron launch paths", () => {
@@ -466,6 +560,183 @@ describe("electron launch paths", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint"
     );
+  });
+
+  it("handles renderer-owned diagnostics events and Electron-owned renderer commands", async () => {
+    const mocks = await bootstrapWithMocks();
+    const diagnosticsEventHandler = mocks.ipcOnHandlers.get(
+      "robotick-renderer-diagnostics-event"
+    );
+    const commandHandler = mocks.ipcHandleHandlers.get("robotick-renderer-command");
+    expect(diagnosticsEventHandler).toBeDefined();
+    expect(commandHandler).toBeDefined();
+
+    diagnosticsEventHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        source: "renderer_fetch",
+        level: "error",
+        message: "Renderer fetch failed",
+        payload: { operation: "GET /v1/launcher/runtime" },
+      }
+    );
+
+    expect(
+      await commandHandler?.(
+        { sender: mocks.windows[0].webContents },
+        { commandId: "studio.renderer.location", input: {} }
+      )
+    ).toEqual(
+      expect.objectContaining({
+        accepted: true,
+        command_id: "studio.renderer.location",
+        window_id: "main",
+        url: "http://localhost:5173",
+      })
+    );
+  });
+
+  it.each([
+    ["dev", "1"],
+    ["production", ""],
+  ])("serves diagnostics console and screenshot routes in %s launch mode", async (_label, devFlag) => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-smoke-"));
+    const mocks = await bootstrapWithMocks({
+      ELECTRON_DEV: devFlag,
+      ROBOTICK_STUDIO_MANAGED_BY_HUB: "1",
+      ROBOTICK_HUB_ENDPOINT: "http://127.0.0.1:7099",
+      ROBOTICK_STUDIO_INSTANCE_NAME: "studio-test",
+      ROBOTICK_WORKSPACE_ROOT: workspaceRoot,
+    });
+    const fetchMock = vi.mocked(fetch);
+    const activeResourceHandler = mocks.ipcOnHandlers.get(
+      "robotick-studio-runtime:active-resource"
+    );
+    const consoleHandlers = mocks.windows[0].webContentsHandlers.get("console-message") ?? [];
+
+    expect(activeResourceHandler).toBeDefined();
+    expect(consoleHandlers.length).toBeGreaterThan(0);
+
+    consoleHandlers[0](
+      undefined,
+      "error",
+      "Renderer smoke failure",
+      42,
+      "http://localhost:5173/assets/index.js"
+    );
+    activeResourceHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        window_id: "main",
+        workbench_id: "telemetry",
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+    const registrationBody = JSON.parse(
+      String(fetchMock.mock.calls.find((call) =>
+        String(call[0]).includes("/control-endpoint")
+      )?.[1]?.body)
+    );
+    const controlEndpoint = String(registrationBody.endpoint);
+
+    const consoleResponse = await getJson(`${controlEndpoint}/v1/studio/diagnostics/console`);
+    expect(consoleResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_console",
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            window_id: "main",
+            level: "error",
+            message: "Renderer smoke failure",
+          }),
+        ]),
+      },
+    });
+
+    const domSummaryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/dom/summary`
+    );
+    expect(domSummaryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_summary",
+        selected_project_text: "Barr.e",
+      },
+    });
+
+    const domQueryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/dom/query?selector=%5Bdata-project-picker%5D`
+    );
+    expect(domQueryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_dom_query",
+        selector: "[data-project-picker]",
+      },
+    });
+
+    const cssQueryResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/css/query?selector=%5Bdata-project-picker%5D`
+    );
+    expect(cssQueryResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_css_query",
+        loaded_stylesheet_urls: ["http://localhost:5173/assets/index.css"],
+      },
+    });
+
+    const screenshotResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/screenshot`
+    );
+    expect(screenshotResponse.statusCode).toBe(200);
+    expect(screenshotResponse.body).toMatchObject({
+      resource_type: "studio_diagnostics_screenshot",
+      window_id: "main",
+      mime_type: "image/png",
+      dimensions: { width: 1400, height: 900 },
+    });
+    expect(
+      fs.existsSync(
+        (screenshotResponse.body as { output_path: string }).output_path
+      )
+    ).toBe(true);
+
+    const snapshotResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/snapshot`
+    );
+    expect(snapshotResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_snapshot",
+        status: { resource_type: "studio_diagnostics_status" },
+        endpoints: { resource_type: "studio_diagnostics_endpoints" },
+        renderer: { resource_type: "studio_diagnostics_renderer" },
+        console: {
+          records: [
+            expect.objectContaining({
+              level: "error",
+              message: "Renderer smoke failure",
+            }),
+          ],
+        },
+        fetch_check: { resource_type: "studio_diagnostics_fetch_check" },
+        telemetry: { resource_type: "studio_diagnostics_telemetry" },
+        dom_summary: { resource_type: "studio_diagnostics_dom_summary" },
+      },
+    });
+
+    for (const handler of mocks.windows[0].handlers.get("closed") ?? []) {
+      handler();
+    }
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   it("hub-managed primary window close starts app quit immediately", async () => {

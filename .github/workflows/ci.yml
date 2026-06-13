@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  verify-build:
-    name: verify-build
+  verify-robotick-studio-build:
+    name: verify-robotick-studio-build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -36,12 +36,12 @@ jobs:
         run: npm run build
 
       - name: Build electron main/preload
-        run: npm run build:electron
+        run: npm run build:studio
 
-  test-cli:
-    name: test-cli
+  test-robotick-cli:
+    name: test-robotick-cli
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,10 +66,10 @@ jobs:
       - name: Run CLI tests
         run: npm run test:cli
 
-  test-launcher:
-    name: test-launcher
+  test-robotick-launcher:
+    name: test-robotick-launcher
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,10 +82,10 @@ jobs:
       - name: Run launcher tests
         run: npm run test:launcher
 
-  test-hub:
-    name: test-hub
+  test-robotick-hub:
+    name: test-robotick-hub
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -108,9 +108,9 @@ jobs:
           PYTHONPATH=tools/robotick-hub/src pytest -q tools/robotick-hub/tests
 
   integration-launcher-builds:
-    name: integration-launcher-builds (${{ matrix.label }})
+    name: integration-robotick-launcher-builds (${{ matrix.label }})
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -155,10 +155,10 @@ jobs:
           python -m robotick.launcher.cli generate test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --stub-install
           python -m robotick.launcher.cli build test-project "${{ matrix.model }}" "${{ matrix.target }}" --base-dir "$BASE_DIR" --no-pre
 
-  test-renderer:
-    name: test-renderer
+  test-robotick-studio-renderer:
+    name: test-robotick-studio-renderer
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -171,10 +171,10 @@ jobs:
       - name: Run renderer tests
         run: npx vitest --run --project renderer
 
-  test-electron:
-    name: test-electron
+  test-robotick-studio-app:
+    name: test-robotick-studio-app
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -187,10 +187,10 @@ jobs:
       - name: Run electron tests
         run: npx vitest --run --project electron
 
-  test-e2e:
-    name: test-e2e
+  test-robotick-studio-e2e:
+    name: test-robotick-studio-e2e
     runs-on: ubuntu-latest
-    needs: verify-build
+    needs: verify-robotick-studio-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

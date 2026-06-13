@@ -4,6 +4,10 @@ Date: 2026-06-05
 Baseline project: `robots/barr-e`
 Status: authoritative living design for the CLI, hub, launcher, and Studio control surface
 
+Follow-on design notes:
+
+- `26-06-12 - studio_diagnostics_capability_mcp_plan.md` covers Studio diagnostics, thin Studio ability ownership, capability/resource publication, plugin extensibility, and MCP alignment beyond this MVP scope.
+
 ## Executive Summary
 
 Robotick Studio is already a powerful human workbench. It can open robot projects, launch runtime profiles, inspect models, show telemetry, drive viewports, and shape expressive behaviour. The gap is that much of its operational truth still lives in an operator's head: which project script to run, which window matters, which log line is bad, whether a blank viewport means "not ready yet" or "broken", and when it is safe to capture evidence or shut everything down.
@@ -447,10 +451,8 @@ Current hub endpoints:
   lists registered workspace projects without requiring launcher runtime state
 - `GET /v1/studio/projects`
   returns the same workspace project list in Studio-facing shape, plus current target-project metadata when a Studio instance is bound
-- `POST /v1/capabilities/launcher/ensure`
-  ensures the launcher capability is available when a command needs it
 - `GET /v1/launcher/status`
-  reports launcher service and run state
+  reports launcher ability metadata plus current runtime projection only; callers must not depend on historical group/session records for live state
 - `POST /v1/studio/open`
   opens/registers a Studio instance with the hub endpoint configured
 - `GET /v1/studio/instances`
@@ -469,8 +471,8 @@ Current hub endpoints:
   requests graceful Studio quit for a known instance
 - `POST /v1/apps/{app_id}/instances/closing`
   records best-effort app-closing notifications from managed apps
-- `POST /v1/launcher/stop`
-  requests launcher service/runtime stop through the hub-managed launcher path
+- `POST /v1/launcher/models/stop`
+  requests stop through the current project/model runtime control surface
 
 Future Studio endpoints should extend viewer status/recovery, readiness, capture, and shutdown state through the same typed resource contract.
 

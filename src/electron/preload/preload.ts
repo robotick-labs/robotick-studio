@@ -111,6 +111,9 @@ const expose = () => {
   installAppQuittingForwarding();
 
   const usesNativeWindowFrame = process.env.ROBOTICK_USE_NATIVE_FRAME === "1";
+  const workspaceRoot =
+    process.env.ROBOTICK_WORKSPACE_ROOT ??
+    process.env.ROBOTICK_PROJECT_DIR;
   const windowControls = usesNativeWindowFrame
     ? undefined
     : {
@@ -202,6 +205,71 @@ const expose = () => {
       activationListeners.add(callback);
       return () => {
         activationListeners.delete(callback);
+      };
+    },
+  };
+
+  const diagnosticsBridge = {
+    publishSnapshot(snapshot: Record<string, unknown>) {
+      ipcRenderer.send("robotick-renderer-diagnostics", snapshot);
+    },
+    publishEvent(event: {
+      source: string;
+      level?: "debug" | "info" | "warn" | "error";
+      message: string;
+      payload?: Record<string, unknown> | null;
+    }) {
+      ipcRenderer.send("robotick-renderer-diagnostics-event", event);
+    },
+    requestCommand(commandId: string, input?: Record<string, unknown>) {
+      return ipcRenderer.invoke("robotick-renderer-command", {
+        commandId,
+        input: input ?? {},
+      });
+    },
+    getLogSnapshot(options?: { tail?: number; target?: "studio" }) {
+      return ipcRenderer.invoke("robotick-studio-diagnostics-log-snapshot", options);
+    },
+    onLogEvent(
+      callback: (record: {
+        target: "runtime" | "studio";
+        source: string;
+        window_id: string | null;
+        recorded_at: string;
+        level: "debug" | "info" | "warn" | "error";
+        message: string;
+        source_url: string | null;
+        line: number | null;
+        column: number | null;
+        stack: string | null;
+        payload: Record<string, unknown> | null;
+      }) => void
+    ) {
+      const listener = (
+        _event: unknown,
+        payload:
+          | {
+              target: "runtime" | "studio";
+              source: string;
+              window_id: string | null;
+              recorded_at: string;
+              level: "debug" | "info" | "warn" | "error";
+              message: string;
+              source_url: string | null;
+              line: number | null;
+              column: number | null;
+              stack: string | null;
+              payload: Record<string, unknown> | null;
+            }
+          | undefined
+      ) => {
+        if (payload) {
+          callback(payload);
+        }
+      };
+      ipcRenderer.on("robotick-studio-diagnostics-log", listener);
+      return () => {
+        ipcRenderer.off("robotick-studio-diagnostics-log", listener);
       };
     },
   };
@@ -432,13 +500,16 @@ const expose = () => {
       windowScope: readArgument(WINDOW_SCOPE_ARG_PREFIX) ?? "primary",
       isPrimaryWindow:
         (readArgument(WINDOW_PRIMARY_ARG_PREFIX) ?? "1") !== "0",
-      workspaceRoot:
-        process.env.ROBOTICK_WORKSPACE_ROOT ??
-        process.env.ROBOTICK_PROJECT_DIR,
+      workspaceRoot,
+    },
+    hub: {
+      getEndpoint: () =>
+        ipcRenderer.invoke("robotick-hub:get-endpoint") as Promise<string | undefined>,
     },
     windowControls,
     studioProcess,
     studioControl: studioControlBridge,
+    diagnostics: diagnosticsBridge,
     storage: storageBridge,
     studioPersistence: studioPersistenceBridge,
     projectSelection: projectSelectionBridge,

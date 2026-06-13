@@ -376,11 +376,11 @@ async function createTestEnvironment(): Promise<TestEnvironment> {
       return;
     }
 
-    if (url.pathname === "/launcher/status") {
+    if (url.pathname === "/v1/launcher/status") {
       writeJson(response, {
-        status: "stopped",
-        profile: null,
-        models: {},
+        resource_type: "robotick_launcher_status",
+        groups: [],
+        sessions: [],
       });
       return;
     }

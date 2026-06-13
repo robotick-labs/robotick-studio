@@ -134,6 +134,13 @@ export function createMockLauncherService(
     getLauncherLogStreamUrl() {
       return "ws://mock/logs";
     },
+    async getLauncherLogStreamUrlAsync() {
+      return "ws://mock/logs";
+    },
+    async fetchLauncherLogSnapshot() {
+      return null;
+    },
+    async requestLauncherLogClear() {},
   };
 
   if (Object.keys(overrides).length === 0) {

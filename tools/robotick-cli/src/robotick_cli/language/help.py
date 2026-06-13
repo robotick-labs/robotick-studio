@@ -60,6 +60,7 @@ def get_prompt(state: ShellState, *, color: bool = False) -> str:
 def get_studio_help_text() -> str:
     root_specs = [get_studio_command_spec(name) for name in studio_root_action_names()]
     status_spec = get_studio_command_spec("status")
+    diagnostics_spec = get_studio_command_spec("diagnostics")
     quit_spec = get_studio_command_spec("quit")
     return "\n".join(
         [
@@ -74,6 +75,7 @@ def get_studio_help_text() -> str:
             "",
             "Bound instance commands:",
             f"  {status_spec.shell_label or status_spec.name:<16}{status_spec.summary}",
+            f"  {diagnostics_spec.shell_label or diagnostics_spec.name:<16}{diagnostics_spec.summary}",
             f"  {quit_spec.shell_label or quit_spec.name:<16}{quit_spec.summary}",
             "",
             "Examples:",
@@ -88,6 +90,7 @@ def get_studio_help_text() -> str:
 def get_hub_help_text() -> str:
     status_spec = get_hub_command_spec("status")
     ensure_spec = get_hub_command_spec("ensure")
+    restart_spec = get_hub_command_spec("restart")
     projects_spec = get_hub_command_spec("projects")
     return "\n".join(
         [
@@ -96,15 +99,18 @@ def get_hub_help_text() -> str:
             "Commands:",
             f"  {status_spec.shell_label or status_spec.name:<10}{status_spec.summary}",
             f"  {ensure_spec.shell_label or ensure_spec.name:<10}{ensure_spec.summary}",
+            f"  {restart_spec.shell_label or restart_spec.name:<10}{restart_spec.summary}",
             f"  {projects_spec.shell_label or projects_spec.name:<10}{projects_spec.summary}",
             "",
             "Output:",
             "  status returns JSON and never starts the hub.",
             "  ensure returns JSON describing whether the hub was started, reused, or restarted.",
+            "  restart returns JSON after replacing the current hub process.",
             "",
             "Examples:",
             "  robotick hub status",
             "  robotick hub ensure",
+            "  robotick hub restart",
             "  robotick hub projects",
             "",
         ]
@@ -112,22 +118,27 @@ def get_hub_help_text() -> str:
 
 
 def get_launcher_help_text() -> str:
-    status_spec = get_launcher_command_spec("status")
-    ensure_spec = get_launcher_command_spec("ensure")
+    specs = [get_launcher_command_spec(name) for name in launcher_action_names()]
     return "\n".join(
         [
             "Current context: launcher",
             "",
             "Commands:",
-            f"  {status_spec.shell_label or status_spec.name:<10}{status_spec.summary}",
-            f"  {ensure_spec.shell_label or ensure_spec.name:<10}{ensure_spec.summary}",
+            *[f"  {spec.shell_label or spec.name:<18}{spec.summary}" for spec in specs],
             "",
             "Output:",
             "  status returns JSON and never starts the launcher service.",
-            "  ensure returns JSON describing whether the service was started, reused, or restarted.",
+            "  launch, stop, and restart target project/model runtime resources through robotick-hub.",
+            "  status, logs, and wait-ready use live per-model runtime truth.",
+            "  ensure makes the hub-backed launcher control plane available, then returns current runtime status as JSON.",
             "",
             "Examples:",
+            "  robotick launcher launch barr-e native:ALL",
             "  robotick launcher status",
+            "  robotick launcher wait-ready --project barr-e",
+            "  robotick launcher logs --project barr-e",
+            "  robotick launcher stop --project barr-e",
+            "  robotick launcher restart --project barr-e",
             "  robotick launcher ensure",
             "",
         ]
@@ -176,6 +187,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
     lines = [_heading(f"Current context: {current_context}", color=color), ""]
     if state.namespace == "studio" and state.instance_name is not None:
         status_spec = get_studio_command_spec("status")
+        diagnostics_spec = get_studio_command_spec("diagnostics")
         activate_spec = get_studio_command_spec("activate")
         quit_spec = get_studio_command_spec("quit")
         lines.extend(
@@ -184,6 +196,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 *_format_spec_lines(
                     [
                         (status_spec.name, status_spec.summary),
+                        (diagnostics_spec.name, diagnostics_spec.summary),
                         (activate_spec.name, activate_spec.summary),
                         (quit_spec.name, quit_spec.summary),
                     ],
@@ -198,10 +211,21 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 "",
                 _section("Output:", color=color),
                 "  status returns JSON for the currently bound Studio node.",
-                "  Some fields may be config-derived until live Studio state is available.",
+                "  diagnostics returns read-only control-service diagnostics snapshots.",
+                "  Live Studio status requires a running control service on the bound instance.",
                 "",
                 _section("Examples:", color=color),
                 "  status",
+                "  diagnostics status",
+                "  diagnostics renderer",
+                "  diagnostics console",
+                "  diagnostics fetch-check",
+                "  diagnostics telemetry",
+                "  diagnostics dom summary",
+                "  diagnostics dom query '[data-project-picker]'",
+                "  diagnostics css query '[data-project-picker]'",
+                "  diagnostics screenshot --resource-path windows/main/workbenches/remote-control --wait-for-render",
+                "  diagnostics snapshot",
                 "  cd windows",
                 "  cd main",
                 "  cd workbenches",
@@ -211,16 +235,12 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
         return "\n".join(lines)
 
     if state.namespace == "launcher":
-        status_spec = get_launcher_command_spec("status")
-        ensure_spec = get_launcher_command_spec("ensure")
+        specs = [get_launcher_command_spec(name) for name in launcher_action_names()]
         lines.extend(
             [
                 _section("Commands:", color=color),
                 *_format_spec_lines(
-                    [
-                        (status_spec.name, status_spec.summary),
-                        (ensure_spec.name, ensure_spec.summary),
-                    ],
+                    [(spec.name, spec.summary) for spec in specs],
                     color=color,
                     label_color=GREEN,
                 ),
@@ -233,11 +253,15 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 ),
                 "",
                 _section("Output:", color=color),
-                "  status returns launcher service state and runtime state as JSON.",
-                "  ensure returns the action taken: started, reused, or restarted.",
+                "  status returns launcher service state and per-model runtime status as JSON.",
+                "  launch, stop, and restart operate on project/model selections.",
+                "  ensure returns the action taken, then reports current runtime status from launcher resources.",
                 "",
                 _section("Examples:", color=color),
+                "  robotick launcher launch barr-e native:ALL",
                 "  robotick launcher status",
+                "  robotick launcher stop --project barr-e",
+                "  robotick launcher restart --project barr-e",
                 "  robotick launcher ensure",
                 "",
             ]
@@ -576,6 +600,23 @@ def instances_help_text() -> str:
     )
 
 
+def focused_help_text() -> str:
+    spec = get_studio_command_spec("focused")
+    return "\n".join(
+        [
+            "Usage:",
+            f"  {spec.usage}",
+            "",
+            "Description:",
+            *[f"  {line}" for line in spec.description_lines],
+            "",
+            "Output:",
+            "  JSON Studio focus summary. This command does not change focus.",
+            "",
+        ]
+    )
+
+
 def create_help_text() -> str:
     spec = get_studio_command_spec("create")
     return "\n".join(
@@ -613,6 +654,7 @@ def open_help_text() -> str:
 
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
+    diagnostics_spec = get_studio_command_spec("diagnostics")
     select_project_spec = get_studio_command_spec("select-project")
     activate_spec = get_studio_command_spec("activate")
     quit_spec = get_studio_command_spec("quit")
@@ -620,6 +662,7 @@ def instance_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} status",
+            f"  robotick studio {instance_name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
             f"  robotick studio {instance_name} <path...> activate",
             f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
@@ -627,6 +670,7 @@ def instance_help_text(instance_name: str) -> str:
             "",
             "Commands:",
             f"  {status_spec.name:<14} {status_spec.summary}",
+            f"  {diagnostics_spec.name:<14} {diagnostics_spec.summary}",
             f"  {activate_spec.name:<14} {activate_spec.summary}",
             f"  {select_project_spec.name:<14} {select_project_spec.summary}",
             f"  {quit_spec.name:<14} {quit_spec.summary}",
@@ -641,9 +685,11 @@ def instance_quit_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} quit",
+            f"  robotick studio {instance_name} quit --wait",
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],
+            "  Use --wait when an agent needs the instance record to be gone before continuing.",
             "",
         ]
     )
@@ -675,6 +721,7 @@ def launcher_status_help_text() -> str:
             "",
             "Output:",
             "  JSON launcher service status. This command does not start the launcher.",
+            "  Optional selectors: --project <project>, --model <id>, --models <id,...>.",
             "",
         ]
     )

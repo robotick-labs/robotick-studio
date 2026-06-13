@@ -1,7 +1,7 @@
 {
   "name": "robotick-studio",
   "version": "1.0.0",
-  "description": "Robotick Studio Electron shell for the Robotick Hub web IDE",
+  "description": "Robotick Studio desktop app and supporting services for the Robotick Hub web IDE",
   "main": "dist/electron/main/main.js",
   "directories": {
     "doc": "docs"
@@ -20,13 +20,13 @@
     "pretest:renderer": "npm run test:launcher",
     "test:electron": "vitest --run --project electron",
     "pretest:electron": "npm run test:launcher",
-    "pretest:e2e": "npm run build && npm run build:electron",
-    "build:electron": "tsc -p tsconfig.electron.json",
-    "electron": "./run-studio-production.sh",
-    "electron:direct": "npm run build:electron && electron .",
-    "electron-dev": "./run-studio-dev.sh",
-    "electron-dev:direct": "npm run build:electron && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron .",
-    "dev:all": "concurrently -k -s command-electron -n vite,electron \"npm:dev\" \"npm:electron-dev:direct\""
+    "pretest:e2e": "npm run build && npm run build:studio",
+    "build:studio": "tsc -p tsconfig.electron.json",
+    "studio": "./run-studio-production.sh",
+    "studio:direct": "npm run build:studio && electron .",
+    "studio-dev": "./run-studio-dev.sh",
+    "studio-dev:direct": "npm run build:studio && ELECTRON_DEV=1 ELECTRON_ENABLE_LOGGING=1 electron .",
+    "dev:studio": "concurrently -k -s command-studio -n vite,studio \"npm:dev\" \"npm:studio-dev:direct\""
   },
   "repository": {
     "type": "git",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProjectModelDescriptor } from "@/data-sources/launcher";
 import {
   resolveAnimatorModelDescriptor,
+  resolveAnimatorTelemetryWorkloadName,
   resolveAnimatorWorkloadName,
 } from "../../../../renderer/components/viewer/telemetry-animator-resolution";
 
@@ -67,6 +68,23 @@ describe("telemetry animator resolution", () => {
     );
 
     expect(workloadName).toBe("cochlear_visualiser");
+  });
+
+  it("uses stable workloadId as the telemetry workload lookup key", () => {
+    const descriptor = createDescriptor({
+      data: {
+        workloads: [
+          { id: "cochlear_visualizer_workload_BD141921", name: "cochlear_visualiser" },
+        ],
+      },
+    });
+
+    const workloadName = resolveAnimatorTelemetryWorkloadName(
+      { id: "a", workloadId: "cochlear_visualizer_workload_BD141921", workloadName: "old" },
+      descriptor
+    );
+
+    expect(workloadName).toBe("cochlear_visualizer_workload_BD141921");
   });
 
   it("falls back to workloadName when workloadId is unresolved", () => {

@@ -5,6 +5,7 @@ import type {
   ProjectSelectionResult,
   ProjectSelectionState,
   WorkloadsRegistryResponse,
+  LauncherModelLogsBatch,
 } from "./launcher-interface";
 import currentProject from "./launcher-interface";
 
@@ -79,9 +80,30 @@ export interface LauncherService {
     status: string;
     phase?: string | null;
     profile?: string | null;
-    models?: Record<string, { stage?: string; status?: string }>;
+    models?: Record<
+      string,
+      {
+        stage?: string;
+        status?: string;
+        lifecycle?: string;
+        readiness?: string;
+        freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+        diagnostics?: Array<{
+          code?: string;
+          message?: string;
+          details?: Record<string, unknown>;
+        }>;
+        logRefs?: Array<{
+          kind?: string;
+          path?: string;
+        }>;
+      }
+    >;
   } | null>;
   getLauncherLogStreamUrl(): string;
+  getLauncherLogStreamUrlAsync(): Promise<string>;
+  fetchLauncherLogSnapshot(tail?: number): Promise<LauncherModelLogsBatch | null>;
+  requestLauncherLogClear(): Promise<void>;
 }
 
 export type LauncherServiceOverrides = Partial<LauncherService>;

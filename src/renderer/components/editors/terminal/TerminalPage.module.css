@@ -76,3 +76,87 @@
   overflow-x: auto;
   font-size: large;
 }
+
+.renderSummary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 0.75rem;
+  padding: 0.35rem 0.6rem;
+  color: #9cb0c8;
+  background: rgba(10, 14, 24, 0.92);
+  border: 1px solid #293244;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.logEntry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.logLineNumber {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+  text-align: right;
+  color: #5f6b7d;
+  user-select: none;
+}
+
+.logTimestamp {
+  flex: 0 0 auto;
+  color: #ffd15c;
+  font-weight: 700;
+}
+
+.logTarget,
+.logModel {
+  flex: 0 0 auto;
+  color: #8fd7ff;
+}
+
+.logSource {
+  flex: 0 0 auto;
+  color: #66d39e;
+  opacity: 0.82;
+}
+
+.logLevel {
+  flex: 0 0 auto;
+  color: #ff9c6b;
+  opacity: 0.88;
+}
+
+.logTarget::before,
+.logModel::before,
+.logSource::before {
+  content: "[";
+  color: #647081;
+}
+
+.logTarget::after,
+.logModel::after,
+.logSource::after {
+  content: "]";
+  color: #647081;
+}
+
+.logLevel::before {
+  content: "{";
+  color: #647081;
+}
+
+.logLevel::after {
+  content: "}";
+  color: #647081;
+}
+
+.logMessage {
+  min-width: 0;
+}
+
+.emptyState {
+  color: #7c8594;
+  padding: 0.5rem 0;
+}

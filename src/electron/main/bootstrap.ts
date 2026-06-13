@@ -22,6 +22,11 @@ import {
   startStudioControlServer,
   type StudioControlServer,
 } from "./studio-control/studio-control-server";
+import {
+  normalizeConsoleLevel,
+  StudioDiagnosticsLogStore,
+  type StudioDiagnosticsLogSeverity,
+} from "./studio-control/studio-diagnostics-log";
 import type { StudioControlActivationResponse } from "../common/studio-control-contract";
 import type {
   BrowserWindow as ElectronBrowserWindow,
@@ -53,6 +58,7 @@ type WebContentsLike = {
   closeDevTools?: () => void;
   isDevToolsOpened?: () => boolean;
   getURL?: () => string;
+  capturePage?: () => Promise<{ toPNG: () => Buffer | Uint8Array }>;
 };
 
 export type ElectronApp = {
@@ -94,6 +100,7 @@ type BrowserWindowInstance = {
   once?: (event: string, listener: (...args: unknown[]) => void) => void;
   webContents: WebContentsLike;
   getBounds: () => Rectangle;
+  capturePage?: () => Promise<{ toPNG: () => Buffer | Uint8Array }>;
 };
 
 export type BrowserWindowConstructor = {
@@ -147,6 +154,45 @@ type RendererErrorPayload = {
   colno?: unknown;
   reason?: unknown;
   href?: unknown;
+};
+
+type RendererDiagnosticsSnapshotPayload = Record<string, unknown>;
+
+type RendererDiagnosticsEventPayload = {
+  source?: unknown;
+  level?: unknown;
+  message?: unknown;
+  payload?: unknown;
+};
+
+type RendererCommandRequestPayload = {
+  commandId?: unknown;
+  input?: unknown;
+};
+
+type RendererDiagnosticsRecord = {
+  updated_at: string | null;
+  [key: string]: unknown;
+};
+
+type RendererErrorRecord = {
+  window_id: string | null;
+  recorded_at: string;
+  type: string;
+  message: string;
+  source: string | null;
+  lineno: number | null;
+  colno: number | null;
+  stack: string | null;
+};
+
+type RendererConsoleDetails = {
+  level?: unknown;
+  message?: unknown;
+  lineNumber?: unknown;
+  line?: unknown;
+  sourceId?: unknown;
+  source_url?: unknown;
 };
 
 type StudioRuntimeActiveResourcePayload = {
@@ -223,6 +269,7 @@ const DEV_SERVER_PORT_CANDIDATES = [
   5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183,
 ];
 const DEV_SERVER_PROBE_TIMEOUT_MS = 800;
+const RENDERER_ERROR_BUFFER_LIMIT = 50;
 
 const PUBLIC_ICON_RELATIVE = path.join(
   "public",
@@ -830,7 +877,20 @@ type RendererGoneDetails = {
   exitCode?: unknown;
 };
 
-function attachRendererDiagnostics(win: BrowserWindowInstance) {
+function attachRendererDiagnostics(
+  win: BrowserWindowInstance,
+  options?: {
+    getWindowId?: () => string | null;
+    recordConsole?: (record: {
+      windowId: string | null;
+      level: StudioDiagnosticsLogSeverity;
+      message: string;
+      sourceUrl: string | null;
+      line: number | null;
+    }) => void;
+    recordWindowUrl?: (url: string | null) => void;
+  }
+) {
   const webContents = win.webContents;
   const currentUrl = () => {
     try {
@@ -839,6 +899,65 @@ function attachRendererDiagnostics(win: BrowserWindowInstance) {
       return "<unknown>";
     }
   };
+  const publishCurrentUrl = (url?: unknown) => {
+    const nextUrl =
+      typeof url === "string" && url.trim().length > 0
+        ? url.trim()
+        : currentUrl();
+    options?.recordWindowUrl?.(nextUrl === "<unknown>" ? null : nextUrl);
+  };
+
+  publishCurrentUrl();
+
+  webContents.on?.("did-navigate", (_event: unknown, url: unknown) => {
+    publishCurrentUrl(url);
+  });
+  webContents.on?.("did-navigate-in-page", (_event: unknown, url: unknown) => {
+    publishCurrentUrl(url);
+  });
+  webContents.on?.("did-finish-load", () => {
+    publishCurrentUrl();
+  });
+
+  webContents.on?.("console-message", (...args: unknown[]) => {
+    const details =
+      args.length === 2 && typeof args[1] === "object" && args[1] !== null
+        ? (args[1] as RendererConsoleDetails)
+        : null;
+    const level = normalizeConsoleLevel(details?.level ?? args[1]);
+    const message =
+      typeof details?.message === "string"
+        ? details.message
+        : typeof args[2] === "string"
+          ? args[2]
+          : "";
+    if (!message.trim()) {
+      return;
+    }
+    const sourceUrl =
+      typeof details?.sourceId === "string"
+        ? details.sourceId
+        : typeof details?.source_url === "string"
+          ? details.source_url
+          : typeof args[4] === "string"
+            ? args[4]
+            : null;
+    const line =
+      typeof details?.lineNumber === "number"
+        ? details.lineNumber
+        : typeof details?.line === "number"
+          ? details.line
+          : typeof args[3] === "number"
+            ? args[3]
+            : null;
+    options?.recordConsole?.({
+      windowId: options.getWindowId?.() ?? null,
+      level,
+      message,
+      sourceUrl,
+      line,
+    });
+  });
 
   webContents.on?.("render-process-gone", (_event: unknown, details: unknown) => {
     const typed = (details ?? {}) as RendererGoneDetails;
@@ -941,6 +1060,28 @@ function resolveBootstrapProjectSelectionPath(projectPath: string): string {
     // Fall back to the original resolved path below.
   }
   return resolvedPath;
+}
+
+function readCurrentHubEndpoint(
+  workspaceRoot: string | undefined,
+  fallbackEndpoint: string | undefined
+): string | undefined {
+  const fallback = fallbackEndpoint?.trim() || undefined;
+  const root = workspaceRoot?.trim();
+  if (!root) {
+    return fallback;
+  }
+
+  try {
+    const payload = JSON.parse(
+      fs.readFileSync(path.join(root, ".robotick", "hub.json"), "utf-8")
+    ) as { endpoint?: unknown };
+    return typeof payload.endpoint === "string" && payload.endpoint.trim()
+      ? payload.endpoint.trim()
+      : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -1054,15 +1195,37 @@ export async function bootstrapElectron({
   const activeWorkbenchByWindow = new Map<string, string>();
   const activeLayoutByWorkbench = new Map<string, string>();
   const activePanelByLayout = new Map<string, string>();
+  const rendererDiagnosticsByWindow = new Map<string, RendererDiagnosticsRecord>();
+  const recordedRendererFailureKeysByWindow = new Map<string, Set<string>>();
+  const rendererErrorsByWindow = new Map<string, RendererErrorRecord[]>();
+  const windowUrlByScope = new Map<string, string>();
+  const diagnosticsLogStore = new StudioDiagnosticsLogStore(500);
+  const broadcastDiagnosticsLog = (record: ReturnType<StudioDiagnosticsLogStore["record"]>) => {
+    for (const [, win] of windowByScope.entries()) {
+      if (win.isDestroyed?.()) {
+        continue;
+      }
+      win.webContents.send("robotick-studio-diagnostics-log", record);
+    }
+  };
+  const recordDiagnosticsLog = (
+    input: Parameters<StudioDiagnosticsLogStore["record"]>[0]
+  ) => {
+    const record = diagnosticsLogStore.record(input);
+    broadcastDiagnosticsLog(record);
+    return record;
+  };
   let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
   let studioControlEndpointRegistered = false;
+  const startedAt = new Date().toISOString();
   const requestedBootstrapProjectPath =
     env.ROBOTICK_PROJECT_DIR?.trim().length
       ? resolveBootstrapProjectSelectionPath(env.ROBOTICK_PROJECT_DIR)
       : "";
   let currentProjectPath = "";
   let bootstrapProjectIssue: ProjectSelectionIssue | null = null;
+  let lastFocusedAt: string | null = null;
 
   const registerStudioControlEndpointOnce = () => {
     if (
@@ -1085,7 +1248,18 @@ export async function bootstrapElectron({
     bootstrapIssue: bootstrapProjectIssue,
   });
 
-  const getActiveWindowScope = (): string | null => {
+  const markStudioWindowFocused = (win: BrowserWindowInstance | null) => {
+    if (win) {
+      const metadata = windowMetadataByWindow.get(win);
+      if (metadata) {
+        activeWindowScopeOverride =
+          metadata.scope === PRIMARY_WINDOW_SCOPE ? "main" : metadata.scope;
+      }
+    }
+    lastFocusedAt = new Date().toISOString();
+  };
+
+  const getFocusedWindowScope = (): string | null => {
     for (const [scope, win] of windowByScope.entries()) {
       if (win.isDestroyed?.()) {
         continue;
@@ -1094,13 +1268,56 @@ export async function bootstrapElectron({
         return scope === PRIMARY_WINDOW_SCOPE ? "main" : scope;
       }
     }
-    return activeWindowScopeOverride;
+    return null;
+  };
+
+  const getActiveWindowScope = (): string | null => {
+    return getFocusedWindowScope() ?? activeWindowScopeOverride;
   };
 
   const getOpenWindowScopes = (): string[] =>
     Array.from(windowByScope.entries())
       .filter(([, win]) => !(win.isDestroyed?.() ?? false))
       .map(([scope]) => (scope === PRIMARY_WINDOW_SCOPE ? "main" : scope));
+
+  const getWindowUrl = (scope: string): string | null => {
+    const normalizedScope = scope === "main" ? PRIMARY_WINDOW_SCOPE : scope;
+    const win = windowByScope.get(normalizedScope);
+    const url = win?.webContents.getURL?.();
+    if (typeof url === "string" && url.trim().length > 0) {
+      return url.trim();
+    }
+    return windowUrlByScope.get(normalizedScope) ?? null;
+  };
+
+  const getConsoleRecords = (windowId?: string | null) =>
+    diagnosticsLogStore.consoleRecords({
+      windowId,
+      tail: 500,
+    });
+
+  const captureScreenshot = async (windowId: string): Promise<Buffer | Uint8Array | null> => {
+    const normalizedScope = windowId === "main" ? PRIMARY_WINDOW_SCOPE : windowId;
+    const win = windowByScope.get(normalizedScope);
+    if (!win || win.isDestroyed?.()) {
+      return null;
+    }
+    const image =
+      (await win.capturePage?.()) ?? (await win.webContents.capturePage?.());
+    return image?.toPNG?.() ?? null;
+  };
+
+  const executeRendererDiagnosticsScript = async (
+    windowId: string,
+    script: string
+  ): Promise<unknown> => {
+    const normalizedScope = windowId === "main" ? PRIMARY_WINDOW_SCOPE : windowId;
+    const win = windowByScope.get(normalizedScope);
+    if (!win || win.isDestroyed?.()) {
+      return null;
+    }
+    return await win.webContents.executeJavaScript?.(script);
+  };
 
   const getActiveWorkbenchIds = (): Record<string, string> =>
     Object.fromEntries(activeWorkbenchByWindow.entries());
@@ -1111,6 +1328,14 @@ export async function bootstrapElectron({
   const getActivePanelIds = (): Record<string, string> =>
     Object.fromEntries(activePanelByLayout.entries());
 
+  const getRendererDiagnostics = (
+    windowId: string
+  ): RendererDiagnosticsRecord | null =>
+    rendererDiagnosticsByWindow.get(windowId) ?? null;
+
+  const getRendererErrors = (windowId: string): RendererErrorRecord[] =>
+    rendererErrorsByWindow.get(windowId)?.slice() ?? [];
+
   const windowIdFromBrowserWindow = (win: BrowserWindowInstance | null): string | null => {
     if (!win) {
       return null;
@@ -1120,6 +1345,137 @@ export async function bootstrapElectron({
       return null;
     }
     return metadata.scope === PRIMARY_WINDOW_SCOPE ? "main" : metadata.scope;
+  };
+
+  const recordRendererError = (
+    windowId: string | null,
+    payload: RendererErrorPayload
+  ) => {
+    const type = typeof payload?.type === "string" ? payload.type : "unknown";
+    const message =
+      typeof payload?.message === "string" && payload.message.length > 0
+        ? payload.message
+        : "No message";
+    const source =
+      typeof payload?.source === "string" && payload.source.length > 0
+        ? payload.source
+        : typeof payload?.href === "string" && payload.href.length > 0
+          ? payload.href
+          : null;
+    const record: RendererErrorRecord = {
+      window_id: windowId,
+      recorded_at: new Date().toISOString(),
+      type,
+      message,
+      source,
+      lineno: typeof payload?.lineno === "number" ? payload.lineno : null,
+      colno: typeof payload?.colno === "number" ? payload.colno : null,
+      stack:
+        typeof payload?.stack === "string" && payload.stack.length > 0
+          ? payload.stack
+          : typeof payload?.reason === "string" && payload.reason.length > 0
+            ? payload.reason
+            : null,
+    };
+    const key = windowId ?? "__unknown__";
+    const next = [...(rendererErrorsByWindow.get(key) ?? []), record];
+    if (next.length > RENDERER_ERROR_BUFFER_LIMIT) {
+      next.splice(0, next.length - RENDERER_ERROR_BUFFER_LIMIT);
+    }
+    rendererErrorsByWindow.set(key, next);
+    recordDiagnosticsLog({
+      source: "renderer_error",
+      window_id: windowId,
+      level: "error",
+      message,
+      source_url: source,
+      line: record.lineno,
+      column: record.colno,
+      stack: record.stack,
+      payload: { type },
+    });
+  };
+
+  const recordRendererDiagnostics = (
+    windowId: string | null,
+    payload: RendererDiagnosticsSnapshotPayload | undefined
+  ) => {
+    if (!windowId || !payload || typeof payload !== "object") {
+      return;
+    }
+    const updatedAt =
+      typeof payload.updated_at === "string" && payload.updated_at.trim().length > 0
+        ? payload.updated_at.trim()
+        : new Date().toISOString();
+    rendererDiagnosticsByWindow.set(windowId, {
+      ...(payload as Record<string, unknown>),
+      updated_at: updatedAt,
+    });
+    const getFailureKey = (kind: "fetch" | "websocket", failure: Record<string, unknown>) =>
+      JSON.stringify({
+        kind,
+        source: failure.source ?? null,
+        operation: failure.operation ?? null,
+        phase: failure.phase ?? null,
+        url: failure.url ?? null,
+        message: failure.message ?? null,
+        recorded_at: failure.recorded_at ?? null,
+      });
+    let seenFailureKeys = recordedRendererFailureKeysByWindow.get(windowId);
+    if (!seenFailureKeys) {
+      seenFailureKeys = new Set<string>();
+      recordedRendererFailureKeysByWindow.set(windowId, seenFailureKeys);
+    }
+    const fetchFailures = Array.isArray(payload.fetch_failures)
+      ? payload.fetch_failures
+      : [];
+    for (const failure of fetchFailures) {
+      if (!failure || typeof failure !== "object") {
+        continue;
+      }
+      const typed = failure as Record<string, unknown>;
+      const key = getFailureKey("fetch", typed);
+      if (seenFailureKeys.has(key)) {
+        continue;
+      }
+      seenFailureKeys.add(key);
+      recordDiagnosticsLog({
+        source: "renderer_fetch",
+        window_id: windowId,
+        level: "error",
+        message:
+          typeof typed.message === "string" && typed.message.trim().length > 0
+            ? typed.message.trim()
+            : "Renderer fetch failed.",
+        source_url: typeof typed.url === "string" ? typed.url : null,
+        payload: { operation: typed.operation ?? null, source: typed.source ?? null },
+      });
+    }
+    const websocketFailures = Array.isArray(payload.websocket_failures)
+      ? payload.websocket_failures
+      : [];
+    for (const failure of websocketFailures) {
+      if (!failure || typeof failure !== "object") {
+        continue;
+      }
+      const typed = failure as Record<string, unknown>;
+      const key = getFailureKey("websocket", typed);
+      if (seenFailureKeys.has(key)) {
+        continue;
+      }
+      seenFailureKeys.add(key);
+      recordDiagnosticsLog({
+        source: "renderer_websocket",
+        window_id: windowId,
+        level: "error",
+        message:
+          typeof typed.message === "string" && typed.message.trim().length > 0
+            ? typed.message.trim()
+            : "Renderer websocket failed.",
+        source_url: typeof typed.url === "string" ? typed.url : null,
+        payload: { phase: typed.phase ?? null, source: typed.source ?? null },
+      });
+    }
   };
 
   const recordActiveStudioResource = (
@@ -1136,6 +1492,7 @@ export async function bootstrapElectron({
       return;
     }
     activeWindowScopeOverride = windowId;
+    lastFocusedAt = new Date().toISOString();
     if (typeof payload?.workbench_id === "string" && payload.workbench_id.trim()) {
       activeWorkbenchByWindow.set(windowId, payload.workbench_id.trim());
     }
@@ -1391,6 +1748,7 @@ export async function bootstrapElectron({
     if (!metadata.isPrimary) {
       openChildScopes.add(metadata.scope);
     }
+    win.on("focus", () => markStudioWindowFocused(win));
     win.on("closed", () => {
       const mapped = windowByScope.get(metadata.scope);
       if (mapped === win) {
@@ -1667,7 +2025,9 @@ export async function bootstrapElectron({
   };
 
   if (ipcMain) {
-    ipcMain.on("robotick-renderer-error", (_event, payload: RendererErrorPayload) => {
+    ipcMain.on("robotick-renderer-error", (event, payload: RendererErrorPayload) => {
+      const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+      recordRendererError(windowId, payload);
       const type = typeof payload?.type === "string" ? payload.type : "unknown";
       const message =
         typeof payload?.message === "string" && payload.message.length > 0
@@ -1695,12 +2055,97 @@ export async function bootstrapElectron({
       );
     });
     ipcMain.on(
+      "robotick-renderer-diagnostics",
+      (event, payload: RendererDiagnosticsSnapshotPayload | undefined) => {
+        const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+        recordRendererDiagnostics(windowId, payload);
+      }
+    );
+    ipcMain.on(
+      "robotick-renderer-diagnostics-event",
+      (event, payload: RendererDiagnosticsEventPayload | undefined) => {
+        const windowId = windowIdFromBrowserWindow(resolveBrowserWindowFromEvent(event));
+        const source =
+          typeof payload?.source === "string" && payload.source.trim().length > 0
+            ? payload.source.trim()
+            : "renderer";
+        const message =
+          typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message.trim()
+            : "";
+        if (!message) {
+          return;
+        }
+        recordDiagnosticsLog({
+          source:
+            source === "renderer_fetch" || source === "renderer_websocket"
+              ? source
+              : "renderer_error",
+          window_id: windowId,
+          level: normalizeConsoleLevel(payload?.level),
+          message,
+          payload:
+            payload?.payload && typeof payload.payload === "object"
+              ? (payload.payload as Record<string, unknown>)
+              : { source },
+        });
+      }
+    );
+    ipcMain.on(
       "robotick-studio-runtime:active-resource",
       (
         event: IpcMainEvent,
         payload: StudioRuntimeActiveResourcePayload | undefined
       ) => {
         recordActiveStudioResource(resolveBrowserWindowFromEvent(event), payload);
+      }
+    );
+
+    ipcMain.handle(
+      "robotick-renderer-command",
+      (event: IpcMainInvokeEvent, payload: RendererCommandRequestPayload | undefined) => {
+        const target = resolveBrowserWindowFromEvent(event);
+        const commandId =
+          typeof payload?.commandId === "string" ? payload.commandId.trim() : "";
+        if (!target || target.isDestroyed?.()) {
+          return { accepted: false, error: "window_not_found" as const };
+        }
+        if (!commandId) {
+          return { accepted: false, error: "renderer_command_required" as const };
+        }
+        if (commandId === "studio.renderer.location") {
+          const windowId = windowIdFromBrowserWindow(target);
+          return {
+            accepted: true,
+            command_id: commandId,
+            window_id: windowId,
+            url: target.webContents.getURL?.() ?? null,
+          };
+        }
+        return {
+          accepted: false,
+          command_id: commandId,
+          error: "renderer_command_unknown" as const,
+        };
+      }
+    );
+    ipcMain.handle(
+      "robotick-studio-diagnostics-log-snapshot",
+      (
+        _event: IpcMainInvokeEvent,
+        options:
+          | {
+              tail?: number;
+              target?: "studio";
+            }
+          | undefined
+      ) => {
+        const tail =
+          typeof options?.tail === "number" && options.tail >= 0 ? options.tail : 300;
+        return diagnosticsLogStore.list({
+          target: options?.target ?? "studio",
+          tail,
+        });
       }
     );
 
@@ -1727,6 +2172,12 @@ export async function bootstrapElectron({
     );
     ipcMain.handle("robotick-project-selection:get-state", () =>
       getProjectSelectionState()
+    );
+    ipcMain.handle("robotick-hub:get-endpoint", () =>
+      readCurrentHubEndpoint(
+        env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+        env.ROBOTICK_HUB_ENDPOINT
+      )
     );
     ipcMain.handle(
       "robotick-project-selection:set",
@@ -1890,13 +2341,33 @@ export async function bootstrapElectron({
     win.setMenuBarVisibility(false);
     win.on("closed", () => {
       clearAlwaysOnTopTimer();
+      windowUrlByScope.delete(scope);
       if (isPrimary && platform !== "darwin" && isHubManaged) {
         void runGracefulQuit();
       }
     });
     registerWindowStateListeners(win, scope);
     registerDevtoolsShortcuts(win, platform);
-    attachRendererDiagnostics(win);
+    attachRendererDiagnostics(win, {
+      getWindowId: () => windowIdFromBrowserWindow(win),
+      recordWindowUrl: (url) => {
+        if (url) {
+          windowUrlByScope.set(scope, url);
+        } else {
+          windowUrlByScope.delete(scope);
+        }
+      },
+      recordConsole: ({ windowId, level, message, sourceUrl, line }) => {
+        recordDiagnosticsLog({
+          source: "renderer_console",
+          window_id: windowId,
+          level,
+          message,
+          source_url: sourceUrl,
+          line,
+        });
+      },
+    });
     attachWindowControlsLogger(win);
     win.on("ready-to-show", () => {
       win.show?.();
@@ -1946,10 +2417,39 @@ export async function bootstrapElectron({
         workspaceRoot: env.ROBOTICK_WORKSPACE_ROOT?.trim() || null,
         getSelectedProjectPath: () => currentProjectPath,
         getActiveWindowScope,
+        getFocusedWindowScope,
+        getLastFocusedAt: () => lastFocusedAt,
         getOpenWindowScopes,
         getActiveWorkbenchIds,
         getActiveLayoutIds,
         getActivePanelIds,
+      },
+      diagnosticsProvider: {
+        instanceName: projectLockOwner.instanceName,
+        pid: process.pid,
+        mode: env.ROBOTICK_STUDIO_MODE?.trim() || "dev",
+        workspaceRoot: env.ROBOTICK_WORKSPACE_ROOT?.trim() || null,
+        startedAt,
+        startupHubEndpoint: env.ROBOTICK_HUB_ENDPOINT?.trim() || null,
+        getCurrentHubEndpoint: () =>
+          readCurrentHubEndpoint(
+            env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+            env.ROBOTICK_HUB_ENDPOINT
+          ),
+        getSelectedProjectPath: () => currentProjectPath,
+        getActiveWindowScope,
+        getFocusedWindowScope,
+        getLastFocusedAt: () => lastFocusedAt,
+        getOpenWindowScopes,
+        getActiveWorkbenchIds,
+        getActiveLayoutIds,
+        getActivePanelIds,
+        getWindowUrl,
+        getRendererDiagnostics,
+        getRendererErrors,
+        getConsoleRecords,
+        captureScreenshot,
+        executeRendererDiagnosticsScript,
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,
