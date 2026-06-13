@@ -1196,6 +1196,7 @@ export async function bootstrapElectron({
   const activeLayoutByWorkbench = new Map<string, string>();
   const activePanelByLayout = new Map<string, string>();
   const rendererDiagnosticsByWindow = new Map<string, RendererDiagnosticsRecord>();
+  const recordedRendererFailureKeysByWindow = new Map<string, Set<string>>();
   const rendererErrorsByWindow = new Map<string, RendererErrorRecord[]>();
   const windowUrlByScope = new Map<string, string>();
   const diagnosticsLogStore = new StudioDiagnosticsLogStore(500);
@@ -1410,6 +1411,21 @@ export async function bootstrapElectron({
       ...(payload as Record<string, unknown>),
       updated_at: updatedAt,
     });
+    const getFailureKey = (kind: "fetch" | "websocket", failure: Record<string, unknown>) =>
+      JSON.stringify({
+        kind,
+        source: failure.source ?? null,
+        operation: failure.operation ?? null,
+        phase: failure.phase ?? null,
+        url: failure.url ?? null,
+        message: failure.message ?? null,
+        recorded_at: failure.recorded_at ?? null,
+      });
+    let seenFailureKeys = recordedRendererFailureKeysByWindow.get(windowId);
+    if (!seenFailureKeys) {
+      seenFailureKeys = new Set<string>();
+      recordedRendererFailureKeysByWindow.set(windowId, seenFailureKeys);
+    }
     const fetchFailures = Array.isArray(payload.fetch_failures)
       ? payload.fetch_failures
       : [];
@@ -1418,6 +1434,11 @@ export async function bootstrapElectron({
         continue;
       }
       const typed = failure as Record<string, unknown>;
+      const key = getFailureKey("fetch", typed);
+      if (seenFailureKeys.has(key)) {
+        continue;
+      }
+      seenFailureKeys.add(key);
       recordDiagnosticsLog({
         source: "renderer_fetch",
         window_id: windowId,
@@ -1438,6 +1459,11 @@ export async function bootstrapElectron({
         continue;
       }
       const typed = failure as Record<string, unknown>;
+      const key = getFailureKey("websocket", typed);
+      if (seenFailureKeys.has(key)) {
+        continue;
+      }
+      seenFailureKeys.add(key);
       recordDiagnosticsLog({
         source: "renderer_websocket",
         window_id: windowId,

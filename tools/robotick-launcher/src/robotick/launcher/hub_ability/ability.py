@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -369,7 +370,11 @@ def _read_log_lines(path: Path, *, offset: int = 0, tail: int = 200) -> tuple[li
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             handle.seek(max(0, offset))
-            lines: list[tuple[int, str]] = []
+            lines: list[tuple[int, str]] | deque[tuple[int, str]]
+            if tail:
+                lines = deque(maxlen=tail)
+            else:
+                lines = []
             while True:
                 start = handle.tell()
                 line = handle.readline()
@@ -379,9 +384,7 @@ def _read_log_lines(path: Path, *, offset: int = 0, tail: int = 200) -> tuple[li
             end_offset = handle.tell()
     except OSError:
         return [], offset
-    if tail:
-        lines = lines[-tail:]
-    return lines, end_offset
+    return list(lines), end_offset
 
 
 def _model_log_sources(
@@ -678,9 +681,24 @@ def _pid_alive(pid: int | None) -> bool:
 def _signal_worker_process_group(pid: int | None) -> None:
     if not pid:
         return
+    if os.name != "posix":
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            if not _pid_alive(pid):
+                return
+            time.sleep(0.05)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            return
+        return
     try:
         os.killpg(pid, signal.SIGTERM)
-    except OSError:
+    except (AttributeError, OSError):
         return
     deadline = time.time() + 2
     while time.time() < deadline:
@@ -689,7 +707,7 @@ def _signal_worker_process_group(pid: int | None) -> None:
         time.sleep(0.05)
     try:
         os.killpg(pid, signal.SIGKILL)
-    except OSError:
+    except (AttributeError, OSError):
         return
 
 
@@ -2037,10 +2055,11 @@ class LauncherAbility:
         ) -> None:
             await websocket.accept()
             context = context_provider()
-            selected_model_ids = _split_csv_values(model_ids) or _all_runtime_model_ids(context.workspace_root, project_id)
+            explicit_model_ids = _split_csv_values(model_ids)
             offsets: dict[str, int] = {}
             try:
                 while True:
+                    selected_model_ids = explicit_model_ids or _all_runtime_model_ids(context.workspace_root, project_id)
                     for model_id in selected_model_ids:
                         record = _runtime_phonebook_record(context.workspace_root, project_id, model_id) or {}
                         clear_offsets = _log_clear_offsets(record)

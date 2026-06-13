@@ -1136,6 +1136,52 @@ def test_launcher_wait_ready_polls_until_runtime_is_ready(
     assert captured["output"]["status"] == "ready"
 
 
+def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("robotick_cli.launcher.ensure_hub", lambda _workspace: record)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        return {
+            "resource_type": "robotick_launcher_runtime_status",
+            "state": "running",
+            "models": [
+                {
+                    "project_id": project_id,
+                    "model_id": "old-face",
+                    "lifecycle": "stopped",
+                    "readiness": "pending",
+                    "freshness": "stopped",
+                },
+                {
+                    "project_id": project_id,
+                    "model_id": "brain",
+                    "lifecycle": "running",
+                    "readiness": "ready",
+                    "freshness": "live",
+                },
+            ],
+        }
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["wait-ready", "--project", "barr-e", "--timeout-seconds", "1", "--poll-ms", "1"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["status"] == "ready"
+
+
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
     workspace = create_fake_workspace()
     hub_result = run_cli(["hub", "projects"], workspace)
@@ -2064,6 +2110,29 @@ def test_studio_status_without_bound_instance_fails_with_guidance() -> None:
     assert payload["error"]["code"] == "studio_instance_not_bound"
     assert "No Studio instance is currently bound." in payload["error"]["message"]
     assert "robotick studio open [project]" in payload["error"]["recovery"]
+
+
+def test_fetch_active_studio_path_reads_active_workbench_from_window_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured_paths: list[tuple[str, ...]] = []
+
+    def fake_fetch_status(_workspace, _instance_name, path_segments):
+        captured_paths.append(tuple(path_segments))
+        if tuple(path_segments) == ():
+            return {"active_window_id": "main"}
+        if tuple(path_segments) == ("windows", "main"):
+            return {"active_workbench_id": "remote-control"}
+        raise AssertionError(f"unexpected path: {path_segments}")
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_node_status", fake_fetch_status)
+
+    assert robotick_cli.studio.fetch_active_studio_path(
+        AppContext(workspace_root=workspace),
+        "studio-1234",
+    ) == ["windows", "main", "workbenches", "remote-control"]
+    assert captured_paths == [(), ("windows", "main")]
 
 
 def test_open_with_unknown_project_returns_json_error() -> None:

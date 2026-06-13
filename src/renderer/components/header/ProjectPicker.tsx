@@ -15,15 +15,23 @@ function normalizePath(filePath: string) {
   return filePath.trim().replace(/\\/g, "/").replace(/\/+/g, "/");
 }
 
+function isProjectYamlPath(filePath: string) {
+  const normalized = normalizePath(filePath);
+  const basename = normalized.split(pathSeparatorRegex).filter(Boolean).pop() ?? normalized;
+  return /\.project\.ya?ml$/i.test(basename);
+}
+
 function stripProjectYamlSuffix(filePath: string) {
   return normalizePath(filePath).replace(/\.project\.ya?ml$/i, "");
 }
 
-function getProjectIdentityCandidates(filePath: string): Set<string> {
+function getProjectIdentityCandidates(filePath: string, comparePath?: string): Set<string> {
   const normalized = normalizePath(filePath);
   const withoutProjectYaml = stripProjectYamlSuffix(normalized);
   const parts = normalized.split(pathSeparatorRegex).filter(Boolean);
   const basename = parts[parts.length - 1] ?? normalized;
+  const compareIsProjectYaml =
+    typeof comparePath === "string" && isProjectYamlPath(comparePath);
   const candidates = new Set<string>();
 
   if (normalized) {
@@ -32,7 +40,7 @@ function getProjectIdentityCandidates(filePath: string): Set<string> {
   if (withoutProjectYaml) {
     candidates.add(withoutProjectYaml);
   }
-  if (/\.project\.ya?ml$/i.test(basename)) {
+  if (/\.project\.ya?ml$/i.test(basename) && !compareIsProjectYaml) {
     const parentPath = parts.slice(0, -1).join("/");
     if (parentPath) {
       candidates.add(parentPath);
@@ -60,8 +68,8 @@ function getProjectFileName(projectPath: string) {
 }
 
 function pathsReferToSameProject(left: string, right: string) {
-  const leftCandidates = getProjectIdentityCandidates(left);
-  const rightCandidates = getProjectIdentityCandidates(right);
+  const leftCandidates = getProjectIdentityCandidates(left, right);
+  const rightCandidates = getProjectIdentityCandidates(right, left);
   for (const candidate of leftCandidates) {
     if (rightCandidates.has(candidate)) {
       return true;

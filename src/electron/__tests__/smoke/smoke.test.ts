@@ -650,13 +650,13 @@ describe("electron launch paths", () => {
       statusCode: 200,
       body: {
         resource_type: "studio_diagnostics_console",
-        records: [
+        records: expect.arrayContaining([
           expect.objectContaining({
             window_id: "main",
             level: "error",
             message: "Renderer smoke failure",
           }),
-        ],
+        ]),
       },
     });
 

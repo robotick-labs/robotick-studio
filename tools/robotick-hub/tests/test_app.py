@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import importlib
 import os
+import signal
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -1567,6 +1568,64 @@ def test_launcher_model_logs_stream_emits_labelled_per_model_events() -> None:
     assert event["source_kind"] == "launcher-worker"
     assert event["line"] == "stream line"
     assert isinstance(event["timestamp"], str)
+
+
+def test_launcher_model_log_tail_is_bounded(tmp_path: Path) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    log_path = tmp_path / "model.log"
+    log_path.write_text("\n".join(f"line-{index}" for index in range(20)), encoding="utf-8")
+
+    lines, end_offset = ability._read_log_lines(log_path, tail=3)
+
+    assert [line for _offset, line in lines] == ["line-17", "line-18", "line-19"]
+    assert end_offset == log_path.stat().st_size
+
+
+def test_launcher_worker_stop_uses_pid_signaling_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    signals: list[tuple[int, signal.Signals]] = []
+
+    monkeypatch.setattr(ability.os, "name", "nt")
+    monkeypatch.setattr(ability, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(
+        ability.os,
+        "kill",
+        lambda pid, sig: signals.append((pid, sig)),
+    )
+
+    ability._signal_worker_process_group(1234)
+
+    assert signals == [(1234, signal.SIGTERM)]
+
+
+def test_launcher_model_logs_stream_discovers_models_after_connection() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    log_dir = workspace / ".robotick" / "logs" / "launcher-sessions"
+    log_dir.mkdir(parents=True)
+    log_path = log_dir / "brain.log"
+
+    with build_client(workspace) as client:
+        with client.websocket_connect(
+            "/v1/launcher/models/logs/stream?project_id=barr-e"
+        ) as websocket:
+            log_path.write_text("late stream line\n", encoding="utf-8")
+            ability._write_runtime_phonebook_record(
+                str(workspace),
+                {
+                    "project_id": "barr-e",
+                    "model_id": "brain",
+                    "log_path": str(log_path),
+                    "last_session_id": "ms_brain",
+                },
+            )
+            event = websocket.receive_json()
+
+    assert event["model_id"] == "brain"
+    assert event["line"] == "late stream line"
 
 
 def test_launcher_allows_new_all_run_when_previous_group_is_stale(

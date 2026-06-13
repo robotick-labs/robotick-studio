@@ -142,6 +142,23 @@ describe("ProjectPicker", () => {
     expect(select.value).toBe("/repo/archive/barr-e/barr-e.project.yaml");
   });
 
+  it("does not collapse distinct project files in the same directory", () => {
+    projectPickerMocks.state.projectPath = "/repo/robots/shared/beta.project.yaml";
+    projectPickerMocks.projects = [
+      {
+        path: "/repo/robots/shared/alpha.project.yaml",
+        name: "Alpha",
+      },
+    ];
+
+    render(<ProjectPicker />);
+
+    const select = screen.getByLabelText("Select project") as HTMLSelectElement;
+    expect(select.value).toBe("/repo/robots/shared/beta.project.yaml");
+    expect(screen.getByRole("option", { name: "beta" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Alpha" })).toBeTruthy();
+  });
+
   it("uses the project settings name when the selected yaml path is not in the project list", async () => {
     projectPickerMocks.state.projectPath =
       "/repo/archive/barr-e/barr-e.project.yaml";

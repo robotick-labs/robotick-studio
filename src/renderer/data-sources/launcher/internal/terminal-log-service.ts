@@ -71,6 +71,10 @@ const SNAPSHOT_TAIL_LINES = 300;
 const STUDIO_SNAPSHOT_TAIL_LINES = 300;
 const FLUSH_INTERVAL_MS = 32;
 
+function getDiagnosticsBridge() {
+  return typeof window !== "undefined" ? window.robotick?.diagnostics : undefined;
+}
+
 export function parseTerminalLogMessage(text: string): TerminalLogMessage {
   try {
     const parsed = JSON.parse(text) as Partial<LauncherModelLogEvent> & {
@@ -186,7 +190,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
       this.reconnect();
     });
     this.diagnosticsUnsubscribe =
-      window.robotick?.diagnostics?.onLogEvent?.((record) => {
+      getDiagnosticsBridge()?.onLogEvent?.((record) => {
         if (record.target === "studio") {
           this.pushMessage({
             kind: "studio-event",
@@ -247,9 +251,15 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private handleRunRequested = () => {
     if (this.getClearOnRun()) {
       this.clearMessages();
-      void launcherService.requestLauncherLogClear().catch((error) => {
-        console.warn("[terminal] Failed to clear hub log cursors:", error);
-      });
+      void launcherService
+        .requestLauncherLogClear()
+        .catch((error) => {
+          console.warn("[terminal] Failed to clear hub log cursors:", error);
+        })
+        .finally(() => {
+          this.reconnect();
+        });
+      return;
     }
     this.reconnect();
   };
@@ -301,7 +311,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private async loadStudioSnapshot(options?: { replace?: boolean }) {
     try {
       const records =
-        (await window.robotick?.diagnostics?.getLogSnapshot?.({
+        (await getDiagnosticsBridge()?.getLogSnapshot?.({
           tail: STUDIO_SNAPSHOT_TAIL_LINES,
           target: "studio",
         })) ?? [];

@@ -844,7 +844,7 @@ def wait_for_studio_control(
                         and isinstance(root_status.get("selected_project_id"), str)
                     ):
                         instance_summary["project_name"] = root_status["selected_project_id"]
-                active_path = active_path_from_status(root_status) if root_status else fetch_active_studio_path(ctx, instance.name)
+                active_path = fetch_active_studio_path(ctx, instance.name, root_status)
                 if active_path:
                     summary["active_path"] = active_path
                 return summary
@@ -865,12 +865,26 @@ def wait_for_studio_control(
         time.sleep(0.1)
 
 
-def fetch_active_studio_path(ctx: AppContext, instance_name: str) -> list[str] | None:
+def fetch_active_studio_path(
+    ctx: AppContext,
+    instance_name: str,
+    root_status: dict[str, object] | None = None,
+) -> list[str] | None:
     try:
-        instance_status = fetch_studio_node_status(ctx.workspace_root, instance_name, ())
+        instance_status = root_status or fetch_studio_node_status(ctx.workspace_root, instance_name, ())
     except Exception:
         return None
-    return active_path_from_status(instance_status)
+    active_path = active_path_from_status(instance_status)
+    if not active_path or len(active_path) != 2:
+        return active_path
+    try:
+        window_status = fetch_studio_node_status(ctx.workspace_root, instance_name, tuple(active_path))
+    except Exception:
+        return active_path
+    active_workbench_id = window_status.get("active_workbench_id")
+    if isinstance(active_workbench_id, str) and active_workbench_id:
+        return [*active_path, "workbenches", active_workbench_id]
+    return active_path
 
 
 def fetch_studio_status_or_none(ctx: AppContext, instance_name: str) -> dict[str, object] | None:

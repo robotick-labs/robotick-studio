@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { launcherEvents } from "../../../../renderer/data-sources/launcher/internal/LauncherContext";
+import { launcherService } from "../../../../renderer/data-sources/launcher/internal/LauncherService";
 import {
   parseTerminalLogMessage,
   sortTerminalMessages,
@@ -7,6 +9,10 @@ import {
 } from "../../../../renderer/data-sources/launcher/internal/terminal-log-service";
 
 describe("terminal log service", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("keeps launcher log events structured instead of preformatting Studio text", () => {
     const message = parseTerminalLogMessage(
       JSON.stringify({
@@ -94,5 +100,45 @@ describe("terminal log service", () => {
       droppedCount: expect.any(Number),
       flushIntervalMs: 32,
     });
+  });
+
+  it("waits for hub log cursor clear before reconnecting on run requests", async () => {
+    let resolveClear!: () => void;
+    const clearRequest = new Promise<void>((resolve) => {
+      resolveClear = resolve;
+    });
+    vi.spyOn(launcherService, "requestLauncherLogClear").mockReturnValue(clearRequest);
+    vi.spyOn(launcherService, "getLauncherLogStreamUrlAsync").mockResolvedValue(
+      "ws://127.0.0.1:7001/v1/launcher/models/logs/stream"
+    );
+    const sockets: string[] = [];
+    class FakeWebSocket extends EventTarget {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(url: string) {
+        super();
+        sockets.push(url);
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+
+    launcherEvents.dispatchEvent(new Event("run-requested"));
+    await Promise.resolve();
+
+    expect(sockets).toEqual([]);
+
+    resolveClear();
+    await clearRequest;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sockets).toEqual([
+      "ws://127.0.0.1:7001/v1/launcher/models/logs/stream",
+    ]);
   });
 });

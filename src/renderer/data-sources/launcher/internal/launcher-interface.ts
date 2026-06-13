@@ -842,7 +842,7 @@ function mapRuntimeModelToLegacyModelStatus(
     case "running":
       return { ...baseStatus, stage: "run", status: "running" };
     case "stopping":
-      return { ...baseStatus, stage: "stop", status: "running" };
+      return { ...baseStatus, stage: "stop", status: "stopping" };
     case "stopped":
       return { ...baseStatus, stage: "stop", status: "succeeded" };
     default:

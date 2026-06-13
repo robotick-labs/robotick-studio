@@ -303,6 +303,13 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
             model_ids=selection["model_ids"],
         )
         models = runtime_model_payloads({"runtime": last_payload})
+        if not selection["model_ids"]:
+            models = [
+                model
+                for model in models
+                if str(model.get("lifecycle") or "") in {"starting", "running", "stopping"}
+                or str(model.get("freshness") or "") in {"live", "failed"}
+            ]
         readiness_values = {str(model.get("readiness") or "pending") for model in models}
         lifecycle_values = {str(model.get("lifecycle") or "pending") for model in models}
         if models and readiness_values == {"ready"}:
