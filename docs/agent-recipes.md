@@ -276,6 +276,14 @@ Do not treat a surviving PID or a stale `.robotick/studio/instances/*.json` reco
 
 For missing deep Studio paths on a live provider, expect unknown-context/not-found style errors. For stale instances or missing control endpoints, expect `provider_unavailable`.
 
+### Clean up a Studio instance before the next agent run
+
+```bash
+./tools/robotick studio <instance> quit --wait
+```
+
+Use `--wait` as the default cleanup form for agent workflows. It asks hub to close the instance, falls back to the local instance record when hub is unavailable, and only returns success once the instance is no longer listed as live.
+
 ### Check selected project display-name mismatches
 
 ```bash
@@ -317,7 +325,6 @@ If launcher says models are running but `diagnostics telemetry` is empty or stal
 ## Known Gaps
 
 - There is not yet a first-class pre-launch command for listing activatable targets by label or alias.
-- There is not yet a first-class capture command or capture-readiness contract.
 - `studio instances` may omit the selected project name for a live instance; confirm via per-instance `status`.
 - `studio open <project>` may bind the control path to `terminal`, so agent workflows that mean "open Studio" often need an explicit `remote-control activate`.
 - Recipe entries here should not be treated as proof of runtime readiness.

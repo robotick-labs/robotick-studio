@@ -2295,6 +2295,57 @@ def test_studio_quit_falls_back_when_hub_request_times_out(
     assert result.exit_code == 0
 
 
+def test_studio_quit_waits_until_instance_is_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    calls = {"waited": 0}
+    monkeypatch.setattr(
+        "robotick_cli.studio.post_studio_hub_json",
+        lambda *_args, **_kwargs: {
+            "accepted": True,
+            "message": "Studio instance studio-2222 close requested.",
+        },
+    )
+
+    def fake_wait(_workspace, instance_name):
+        calls["waited"] += 1
+        assert instance_name == "studio-2222"
+        return True
+
+    monkeypatch.setattr("robotick_cli.studio.wait_for_studio_instance_gone", fake_wait)
+    result = robotick_cli.studio.handle_instance_quit(
+        AppContext(workspace_root=workspace),
+        "studio-2222",
+        ["--wait"],
+    )
+
+    assert result.exit_code == 0
+    assert calls["waited"] == 1
+
+
+def test_studio_quit_wait_times_out_when_instance_remains_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.post_studio_hub_json",
+        lambda *_args, **_kwargs: {
+            "accepted": True,
+            "message": "Studio instance studio-2222 close requested.",
+        },
+    )
+    monkeypatch.setattr("robotick_cli.studio.wait_for_studio_instance_gone", lambda *_args: False)
+
+    result = robotick_cli.studio.handle_instance_quit(
+        AppContext(workspace_root=workspace),
+        "studio-2222",
+        ["--wait"],
+    )
+
+    assert result.exit_code == 1
+
+
 def test_create_without_project_launches_empty_studio_quietly() -> None:
     workspace = create_fake_workspace()
     result = run_cli(["studio", "create"], workspace)
@@ -2347,6 +2398,17 @@ def test_one_shot_quit_closes_live_instance_cleanly() -> None:
         or f"Studio instance {instance_name} force-closed after not exiting cleanly." in quit_result.stdout
     )
     wait_for(lambda: not (workspace / ".robotick" / "instances" / f"{instance_name}.json").exists())
+
+
+def test_one_shot_quit_wait_closes_live_instance_cleanly() -> None:
+    workspace = create_fake_workspace()
+    opened = run_cli(["studio", "open"], workspace)
+    instance_name = opened_instance_name_from_stdout(opened.stdout)
+
+    quit_result = run_cli(["studio", instance_name, "quit", "--wait"], workspace)
+    assert quit_result.returncode == 0
+    assert "Instance is no longer running." in quit_result.stdout
+    assert not (workspace / ".robotick" / "instances" / f"{instance_name}.json").exists()
 
 
 def test_cd_enters_a_discovered_instance_context() -> None:

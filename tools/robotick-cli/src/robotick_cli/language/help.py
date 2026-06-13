@@ -685,9 +685,11 @@ def instance_quit_help_text(instance_name: str) -> str:
         [
             "Usage:",
             f"  robotick studio {instance_name} quit",
+            f"  robotick studio {instance_name} quit --wait",
             "",
             "Description:",
             *[f"  {line}" for line in spec.description_lines],
+            "  Use --wait when an agent needs the instance record to be gone before continuing.",
             "",
         ]
     )

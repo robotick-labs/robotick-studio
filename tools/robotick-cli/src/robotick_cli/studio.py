@@ -275,19 +275,49 @@ def handle_instance_quit(ctx: AppContext, instance_name: str, args: list[str]) -
     if any(is_help_flag(arg) for arg in args):
         writeln(instance_quit_help_text(instance_name))
         return CommandResult(exit_code=0)
-    if args:
-        raise CliError(f"Unknown argument for '{instance_name} quit': {args[0]}")
+    wait = False
+    for arg in args:
+        if arg == "--wait":
+            wait = True
+            continue
+        raise CliError(f"Unknown argument for '{instance_name} quit': {arg}")
+
+    accepted = False
+    message = ""
     try:
         payload = post_studio_hub_json(
             ctx.workspace_root,
             f"/v1/studio/instances/{instance_name}/quit",
         )
-        writeln(payload["message"])
-        return CommandResult(exit_code=0 if payload["accepted"] else 1)
+        accepted = bool(payload["accepted"])
+        message = str(payload["message"])
     except HubRequestError:
         accepted, message = quit_studio_instance(ctx.workspace_root, instance_name)
-        writeln(f"{message} (hub fallback)")
+        message = f"{message} (hub fallback)"
+
+    if not wait:
+        writeln(message)
         return CommandResult(exit_code=0 if accepted else 1)
+
+    if wait_for_studio_instance_gone(ctx.workspace_root, instance_name):
+        writeln(f"{message} Instance is no longer running.")
+        return CommandResult(exit_code=0)
+
+    writeln(f"{message} Timed out waiting for instance to exit.")
+    return CommandResult(exit_code=1)
+
+
+def wait_for_studio_instance_gone(
+    workspace_root: str | Path,
+    instance_name: str,
+    timeout_seconds: float = 5.0,
+) -> bool:
+    started_at = time.time()
+    while time.time() - started_at < timeout_seconds:
+        if get_live_instance(workspace_root, instance_name) is None:
+            return True
+        time.sleep(0.1)
+    return get_live_instance(workspace_root, instance_name) is None
 
 
 def print_studio_context_listing(
@@ -537,7 +567,7 @@ def parse_instance_path_args(
         return (), None
     if any(is_help_flag(arg) for arg in args):
         return (), "help"
-    if args == ["quit"]:
+    if args and args[0] == "quit":
         return (), "quit"
     if args and args[0] == "select-project":
         return (), "select-project"
@@ -564,7 +594,7 @@ def run_studio_instance_command(
         writeln(instance_help_text(instance.name))
         return CommandResult(exit_code=0)
     if action == "quit":
-        return handle_instance_quit(ctx, instance.name, [])
+        return handle_instance_quit(ctx, instance.name, args[1:])
     if args and args[0] == "diagnostics":
         return handle_instance_diagnostics(ctx, instance, args[1:])
     if action == "select-project":

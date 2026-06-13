@@ -1035,6 +1035,7 @@ describe("Studio control runtime status", () => {
       validation: {
         nonblank_pixel_check: true,
         dominant_content_area: { x: 0, y: 0, width: 320, height: 240 },
+        expected_resource_match: true,
       },
     });
     expect(body.output_path).toContain(path.join(workspaceRoot, ".robotick", "diagnostics"));

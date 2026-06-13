@@ -967,6 +967,40 @@ function parsePngDimensions(image: Buffer | Uint8Array): { width: number; height
   };
 }
 
+function screenshotExpectedResourceMatches(
+  expectedResource: string | null,
+  focused: {
+    window_id?: unknown;
+    workbench_id?: unknown;
+    layout_id?: unknown;
+    panel_id?: unknown;
+  }
+): boolean | null {
+  if (!expectedResource) {
+    return null;
+  }
+  const expected = expectedResource.replace(/^\/+|\/+$/g, "");
+  const focusedIds = [
+    focused.window_id,
+    focused.workbench_id,
+    focused.layout_id,
+    focused.panel_id,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+  const focusedResourcePath = [
+    "windows",
+    focused.window_id,
+    "workbenches",
+    focused.workbench_id,
+    "layouts",
+    focused.layout_id,
+    "panels",
+    focused.panel_id,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("/");
+  return focusedIds.includes(expected) || focusedResourcePath.includes(expected);
+}
+
 export async function getStudioDiagnosticsDomSummary(
   provider: StudioDiagnosticsProvider,
   params: Record<string, unknown> = {}
@@ -1089,14 +1123,6 @@ export async function getStudioDiagnosticsScreenshot(
   const expectedResource =
     stringParam(params, "resource_path") ?? stringParam(params, "expected_resource");
   const focused = await getStudioRuntimeFocused(provider);
-  const activeResourcePath = [
-    focused.window_id,
-    focused.workbench_id,
-    focused.layout_id,
-    focused.panel_id,
-  ]
-    .filter((value): value is string => typeof value === "string" && value.length > 0)
-    .join("/");
   return {
     resource_type: "studio_diagnostics_screenshot",
     instance_id: provider.instanceName,
@@ -1116,9 +1142,7 @@ export async function getStudioDiagnosticsScreenshot(
       dominant_content_area: dimensions
         ? { x: 0, y: 0, width: dimensions.width, height: dimensions.height }
         : null,
-      expected_resource_match: expectedResource
-        ? activeResourcePath.includes(expectedResource)
-        : null,
+      expected_resource_match: screenshotExpectedResourceMatches(expectedResource, focused),
     },
   };
 }

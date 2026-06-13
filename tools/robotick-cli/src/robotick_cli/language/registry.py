@@ -152,10 +152,13 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="quit",
-        usage="robotick studio <instance> quit",
+        usage="robotick studio <instance> quit [--wait]",
         summary="Close this Studio instance",
         shell_label="quit",
-        description_lines=("Request shutdown of the targeted Studio instance.",),
+        description_lines=(
+            "Request shutdown of the targeted Studio instance.",
+            "Use --wait when automation should not continue until the instance is gone.",
+        ),
         visible_in_studio_root=False,
         visible_in_bound_instance=True,
     ),

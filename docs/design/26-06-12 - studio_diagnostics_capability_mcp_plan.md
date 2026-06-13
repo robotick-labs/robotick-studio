@@ -33,7 +33,7 @@ Validation commands used for the completed MVP:
 ```bash
 npx vitest --run --project electron src/electron/__tests__/smoke/smoke.test.ts src/electron/__tests__/unit/studio-control.test.ts src/electron/__tests__/unit/studio-control-contract.test.ts src/electron/__tests__/unit/studio-diagnostics.test.ts
 npx vitest --run --project renderer src/__tests__/unit/services/studio-diagnostics.test.ts src/__tests__/unit/data-sources/launcher/terminal-log-service.test.ts src/__tests__/unit/data-sources/telemetry/internal/telemetry-store.test.ts src/__tests__/unit/data-sources/launcher/launcher-interface.test.ts
-PYTHONPATH=src pytest -q tests/test_cli.py -k "diagnostics or live_instance or provider_unavailable or missing_resource or open_json or terminal"
+PYTHONPATH=src pytest -q tests/test_cli.py -k "diagnostics or live_instance or provider_unavailable or missing_resource or open_json or terminal or quit_wait or one_shot_quit"
 PYTHONPATH=../robotick-studio-ability/src:src pytest -q tests/test_app.py -k "studio_diagnostics_endpoint or provider_unavailable or resource_not_found or control_endpoint"
 npm run build:studio
 ```
