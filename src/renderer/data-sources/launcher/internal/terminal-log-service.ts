@@ -5,17 +5,27 @@ import { launcherService } from "./LauncherService";
 import { createPollingTask } from "../../../utils/polling";
 import { isAppQuitting } from "../../../utils/appQuitting";
 import { recordRendererWebSocketFailure } from "../../../services/studio-diagnostics";
+import type { RobotickDiagnosticsLogRecord } from "../../../types/robotick-globals";
 
 type TerminalLogSubscriber = () => void;
+export type TerminalLogTarget = "runtime" | "studio";
 
 export type TerminalLogMessage =
   | {
       kind: "text";
+      target: "runtime";
+      source: "plain-text";
       text: string;
     }
   | {
       kind: "launcher-event";
+      target: "runtime";
       event: LauncherModelLogEvent;
+    }
+  | {
+      kind: "studio-event";
+      target: "studio";
+      event: RobotickDiagnosticsLogRecord;
     };
 
 export interface TerminalLogService {
@@ -50,6 +60,7 @@ function writeBoolean(key: string, value: boolean) {
 const RECONNECT_MIN_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 8000;
 const SNAPSHOT_TAIL_LINES = 300;
+const STUDIO_SNAPSHOT_TAIL_LINES = 300;
 
 export function parseTerminalLogMessage(text: string): TerminalLogMessage {
   try {
@@ -64,13 +75,69 @@ export function parseTerminalLogMessage(text: string): TerminalLogMessage {
     ) {
       return {
         kind: "launcher-event",
+        target: "runtime",
         event: parsed as LauncherModelLogEvent,
       };
     }
   } catch {
     // Plain text streams remain supported for diagnostics and compatibility.
   }
-  return { kind: "text", text };
+  return { kind: "text", target: "runtime", source: "plain-text", text };
+}
+
+export function getTerminalMessageTimestamp(
+  message: TerminalLogMessage
+): string | undefined {
+  if (message.kind === "launcher-event") {
+    return message.event.timestamp;
+  }
+  if (message.kind === "studio-event") {
+    return message.event.recorded_at;
+  }
+  return undefined;
+}
+
+export function getTerminalMessageSource(message: TerminalLogMessage): string {
+  if (message.kind === "launcher-event") {
+    return message.event.source_kind;
+  }
+  if (message.kind === "studio-event") {
+    return message.event.source;
+  }
+  return message.source;
+}
+
+export function getTerminalMessageTarget(message: TerminalLogMessage): TerminalLogTarget {
+  return message.target;
+}
+
+export function terminalMessageText(message: TerminalLogMessage): string {
+  if (message.kind === "text") {
+    return message.text;
+  }
+  if (message.kind === "studio-event") {
+    return message.event.message;
+  }
+  return message.event.line;
+}
+
+function compareTerminalMessages(a: TerminalLogMessage, b: TerminalLogMessage): number {
+  const aValue = getTerminalMessageTimestamp(a);
+  const bValue = getTerminalMessageTimestamp(b);
+  if (!aValue && !bValue) {
+    return 0;
+  }
+  if (!aValue) {
+    return -1;
+  }
+  if (!bValue) {
+    return 1;
+  }
+  return aValue.localeCompare(bValue);
+}
+
+export function sortTerminalMessages(messages: TerminalLogMessage[]): TerminalLogMessage[] {
+  return [...messages].sort(compareTerminalMessages);
 }
 
 class TerminalLogServiceImpl implements TerminalLogService {
@@ -90,8 +157,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
     },
     { intervalMs: RECONNECT_MIN_DELAY_MS, runImmediately: false }
   );
+  private diagnosticsUnsubscribe: (() => void) | null = null;
   private clearOnRun = readBoolean(STORAGE_KEYS.clearOnRun, true);
   private shuttingDown = false;
+  private initialLoadRequest: Promise<void> | null = null;
 
   constructor() {
     if (HAS_WEBSOCKET && !IS_TEST_ENV) {
@@ -103,6 +172,16 @@ class TerminalLogServiceImpl implements TerminalLogService {
     launcherService.onProjectChanged(() => {
       this.reconnect();
     });
+    this.diagnosticsUnsubscribe =
+      window.robotick?.diagnostics?.onLogEvent?.((record) => {
+        if (record.target === "studio") {
+          this.pushMessage({
+            kind: "studio-event",
+            target: "studio",
+            event: record,
+          });
+        }
+      }) ?? null;
     if (typeof window !== "undefined") {
       window.addEventListener("robotick:app-quitting", this.handleAppQuitting);
     }
@@ -112,7 +191,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
     this.subscribers.add(listener);
     listener();
     if (this.messages.length === 0) {
-      void this.loadSnapshot({ replace: true });
+      void this.loadInitialMessages();
     }
     return () => {
       this.subscribers.delete(listener);
@@ -180,17 +259,11 @@ class TerminalLogServiceImpl implements TerminalLogService {
         const messages = snapshot.models.flatMap((model) =>
           (model.events ?? []).map((event) => ({
             kind: "launcher-event" as const,
+            target: "runtime" as const,
             event,
           }))
         );
-        if (replace) {
-          this.messages = messages.slice(-MAX_MESSAGES);
-          this.notify();
-          return;
-        }
-        for (const message of messages) {
-          this.pushMessage(message);
-        }
+        this.mergeMessages(messages, { replace });
       } catch (error) {
         console.warn("[terminal] Failed to load log snapshot:", error);
       } finally {
@@ -198,6 +271,39 @@ class TerminalLogServiceImpl implements TerminalLogService {
       }
     })();
     return this.snapshotRequest;
+  }
+
+  private async loadStudioSnapshot(options?: { replace?: boolean }) {
+    try {
+      const records =
+        (await window.robotick?.diagnostics?.getLogSnapshot?.({
+          tail: STUDIO_SNAPSHOT_TAIL_LINES,
+          target: "studio",
+        })) ?? [];
+      const messages = records.map((record) => ({
+        kind: "studio-event" as const,
+        target: "studio" as const,
+        event: record,
+      }));
+      this.mergeMessages(messages, { replace: options?.replace ?? false });
+    } catch (error) {
+      console.warn("[terminal] Failed to load Studio diagnostics log snapshot:", error);
+    }
+  }
+
+  private async loadInitialMessages() {
+    if (this.initialLoadRequest) {
+      return this.initialLoadRequest;
+    }
+    this.initialLoadRequest = (async () => {
+      await Promise.all([
+        this.loadSnapshot({ replace: true }),
+        this.loadStudioSnapshot({ replace: false }),
+      ]);
+    })().finally(() => {
+      this.initialLoadRequest = null;
+    });
+    return this.initialLoadRequest;
   }
 
   private connect() {
@@ -320,6 +426,8 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private handleAppQuitting = () => {
     this.shuttingDown = true;
     this.reconnectTask.stop();
+    this.diagnosticsUnsubscribe?.();
+    this.diagnosticsUnsubscribe = null;
     if (this.ws) {
       try {
         this.ws.close();
@@ -331,12 +439,19 @@ class TerminalLogServiceImpl implements TerminalLogService {
   };
 
   private pushMessage(message: TerminalLogMessage) {
-    const next = [...this.messages, message];
-    if (next.length > MAX_MESSAGES) {
-      this.messages = next.slice(next.length - MAX_MESSAGES);
-    } else {
-      this.messages = next;
-    }
+    this.mergeMessages([message]);
+  }
+
+  private mergeMessages(
+    incoming: TerminalLogMessage[],
+    options?: { replace?: boolean }
+  ) {
+    const replace = options?.replace ?? false;
+    const next = sortTerminalMessages(
+      replace ? [...incoming] : [...this.messages, ...incoming]
+    );
+    this.messages =
+      next.length > MAX_MESSAGES ? next.slice(next.length - MAX_MESSAGES) : next;
     this.notify();
   }
 

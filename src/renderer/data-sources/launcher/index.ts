@@ -179,7 +179,12 @@ export {
 export type { LauncherService } from "./internal/LauncherService";
 export { createMockLauncherService } from "./internal/__mocks__/LauncherService";
 export {
+  getTerminalMessageSource,
+  getTerminalMessageTarget,
+  getTerminalMessageTimestamp,
+  terminalMessageText,
   terminalLogService,
   type TerminalLogService,
   type TerminalLogMessage,
+  type TerminalLogTarget,
 } from "./internal/terminal-log-service";

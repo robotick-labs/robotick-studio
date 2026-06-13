@@ -99,6 +99,27 @@ export interface RobotickDiagnosticsBridge {
     commandId: string,
     input?: Record<string, unknown>
   ) => Promise<unknown>;
+  readonly getLogSnapshot?: (options?: {
+    tail?: number;
+    target?: "studio";
+  }) => Promise<RobotickDiagnosticsLogRecord[]>;
+  readonly onLogEvent?: (
+    callback: (record: RobotickDiagnosticsLogRecord) => void
+  ) => () => void;
+}
+
+export interface RobotickDiagnosticsLogRecord {
+  readonly target: "runtime" | "studio";
+  readonly source: string;
+  readonly window_id: string | null;
+  readonly recorded_at: string;
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly message: string;
+  readonly source_url: string | null;
+  readonly line: number | null;
+  readonly column: number | null;
+  readonly stack: string | null;
+  readonly payload: Record<string, unknown> | null;
 }
 
 export interface RobotickProjectSelectionIssue {

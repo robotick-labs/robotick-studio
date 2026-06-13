@@ -89,6 +89,7 @@
   font-weight: 700;
 }
 
+.logTarget,
 .logModel {
   flex: 0 0 auto;
   color: #8fd7ff;
@@ -100,18 +101,41 @@
   opacity: 0.82;
 }
 
+.logLevel {
+  flex: 0 0 auto;
+  color: #ff9c6b;
+  opacity: 0.88;
+}
+
+.logTarget::before,
 .logModel::before,
 .logSource::before {
   content: "[";
   color: #647081;
 }
 
+.logTarget::after,
 .logModel::after,
 .logSource::after {
   content: "]";
   color: #647081;
 }
 
+.logLevel::before {
+  content: "{";
+  color: #647081;
+}
+
+.logLevel::after {
+  content: "}";
+  color: #647081;
+}
+
 .logMessage {
   min-width: 0;
+}
+
+.emptyState {
+  color: #7c8594;
+  padding: 0.5rem 0;
 }

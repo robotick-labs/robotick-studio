@@ -227,6 +227,51 @@ const expose = () => {
         input: input ?? {},
       });
     },
+    getLogSnapshot(options?: { tail?: number; target?: "studio" }) {
+      return ipcRenderer.invoke("robotick-studio-diagnostics-log-snapshot", options);
+    },
+    onLogEvent(
+      callback: (record: {
+        target: "runtime" | "studio";
+        source: string;
+        window_id: string | null;
+        recorded_at: string;
+        level: "debug" | "info" | "warn" | "error";
+        message: string;
+        source_url: string | null;
+        line: number | null;
+        column: number | null;
+        stack: string | null;
+        payload: Record<string, unknown> | null;
+      }) => void
+    ) {
+      const listener = (
+        _event: unknown,
+        payload:
+          | {
+              target: "runtime" | "studio";
+              source: string;
+              window_id: string | null;
+              recorded_at: string;
+              level: "debug" | "info" | "warn" | "error";
+              message: string;
+              source_url: string | null;
+              line: number | null;
+              column: number | null;
+              stack: string | null;
+              payload: Record<string, unknown> | null;
+            }
+          | undefined
+      ) => {
+        if (payload) {
+          callback(payload);
+        }
+      };
+      ipcRenderer.on("robotick-studio-diagnostics-log", listener);
+      return () => {
+        ipcRenderer.off("robotick-studio-diagnostics-log", listener);
+      };
+    },
   };
 
   const cesiumToken = process.env.CESIUM_TOKEN?.trim();

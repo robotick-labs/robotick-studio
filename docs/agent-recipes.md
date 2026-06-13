@@ -99,7 +99,7 @@ Example: if `studio focused` reports `project_name: "pip-e"`, then "restart face
 ./tools/robotick launcher logs --project <project> --models <model-a>,<model-b> --tail 200
 ```
 
-Use this for agentic log/terminal access. The hub exposes per-model/per-source log channels such as `launcher-worker`, `launcher-control`, and `model-runtime`; Studio Terminal aggregates those channels for display and labels each line with model id plus source kind. Hub and Studio process logs are intentionally separate diagnostics and are not included in the Terminal aggregation by default.
+Use this for agentic log/terminal access. The hub exposes per-model/per-source log channels such as `launcher-worker`, `launcher-control`, and `model-runtime`; Studio `Terminal` aggregates those runtime channels for display and labels each line with model id plus source kind. The in-app `Terminal` can also show Studio diagnostics logs, with `runtime` and `studio` targets both enabled by default and each row labelled by target plus source so the combined stream stays intelligible.
 
 ### Verify whether a model YAML edit reached the running engine
 

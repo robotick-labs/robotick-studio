@@ -14,8 +14,18 @@ const terminalLogServiceMock = vi.hoisted(() => {
       };
     }),
     getMessages: vi.fn(() => [
-      { kind: "text", text: "alpha log" },
-      { kind: "text", text: "beta log" },
+      {
+        kind: "text",
+        target: "runtime",
+        source: "plain-text",
+        text: "alpha log",
+      },
+      {
+        kind: "text",
+        target: "runtime",
+        source: "plain-text",
+        text: "beta log",
+      },
     ]),
     clearMessages: vi.fn(),
     getClearOnRun: vi.fn(() => true),
@@ -24,9 +34,15 @@ const terminalLogServiceMock = vi.hoisted(() => {
   return { service, subscribers };
 });
 
-vi.mock("../../../../../renderer/data-sources/launcher", () => ({
-  terminalLogService: terminalLogServiceMock.service,
-}));
+vi.mock("../../../../../renderer/data-sources/launcher", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../../../../renderer/data-sources/launcher")
+  >();
+  return {
+    ...actual,
+    terminalLogService: terminalLogServiceMock.service,
+  };
+});
 
 import TerminalPage, {
   formatTerminalDisplayTime,
@@ -80,8 +96,8 @@ describe("TerminalPage panel settings", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     terminalLogServiceMock.service.getMessages.mockReturnValue([
-      { kind: "text", text: "alpha log" },
-      { kind: "text", text: "beta log" },
+      { kind: "text", target: "runtime", source: "plain-text", text: "alpha log" },
+      { kind: "text", target: "runtime", source: "plain-text", text: "beta log" },
     ]);
   });
 
@@ -89,6 +105,7 @@ describe("TerminalPage panel settings", () => {
     terminalLogServiceMock.service.getMessages.mockReturnValue([
       {
         kind: "launcher-event",
+        target: "runtime",
         event: {
           project_id: "barr-e",
           model_id: "barr-e-face",
@@ -116,6 +133,7 @@ describe("TerminalPage panel settings", () => {
       /^\d{2}:\d{2}:\d{2}\.140$/
     );
     expect(container.textContent).toContain("barr-e-face");
+    expect(container.textContent).toContain("runtime");
     expect(container.textContent).toContain("launcher-worker");
     expect(container.textContent).toContain("face ready");
 
@@ -165,6 +183,128 @@ describe("TerminalPage panel settings", () => {
         "robotick-studio.terminal.panel.workbench.panel-a"
       )
     ).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("filters runtime and studio targets independently and shows source labels", async () => {
+    terminalLogServiceMock.service.getMessages.mockReturnValue([
+      {
+        kind: "launcher-event",
+        target: "runtime",
+        event: {
+          project_id: "barr-e",
+          model_id: "barr-e-face",
+          source_kind: "launcher-worker",
+          path: "/tmp/face.log",
+          offset: 12,
+          line: "runtime ready",
+          timestamp: "2026-06-12T13:54:27.140Z",
+        },
+      },
+      {
+        kind: "studio-event",
+        target: "studio",
+        event: {
+          target: "studio",
+          source: "renderer_fetch",
+          window_id: "main",
+          recorded_at: "2026-06-12T13:54:28.140Z",
+          level: "error",
+          message: "failed to fetch",
+          source_url: null,
+          line: null,
+          column: null,
+          stack: null,
+          payload: null,
+        },
+      },
+    ]);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelHost panelId="panel-a" workbenchId="workbench">
+          <TerminalPage />
+        </PanelHost>
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("runtime");
+    expect(container.textContent).toContain("studio");
+    expect(container.textContent).toContain("launcher-worker");
+    expect(container.textContent).toContain("renderer_fetch");
+
+    const studioToggle =
+      container.querySelector<HTMLInputElement>("input#show-studio");
+    await act(async () => {
+      studioToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("runtime ready");
+    expect(container.textContent).not.toContain("failed to fetch");
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("shows an empty state when target selection and filter exclude all messages", async () => {
+    terminalLogServiceMock.service.getMessages.mockReturnValue([
+      {
+        kind: "studio-event",
+        target: "studio",
+        event: {
+          target: "studio",
+          source: "renderer_console",
+          window_id: "main",
+          recorded_at: "2026-06-12T13:54:29.140Z",
+          level: "info",
+          message: "only studio message",
+          source_url: null,
+          line: null,
+          column: null,
+          stack: null,
+          payload: null,
+        },
+      },
+    ]);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PanelHost panelId="panel-a" workbenchId="workbench">
+          <TerminalPage />
+        </PanelHost>
+      );
+      await Promise.resolve();
+    });
+
+    const runtimeToggle =
+      container.querySelector<HTMLInputElement>("input#show-runtime");
+    const studioToggle =
+      container.querySelector<HTMLInputElement>("input#show-studio");
+    await act(async () => {
+      runtimeToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      studioToggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "No log entries match the current target selection and filter."
+    );
 
     act(() => {
       root.unmount();

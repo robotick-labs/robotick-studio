@@ -1199,6 +1199,21 @@ export async function bootstrapElectron({
   const rendererErrorsByWindow = new Map<string, RendererErrorRecord[]>();
   const windowUrlByScope = new Map<string, string>();
   const diagnosticsLogStore = new StudioDiagnosticsLogStore(500);
+  const broadcastDiagnosticsLog = (record: ReturnType<StudioDiagnosticsLogStore["record"]>) => {
+    for (const [, win] of windowByScope.entries()) {
+      if (win.isDestroyed?.()) {
+        continue;
+      }
+      win.webContents.send("robotick-studio-diagnostics-log", record);
+    }
+  };
+  const recordDiagnosticsLog = (
+    input: Parameters<StudioDiagnosticsLogStore["record"]>[0]
+  ) => {
+    const record = diagnosticsLogStore.record(input);
+    broadcastDiagnosticsLog(record);
+    return record;
+  };
   let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
   let studioControlEndpointRegistered = false;
@@ -1355,7 +1370,7 @@ export async function bootstrapElectron({
       next.splice(0, next.length - RENDERER_ERROR_BUFFER_LIMIT);
     }
     rendererErrorsByWindow.set(key, next);
-    diagnosticsLogStore.record({
+    recordDiagnosticsLog({
       source: "renderer_error",
       window_id: windowId,
       level: "error",
@@ -1391,7 +1406,7 @@ export async function bootstrapElectron({
         continue;
       }
       const typed = failure as Record<string, unknown>;
-      diagnosticsLogStore.record({
+      recordDiagnosticsLog({
         source: "renderer_fetch",
         window_id: windowId,
         level: "error",
@@ -1411,7 +1426,7 @@ export async function bootstrapElectron({
         continue;
       }
       const typed = failure as Record<string, unknown>;
-      diagnosticsLogStore.record({
+      recordDiagnosticsLog({
         source: "renderer_websocket",
         window_id: windowId,
         level: "error",
@@ -2023,7 +2038,7 @@ export async function bootstrapElectron({
         if (!message) {
           return;
         }
-        diagnosticsLogStore.record({
+        recordDiagnosticsLog({
           source:
             source === "renderer_fetch" || source === "renderer_websocket"
               ? source
@@ -2074,6 +2089,25 @@ export async function bootstrapElectron({
           command_id: commandId,
           error: "renderer_command_unknown" as const,
         };
+      }
+    );
+    ipcMain.handle(
+      "robotick-studio-diagnostics-log-snapshot",
+      (
+        _event: IpcMainInvokeEvent,
+        options:
+          | {
+              tail?: number;
+              target?: "studio";
+            }
+          | undefined
+      ) => {
+        const tail =
+          typeof options?.tail === "number" && options.tail >= 0 ? options.tail : 300;
+        return diagnosticsLogStore.list({
+          target: options?.target ?? "studio",
+          tail,
+        });
       }
     );
 
@@ -2286,7 +2320,7 @@ export async function bootstrapElectron({
         }
       },
       recordConsole: ({ windowId, level, message, sourceUrl, line }) => {
-        diagnosticsLogStore.record({
+        recordDiagnosticsLog({
           source: "renderer_console",
           window_id: windowId,
           level,
