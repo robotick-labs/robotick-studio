@@ -175,17 +175,32 @@ export class SvgView {
         }
         this.layers.swim.appendChild(rect);
 
+        const divider = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "line",
+        );
+        divider.classList.add("swimlane-header-divider");
+        divider.setAttribute("x1", String(lane.frame.x));
+        divider.setAttribute("y1", String(lane.frame.y + 32));
+        divider.setAttribute("x2", String(lane.frame.x + lane.frame.width));
+        divider.setAttribute("y2", String(lane.frame.y + 32));
+        divider.setAttribute("data-section", String(section.index));
+        divider.setAttribute("data-lane", String(lane.laneIndex));
+        if (!section.collapsed) {
+          this.layers.swim.appendChild(divider);
+        }
+
         const label = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "text",
         );
         label.classList.add("label");
-        label.setAttribute("x", String(lane.frame.x + 10));
+        label.setAttribute("x", String(lane.frame.x + lane.frame.width / 2));
         label.setAttribute("y", String(lane.frame.y + 20));
         label.setAttribute("data-section", String(section.index));
         label.setAttribute("data-lane", String(lane.laneIndex));
         if (!section.collapsed) {
-          label.textContent = lane.label;
+          this.renderLaneLabel(label, lane.label, lane.frame.width - 20);
           this.layers.swim.appendChild(label);
         }
       }
@@ -392,6 +407,57 @@ export class SvgView {
     const finalPrefix = full.slice(0, best).replace(/[_\s]+$/, "");
     textEl.textContent = finalPrefix + "…";
     textEl.setAttribute("title", full); // show full label on hover
+  }
+
+  private renderLaneLabel(
+    textEl: SVGTextElement,
+    full: string,
+    maxWidth: number,
+  ): void {
+    const separator = " - ";
+    const separatorIndex = full.indexOf(separator);
+    if (separatorIndex < 0) {
+      this.fitTextWithEllipsis(textEl, full, maxWidth);
+      return;
+    }
+
+    const prefix = full.slice(0, separatorIndex + separator.length);
+    const name = full.slice(separatorIndex + separator.length);
+    const prefixSpan = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "tspan",
+    );
+    prefixSpan.classList.add("lane-label-prefix");
+    prefixSpan.textContent = prefix;
+
+    const nameSpan = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "tspan",
+    );
+    nameSpan.classList.add("lane-label-name");
+    nameSpan.textContent = name;
+
+    textEl.replaceChildren(prefixSpan, nameSpan);
+    if (textEl.getComputedTextLength() <= maxWidth) {
+      return;
+    }
+
+    let lo = 0;
+    let hi = name.length;
+    let best = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      nameSpan.textContent = name.slice(0, mid).replace(/[_\s]+$/, "") + "…";
+      if (textEl.getComputedTextLength() <= maxWidth) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+
+    nameSpan.textContent = name.slice(0, best).replace(/[_\s]+$/, "") + "…";
+    textEl.setAttribute("title", full);
   }
 
   private renderNodes(
@@ -732,7 +798,9 @@ export class SvgView {
       this.setNodeTransform(node.id, node.x, node.y);
     }
     for (const lane of Array.from(
-      this.layers.swim.querySelectorAll("rect.swimlane, text.label"),
+      this.layers.swim.querySelectorAll(
+        "rect.swimlane, line.swimlane-header-divider, text.label",
+      ),
     )) {
       lane.classList.remove("is-drag-target");
     }

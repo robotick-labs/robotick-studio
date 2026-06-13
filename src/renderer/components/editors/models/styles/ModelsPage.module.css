@@ -546,8 +546,8 @@
 
 :global(.swimlane) {
   fill: #0a0e16;
-  stroke: #494970;
-  stroke-width: 0.5;
+  stroke: #314868;
+  stroke-width: 1.2;
   transition: fill 120ms ease, stroke 120ms ease, stroke-width 120ms ease;
 }
 
@@ -557,9 +557,25 @@
 }
 
 :global(.label) {
-  fill: #999;
-  font-size: 12px;
+  fill: #8298ba;
+  font-size: 11px;
+  text-anchor: middle;
   transition: fill 120ms ease, opacity 120ms ease;
+}
+
+:global(.label .lane-label-prefix) {
+  font-weight: 400;
+}
+
+:global(.label .lane-label-name) {
+  font-weight: 600;
+}
+
+:global(.swimlane-header-divider) {
+  stroke: #314868;
+  stroke-width: 1;
+  pointer-events: none;
+  transition: stroke 120ms ease, opacity 120ms ease;
 }
 
 :global(.swimlane.is-drag-target) {
@@ -570,6 +586,10 @@
 
 :global(.label.is-drag-target) {
   fill: #d8ebff;
+}
+
+:global(.swimlane-header-divider.is-drag-target) {
+  stroke: #74b9ff;
 }
 
 :global(.workload-node rect.workload) {
