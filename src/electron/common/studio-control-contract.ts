@@ -72,6 +72,8 @@ export type StudioControlDiagnosticsCapabilityVersions = {
   status: number;
   endpoints: number;
   renderer: number;
+  console?: number;
+  screenshot?: number;
 };
 
 export type StudioControlDiagnosticsLimits = {
@@ -400,6 +402,15 @@ export type StudioControlDiagnosticsScreenshot = {
   window_id: string;
   output_path: string;
   mime_type: "image/png";
+};
+
+export type StudioControlDiagnosticsConsole = {
+  resource_type: "studio_diagnostics_console";
+  instance_id: string;
+  active_window_id: string | null;
+  records: StudioControlDiagnosticsConsoleRecord[];
+  truncation: StudioControlTruncationMetadata;
+  limitations: string[];
 };
 
 export type StudioControlDiagnosticsSnapshot = {

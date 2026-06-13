@@ -4,6 +4,7 @@ import {
   type BrowserWindowConstructor,
 } from "../../main/bootstrap";
 import fs from "fs";
+import http from "http";
 import os from "os";
 import path from "path";
 
@@ -25,8 +26,12 @@ type BrowserWindowMock = {
   webContents: {
     send: ReturnType<typeof vi.fn>;
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    getURL: ReturnType<typeof vi.fn>;
+    capturePage: ReturnType<typeof vi.fn>;
   };
   handlers: Map<string, Array<(...args: unknown[]) => void>>;
+  webContentsHandlers: Map<string, Array<(...args: unknown[]) => void>>;
 };
 
 const createElectronMocks = () => {
@@ -56,14 +61,27 @@ const createElectronMocks = () => {
         webContents: {
           send: vi.fn(),
           setWindowOpenHandler: vi.fn(),
+          on: vi.fn(),
+          getURL: vi.fn(() => "http://localhost:5173"),
+          capturePage: vi.fn(async () => ({
+            toPNG: () => Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          })),
         },
         handlers: new Map<string, Array<(...args: unknown[]) => void>>(),
+        webContentsHandlers: new Map<string, Array<(...args: unknown[]) => void>>(),
       };
       win.on.mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
         const handlers = win.handlers.get(event) ?? [];
         handlers.push(handler);
         win.handlers.set(event, handlers);
       });
+      win.webContents.on.mockImplementation(
+        (event: string, handler: (...args: unknown[]) => void) => {
+          const handlers = win.webContentsHandlers.get(event) ?? [];
+          handlers.push(handler);
+          win.webContentsHandlers.set(event, handlers);
+        }
+      );
       windows.push(win);
       return win;
     }),
@@ -154,6 +172,24 @@ function createWritableProjectPath() {
     `robotick-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     "barr-e.project.yaml"
   );
+}
+
+async function getJson(endpoint: string) {
+  return new Promise<{ statusCode: number; body: unknown }>((resolve, reject) => {
+    http
+      .get(endpoint, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf-8");
+          resolve({
+            statusCode: response.statusCode ?? 0,
+            body: text.length > 0 ? JSON.parse(text) : null,
+          });
+        });
+      })
+      .on("error", reject);
+  });
 }
 
 describe("electron launch paths", () => {
@@ -466,6 +502,91 @@ describe("electron launch paths", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint"
     );
+  });
+
+  it.each([
+    ["dev", "1"],
+    ["production", ""],
+  ])("serves diagnostics console and screenshot routes in %s launch mode", async (_label, devFlag) => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-smoke-"));
+    const mocks = await bootstrapWithMocks({
+      ELECTRON_DEV: devFlag,
+      ROBOTICK_STUDIO_MANAGED_BY_HUB: "1",
+      ROBOTICK_HUB_ENDPOINT: "http://127.0.0.1:7099",
+      ROBOTICK_STUDIO_INSTANCE_NAME: "studio-test",
+      ROBOTICK_WORKSPACE_ROOT: workspaceRoot,
+    });
+    const fetchMock = vi.mocked(fetch);
+    const activeResourceHandler = mocks.ipcOnHandlers.get(
+      "robotick-studio-runtime:active-resource"
+    );
+    const consoleHandlers = mocks.windows[0].webContentsHandlers.get("console-message") ?? [];
+
+    expect(activeResourceHandler).toBeDefined();
+    expect(consoleHandlers.length).toBeGreaterThan(0);
+
+    consoleHandlers[0](
+      undefined,
+      "error",
+      "Renderer smoke failure",
+      42,
+      "http://localhost:5173/assets/index.js"
+    );
+    activeResourceHandler?.(
+      { sender: mocks.windows[0].webContents },
+      {
+        window_id: "main",
+        workbench_id: "telemetry",
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:7099/v1/studio/instances/studio-test/control-endpoint",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+    const registrationBody = JSON.parse(
+      String(fetchMock.mock.calls.find((call) =>
+        String(call[0]).includes("/control-endpoint")
+      )?.[1]?.body)
+    );
+    const controlEndpoint = String(registrationBody.endpoint);
+
+    const consoleResponse = await getJson(`${controlEndpoint}/v1/studio/diagnostics/console`);
+    expect(consoleResponse).toMatchObject({
+      statusCode: 200,
+      body: {
+        resource_type: "studio_diagnostics_console",
+        records: [
+          expect.objectContaining({
+            window_id: "main",
+            level: "error",
+            message: "Renderer smoke failure",
+          }),
+        ],
+      },
+    });
+
+    const screenshotResponse = await getJson(
+      `${controlEndpoint}/v1/studio/diagnostics/screenshot`
+    );
+    expect(screenshotResponse.statusCode).toBe(200);
+    expect(screenshotResponse.body).toMatchObject({
+      resource_type: "studio_diagnostics_screenshot",
+      window_id: "main",
+      mime_type: "image/png",
+    });
+    expect(
+      fs.existsSync(
+        (screenshotResponse.body as { output_path: string }).output_path
+      )
+    ).toBe(true);
+
+    for (const handler of mocks.windows[0].handlers.get("closed") ?? []) {
+      handler();
+    }
+    fs.rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   it("hub-managed primary window close starts app quit immediately", async () => {

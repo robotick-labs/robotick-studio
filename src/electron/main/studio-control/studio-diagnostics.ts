@@ -1,9 +1,12 @@
 import fs from "fs";
 import path from "path";
 import type {
+  StudioControlDiagnosticsConsole,
+  StudioControlDiagnosticsConsoleRecord,
   StudioControlDiagnosticsEndpoints,
   StudioControlDiagnosticsFetchCheck,
   StudioControlDiagnosticsRenderer,
+  StudioControlDiagnosticsScreenshot,
   StudioControlDiagnosticsTelemetry,
   StudioControlDiagnosticsTelemetryWindow,
   StudioControlDiagnosticsRendererWindow,
@@ -28,6 +31,8 @@ export type StudioDiagnosticsProvider = StudioRuntimeSnapshotProvider & {
   getWindowUrl?: (scope: string) => string | null;
   getRendererDiagnostics?: (windowId: string) => StudioControlRendererSnapshot | null;
   getRendererErrors?: (windowId: string) => StudioControlRendererErrorRecord[];
+  getConsoleRecords?: (windowId?: string | null) => StudioControlDiagnosticsConsoleRecord[];
+  captureScreenshot?: (windowId: string) => Promise<Buffer | Uint8Array | null>;
   fetchHubHealth?: (
     endpoint: string
   ) => Promise<StudioControlDiagnosticsHubHealth | null>;
@@ -42,11 +47,13 @@ const DIAGNOSTICS_CAPABILITY_VERSIONS = {
   status: 1,
   endpoints: 1,
   renderer: 1,
+  console: 1,
+  screenshot: 1,
 } as const;
 
 const DIAGNOSTICS_LIMITS = {
   renderer_error_entries: 50,
-  console_buffer_entries: null,
+  console_buffer_entries: 500,
   fetch_failure_entries: null,
   websocket_failure_entries: null,
 } as const;
@@ -212,7 +219,7 @@ export async function getStudioDiagnosticsStatus(
     diagnostics_capability_versions: { ...DIAGNOSTICS_CAPABILITY_VERSIONS },
     diagnostics_limits: { ...DIAGNOSTICS_LIMITS },
     limitations: [
-      "Console capture, DOM queries, CSS queries, screenshots, and plugin diagnostics are not published yet.",
+      "DOM queries, CSS queries, and plugin diagnostics are not published yet.",
     ],
   };
 }
@@ -293,8 +300,70 @@ export async function getStudioDiagnosticsRenderer(
       buildRendererWindowDiagnostics(provider, windowId)
     ),
     limitations: [
-      "Console event capture, DOM queries, CSS queries, and screenshots are not published yet.",
+      "DOM queries, CSS queries, and screenshots are not included in renderer diagnostics yet.",
     ],
+  };
+}
+
+export async function getStudioDiagnosticsConsole(
+  provider: StudioDiagnosticsProvider
+): Promise<StudioControlDiagnosticsConsole> {
+  const activeWindowId = provider.getActiveWindowScope() ?? null;
+  const records = provider.getConsoleRecords?.() ?? [];
+  return {
+    resource_type: "studio_diagnostics_console",
+    instance_id: provider.instanceName,
+    active_window_id: activeWindowId,
+    records,
+    truncation: {
+      truncated: false,
+      original_count: records.length,
+      returned_count: records.length,
+      limit: DIAGNOSTICS_LIMITS.console_buffer_entries,
+    },
+    limitations: [
+      "Console diagnostics currently report bounded Studio-owned console/error records only.",
+    ],
+  };
+}
+
+function diagnosticsOutputDirectory(workspaceRoot: string | null): string {
+  const root = trimOrNull(workspaceRoot);
+  if (root) {
+    return path.join(root, ".robotick", "diagnostics");
+  }
+  return path.join(process.cwd(), ".robotick", "diagnostics");
+}
+
+function sanitizeFileSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-");
+}
+
+export async function getStudioDiagnosticsScreenshot(
+  provider: StudioDiagnosticsProvider
+): Promise<StudioControlDiagnosticsScreenshot | null> {
+  const windowId = provider.getActiveWindowScope() ?? provider.getOpenWindowScopes()[0] ?? null;
+  if (!windowId) {
+    return null;
+  }
+  const image = await provider.captureScreenshot?.(windowId);
+  if (!image) {
+    return null;
+  }
+  const outputDir = diagnosticsOutputDirectory(provider.workspaceRoot);
+  fs.mkdirSync(outputDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputPath = path.join(
+    outputDir,
+    `studio-${sanitizeFileSegment(provider.instanceName)}-${sanitizeFileSegment(windowId)}-${timestamp}.png`
+  );
+  fs.writeFileSync(outputPath, Buffer.from(image));
+  return {
+    resource_type: "studio_diagnostics_screenshot",
+    instance_id: provider.instanceName,
+    window_id: windowId,
+    output_path: outputPath,
+    mime_type: "image/png",
   };
 }
 

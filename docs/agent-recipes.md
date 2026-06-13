@@ -197,6 +197,24 @@ If `studio open <project>` is run while that project is already locked by a live
 
 Check `active_workbench_id` in the JSON result.
 
+### Capture an operator-facing Remote Control screenshot
+
+Use this when the user asks to open a robot in Studio and capture what the Remote Control panel is showing.
+
+```bash
+./tools/robotick studio open <project> windows main workbenches remote-control activate
+./tools/robotick launcher launch <project> native:ALL
+./tools/robotick launcher wait-ready --project <project>
+./tools/robotick studio <instance> diagnostics telemetry
+curl -sS <control-endpoint>/v1/studio/diagnostics/screenshot
+```
+
+Read the `studio open` result for `<instance>` and `<control-endpoint>`. Until `./tools/robotick studio <instance> diagnostics screenshot` is exposed, call the Studio control endpoint directly for screenshots. Screenshot files are written under the workspace root at `.robotick/diagnostics/`.
+
+Do not treat a successful screenshot as proof that the requested operator state is visible. First verify the active workbench is `remote-control`; then, if the user asked for the robot rather than just the Studio shell, launch the runtime and wait for `launcher wait-ready` to report `running`, `ready`, and `live`. Use `diagnostics telemetry` to confirm the renderer has consumed live model state before taking the final screenshot.
+
+If the first capture shows "Launch your robot to enable remote control.", the Studio window is correct but the project runtime is not launched or not yet reflected in the renderer. Launch/wait, then recapture.
+
 ### Discover live Studio structure after launch
 
 - Use `./tools/robotick studio instances` to find the running instance id.

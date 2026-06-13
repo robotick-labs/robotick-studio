@@ -140,6 +140,10 @@ Initial targets:
 - named window scope when provided
 - optional selector/element capture later
 - output path in `.robotick/diagnostics/`
+- capture metadata: dimensions, active window/workbench/layout, route URL, generated timestamp, and capture source
+- validation metadata useful to agents: nonblank result, optional expected workbench/resource match, and basic content bounds
+
+The CLI should route screenshot capture through `studio <instance> diagnostics screenshot`; agents should not need to copy a raw control endpoint from `studio open`. Operator-facing screenshot flows should optionally combine resource activation, launcher readiness, renderer telemetry readiness, and screenshot capture so a valid image is also semantically the requested view. For example, "capture Barr.e in Remote Control" should distinguish "Studio opened Remote Control" from "Barr.e runtime is launched and visible in Remote Control".
 
 `studio diagnostics snapshot` should aggregate:
 

@@ -22,6 +22,11 @@ import {
   startStudioControlServer,
   type StudioControlServer,
 } from "./studio-control/studio-control-server";
+import {
+  normalizeConsoleLevel,
+  StudioDiagnosticsLogStore,
+  type StudioDiagnosticsLogSeverity,
+} from "./studio-control/studio-diagnostics-log";
 import type { StudioControlActivationResponse } from "../common/studio-control-contract";
 import type {
   BrowserWindow as ElectronBrowserWindow,
@@ -53,6 +58,7 @@ type WebContentsLike = {
   closeDevTools?: () => void;
   isDevToolsOpened?: () => boolean;
   getURL?: () => string;
+  capturePage?: () => Promise<{ toPNG: () => Buffer | Uint8Array }>;
 };
 
 export type ElectronApp = {
@@ -94,6 +100,7 @@ type BrowserWindowInstance = {
   once?: (event: string, listener: (...args: unknown[]) => void) => void;
   webContents: WebContentsLike;
   getBounds: () => Rectangle;
+  capturePage?: () => Promise<{ toPNG: () => Buffer | Uint8Array }>;
 };
 
 export type BrowserWindowConstructor = {
@@ -165,6 +172,15 @@ type RendererErrorRecord = {
   lineno: number | null;
   colno: number | null;
   stack: string | null;
+};
+
+type RendererConsoleDetails = {
+  level?: unknown;
+  message?: unknown;
+  lineNumber?: unknown;
+  line?: unknown;
+  sourceId?: unknown;
+  source_url?: unknown;
 };
 
 type StudioRuntimeActiveResourcePayload = {
@@ -849,7 +865,20 @@ type RendererGoneDetails = {
   exitCode?: unknown;
 };
 
-function attachRendererDiagnostics(win: BrowserWindowInstance) {
+function attachRendererDiagnostics(
+  win: BrowserWindowInstance,
+  options?: {
+    getWindowId?: () => string | null;
+    recordConsole?: (record: {
+      windowId: string | null;
+      level: StudioDiagnosticsLogSeverity;
+      message: string;
+      sourceUrl: string | null;
+      line: number | null;
+    }) => void;
+    recordWindowUrl?: (url: string | null) => void;
+  }
+) {
   const webContents = win.webContents;
   const currentUrl = () => {
     try {
@@ -858,6 +887,65 @@ function attachRendererDiagnostics(win: BrowserWindowInstance) {
       return "<unknown>";
     }
   };
+  const publishCurrentUrl = (url?: unknown) => {
+    const nextUrl =
+      typeof url === "string" && url.trim().length > 0
+        ? url.trim()
+        : currentUrl();
+    options?.recordWindowUrl?.(nextUrl === "<unknown>" ? null : nextUrl);
+  };
+
+  publishCurrentUrl();
+
+  webContents.on?.("did-navigate", (_event: unknown, url: unknown) => {
+    publishCurrentUrl(url);
+  });
+  webContents.on?.("did-navigate-in-page", (_event: unknown, url: unknown) => {
+    publishCurrentUrl(url);
+  });
+  webContents.on?.("did-finish-load", () => {
+    publishCurrentUrl();
+  });
+
+  webContents.on?.("console-message", (...args: unknown[]) => {
+    const details =
+      args.length === 2 && typeof args[1] === "object" && args[1] !== null
+        ? (args[1] as RendererConsoleDetails)
+        : null;
+    const level = normalizeConsoleLevel(details?.level ?? args[1]);
+    const message =
+      typeof details?.message === "string"
+        ? details.message
+        : typeof args[2] === "string"
+          ? args[2]
+          : "";
+    if (!message.trim()) {
+      return;
+    }
+    const sourceUrl =
+      typeof details?.sourceId === "string"
+        ? details.sourceId
+        : typeof details?.source_url === "string"
+          ? details.source_url
+          : typeof args[4] === "string"
+            ? args[4]
+            : null;
+    const line =
+      typeof details?.lineNumber === "number"
+        ? details.lineNumber
+        : typeof details?.line === "number"
+          ? details.line
+          : typeof args[3] === "number"
+            ? args[3]
+            : null;
+    options?.recordConsole?.({
+      windowId: options.getWindowId?.() ?? null,
+      level,
+      message,
+      sourceUrl,
+      line,
+    });
+  });
 
   webContents.on?.("render-process-gone", (_event: unknown, details: unknown) => {
     const typed = (details ?? {}) as RendererGoneDetails;
@@ -1097,6 +1185,8 @@ export async function bootstrapElectron({
   const activePanelByLayout = new Map<string, string>();
   const rendererDiagnosticsByWindow = new Map<string, RendererDiagnosticsRecord>();
   const rendererErrorsByWindow = new Map<string, RendererErrorRecord[]>();
+  const windowUrlByScope = new Map<string, string>();
+  const diagnosticsLogStore = new StudioDiagnosticsLogStore(500);
   let activeWindowScopeOverride: string | null = null;
   let studioControlServer: StudioControlServer | null = null;
   let studioControlEndpointRegistered = false;
@@ -1166,7 +1256,27 @@ export async function bootstrapElectron({
     const normalizedScope = scope === "main" ? PRIMARY_WINDOW_SCOPE : scope;
     const win = windowByScope.get(normalizedScope);
     const url = win?.webContents.getURL?.();
-    return typeof url === "string" && url.trim().length > 0 ? url.trim() : null;
+    if (typeof url === "string" && url.trim().length > 0) {
+      return url.trim();
+    }
+    return windowUrlByScope.get(normalizedScope) ?? null;
+  };
+
+  const getConsoleRecords = (windowId?: string | null) =>
+    diagnosticsLogStore.consoleRecords({
+      windowId,
+      tail: 500,
+    });
+
+  const captureScreenshot = async (windowId: string): Promise<Buffer | Uint8Array | null> => {
+    const normalizedScope = windowId === "main" ? PRIMARY_WINDOW_SCOPE : windowId;
+    const win = windowByScope.get(normalizedScope);
+    if (!win || win.isDestroyed?.()) {
+      return null;
+    }
+    const image =
+      (await win.capturePage?.()) ?? (await win.webContents.capturePage?.());
+    return image?.toPNG?.() ?? null;
   };
 
   const getActiveWorkbenchIds = (): Record<string, string> =>
@@ -1233,6 +1343,17 @@ export async function bootstrapElectron({
       next.splice(0, next.length - RENDERER_ERROR_BUFFER_LIMIT);
     }
     rendererErrorsByWindow.set(key, next);
+    diagnosticsLogStore.record({
+      source: "renderer_error",
+      window_id: windowId,
+      level: "error",
+      message,
+      source_url: source,
+      line: record.lineno,
+      column: record.colno,
+      stack: record.stack,
+      payload: { type },
+    });
   };
 
   const recordRendererDiagnostics = (
@@ -1250,6 +1371,46 @@ export async function bootstrapElectron({
       ...(payload as Record<string, unknown>),
       updated_at: updatedAt,
     });
+    const fetchFailures = Array.isArray(payload.fetch_failures)
+      ? payload.fetch_failures
+      : [];
+    for (const failure of fetchFailures) {
+      if (!failure || typeof failure !== "object") {
+        continue;
+      }
+      const typed = failure as Record<string, unknown>;
+      diagnosticsLogStore.record({
+        source: "renderer_fetch",
+        window_id: windowId,
+        level: "error",
+        message:
+          typeof typed.message === "string" && typed.message.trim().length > 0
+            ? typed.message.trim()
+            : "Renderer fetch failed.",
+        source_url: typeof typed.url === "string" ? typed.url : null,
+        payload: { operation: typed.operation ?? null, source: typed.source ?? null },
+      });
+    }
+    const websocketFailures = Array.isArray(payload.websocket_failures)
+      ? payload.websocket_failures
+      : [];
+    for (const failure of websocketFailures) {
+      if (!failure || typeof failure !== "object") {
+        continue;
+      }
+      const typed = failure as Record<string, unknown>;
+      diagnosticsLogStore.record({
+        source: "renderer_websocket",
+        window_id: windowId,
+        level: "error",
+        message:
+          typeof typed.message === "string" && typed.message.trim().length > 0
+            ? typed.message.trim()
+            : "Renderer websocket failed.",
+        source_url: typeof typed.url === "string" ? typed.url : null,
+        payload: { phase: typed.phase ?? null, source: typed.source ?? null },
+      });
+    }
   };
 
   const recordActiveStudioResource = (
@@ -2037,13 +2198,33 @@ export async function bootstrapElectron({
     win.setMenuBarVisibility(false);
     win.on("closed", () => {
       clearAlwaysOnTopTimer();
+      windowUrlByScope.delete(scope);
       if (isPrimary && platform !== "darwin" && isHubManaged) {
         void runGracefulQuit();
       }
     });
     registerWindowStateListeners(win, scope);
     registerDevtoolsShortcuts(win, platform);
-    attachRendererDiagnostics(win);
+    attachRendererDiagnostics(win, {
+      getWindowId: () => windowIdFromBrowserWindow(win),
+      recordWindowUrl: (url) => {
+        if (url) {
+          windowUrlByScope.set(scope, url);
+        } else {
+          windowUrlByScope.delete(scope);
+        }
+      },
+      recordConsole: ({ windowId, level, message, sourceUrl, line }) => {
+        diagnosticsLogStore.record({
+          source: "renderer_console",
+          window_id: windowId,
+          level,
+          message,
+          source_url: sourceUrl,
+          line,
+        });
+      },
+    });
     attachWindowControlsLogger(win);
     win.on("ready-to-show", () => {
       win.show?.();
@@ -2123,6 +2304,8 @@ export async function bootstrapElectron({
         getWindowUrl,
         getRendererDiagnostics,
         getRendererErrors,
+        getConsoleRecords,
+        captureScreenshot,
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,

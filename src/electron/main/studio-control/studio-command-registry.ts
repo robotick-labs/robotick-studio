@@ -3,9 +3,11 @@ import type {
   StudioControlRouteDependencies,
 } from "./studio-control-routes";
 import {
+  getStudioDiagnosticsConsole,
   getStudioDiagnosticsEndpoints,
   getStudioDiagnosticsFetchCheck,
   getStudioDiagnosticsRenderer,
+  getStudioDiagnosticsScreenshot,
   getStudioDiagnosticsStatus,
   getStudioDiagnosticsTelemetry,
 } from "./studio-diagnostics";
@@ -72,7 +74,15 @@ function activationPathSegments(pathname: string): string[] | null {
 
 function diagnosticsKind(
   pathname: string
-): "status" | "endpoints" | "renderer" | "fetch-check" | "telemetry" | null {
+):
+  | "status"
+  | "endpoints"
+  | "renderer"
+  | "console"
+  | "fetch-check"
+  | "telemetry"
+  | "screenshot"
+  | null {
   if (
     pathname === "/v1/diagnostics/status" ||
     pathname === "/v1/studio/diagnostics/status"
@@ -92,6 +102,12 @@ function diagnosticsKind(
     return "renderer";
   }
   if (
+    pathname === "/v1/diagnostics/console" ||
+    pathname === "/v1/studio/diagnostics/console"
+  ) {
+    return "console";
+  }
+  if (
     pathname === "/v1/diagnostics/fetch-check" ||
     pathname === "/v1/studio/diagnostics/fetch-check"
   ) {
@@ -102,6 +118,12 @@ function diagnosticsKind(
     pathname === "/v1/studio/diagnostics/telemetry"
   ) {
     return "telemetry";
+  }
+  if (
+    pathname === "/v1/diagnostics/screenshot" ||
+    pathname === "/v1/studio/diagnostics/screenshot"
+  ) {
+    return "screenshot";
   }
   return null;
 }
@@ -310,7 +332,7 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
         };
       },
     },
-    ...(["status", "endpoints", "renderer", "fetch-check", "telemetry"] as const).map(
+    ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "screenshot"] as const).map(
       (kind) => {
         const commandId = `studio.diagnostics.${kind}`;
         return {
@@ -322,7 +344,12 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
           output_schema: { type: "object" },
           availability: {
             requires_live_instance: true,
-            requires_renderer: kind === "renderer" || kind === "fetch-check" || kind === "telemetry",
+            requires_renderer:
+              kind === "renderer" ||
+              kind === "console" ||
+              kind === "fetch-check" ||
+              kind === "telemetry" ||
+              kind === "screenshot",
             resource_scope: "diagnostics",
           },
           read_only: true,
@@ -341,10 +368,14 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
                   ? await getStudioDiagnosticsEndpoints(dependencies.diagnosticsProvider)
                   : kind === "renderer"
                     ? await getStudioDiagnosticsRenderer(dependencies.diagnosticsProvider)
-                    : kind === "fetch-check"
-                      ? await getStudioDiagnosticsFetchCheck(dependencies.diagnosticsProvider)
-                      : await getStudioDiagnosticsTelemetry(dependencies.diagnosticsProvider);
-            return { statusCode: 200, payload };
+                    : kind === "console"
+                      ? await getStudioDiagnosticsConsole(dependencies.diagnosticsProvider)
+                      : kind === "fetch-check"
+                        ? await getStudioDiagnosticsFetchCheck(dependencies.diagnosticsProvider)
+                        : kind === "telemetry"
+                          ? await getStudioDiagnosticsTelemetry(dependencies.diagnosticsProvider)
+                          : await getStudioDiagnosticsScreenshot(dependencies.diagnosticsProvider);
+            return { statusCode: payload ? 200 : 503, payload: payload ?? { error: "diagnostics_unavailable" } };
           },
         } satisfies StudioControlRegisteredCommand;
       }

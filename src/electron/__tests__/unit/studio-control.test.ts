@@ -594,7 +594,13 @@ describe("Studio control runtime status", () => {
       focused_window_id: "main",
       active_workbench_id: "remote-control",
       active_layout_id: "main:remote-control:default",
-      diagnostics_capability_versions: { status: 1, endpoints: 1, renderer: 1 },
+      diagnostics_capability_versions: {
+        status: 1,
+        endpoints: 1,
+        renderer: 1,
+        console: 1,
+        screenshot: 1,
+      },
     });
   });
 
@@ -624,6 +630,22 @@ describe("Studio control runtime status", () => {
         }),
         expect.objectContaining({
           id: "studio.diagnostics.renderer",
+          provider: "electron_main",
+          availability: expect.objectContaining({
+            requires_renderer: true,
+            resource_scope: "diagnostics",
+          }),
+        }),
+        expect.objectContaining({
+          id: "studio.diagnostics.console",
+          provider: "electron_main",
+          availability: expect.objectContaining({
+            requires_renderer: true,
+            resource_scope: "diagnostics",
+          }),
+        }),
+        expect.objectContaining({
+          id: "studio.diagnostics.screenshot",
           provider: "electron_main",
           availability: expect.objectContaining({
             requires_renderer: true,
@@ -886,6 +908,144 @@ describe("Studio control runtime status", () => {
         },
       ],
     });
+  });
+
+  it("returns console diagnostics from the Studio-owned bounded log buffer", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-console-"));
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/diagnostics/console",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      createControlDependencies(workspaceRoot, {
+        diagnosticsProvider: {
+          getActiveWindowScope: () => "main",
+          getConsoleRecords: () => [
+            {
+              window_id: "main",
+              recorded_at: "2026-06-12T21:00:04.000Z",
+              level: "error",
+              message: "Failed to fetch",
+              source_url: "http://localhost:5173/assets/index.js",
+              line: 12,
+              column: 7,
+              stack: "Error: Failed to fetch",
+              payload: { source: "renderer_console" },
+            },
+          ],
+        },
+      })
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      resource_type: "studio_diagnostics_console",
+      instance_id: "studio-1234",
+      active_window_id: "main",
+      records: [
+        {
+          window_id: "main",
+          level: "error",
+          message: "Failed to fetch",
+          source_url: "http://localhost:5173/assets/index.js",
+        },
+      ],
+      truncation: {
+        truncated: false,
+        original_count: 1,
+        returned_count: 1,
+        limit: 500,
+      },
+    });
+  });
+
+  it("captures screenshot diagnostics into the workspace diagnostics directory", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-screenshot-"));
+    const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/diagnostics/screenshot",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      createControlDependencies(workspaceRoot, {
+        diagnosticsProvider: {
+          workspaceRoot,
+          getActiveWindowScope: () => "main",
+          getOpenWindowScopes: () => ["main"],
+          captureScreenshot: async () => imageBytes,
+        },
+      })
+    );
+
+    const body = JSON.parse(response.body);
+    expect(response.statusCode).toBe(200);
+    expect(body).toMatchObject({
+      resource_type: "studio_diagnostics_screenshot",
+      instance_id: "studio-1234",
+      window_id: "main",
+      mime_type: "image/png",
+    });
+    expect(body.output_path).toContain(path.join(workspaceRoot, ".robotick", "diagnostics"));
+    expect(fs.readFileSync(body.output_path)).toEqual(imageBytes);
+  });
+
+  it("returns diagnostics unavailable when screenshot capture has no live image", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-screenshot-"));
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/diagnostics/screenshot",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      createControlDependencies(workspaceRoot, {
+        diagnosticsProvider: {
+          getActiveWindowScope: () => "main",
+          getOpenWindowScopes: () => ["main"],
+          captureScreenshot: async () => null,
+        },
+      })
+    );
+
+    expect(response.statusCode).toBe(503);
+    expect(JSON.parse(response.body)).toEqual({ error: "diagnostics_unavailable" });
   });
 
   it("returns fetch-check diagnostics aggregated from renderer snapshots", async () => {

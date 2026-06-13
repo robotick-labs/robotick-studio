@@ -66,9 +66,25 @@ Use these when Studio is open but the UI appears stale, telemetry is missing, or
 - `fetch-check` reports captured fetch and websocket failures from the UI layer
 - `telemetry` reports renderer-side telemetry diagnostics for the open windows
 
-The current diagnostics surface works in both dev and production Studio builds. Console capture, DOM/CSS inspection, screenshots, and aggregated snapshots remain follow-on work.
+The Studio control service also exposes bounded console diagnostics and screenshot capture. The MVP CLI surface must expose these as:
 
-When console diagnostics land, the intended source of truth is a Studio-owned diagnostics/logging pipeline rather than DevTools history. Renderer Chromium console events, main-process warnings, renderer-published diagnostics, and future plugin diagnostics should feed bounded structured buffers that the CLI and future MCP surfaces can query consistently in both dev and production.
+```bash
+./tools/robotick studio <instance> diagnostics console
+./tools/robotick studio <instance> diagnostics screenshot
+```
+
+The live control endpoint fallback below is temporary implementation-only plumbing and should disappear from normal agent recipes once the MVP CLI wrappers land:
+
+```bash
+curl -sS <control-endpoint>/v1/studio/diagnostics/console
+curl -sS <control-endpoint>/v1/studio/diagnostics/screenshot
+```
+
+Screenshot files are written under the workspace root at `.robotick/diagnostics/`. A successful screenshot only proves that the active Studio window was captured; operator workflows should also verify the active workbench, launcher readiness, and renderer telemetry state before treating the image as semantically correct.
+
+The current diagnostics surface works in both dev and production Studio builds. DOM/CSS inspection and aggregated snapshots remain follow-on work.
+
+The intended source of truth for console diagnostics is a Studio-owned diagnostics/logging pipeline rather than DevTools history. Renderer Chromium console events, main-process warnings, renderer-published diagnostics, and future plugin diagnostics should feed bounded structured buffers that the CLI and future MCP surfaces can query consistently in both dev and production.
 
 The in-app log viewer should use target logs rather than separate panels for each log family. The existing `Terminal` surface should keep that visible name for MVP while growing target selection for `runtime` and `studio`, defaulting to both, with each row labelled by source so launcher/model logs and Studio diagnostics remain distinguishable.
 
