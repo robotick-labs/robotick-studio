@@ -56,10 +56,12 @@ The current read-only diagnostics surface is available through the workspace `ro
 ./tools/robotick studio <instance> diagnostics renderer
 ./tools/robotick studio <instance> diagnostics fetch-check
 ./tools/robotick studio <instance> diagnostics telemetry
+./tools/robotick studio <instance> diagnostics console
 ./tools/robotick studio <instance> diagnostics dom summary
-./tools/robotick studio <instance> diagnostics dom query
-./tools/robotick studio <instance> diagnostics css query
+./tools/robotick studio <instance> diagnostics dom query '[data-project-picker]'
+./tools/robotick studio <instance> diagnostics css query '[data-project-picker]'
 ./tools/robotick studio <instance> diagnostics screenshot
+./tools/robotick studio <instance> diagnostics snapshot
 ```
 
 Use these when Studio is open but the UI appears stale, telemetry is missing, or launcher-facing state does not match what the renderer is showing.
@@ -67,29 +69,19 @@ Use these when Studio is open but the UI appears stale, telemetry is missing, or
 - `status` reports live project identity and current focus/workbench state
 - `endpoints` compares startup, current, and workspace hub endpoints
 - `renderer` returns the renderer-published snapshot plus bounded renderer errors
+- `console` returns bounded Studio-owned console/error records
 - `fetch-check` reports active HTTP checks for launcher/project/terminal dependencies plus renderer-observed websocket failures
 - `telemetry` reports per-model runtime health, renderer telemetry state, websocket state, and last sample/error details
 - `dom summary` and `dom query` inspect the live renderer DOM with input values redacted by default
 - `css query` reports computed styles, layout boxes, and stylesheet load visibility
 - `screenshot` captures the active window with dimensions, route/resource metadata, and basic validation signals
+- `snapshot` aggregates the main diagnostics slices into one bounded result
 
-The Studio control service also exposes bounded console diagnostics and screenshot capture. The MVP CLI surface must expose these as:
+When `snapshot` sees Remote Control active but no telemetry model health, the CLI adds a `cli_hints` entry that distinguishes "Studio is open to Remote Control" from "the robot runtime is launched and ready."
 
-```bash
-./tools/robotick studio <instance> diagnostics console
-./tools/robotick studio <instance> diagnostics screenshot
-```
+Screenshot files are written under the workspace root at `.robotick/diagnostics/`. A successful screenshot only proves that the active Studio window was captured; operator workflows should also verify the active workbench, launcher readiness, and renderer telemetry state before treating the image as semantically correct. Use `--resource-path`, `--wait-for-render`, and `--wait-for-telemetry` when the capture should activate a view and wait briefly before capture.
 
-The live control endpoint fallback below is temporary implementation-only plumbing and should disappear from normal agent recipes once the MVP CLI wrappers land:
-
-```bash
-curl -sS <control-endpoint>/v1/studio/diagnostics/console
-curl -sS <control-endpoint>/v1/studio/diagnostics/screenshot
-```
-
-Screenshot files are written under the workspace root at `.robotick/diagnostics/`. A successful screenshot only proves that the active Studio window was captured; operator workflows should also verify the active workbench, launcher readiness, and renderer telemetry state before treating the image as semantically correct.
-
-The current diagnostics surface works in both dev and production Studio builds. DOM/CSS inspection and aggregated snapshots remain follow-on work.
+The current diagnostics surface works in both dev and production Studio builds.
 
 The intended source of truth for console diagnostics is a Studio-owned diagnostics/logging pipeline rather than DevTools history. Renderer Chromium console events, main-process warnings, renderer-published diagnostics, and future plugin diagnostics should feed bounded structured buffers that the CLI and future MCP surfaces can query consistently in both dev and production.
 

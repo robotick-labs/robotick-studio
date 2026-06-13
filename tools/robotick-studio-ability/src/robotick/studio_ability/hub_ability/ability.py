@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from robotick_hub.abilities.base import AbilityManifest, AbilityStatus, HubContext
@@ -98,14 +98,17 @@ class StudioAbility:
             return JSONResponse(payload)
 
         @router.get(
-            "/v1/studio/instances/{instance_id}/diagnostics/{kind}",
+            "/v1/studio/instances/{instance_id}/diagnostics/{kind:path}",
             response_class=JSONResponse,
         )
-        def studio_instance_diagnostics(instance_id: str, kind: str) -> JSONResponse:
+        def studio_instance_diagnostics(instance_id: str, kind: str, request: Request) -> JSONResponse:
             context = context_provider()
-            if kind not in {"status", "endpoints", "renderer", "fetch-check", "telemetry"}:
+            if not kind:
                 raise HTTPException(status_code=404, detail=f"Unknown Studio diagnostics kind: {kind}")
-            payload = get_studio_diagnostics(context.workspace_root, instance_id, kind)
+            diagnostics_path = kind
+            if request.url.query:
+                diagnostics_path = f"{diagnostics_path}?{request.url.query}"
+            payload = get_studio_diagnostics(context.workspace_root, instance_id, diagnostics_path)
             if payload is None:
                 raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
             if "error" in payload:

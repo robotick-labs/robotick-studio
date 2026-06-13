@@ -120,12 +120,12 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         name="diagnostics",
-        usage="robotick studio <instance> diagnostics <status|endpoints|renderer|fetch-check|telemetry>",
+        usage="robotick studio <instance> diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
         summary="Query read-only Studio diagnostics through the control service",
-        shell_label="diagnostics <status|endpoints|renderer|fetch-check|telemetry>",
+        shell_label="diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
         description_lines=(
             "Query read-only diagnostics published by the targeted Studio instance.",
-            "The initial diagnostics slice exposes status, endpoint, renderer, fetch-check, and telemetry snapshots.",
+            "Diagnostics include status, endpoints, renderer, console, fetch-check, telemetry, DOM, CSS, screenshot, and snapshot data.",
         ),
         visible_in_studio_root=False,
         visible_in_bound_instance=True,

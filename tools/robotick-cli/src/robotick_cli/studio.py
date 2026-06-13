@@ -329,9 +329,10 @@ def handle_instance_diagnostics(
     if any(is_help_flag(arg) for arg in args):
         writeln(instance_help_text(instance.name))
         return CommandResult(exit_code=0)
-    if len(args) != 1 or args[0] not in {"status", "endpoints", "renderer", "fetch-check", "telemetry"}:
+    diagnostics_path = build_diagnostics_path(args)
+    if diagnostics_path is None:
         raise CliError(
-            f"Usage: robotick studio {instance.name} diagnostics <status|endpoints|renderer|fetch-check|telemetry>",
+            f"Usage: robotick studio {instance.name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom summary|dom query <selector>|css query <selector>|screenshot|snapshot>",
             code="invalid_arguments",
         )
     if not instance.control_endpoint:
@@ -345,10 +346,97 @@ def handle_instance_diagnostics(
         )
     payload = fetch_studio_hub_json(
         ctx.workspace_root,
-        f"/v1/studio/instances/{instance.name}/diagnostics/{args[0]}",
+        f"/v1/studio/instances/{instance.name}/diagnostics/{diagnostics_path}",
     )
+    add_diagnostics_cli_hints(payload)
     write_json(payload)
     return CommandResult(exit_code=0)
+
+
+def add_diagnostics_cli_hints(payload: dict[str, object]) -> None:
+    if payload.get("resource_type") != "studio_diagnostics_snapshot":
+        return
+    status = payload.get("status")
+    telemetry = payload.get("telemetry")
+    if not isinstance(status, dict) or not isinstance(telemetry, dict):
+        return
+    model_health = telemetry.get("model_health")
+    if (
+        status.get("active_workbench_id") == "remote-control"
+        and isinstance(model_health, list)
+        and len(model_health) == 0
+    ):
+        payload["cli_hints"] = [
+            {
+                "code": "remote_control_runtime_not_confirmed",
+                "message": (
+                    "Studio is showing Remote Control, but diagnostics has no live telemetry model health. "
+                    "Use `robotick launcher status` or `robotick launcher wait-ready --project <project>` "
+                    "to confirm the robot runtime is launched and ready."
+                ),
+            }
+        ]
+
+
+def build_diagnostics_path(args: list[str]) -> str | None:
+    if not args:
+        return None
+    simple_kinds = {
+        "status",
+        "endpoints",
+        "renderer",
+        "console",
+        "fetch-check",
+        "telemetry",
+        "snapshot",
+    }
+    if len(args) == 1 and args[0] in simple_kinds:
+        return args[0]
+    if args[:2] == ["dom", "summary"] and len(args) == 2:
+        return "dom/summary"
+    if len(args) >= 3 and args[:2] in (["dom", "query"], ["css", "query"]):
+        selector = args[2]
+        rest = args[3:]
+        query: dict[str, str] = {"selector": selector}
+        while rest:
+            option = rest.pop(0)
+            if option == "--limit" and rest:
+                query["limit"] = rest.pop(0)
+                continue
+            if args[:2] == ["css", "query"] and option == "--properties" and rest:
+                query["properties"] = rest.pop(0)
+                continue
+            return None
+        return f"{args[0]}/{args[1]}?{urlencode(query)}"
+    if args[0] == "screenshot":
+        query: dict[str, str] = {}
+        rest = args[1:]
+        while rest:
+            option = rest.pop(0)
+            if option == "--window" and rest:
+                query["window"] = rest.pop(0)
+                continue
+            if option == "--resource-path" and rest:
+                query["resource_path"] = rest.pop(0)
+                continue
+            if option == "--wait-for-render":
+                query["wait_for_render"] = "true"
+                continue
+            if option == "--wait-for-telemetry":
+                query["wait_for_telemetry"] = "true"
+                continue
+            if option == "--validate":
+                query["validate"] = "true"
+                continue
+            if option == "--wait-ms" and rest:
+                query["wait_ms"] = rest.pop(0)
+                continue
+            return None
+        suffix = "screenshot"
+        if query:
+            suffix = f"{suffix}?{urlencode(query)}"
+        return suffix
+    return None
 
 
 def quote_studio_resource_path(path_segments: tuple[str, ...]) -> str:
@@ -609,7 +697,7 @@ def launch_studio_via_hub(
                 if chained_result is not None
                 else "robotick_studio_open_result"
             ),
-            "project_name": project_name,
+            "project_name": project_name or instance.get("project_name"),
             "support": {
                 "hub": {"action": hub_action},
                 **dict(payload.get("support") or {}),
@@ -716,7 +804,17 @@ def wait_for_studio_control(
                     "endpoint": instance.control_endpoint,
                     "instance": instance.model_dump(),
                 }
-                active_path = fetch_active_studio_path(ctx, instance.name)
+                root_status = fetch_studio_status_or_none(ctx, instance.name)
+                if root_status:
+                    summary["status"] = root_status
+                    instance_summary = summary["instance"]
+                    if (
+                        isinstance(instance_summary, dict)
+                        and not instance_summary.get("project_name")
+                        and isinstance(root_status.get("selected_project_id"), str)
+                    ):
+                        instance_summary["project_name"] = root_status["selected_project_id"]
+                active_path = active_path_from_status(root_status) if root_status else fetch_active_studio_path(ctx, instance.name)
                 if active_path:
                     summary["active_path"] = active_path
                 return summary
@@ -742,19 +840,24 @@ def fetch_active_studio_path(ctx: AppContext, instance_name: str) -> list[str] |
         instance_status = fetch_studio_node_status(ctx.workspace_root, instance_name, ())
     except Exception:
         return None
+    return active_path_from_status(instance_status)
+
+
+def fetch_studio_status_or_none(ctx: AppContext, instance_name: str) -> dict[str, object] | None:
+    try:
+        return fetch_studio_node_status(ctx.workspace_root, instance_name, ())
+    except Exception:
+        return None
+
+
+def active_path_from_status(instance_status: dict[str, object] | None) -> list[str] | None:
+    if not instance_status:
+        return None
     active_window_id = instance_status.get("active_window_id")
     if not isinstance(active_window_id, str) or not active_window_id:
         return None
     active_path = ["windows", active_window_id]
-    try:
-        window_status = fetch_studio_node_status(
-            ctx.workspace_root,
-            instance_name,
-            ("windows", active_window_id),
-        )
-    except Exception:
-        return active_path
-    active_workbench_id = window_status.get("active_workbench_id")
+    active_workbench_id = instance_status.get("active_workbench_id")
     if isinstance(active_workbench_id, str) and active_workbench_id:
         active_path.extend(["workbenches", active_workbench_id])
     return active_path

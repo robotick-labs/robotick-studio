@@ -986,7 +986,7 @@ def fetch_studio_control_diagnostics(
         return None
     validate_studio_control_endpoint(instance.control_endpoint)
     try:
-        with urlopen(f"{instance.control_endpoint}/v1/diagnostics/{quote(kind, safe='')}", timeout=1.5) as response:
+        with urlopen(f"{instance.control_endpoint}/v1/diagnostics/{quote(kind, safe='/?=&%:,')}", timeout=1.5) as response:
             loaded = yaml.safe_load(response.read().decode("utf-8"))
     except URLError:
         return None

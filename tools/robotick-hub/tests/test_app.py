@@ -2231,17 +2231,21 @@ def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(
         ),
     )
 
+    captured_kinds: list[str] = []
+
+    def fake_diagnostics(_, instance_id, kind):
+        captured_kinds.append(kind)
+        if instance_id != "studio-1234":
+            return None
+        return {
+            "resource_type": f"studio_diagnostics_{kind.split('?')[0].replace('-', '_').replace('/', '_')}",
+            "instance_id": instance_id,
+            "current_hub_endpoint": "http://127.0.0.1:7000",
+        }
+
     monkeypatch.setattr(
         "robotick.studio_ability.hub_ability.ability.get_studio_diagnostics",
-        lambda _, instance_id, kind: (
-            {
-                "resource_type": f"studio_diagnostics_{kind.replace('-', '_')}",
-                "instance_id": instance_id,
-                "current_hub_endpoint": "http://127.0.0.1:7000",
-            }
-            if instance_id == "studio-1234" and kind in {"endpoints", "renderer", "fetch-check", "telemetry"}
-            else None
-        ),
+        fake_diagnostics,
     )
 
     with build_client(workspace) as client:
@@ -2249,6 +2253,9 @@ def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(
         renderer_response = client.get("/v1/studio/instances/studio-1234/diagnostics/renderer")
         fetch_check_response = client.get("/v1/studio/instances/studio-1234/diagnostics/fetch-check")
         telemetry_response = client.get("/v1/studio/instances/studio-1234/diagnostics/telemetry")
+        dom_query_response = client.get(
+            "/v1/studio/instances/studio-1234/diagnostics/dom/query?selector=%5Bdata-project-picker%5D"
+        )
 
     assert response.status_code == 200
     assert response.json()["resource_type"] == "studio_diagnostics_endpoints"
@@ -2259,6 +2266,9 @@ def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(
     assert fetch_check_response.json()["resource_type"] == "studio_diagnostics_fetch_check"
     assert telemetry_response.status_code == 200
     assert telemetry_response.json()["resource_type"] == "studio_diagnostics_telemetry"
+    assert dom_query_response.status_code == 200
+    assert dom_query_response.json()["resource_type"] == "studio_diagnostics_dom_query"
+    assert "dom/query?selector=%5Bdata-project-picker%5D" in captured_kinds
 
 
 def test_studio_diagnostics_endpoint_surfaces_provider_unavailable(

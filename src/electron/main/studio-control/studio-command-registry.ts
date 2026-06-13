@@ -11,6 +11,7 @@ import {
   getStudioDiagnosticsFetchCheck,
   getStudioDiagnosticsRenderer,
   getStudioDiagnosticsScreenshot,
+  getStudioDiagnosticsSnapshot,
   getStudioDiagnosticsStatus,
   getStudioDiagnosticsTelemetry,
 } from "./studio-diagnostics";
@@ -122,6 +123,7 @@ function diagnosticsKind(
   | "dom-query"
   | "css-query"
   | "screenshot"
+  | "snapshot"
   | null {
   if (
     pathname === "/v1/diagnostics/status" ||
@@ -182,6 +184,12 @@ function diagnosticsKind(
     pathname === "/v1/studio/diagnostics/screenshot"
   ) {
     return "screenshot";
+  }
+  if (
+    pathname === "/v1/diagnostics/snapshot" ||
+    pathname === "/v1/studio/diagnostics/snapshot"
+  ) {
+    return "snapshot";
   }
   return null;
 }
@@ -390,7 +398,7 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
         };
       },
     },
-    ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "dom-summary", "dom-query", "css-query", "screenshot"] as const).map(
+    ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "dom-summary", "dom-query", "css-query", "screenshot", "snapshot"] as const).map(
       (kind) => {
         const commandId = `studio.diagnostics.${kind}`;
         return {
@@ -410,6 +418,7 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
               kind === "dom-summary" ||
               kind === "dom-query" ||
               kind === "css-query" ||
+              kind === "snapshot" ||
               kind === "screenshot",
             resource_scope: "diagnostics",
           },
@@ -441,7 +450,9 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
                               ? await getStudioDiagnosticsDomQuery(dependencies.diagnosticsProvider, params)
                               : kind === "css-query"
                                 ? await getStudioDiagnosticsCssQuery(dependencies.diagnosticsProvider, params)
-                                : await (async () => {
+                                : kind === "snapshot"
+                                  ? await getStudioDiagnosticsSnapshot(dependencies.diagnosticsProvider)
+                                  : await (async () => {
                                     const resourcePath = resourcePathParam(params.resource_path);
                                     if (resourcePath) {
                                       dependencies.activateResource(resourcePath, false);

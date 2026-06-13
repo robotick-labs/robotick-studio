@@ -1403,4 +1403,74 @@ describe("Studio control runtime status", () => {
       ],
     });
   });
+
+  it("returns aggregate diagnostics snapshots", async () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-diagnostics-"));
+    const response = {
+      statusCode: 0,
+      body: "",
+      writeHead(statusCode: number) {
+        this.statusCode = statusCode;
+      },
+      end(chunk: string) {
+        this.body += chunk;
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/diagnostics/snapshot",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      createControlDependencies(workspaceRoot, {
+        diagnosticsProvider: {
+          getOpenWindowScopes: () => ["main"],
+          getActiveWindowScope: () => "main",
+          fetchDiagnosticUrl: async (target) => ({
+            target_id: target.target_id,
+            effective_url: target.url,
+            method: target.method,
+            origin: target.origin,
+            ok: true,
+            status_code: 200,
+            response_headers: {},
+            error_name: null,
+            error_message: null,
+            failure_classification: null,
+          }),
+          executeRendererDiagnosticsScript: async () => ({
+            resource_type: "studio_diagnostics_dom_summary",
+            window_id: "main",
+            url: "http://localhost:5173/remote-control",
+            document_title: "Robotick Studio",
+            active_route: "/remote-control",
+            visible_workbench_root: "main Remote Control",
+            focused_element_summary: null,
+            selected_project_text: "Barr.e",
+            redactions: [],
+            truncation: {
+              truncated: false,
+              original_count: 1,
+              returned_count: 1,
+              limit: 50,
+            },
+          }),
+        },
+      })
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      resource_type: "studio_diagnostics_snapshot",
+      instance_id: "studio-1234",
+      status: { resource_type: "studio_diagnostics_status" },
+      endpoints: { resource_type: "studio_diagnostics_endpoints" },
+      renderer: { resource_type: "studio_diagnostics_renderer" },
+      fetch_check: { resource_type: "studio_diagnostics_fetch_check" },
+      telemetry: { resource_type: "studio_diagnostics_telemetry" },
+      dom_summary: { resource_type: "studio_diagnostics_dom_summary" },
+    });
+  });
 });

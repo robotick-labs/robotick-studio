@@ -1232,7 +1232,10 @@ def test_instance_help_lists_status_and_windows_context() -> None:
 
     assert result.returncode == 0
     assert f"robotick studio {instance_name} status" in result.stdout
-    assert f"robotick studio {instance_name} diagnostics <status|endpoints|renderer|fetch-check|telemetry>" in result.stdout
+    assert (
+        f"robotick studio {instance_name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>"
+        in result.stdout
+    )
     assert f"robotick studio {instance_name} <path...> activate" in result.stdout
     assert f"robotick studio {instance_name} select-project <project>" in result.stdout
     assert f"robotick studio {instance_name} windows" in result.stdout
@@ -1465,6 +1468,145 @@ def test_instance_diagnostics_telemetry_queries_hub_endpoint(
         "resource_type": "studio_diagnostics_telemetry",
         "instance_id": "studio-1234",
     }
+
+
+@pytest.mark.parametrize(
+    ("args", "expected_path", "resource_type"),
+    [
+        (
+            ["console"],
+            "/v1/studio/instances/studio-1234/diagnostics/console",
+            "studio_diagnostics_console",
+        ),
+        (
+            ["dom", "summary"],
+            "/v1/studio/instances/studio-1234/diagnostics/dom/summary",
+            "studio_diagnostics_dom_summary",
+        ),
+        (
+            ["dom", "query", "[data-project-picker]"],
+            "/v1/studio/instances/studio-1234/diagnostics/dom/query?selector=%5Bdata-project-picker%5D",
+            "studio_diagnostics_dom_query",
+        ),
+        (
+            ["css", "query", "[data-project-picker]", "--properties", "display,visibility"],
+            "/v1/studio/instances/studio-1234/diagnostics/css/query?selector=%5Bdata-project-picker%5D&properties=display%2Cvisibility",
+            "studio_diagnostics_css_query",
+        ),
+        (
+            [
+                "screenshot",
+                "--window",
+                "main",
+                "--resource-path",
+                "windows/main/workbenches/remote-control",
+                "--wait-for-render",
+                "--wait-for-telemetry",
+                "--validate",
+            ],
+            "/v1/studio/instances/studio-1234/diagnostics/screenshot?window=main&resource_path=windows%2Fmain%2Fworkbenches%2Fremote-control&wait_for_render=true&wait_for_telemetry=true&validate=true",
+            "studio_diagnostics_screenshot",
+        ),
+        (
+            ["snapshot"],
+            "/v1/studio/instances/studio-1234/diagnostics/snapshot",
+            "studio_diagnostics_snapshot",
+        ),
+    ],
+)
+def test_instance_diagnostics_extended_surface_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    expected_path: str,
+    resource_type: str,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": resource_type,
+            "instance_id": "studio-1234",
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", *args],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == expected_path
+    assert captured["output"] == {
+        "resource_type": resource_type,
+        "instance_id": "studio-1234",
+    }
+
+
+def test_instance_diagnostics_snapshot_adds_remote_control_runtime_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.fetch_studio_hub_json",
+        lambda _workspace, _path: {
+            "resource_type": "studio_diagnostics_snapshot",
+            "instance_id": "studio-1234",
+            "status": {"active_workbench_id": "remote-control"},
+            "telemetry": {"model_health": []},
+        },
+    )
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "diagnostics", "snapshot"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["output"]["cli_hints"] == [
+        {
+            "code": "remote_control_runtime_not_confirmed",
+            "message": (
+                "Studio is showing Remote Control, but diagnostics has no live telemetry model health. "
+                "Use `robotick launcher status` or `robotick launcher wait-ready --project <project>` "
+                "to confirm the robot runtime is launched and ready."
+            ),
+        }
+    ]
 
 
 def test_instance_diagnostics_requires_control_endpoint(

@@ -23,6 +23,7 @@ import type {
   StudioControlDiagnosticsDomSummary,
   StudioControlDiagnosticsDomQuery,
   StudioControlDiagnosticsCssQuery,
+  StudioControlDiagnosticsSnapshot,
 } from "../../common/studio-control-contract";
 import type { StudioRuntimeSnapshotProvider } from "./studio-runtime-snapshot";
 import {
@@ -1030,6 +1031,37 @@ export async function getStudioDiagnosticsCssQuery(
     })
   );
   return result ? { ...result, instance_id: provider.instanceName, window_id: windowId, selector } : null;
+}
+
+export async function getStudioDiagnosticsSnapshot(
+  provider: StudioDiagnosticsProvider
+): Promise<StudioControlDiagnosticsSnapshot> {
+  const [status, endpoints, renderer, consoleDiagnostics, fetchCheck, telemetry] =
+    await Promise.all([
+      getStudioDiagnosticsStatus(provider),
+      getStudioDiagnosticsEndpoints(provider),
+      getStudioDiagnosticsRenderer(provider),
+      getStudioDiagnosticsConsole(provider),
+      getStudioDiagnosticsFetchCheck(provider),
+      getStudioDiagnosticsTelemetry(provider),
+    ]);
+  return {
+    resource_type: "studio_diagnostics_snapshot",
+    instance_id: provider.instanceName,
+    generated_at: new Date().toISOString(),
+    status,
+    endpoints,
+    renderer,
+    console: {
+      records: consoleDiagnostics.records,
+      truncation: consoleDiagnostics.truncation,
+    },
+    fetch_check: fetchCheck,
+    telemetry,
+    dom_summary: await getStudioDiagnosticsDomSummary(provider),
+    screenshot: null,
+    redactions: [],
+  };
 }
 
 export async function getStudioDiagnosticsScreenshot(
