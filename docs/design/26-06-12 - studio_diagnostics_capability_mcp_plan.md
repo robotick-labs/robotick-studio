@@ -89,6 +89,8 @@ The CLI should be a convenient local surface over the same capability/resource r
 - line and column
 - optional stack or structured payload when available
 
+The intended implementation is not "query DevTools history". Studio should own a bounded diagnostics log pipeline and expose filtered snapshots from that pipeline. Chromium console events from renderer windows should be captured through `webContents` events and normalized into the same event stream as main-process diagnostics, renderer-published errors, fetch failures, websocket failures, and future plugin diagnostics.
+
 `studio diagnostics fetch-check <target>` should ask the renderer to perform the same request the UI uses and report:
 
 - effective URL
@@ -159,9 +161,43 @@ Initial targets:
 - Use preload IPC for renderer diagnostics requests.
 - Let renderer modules register diagnostic providers with a small registry, for example `window.robotick.diagnostics.registerProvider("launcher", provider)`.
 - Keep a bounded in-memory ring buffer for console records, fetch failures, websocket failures, and renderer errors.
+- Prefer a shared diagnostics/logging pipeline over isolated buffers. Different producers should publish structured events into one Studio-owned sink, with diagnostics routes exposing bounded per-window, per-source, and aggregate views over that sink.
 - Support production builds. Do not depend on Vite HMR or DevTools being open.
 - Redact sensitive values by default. Redact input values, tokens, auth headers, environment secrets, and query params with sensitive names.
 - Keep payloads bounded. Large DOM/CSS responses should be truncated with explicit truncation metadata.
+
+Diagnostics/logging pipeline shape:
+
+- Canonical event schema with timestamp, severity, source, window scope, message, and optional structured payload.
+- Producers:
+  - Electron main diagnostics and warnings
+  - renderer Chromium console events captured via `webContents`
+  - renderer-published app diagnostics and errors
+  - fetch/websocket failure capture
+  - future plugin diagnostics providers
+- Views:
+  - per-window console ring buffers
+  - per-source filtered slices such as `renderer:<window>` or `plugin:<id>`
+  - bounded aggregate snapshots for CLI/MCP resources
+  - an in-Studio target-log viewer that can show runtime logs, Studio diagnostics logs, or both
+- DevTools is a secondary human debugging surface only. It is not the authoritative store for agent-facing diagnostics history.
+
+## Target Logs Panel
+
+MVP should avoid adding a separate Studio Log panel alongside Terminal. Instead, evolve the existing Terminal viewer into a target-log viewer while retaining the visible `Terminal` name.
+
+Initial targets:
+
+- `runtime`: launcher/model/runtime logs, preserving the current Terminal behavior
+- `studio`: Studio diagnostics/logging pipeline events, including main-process diagnostics, renderer Chromium console records, renderer-published diagnostics/errors, fetch failures, and websocket failures
+
+The panel should default to both targets enabled. A checkbox/dropdown target selector should let users show `runtime`, `studio`, or both. When both are enabled, each row must clearly carry source/target metadata so runtime output and Studio diagnostics are not collapsed into an undifferentiated stream. The visible panel title should remain `Terminal` for MVP to preserve existing project documents and user expectations.
+
+This keeps the visible tool count low while preserving data-model separation:
+
+- runtime/launcher logs remain runtime data
+- Studio diagnostics logs remain Studio-owned diagnostic data
+- plugins can later add new targets such as `plugin:<id>` without a new panel type
 
 ## Studio Command Publication State
 

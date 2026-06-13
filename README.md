@@ -68,6 +68,10 @@ Use these when Studio is open but the UI appears stale, telemetry is missing, or
 
 The current diagnostics surface works in both dev and production Studio builds. Console capture, DOM/CSS inspection, screenshots, and aggregated snapshots remain follow-on work.
 
+When console diagnostics land, the intended source of truth is a Studio-owned diagnostics/logging pipeline rather than DevTools history. Renderer Chromium console events, main-process warnings, renderer-published diagnostics, and future plugin diagnostics should feed bounded structured buffers that the CLI and future MCP surfaces can query consistently in both dev and production.
+
+The in-app log viewer should use target logs rather than separate panels for each log family. The existing `Terminal` surface should keep that visible name for MVP while growing target selection for `runtime` and `studio`, defaulting to both, with each row labelled by source so launcher/model logs and Studio diagnostics remain distinguishable.
+
 Production-build examples:
 
 ```bash
@@ -87,5 +91,7 @@ Current ownership is intentionally split like this:
 - hub owns bootstrap and lifecycle concerns: project discovery, Studio open/create, tracked instances, control-endpoint registration, quit, and unavailable-provider handling
 - Studio main owns live Studio behavior: resource tree, focused state, activation, project selection, and diagnostics
 - renderer publishes view-local state upward for diagnostics, but it is not the authority for process, window, or resource truth
+- diagnostics history should be Studio-owned and queryable without DevTools: Electron main should broker the shared diagnostics/logging pipeline, while renderer and plugin surfaces publish into it as structured events
+- the visible `Terminal` UI should become a target-log viewer over separate sources, not separate duplicated panels for runtime and Studio logs
 
 The current CLI spelling is still mostly hard-coded, but live Studio status and diagnostics now come from the Studio control endpoint rather than hub-synthesized fallback state. The long-term direction is a Studio-owned command registry in main with hub acting as a thin bootstrap and forwarding layer.
