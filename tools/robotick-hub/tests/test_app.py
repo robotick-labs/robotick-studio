@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
 
 from fastapi.testclient import TestClient
 import pytest
@@ -2130,6 +2131,33 @@ def test_studio_status_endpoint_surfaces_provider_unavailable_without_control_en
     assert response.json()["error"]["code"] == "provider_unavailable"
 
 
+def test_studio_status_endpoint_surfaces_provider_unavailable_for_unreachable_control_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick.studio_ability.domain.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("connection refused")),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/status")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+
+
 def test_studio_focused_endpoint_surfaces_provider_unavailable_without_control_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2151,6 +2179,41 @@ def test_studio_focused_endpoint_surfaces_provider_unavailable_without_control_e
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "provider_unavailable"
+
+
+def test_studio_deep_status_endpoint_surfaces_not_found_for_missing_control_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda _instance: True)
+    write_instance_record(
+        workspace,
+        StudioInstanceRecord(
+            name="studio-1234",
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+    monkeypatch.setattr(
+        "robotick.studio_ability.domain.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            HTTPError(
+                "http://127.0.0.1:7123/v1/studio/windows/missing-window/status",
+                404,
+                "Not Found",
+                hdrs=None,
+                fp=None,
+            )
+        ),
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/studio/instances/studio-1234/windows/missing-window/status")
+
+    assert response.status_code == 404
+    assert "Studio resource not found" in response.json()["detail"]
 
 
 def test_studio_diagnostics_endpoint_proxies_to_control_endpoint(

@@ -212,7 +212,7 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 _section("Output:", color=color),
                 "  status returns JSON for the currently bound Studio node.",
                 "  diagnostics returns read-only control-service diagnostics snapshots.",
-                "  Some fields may be config-derived until live Studio state is available.",
+                "  Live Studio status requires a running control service on the bound instance.",
                 "",
                 _section("Examples:", color=color),
                 "  status",

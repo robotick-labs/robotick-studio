@@ -1,16 +1,18 @@
 # robotick-studio
 
-Robotick Studio is the Electron shell and supporting services that wrap the `robotick-hub` web IDE so it can run as a full desktop experience. The same `robotick-hub` renderer lives under `src/renderer` and is both hosted as a web IDE and embedded inside Robotick Studio.
+Robotick Studio is the desktop app and supporting services that wrap the `robotick-hub` web IDE so it can run as a full desktop experience. The same `robotick-hub` renderer lives under `src/renderer` and is both hosted as a web IDE and embedded inside Robotick Studio.
 
 ## Layers in this repo
 
 - **`robotick-hub`** (renderer): Vite + React web IDE UI with telemetry viewers, editors, and the launcher experience.
-- **`robotick-studio`** (Electron + native services): Electron main/preload, local launcher/telemetry services, and helpers that provide the native shell, configuration storage, and project plumbing.
+- **`robotick-studio`** (desktop app + native services): Electron main/preload, local launcher/telemetry services, and helpers that provide the native shell, configuration storage, and project plumbing.
 
 ## Quick scripts
 
 - `npm run dev` / `npm run build` / `npm run preview` — work with the renderer web IDE directly.
-- `npm run build:electron` / `npm run electron` — compile the Electron code and start Robotick Studio.
+- `npm run build:studio` / `npm run studio` — compile the Studio desktop runtime and start Robotick Studio.
+- `npm run studio-dev` — start the hub-managed Studio dev wrapper.
+- `npm run dev:studio` — run the Vite renderer and Studio desktop runtime together for the primary hot-reload workflow.
 - `npm run test` — runs both renderer and Electron vitest suites.
 
 ## Studio document model
@@ -64,7 +66,7 @@ Use these when Studio is open but the UI appears stale, telemetry is missing, or
 - `fetch-check` reports captured fetch and websocket failures from the UI layer
 - `telemetry` reports renderer-side telemetry diagnostics for the open windows
 
-The current diagnostics surface works in both dev and production Electron builds. Console capture, DOM/CSS inspection, screenshots, and aggregated snapshots remain follow-on work.
+The current diagnostics surface works in both dev and production Studio builds. Console capture, DOM/CSS inspection, screenshots, and aggregated snapshots remain follow-on work.
 
 Production-build examples:
 
@@ -83,7 +85,7 @@ These are intended to replace the old habit of opening DevTools just to confirm 
 Current ownership is intentionally split like this:
 
 - hub owns bootstrap and lifecycle concerns: project discovery, Studio open/create, tracked instances, control-endpoint registration, quit, and unavailable-provider handling
-- Studio Electron main owns live Studio behavior: resource tree, focused state, activation, project selection, and diagnostics
+- Studio main owns live Studio behavior: resource tree, focused state, activation, project selection, and diagnostics
 - renderer publishes view-local state upward for diagnostics, but it is not the authority for process, window, or resource truth
 
-The current CLI spelling is still mostly hard-coded, but live Studio status and diagnostics now come from the Studio control endpoint rather than hub-synthesized fallback state. The long-term direction is a Studio-owned Electron command registry with hub acting as a thin bootstrap and forwarding layer.
+The current CLI spelling is still mostly hard-coded, but live Studio status and diagnostics now come from the Studio control endpoint rather than hub-synthesized fallback state. The long-term direction is a Studio-owned command registry in main with hub acting as a thin bootstrap and forwarding layer.

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import json
+from urllib.parse import unquote, urlparse
 
 import pytest
 
@@ -51,6 +55,8 @@ from robotick_cli.studio import CommandResult
 CLI_DIR = Path(__file__).resolve().parents[1]
 CLI_SRC = CLI_DIR / "src"
 HUB_DIR = CLI_DIR.parent / "robotick-hub"
+LAUNCHER_DIR = CLI_DIR.parent / "robotick-launcher"
+STUDIO_ABILITY_DIR = CLI_DIR.parent / "robotick-studio-ability"
 
 
 def compatible_hub_health(*, tray_active: bool = False) -> dict[str, object]:
@@ -156,6 +162,12 @@ def create_fake_workspace() -> Path:
         encoding="utf-8",
     )
     (studio_root / "tools" / "robotick-hub").symlink_to(HUB_DIR, target_is_directory=True)
+    (studio_root / "tools" / "robotick-launcher").symlink_to(
+        LAUNCHER_DIR, target_is_directory=True
+    )
+    (studio_root / "tools" / "robotick-studio-ability").symlink_to(
+        STUDIO_ABILITY_DIR, target_is_directory=True
+    )
     return root
 
 
@@ -220,6 +232,205 @@ def wait_for(condition, timeout_ms: int = 3000) -> None:
 def opened_instance_name_from_stdout(stdout: str) -> str:
     payload = json.loads(stdout)
     return str(payload["instance"]["name"])
+
+
+@contextmanager
+def fake_studio_control_server(
+    responses: dict[str, tuple[int, dict[str, object]]],
+):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            status_code, payload = responses.get(
+                path,
+                (
+                    404,
+                    {
+                        "error": {
+                            "code": "not_found",
+                            "message": f"Unhandled Studio control path: {path}",
+                        }
+                    },
+                ),
+            )
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A003
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}"
+    try:
+        yield endpoint
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def live_studio_instance(
+    workspace: Path,
+    *,
+    instance_name: str = "studio-1234",
+    control_endpoint: str,
+    project_name: str = "barr-e",
+) -> str:
+    from robotick_cli.instances import write_instance_record
+
+    child = subprocess.Popen(
+        ["bash", "-lc", "exec -a run-studio-dev-direct.sh sleep 30"],
+        start_new_session=True,
+    )
+    try:
+        write_instance_record(
+            workspace,
+            InstanceRecord(
+                name=instance_name,
+                pid=child.pid,
+                mode="dev",
+                project_name=project_name,
+                started_at="2026-06-06T12:00:00+00:00",
+                control_endpoint=control_endpoint,
+            ),
+        )
+        yield instance_name
+    finally:
+        terminate_pid(child.pid)
+
+
+@contextmanager
+def managed_headless_hub(workspace: Path):
+    previous = os.environ.get("ROBOTICK_HUB_FORCE_HEADLESS")
+    os.environ["ROBOTICK_HUB_FORCE_HEADLESS"] = "1"
+    record = ensure_hub(workspace)
+    try:
+        yield record
+    finally:
+        terminate_pid(record.pid)
+        if previous is None:
+            os.environ.pop("ROBOTICK_HUB_FORCE_HEADLESS", None)
+        else:
+            os.environ["ROBOTICK_HUB_FORCE_HEADLESS"] = previous
+
+
+def studio_status_fixture(instance_name: str = "studio-1234") -> dict[str, tuple[int, dict[str, object]]]:
+    return {
+        "/v1/status": (
+            200,
+            {
+                "resource_type": "studio_instance",
+                "id": instance_name,
+                "project_name": "barr-e",
+                "state_sources": {"active_window_id": "live"},
+                "child_collections": [{"name": "windows", "resource_type": "studio_windows"}],
+                "children": {
+                    "windows": [
+                        {
+                            "resource_type": "studio_window",
+                            "id": "main",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/status": (
+            200,
+            {
+                "resource_type": "studio_windows",
+                "child_collections": [],
+                "child_resources": [{"id": "main"}, {"id": "child-window-1"}],
+            },
+        ),
+        "/v1/studio/windows/main/status": (
+            200,
+            {
+                "resource_type": "studio_window",
+                "id": "main",
+                "state_sources": {"active_workbench_id": "live"},
+                "child_collections": [{"name": "workbenches", "resource_type": "studio_workbenches"}],
+                "children": {
+                    "workbenches": [
+                        {
+                            "resource_type": "studio_workbench",
+                            "id": "remote-control",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/status": (
+            200,
+            {
+                "resource_type": "studio_workbenches",
+                "child_collections": [],
+                "child_resources": [{"id": "remote-control"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/status": (
+            200,
+            {
+                "resource_type": "studio_workbench",
+                "id": "remote-control",
+                "active_layout_id": "main:remote-control:default",
+                "state_sources": {"active_layout_id": "live"},
+                "child_collections": [{"name": "layouts", "resource_type": "studio_layouts"}],
+                "children": {
+                    "layouts": [
+                        {
+                            "resource_type": "studio_layout",
+                            "id": "main:remote-control:default",
+                        }
+                    ]
+                },
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/status": (
+            200,
+            {
+                "resource_type": "studio_layouts",
+                "child_collections": [],
+                "child_resources": [{"id": "main:remote-control:default"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/status": (
+            200,
+            {
+                "resource_type": "studio_layout",
+                "id": "main:remote-control:default",
+                "diagnostics": {"source": "computed", "items": []},
+                "child_collections": [{"name": "panels", "resource_type": "studio_panels"}],
+                "child_resources": [{"id": "panel-face-preview"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/panels/status": (
+            200,
+            {
+                "resource_type": "studio_panels",
+                "child_collections": [],
+                "child_resources": [{"id": "panel-face-preview"}],
+            },
+        ),
+        "/v1/studio/windows/main/workbenches/remote-control/layouts/main:remote-control:default/panels/panel-face-preview/status": (
+            200,
+            {
+                "resource_type": "studio_panel",
+                "id": "panel-face-preview",
+                "settings": {"source": "face-camera"},
+                "diagnostics": {"source": "placeholder", "items": []},
+                "child_collections": [],
+                "child_resources": [],
+            },
+        ),
+    }
 
 
 def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
@@ -294,7 +505,7 @@ def test_bound_studio_help_describes_navigation_and_output() -> None:
     assert "Current context: studio/studio-12345" in text
     assert "Navigation:" in text
     assert "Output:" in text
-    assert "Some fields may be config-derived until live Studio state is available." in text
+    assert "Live Studio status requires a running control service on the bound instance." in text
 
 
 def test_studio_help_is_generated_from_command_registry() -> None:
@@ -965,22 +1176,23 @@ def test_top_level_launcher_command_remains_available_inside_studio_shell_contex
 
 def test_bound_instance_ls_advertises_workbench_and_quit_as_actions() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
-    text = format_shell_context(
-        ShellState(namespace="studio", instance_name=instance_name),
-        str(workspace),
-    )
-    assert f"Available in studio/{instance_name}:" in text
-    assert "Contexts:\n- windows/" in text
-    assert "Actions:" in text
-    assert "- status" in text
-    assert "Print the currently bound Studio resource as JSON" in text
-    assert "- select-project [project]  Switch the selected project inside this Studio instance" in text
-    assert "- quit" in text
-    assert "Close this Studio instance" in text
-    assert "- back" in text
-    assert "Return to the parent shell context" in text
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                text = format_shell_context(
+                    ShellState(namespace="studio", instance_name="studio-1234"),
+                    str(workspace),
+                )
+                assert "Available in studio/studio-1234:" in text
+                assert "Contexts:\n- windows/" in text
+                assert "Actions:" in text
+                assert "- status" in text
+                assert "Print the currently bound Studio resource as JSON" in text
+                assert "- select-project [project]  Switch the selected project inside this Studio instance" in text
+                assert "- quit" in text
+                assert "Close this Studio instance" in text
+                assert "- back" in text
+                assert "Return to the parent shell context" in text
 
 
 def test_bound_instance_ls_advertises_activate_for_activatable_resource(
@@ -1383,53 +1595,56 @@ def test_instance_activate_requires_control_endpoint(
 
 def test_instance_status_returns_structured_payload() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_cli(["studio", "studio-1234", "status"], workspace)
 
-    result = run_cli(["studio", instance_name, "status"], workspace)
-
-    assert result.returncode == 0
-    payload = json.loads(result.stdout)
-    assert payload["resource_type"] == "studio_instance"
-    assert payload["id"] == instance_name
-    assert payload["project_name"] == "barr-e"
-    assert payload["state_sources"]["active_window_id"] == "config"
-    assert payload["children"]["windows"][0]["id"] == "main"
-    assert payload["child_collections"][0]["name"] == "windows"
-    assert payload["child_collections"][0]["resource_type"] == "studio_windows"
+                assert result.returncode == 0
+                payload = json.loads(result.stdout)
+                assert payload["resource_type"] == "studio_instance"
+                assert payload["id"] == "studio-1234"
+                assert payload["project_name"] == "barr-e"
+                assert payload["state_sources"]["active_window_id"] == "live"
+                assert payload["children"]["windows"][0]["id"] == "main"
+                assert payload["child_collections"][0]["name"] == "windows"
+                assert payload["child_collections"][0]["resource_type"] == "studio_windows"
 
 
 def test_deep_studio_navigation_and_status_work_in_repl() -> None:
     workspace = create_fake_workspace()
-    result = run_shell(
-        [
-            "studio",
-            "open barr-e",
-            "status",
-            "cd windows",
-            "ls",
-            "cd main",
-            "cd workbenches",
-            "cd remote-control",
-            "cd layouts",
-            "cd main:remote-control:default",
-            "status",
-            "cd panels",
-            "cd panel-face-preview",
-            "status",
-            "exit",
-        ],
-        workspace,
-    )
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_shell(
+                    [
+                        "studio",
+                        "cd studio-1234",
+                        "status",
+                        "cd windows",
+                        "ls",
+                        "cd main",
+                        "cd workbenches",
+                        "cd remote-control",
+                        "cd layouts",
+                        "cd main:remote-control:default",
+                        "status",
+                        "cd panels",
+                        "cd panel-face-preview",
+                        "status",
+                        "exit",
+                    ],
+                    workspace,
+                )
 
-    assert result.returncode == 0
-    assert '"resource_type": "studio_instance"' in result.stdout
-    assert "robotick:studio:studio-" in result.stdout
-    assert "Contexts:\n- main/\n- child-window-1/" in result.stdout
-    assert '"resource_type": "studio_layout"' in result.stdout
-    assert '"id": "main:remote-control:default"' in result.stdout
-    assert '"resource_type": "studio_panel"' in result.stdout
-    assert '"id": "panel-face-preview"' in result.stdout
+                assert result.returncode == 0
+                assert '"resource_type": "studio_instance"' in result.stdout
+                assert "robotick:studio:studio-1234" in result.stdout
+                assert "Contexts:\n- main/\n- child-window-1/" in result.stdout
+                assert '"resource_type": "studio_layout"' in result.stdout
+                assert '"id": "main:remote-control:default"' in result.stdout
+                assert '"resource_type": "studio_panel"' in result.stdout
+                assert '"id": "panel-face-preview"' in result.stdout
 
 
 def test_repl_cd_then_activate_targets_current_studio_path(
@@ -1589,112 +1804,112 @@ def test_repl_back_updates_current_studio_path_before_activate(
 
 def test_one_shot_deep_layout_and_panel_status() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                layout_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "layouts",
+                        "main:remote-control:default",
+                        "status",
+                    ],
+                    workspace,
+                )
+                panel_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "layouts",
+                        "main:remote-control:default",
+                        "panels",
+                        "panel-face-preview",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    layout_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "layouts",
-            "main:remote-control:default",
-            "status",
-        ],
-        workspace,
-    )
-    panel_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "layouts",
-            "main:remote-control:default",
-            "panels",
-            "panel-face-preview",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert layout_result.returncode == 0
-    assert panel_result.returncode == 0
-    layout_payload = json.loads(layout_result.stdout)
-    panel_payload = json.loads(panel_result.stdout)
-    assert layout_payload["resource_type"] == "studio_layout"
-    assert layout_payload["id"] == "main:remote-control:default"
-    assert layout_payload["diagnostics"]["source"] == "computed"
-    assert layout_payload["diagnostics"]["items"] == []
-    assert panel_payload["resource_type"] == "studio_panel"
-    assert panel_payload["id"] == "panel-face-preview"
-    assert panel_payload["settings"]["source"] == "face-camera"
-    assert panel_payload["diagnostics"]["source"] == "placeholder"
-    assert panel_payload["diagnostics"]["items"] == []
+                assert layout_result.returncode == 0
+                assert panel_result.returncode == 0
+                layout_payload = json.loads(layout_result.stdout)
+                panel_payload = json.loads(panel_result.stdout)
+                assert layout_payload["resource_type"] == "studio_layout"
+                assert layout_payload["id"] == "main:remote-control:default"
+                assert layout_payload["diagnostics"]["source"] == "computed"
+                assert layout_payload["diagnostics"]["items"] == []
+                assert panel_payload["resource_type"] == "studio_panel"
+                assert panel_payload["id"] == "panel-face-preview"
+                assert panel_payload["settings"]["source"] == "face-camera"
+                assert panel_payload["diagnostics"]["source"] == "placeholder"
+                assert panel_payload["diagnostics"]["items"] == []
 
 
 def test_one_shot_window_and_workbench_status() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                window_result = run_cli(
+                    ["studio", "studio-1234", "windows", "main", "status"],
+                    workspace,
+                )
+                workbench_result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "main",
+                        "workbenches",
+                        "remote-control",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    window_result = run_cli(
-        ["studio", instance_name, "windows", "main", "status"],
-        workspace,
-    )
-    workbench_result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "main",
-            "workbenches",
-            "remote-control",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert window_result.returncode == 0
-    assert workbench_result.returncode == 0
-    window_payload = json.loads(window_result.stdout)
-    workbench_payload = json.loads(workbench_result.stdout)
-    assert window_payload["resource_type"] == "studio_window"
-    assert window_payload["id"] == "main"
-    assert window_payload["state_sources"]["active_workbench_id"] == "config"
-    assert window_payload["children"]["workbenches"][0]["id"] == "remote-control"
-    assert workbench_payload["resource_type"] == "studio_workbench"
-    assert workbench_payload["id"] == "remote-control"
-    assert workbench_payload["active_layout_id"] == "main:remote-control:default"
-    assert workbench_payload["state_sources"]["active_layout_id"] == "config"
-    assert workbench_payload["children"]["layouts"][0]["id"] == "main:remote-control:default"
+                assert window_result.returncode == 0
+                assert workbench_result.returncode == 0
+                window_payload = json.loads(window_result.stdout)
+                workbench_payload = json.loads(workbench_result.stdout)
+                assert window_payload["resource_type"] == "studio_window"
+                assert window_payload["id"] == "main"
+                assert window_payload["state_sources"]["active_workbench_id"] == "live"
+                assert window_payload["children"]["workbenches"][0]["id"] == "remote-control"
+                assert workbench_payload["resource_type"] == "studio_workbench"
+                assert workbench_payload["id"] == "remote-control"
+                assert workbench_payload["active_layout_id"] == "main:remote-control:default"
+                assert workbench_payload["state_sources"]["active_layout_id"] == "live"
+                assert workbench_payload["children"]["layouts"][0]["id"] == "main:remote-control:default"
 
 
 def test_invalid_deep_studio_context_fails_clearly() -> None:
     workspace = create_fake_workspace()
-    opened = run_cli(["studio", "open", "barr-e"], workspace)
-    instance_name = opened_instance_name_from_stdout(opened.stdout)
+    with fake_studio_control_server(studio_status_fixture()) as endpoint:
+        with live_studio_instance(workspace, control_endpoint=endpoint):
+            with managed_headless_hub(workspace):
+                result = run_cli(
+                    [
+                        "studio",
+                        "studio-1234",
+                        "windows",
+                        "missing-window",
+                        "status",
+                    ],
+                    workspace,
+                )
 
-    result = run_cli(
-        [
-            "studio",
-            instance_name,
-            "windows",
-            "missing-window",
-            "status",
-        ],
-        workspace,
-    )
-
-    assert result.returncode == 1
-    payload = json.loads(result.stderr)
-    assert payload["error"]["code"] == "unknown_studio_context"
-    assert payload["error"]["message"] == "Unknown Studio context: missing-window"
+                assert result.returncode == 1
+                payload = json.loads(result.stderr)
+                assert payload["error"]["code"] == "unknown_studio_context"
+                assert payload["error"]["message"] == "Unknown Studio context: missing-window"
 
 
 def test_studio_status_without_bound_instance_fails_with_guidance() -> None:

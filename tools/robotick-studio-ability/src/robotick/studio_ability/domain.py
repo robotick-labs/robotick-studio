@@ -22,6 +22,10 @@ ACTIVE_STUDIO_CHILDREN: dict[int, subprocess.Popen[object]] = {}
 ACTIVE_STUDIO_CHILDREN_LOCK = threading.Lock()
 
 
+class StudioControlResourceNotFoundError(Exception):
+    pass
+
+
 def ensure_launcher_with_action(_workspace_root: str | Path) -> tuple[None, str]:
     # Studio now talks to the launcher ability hosted inside robotick-hub.
     return None, "reused"
@@ -947,6 +951,10 @@ def fetch_studio_control_status(
     try:
         with urlopen(url, timeout=1.5) as response:
             loaded = yaml.safe_load(response.read().decode("utf-8"))
+    except HTTPError as error:
+        if int(error.code) == 404:
+            raise StudioControlResourceNotFoundError(url) from error
+        return None
     except URLError:
         return None
     if not isinstance(loaded, dict):
@@ -1115,7 +1123,16 @@ def get_studio_status(
             "status",
             recovery="Reopen the Studio instance so it registers the current control-service status routes.",
         )
-    control_status = fetch_studio_control_status(instance, path_segments)
+    try:
+        control_status = fetch_studio_control_status(instance, path_segments)
+    except StudioControlResourceNotFoundError:
+        if path_segments:
+            return None
+        return build_provider_unavailable_error(
+            instance,
+            "status",
+            recovery="Reopen the Studio instance so it registers the current control-service status routes.",
+        )
     if control_status is not None:
         return control_status
     return build_provider_unavailable_error(
