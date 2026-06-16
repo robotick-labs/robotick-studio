@@ -680,6 +680,65 @@ describe("launcher-interface gateway telemetry resolution", () => {
     readStorage.mockImplementation(() => "");
   });
 
+  it("keeps project status running while one model restarts", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      if (key === "robotick-studio.launcherProfile") {
+        return "native:ALL";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      return createJsonResponse({
+        resource_type: "robotick_launcher_runtime_status",
+        state: "pending",
+        models: [
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-camera",
+            lifecycle: "running",
+            freshness: "live",
+          },
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-expression",
+            lifecycle: "stopping",
+            freshness: "pending",
+          },
+        ],
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toMatchObject({
+      status: "running",
+      phase: "stop",
+      models: {
+        "sample-robot-camera": {
+          status: "running",
+          lifecycle: "running",
+          freshness: "live",
+        },
+        "sample-robot-expression": {
+          status: "stopping",
+          lifecycle: "stopping",
+          freshness: "pending",
+        },
+      },
+    });
+  });
+
   it("records launcher fetch failures in the renderer diagnostics snapshot", async () => {
     vi.mocked(readStorageValue).mockImplementation((key: string) => {
       if (key === "robotick-studio.projectPath") {

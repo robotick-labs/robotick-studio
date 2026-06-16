@@ -873,18 +873,18 @@ function buildRuntimeModelStatusMap(
 function reduceRuntimeLauncherStatus(
   models: LauncherRuntimeModelRecord[]
 ): "stopped" | "launching" | "running" | "stopping" {
-  if (models.some((model) => model.lifecycle === "stopping")) {
-    return "stopping";
-  }
-  if (models.some((model) => model.lifecycle === "starting")) {
-    return "launching";
-  }
   if (
     models.some(
       (model) => model.lifecycle === "running" || model.freshness === "live"
     )
   ) {
     return "running";
+  }
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  if (models.some((model) => model.lifecycle === "starting")) {
+    return "launching";
   }
   return "stopped";
 }
