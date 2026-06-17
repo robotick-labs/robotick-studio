@@ -45,6 +45,29 @@ Use this when the user asks what they are looking at in Studio, says `:studio` o
 
 Prefer `:studio` or `:this-studio` as agent shorthand. Avoid `@studio` in VS Code chat because VS Code may resolve it as the repository `studio` folder instead of leaving it as Robotick shorthand.
 
+### Query Studio-owned telemetry snapshots
+
+Use this when an agent needs the same telemetry evidence as Studio without going through a panel, DevTools, or direct model-port guessing.
+
+First resolve the focused instance, then pass the real instance name to the CLI. `:studio` and `:this-studio` are chatbot shorthand only; they are not literal CLI arguments.
+
+```bash
+instance="$(./tools/robotick studio focused | python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_name"])')"
+./tools/robotick studio "$instance" telemetry models
+./tools/robotick studio "$instance" telemetry model <model-id> layout
+./tools/robotick studio "$instance" telemetry model <model-id> snapshot
+./tools/robotick studio "$instance" telemetry model <model-id> raw-buffer --output /tmp/<model-id>.workloads-buffer.raw
+```
+
+For Tick Scope or timing debugging, prefer `snapshot` first. It returns decoded workload stats, process threads, layout, frame sequence, engine session id, and source metadata in JSON. Use `raw-buffer` only when byte-level decoder/debug work is needed.
+
+Example capture for the current Barr.e face model:
+
+```bash
+instance="$(./tools/robotick studio focused | python3 -c 'import json,sys; print(json.load(sys.stdin)["instance_name"])')"
+./tools/robotick studio "$instance" telemetry model barr-e-face snapshot > results.json
+```
+
 ### Compare hub runtime authority with Studio-facing launcher state
 
 ```bash

@@ -1,0 +1,376 @@
+.page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+  background: #101317;
+  color: var(--app-text-primary);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header h1,
+.deviceHeader h2,
+.modelHeader h3 {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.header h1 {
+  font-size: 1.15rem;
+}
+
+.header p,
+.deviceHeader p,
+.modelHeader p {
+  margin: 3px 0 0;
+  color: var(--app-text-muted);
+  font-size: 0.82rem;
+}
+
+.pauseButton {
+  margin-top: 8px;
+  border: 1px solid #35404a;
+  border-radius: 6px;
+  background: #182129;
+  color: #dce6ed;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pauseButton:hover {
+  border-color: #4d6070;
+  background: #1d2a34;
+}
+
+.pauseButtonActive {
+  border-color: #6aa3d8;
+  background: #18314a;
+  color: #eef7ff;
+}
+
+.deviceList {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.message {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 0.86rem;
+}
+
+.deviceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid #2d3842;
+  padding-top: 12px;
+}
+
+.deviceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.deviceHeader h2 {
+  font-size: 1rem;
+}
+
+.deviceHeader > span {
+  border: 1px solid #33414c;
+  border-radius: 999px;
+  color: #afbdc8;
+  padding: 4px 9px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(630px, 1fr));
+  gap: 10px;
+}
+
+.modelCard {
+  border: 1px solid #303b45;
+  border-radius: 8px;
+  background: #151b21;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model_healthy {
+  border-left: 4px solid #6bd69b;
+}
+
+.model_tight {
+  border-left: 4px solid #e6c76f;
+}
+
+.model_miss {
+  border-left: 4px solid #ff7b72;
+}
+
+.modelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelHeader h3 {
+  font-size: 0.96rem;
+}
+
+.modelStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.modelStatus span {
+  color: var(--app-text-muted);
+  text-transform: uppercase;
+}
+
+.modelStatus strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.copyButton {
+  border: 1px solid #33414c;
+  border-radius: 5px;
+  background: #111920;
+  color: #afbdc8;
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copyButton:hover {
+  border-color: #4d6070;
+  background: #17222b;
+  color: #dce6ed;
+}
+
+.copyButtonActive {
+  border-color: #6aa3d8;
+  color: #eef7ff;
+}
+
+.axis {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+  border-bottom: 1px solid #26313a;
+}
+
+.threadRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.threadLane {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.34fr) minmax(330px, 1fr);
+  gap: 8px;
+  min-height: 42px;
+}
+
+.threadLabel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  color: #dce6ed;
+}
+
+.threadLabel strong {
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadLabel span {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+}
+
+.threadTrackStack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.threadActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 42px;
+}
+
+.laneTrack {
+  position: relative;
+  min-height: 42px;
+  border: 1px solid #26313a;
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px)
+      0 0 / 20% 100%,
+    #0f151a;
+  overflow: hidden;
+}
+
+.deadlineLine {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: #dce6ed;
+  opacity: 0.55;
+}
+
+.spanBlock {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  border-radius: 5px;
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+}
+
+.span_useful {
+  background: #2266aa;
+}
+
+.span_engine_io,
+.span_local_inputs {
+  background: rgba(100, 122, 145, 0.14);
+  border-color: rgba(135, 158, 181, 0.16);
+  box-shadow: none;
+}
+
+.span_engine_io .spanName,
+.span_local_inputs .spanName {
+  color: rgba(196, 214, 230, 0.48);
+  font-weight: 600;
+}
+
+.span_sync_wait {
+  background: rgba(214, 164, 72, 0.18);
+  border-color: rgba(235, 188, 92, 0.32);
+  box-shadow: none;
+}
+
+.span_sync_wait .spanName {
+  color: rgba(252, 223, 157, 0.78);
+  font-weight: 600;
+}
+
+.span_sleep {
+  background: rgba(85, 166, 235, 0.32);
+  border-color: rgba(135, 206, 255, 0.55);
+  box-shadow: none;
+}
+
+.span_sleep .spanName {
+  color: rgba(226, 242, 255, 0.96);
+  font-weight: 600;
+}
+
+.span_miss {
+  background: #2f327f;
+}
+
+.span_carry {
+  background: repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.12) 0,
+      rgba(255, 255, 255, 0.12) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    #276fba;
+}
+
+.spanName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.cpuBadge,
+.carryBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.68rem;
+  padding: 2px 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.carryBadge {
+  background: rgba(123, 200, 255, 0.2);
+}
+
+@media (max-width: 760px) {
+  .page {
+    padding: 10px;
+  }
+
+  .header,
+  .deviceHeader,
+  .modelHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .modelGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .threadLane {
+    grid-template-columns: 1fr;
+  }
+}

@@ -9,6 +9,8 @@ import pytest
 from robotick.studio_ability.domain import (
     StudioInstanceRecord,
     get_instance,
+    get_studio_telemetry,
+    get_studio_telemetry_raw_buffer,
     list_instances,
     notify_instance_closing,
     open_studio,
@@ -295,3 +297,94 @@ def test_notify_instance_closing_by_instance_name() -> None:
     assert instance is not None
     assert instance["name"] == "studio-7777"
     assert get_instance(workspace, "studio-7777") is None
+
+
+def test_get_studio_telemetry_proxies_json_control_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_workspace()
+    record = StudioInstanceRecord(
+        name="studio-8888",
+        pid=8888,
+        mode="dev",
+        started_at="2026-06-06T12:00:00+00:00",
+        control_endpoint="http://127.0.0.1:7123",
+    )
+    write_instance_record(workspace, record)
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda instance: True)
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"resource_type":"robotick_studio_telemetry_models"}'
+
+    def fake_urlopen(url, timeout):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("robotick.studio_ability.domain.urlopen", fake_urlopen)
+
+    assert get_studio_telemetry(workspace, "studio-8888", "models") == (
+        200,
+        {"resource_type": "robotick_studio_telemetry_models"},
+    )
+    assert captured["url"] == "http://127.0.0.1:7123/v1/telemetry/models"
+
+
+def test_get_studio_telemetry_raw_buffer_proxies_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_workspace()
+    record = StudioInstanceRecord(
+        name="studio-9999",
+        pid=9999,
+        mode="dev",
+        started_at="2026-06-06T12:00:00+00:00",
+        control_endpoint="http://127.0.0.1:7123",
+    )
+    write_instance_record(workspace, record)
+    monkeypatch.setattr("robotick.studio_ability.domain.is_instance_alive", lambda instance: True)
+    captured: dict[str, object] = {}
+
+    class FakeHeaders:
+        def get(self, name: str):
+            return "application/octet-stream" if name == "Content-Type" else None
+
+    class FakeResponse:
+        status = 200
+        headers = FakeHeaders()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b"\x01\x02\x03"
+
+    def fake_urlopen(url, timeout):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("robotick.studio_ability.domain.urlopen", fake_urlopen)
+
+    assert get_studio_telemetry_raw_buffer(
+        workspace,
+        "studio-9999",
+        "models/barr-e-face/raw-buffer",
+    ) == (200, b"\x01\x02\x03", "application/octet-stream")
+    assert (
+        captured["url"]
+        == "http://127.0.0.1:7123/v1/telemetry/models/barr-e-face/raw-buffer"
+    )

@@ -655,6 +655,7 @@ def open_help_text() -> str:
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
     diagnostics_spec = get_studio_command_spec("diagnostics")
+    telemetry_spec = get_studio_command_spec("telemetry")
     select_project_spec = get_studio_command_spec("select-project")
     activate_spec = get_studio_command_spec("activate")
     quit_spec = get_studio_command_spec("quit")
@@ -663,6 +664,7 @@ def instance_help_text(instance_name: str) -> str:
             "Usage:",
             f"  robotick studio {instance_name} status",
             f"  robotick studio {instance_name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
+            f"  robotick studio {instance_name} telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
             f"  robotick studio {instance_name} <path...> activate",
             f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
@@ -671,6 +673,7 @@ def instance_help_text(instance_name: str) -> str:
             "Commands:",
             f"  {status_spec.name:<14} {status_spec.summary}",
             f"  {diagnostics_spec.name:<14} {diagnostics_spec.summary}",
+            f"  {telemetry_spec.name:<14} {telemetry_spec.summary}",
             f"  {activate_spec.name:<14} {activate_spec.summary}",
             f"  {select_project_spec.name:<14} {select_project_spec.summary}",
             f"  {quit_spec.name:<14} {quit_spec.summary}",

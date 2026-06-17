@@ -27,6 +27,7 @@ import {
   StudioDiagnosticsLogStore,
   type StudioDiagnosticsLogSeverity,
 } from "./studio-control/studio-diagnostics-log";
+import { createElectronTelemetryService } from "./telemetry/electron-telemetry-service";
 import type { StudioControlActivationResponse } from "../common/studio-control-contract";
 import type {
   BrowserWindow as ElectronBrowserWindow,
@@ -1226,6 +1227,26 @@ export async function bootstrapElectron({
   let currentProjectPath = "";
   let bootstrapProjectIssue: ProjectSelectionIssue | null = null;
   let lastFocusedAt: string | null = null;
+  const telemetryService = createElectronTelemetryService({
+    getSelectedProjectPath: () => currentProjectPath,
+    getHubEndpoint: () =>
+      readCurrentHubEndpoint(
+        env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+        env.ROBOTICK_HUB_ENDPOINT
+      ),
+  });
+  const telemetryRendererSubscriptions = new Map<string, () => void>();
+
+  const telemetrySubscriptionKey = (
+    event: IpcMainInvokeEvent,
+    subscriptionId: unknown,
+  ) => {
+    const webContentsId =
+      typeof (event.sender as { id?: unknown }).id === "number"
+        ? (event.sender as { id: number }).id
+        : 0;
+    return `${webContentsId}:${String(subscriptionId)}`;
+  };
 
   const registerStudioControlEndpointOnce = () => {
     if (
@@ -2203,10 +2224,165 @@ export async function bootstrapElectron({
     ipcMain.handle("robotick-studio-process-stats", () =>
       sampleStudioProcessStats(app)
     );
+    ipcMain.handle(
+      "robotick-telemetry:ensure-layout",
+      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl) {
+          return null;
+        }
+        return await telemetryService.ensureLayoutForBaseUrl(baseUrl);
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:refresh-layout",
+      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl) {
+          return null;
+        }
+        return await telemetryService.refreshLayoutForBaseUrl(baseUrl);
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:diagnostics",
+      (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        return telemetryService.getBaseUrlDiagnostics(baseUrl);
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:health",
+      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl) {
+          return { ok: false, status: 0, statusText: "", body: { error: "invalid_request" } };
+        }
+        return await telemetryService.getHealthForBaseUrl(baseUrl);
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:push-stats",
+      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl) {
+          return { ok: false, status: 0, body: { error: "invalid_request" } };
+        }
+        return await telemetryService.getPushStatsForBaseUrl(baseUrl);
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:set-workload-input-fields-data",
+      async (
+        _event: IpcMainInvokeEvent,
+        payload:
+          | {
+              baseUrl?: string;
+              request?: {
+                engine_session_id: string;
+                writes: Array<{
+                  field_handle?: number;
+                  field_path?: string;
+                  value: unknown;
+                  seq?: number;
+                }>;
+              };
+            }
+          | undefined
+      ) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl || !payload?.request) {
+          return { ok: false, status: 0, body: { error: "invalid_request" } };
+        }
+        return await telemetryService.setWorkloadInputFieldsDataForBaseUrl(
+          baseUrl,
+          payload.request
+        );
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:set-workload-input-connection-state",
+      async (
+        _event: IpcMainInvokeEvent,
+        payload:
+          | {
+              baseUrl?: string;
+              request?: {
+                engine_session_id: string;
+                updates: Array<{
+                  field_handle?: number;
+                  field_path?: string;
+                  enabled: boolean;
+                }>;
+              };
+            }
+          | undefined
+      ) => {
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!baseUrl || !payload?.request) {
+          return { ok: false, status: 0, body: { error: "invalid_request" } };
+        }
+        return await telemetryService.setWorkloadInputConnectionStateForBaseUrl(
+          baseUrl,
+          payload.request
+        );
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:subscribe",
+      (event: IpcMainInvokeEvent, payload: { subscriptionId?: string; baseUrl?: string } | undefined) => {
+        const subscriptionId =
+          typeof payload?.subscriptionId === "string" ? payload.subscriptionId.trim() : "";
+        const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
+        if (!subscriptionId || !baseUrl) {
+          return { accepted: false, error: "invalid_subscription" as const };
+        }
+        const key = telemetrySubscriptionKey(event, subscriptionId);
+        telemetryRendererSubscriptions.get(key)?.();
+        const sender = event.sender;
+        const unsubscribe = telemetryService.subscribeBaseUrl(baseUrl, (telemetryEvent) => {
+          if (sender.isDestroyed?.()) {
+            telemetryRendererSubscriptions.get(key)?.();
+            telemetryRendererSubscriptions.delete(key);
+            return;
+          }
+          sender.send("robotick-telemetry:event", {
+            subscriptionId,
+            ...telemetryEvent,
+          });
+        });
+        telemetryRendererSubscriptions.set(key, unsubscribe);
+        sender.once?.("destroyed", () => {
+          telemetryRendererSubscriptions.get(key)?.();
+          telemetryRendererSubscriptions.delete(key);
+        });
+        return { accepted: true };
+      }
+    );
+    ipcMain.handle(
+      "robotick-telemetry:unsubscribe",
+      (event: IpcMainInvokeEvent, payload: { subscriptionId?: string } | undefined) => {
+        const subscriptionId =
+          typeof payload?.subscriptionId === "string" ? payload.subscriptionId.trim() : "";
+        if (!subscriptionId) {
+          return { accepted: false, error: "invalid_subscription" as const };
+        }
+        const key = telemetrySubscriptionKey(event, subscriptionId);
+        const unsubscribe = telemetryRendererSubscriptions.get(key);
+        unsubscribe?.();
+        telemetryRendererSubscriptions.delete(key);
+        return { accepted: true };
+      }
+    );
   }
 
   const shutdown = (code = 0) => {
     void studioControlServer?.close();
+    for (const unsubscribe of telemetryRendererSubscriptions.values()) {
+      unsubscribe();
+    }
+    telemetryRendererSubscriptions.clear();
+    telemetryService.reset();
     if (currentProjectPath) {
       releaseProjectLock(currentProjectPath, projectLockOwner);
     }
@@ -2453,6 +2629,7 @@ export async function bootstrapElectron({
       },
       selectProject: (projectPath) => requestProjectSelection(projectPath),
       activateResource: activateStudioResource,
+      telemetryService,
     });
   }
 

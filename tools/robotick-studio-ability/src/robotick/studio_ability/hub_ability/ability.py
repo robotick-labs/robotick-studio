@@ -28,6 +28,8 @@ from robotick.studio_ability.domain import (
     get_studio_focused,
     get_studio_capability_status,
     get_studio_status,
+    get_studio_telemetry,
+    get_studio_telemetry_raw_buffer,
     list_instances,
     notify_instance_closing,
     open_studio,
@@ -114,6 +116,32 @@ class StudioAbility:
             if "error" in payload:
                 return JSONResponse(status_code=503, content=payload)
             return JSONResponse(payload)
+
+        @router.get(
+            "/v1/studio/instances/{instance_id}/telemetry/{telemetry_path:path}",
+        )
+        def studio_instance_telemetry(instance_id: str, telemetry_path: str, request: Request) -> Response:
+            context = context_provider()
+            if not telemetry_path:
+                raise HTTPException(status_code=404, detail=f"Unknown Studio telemetry path: {telemetry_path}")
+            effective_path = telemetry_path
+            if request.url.query:
+                effective_path = f"{effective_path}?{request.url.query}"
+            if telemetry_path.endswith("/raw-buffer"):
+                raw_payload = get_studio_telemetry_raw_buffer(
+                    context.workspace_root,
+                    instance_id,
+                    effective_path,
+                )
+                if raw_payload is None:
+                    raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+                status_code, body, content_type = raw_payload
+                return Response(content=body, status_code=status_code, media_type=content_type)
+            payload = get_studio_telemetry(context.workspace_root, instance_id, effective_path)
+            if payload is None:
+                raise HTTPException(status_code=404, detail=f"Studio instance not found: {instance_id}")
+            status_code, content = payload
+            return JSONResponse(status_code=status_code, content=content)
 
         @router.get("/v1/studio/instances/{instance_id}/{resource_path:path}/status", response_class=JSONResponse)
         def studio_node_status(instance_id: str, resource_path: str) -> JSONResponse:

@@ -4,6 +4,7 @@ import asyncio
 from collections import deque
 from datetime import datetime, timezone
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -102,9 +103,7 @@ def _launcher_domain() -> Any:
 
 def _launcher_query() -> Any:
     _ensure_launcher_import_path()
-    from robotick.launcher.domain import query as launcher_query
-
-    return launcher_query
+    return importlib.import_module("robotick.launcher.domain.query")
 
 
 def _launcher_list_project_models() -> Any:

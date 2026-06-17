@@ -131,6 +131,18 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_bound_instance=True,
     ),
     CommandSpec(
+        name="telemetry",
+        usage="robotick studio <instance> telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
+        summary="Query Studio-owned model telemetry through the control service",
+        shell_label="telemetry <models|model>",
+        description_lines=(
+            "Query telemetry models, layouts, decoded snapshots, and raw workloads buffers from the targeted Studio instance.",
+            "Raw workloads buffers are binary and require --output.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
         name="select-project",
         usage="robotick studio <instance> select-project <project>",
         summary="Switch the selected project inside this Studio instance",

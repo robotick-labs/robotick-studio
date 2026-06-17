@@ -124,6 +124,7 @@ function createControlDependencies(
     diagnosticsProvider?: Partial<StudioControlRouteDependencies["diagnosticsProvider"]>;
     selectProject?: StudioControlRouteDependencies["selectProject"];
     activateResource?: StudioControlRouteDependencies["activateResource"];
+    telemetryService?: StudioControlRouteDependencies["telemetryService"];
   },
 ): StudioControlRouteDependencies {
   return {
@@ -165,6 +166,7 @@ function createControlDependencies(
     }),
     ...(overrides?.selectProject ? { selectProject: overrides.selectProject } : {}),
     ...(overrides?.activateResource ? { activateResource: overrides.activateResource } : {}),
+    ...(overrides?.telemetryService ? { telemetryService: overrides.telemetryService } : {}),
   };
 }
 
@@ -629,6 +631,24 @@ describe("Studio control runtime status", () => {
           }),
         }),
         expect.objectContaining({
+          id: "studio.telemetry.models",
+          provider: "electron_main",
+          read_only: true,
+          availability: expect.objectContaining({
+            requires_renderer: false,
+            resource_scope: "telemetry",
+          }),
+        }),
+        expect.objectContaining({
+          id: "studio.telemetry.model.snapshot",
+          provider: "electron_main",
+          read_only: true,
+          availability: expect.objectContaining({
+            requires_renderer: false,
+            resource_scope: "telemetry",
+          }),
+        }),
+        expect.objectContaining({
           id: "studio.diagnostics.renderer",
           provider: "electron_main",
           availability: expect.objectContaining({
@@ -738,6 +758,214 @@ describe("Studio control runtime status", () => {
         currentProjectPath: projectPath,
       }),
     });
+  });
+
+  it("dispatches Studio telemetry commands through the Electron registry", async () => {
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-telemetry-"));
+    const projectPath = path.join(projectDir, "barr-e.project.yaml");
+    fs.writeFileSync(projectPath, 'name: "Barr.e"\n', "utf-8");
+    const modelInfo = {
+      model_id: "barr-e-face",
+      display_name: "Barr.e Face",
+      model_path: "models/barr-e-face.model.yaml",
+      engine_model_id: "barr_e_face",
+      telemetry_base_url: "http://localhost:9030",
+      telemetry_port: 9030,
+      telemetry_push_rate_hz: 20,
+      health: "ready" as const,
+      stale: false,
+      latest_frame_seq: 7,
+      latest_engine_session_id: "sid",
+      latest_raw_at: "2026-06-17T12:00:00.000Z",
+      latest_error: null,
+    };
+
+    const telemetryService = {
+      listModels: vi.fn(async () => ({
+        resource_type: "robotick_studio_telemetry_models" as const,
+        project_path: projectPath,
+        models: [modelInfo],
+      })),
+      getLayout: vi.fn(async () => ({
+        resource_type: "robotick_studio_telemetry_model_layout" as const,
+        model: modelInfo,
+        layout: { workloads: [], types: [], workloads_buffer_size_used: 0, process_memory_used: 0 },
+        loaded_at: "2026-06-17T12:00:00.000Z",
+      })),
+      getSnapshot: vi.fn(async () => ({
+        resource_type: "robotick_studio_telemetry_model_snapshot" as const,
+        generated_at: "2026-06-17T12:00:00.000Z",
+        model: modelInfo,
+        source: {
+          frame_seq: 7,
+          engine_session_id: "sid",
+          raw_byte_length: 4,
+          layout_loaded_at: "2026-06-17T12:00:00.000Z",
+          raw_loaded_at: "2026-06-17T12:00:00.000Z",
+        },
+        layout: { workloads: [], types: [], workloads_buffer_size_used: 0, process_memory_used: 0 },
+        engine: null,
+        process_threads: [],
+        workloads: [],
+      })),
+      getRawBuffer: vi.fn(async () => ({
+        resource_type: "robotick_studio_telemetry_model_raw_buffer" as const,
+        model: modelInfo,
+        body: Buffer.from([1, 2, 3, 4]),
+        byte_length: 4,
+        frame_seq: 7,
+        engine_session_id: "sid",
+        loaded_at: "2026-06-17T12:00:00.000Z",
+      })),
+      ensureLayoutForBaseUrl: vi.fn(),
+      refreshLayoutForBaseUrl: vi.fn(),
+      subscribeBaseUrl: vi.fn(() => vi.fn()),
+      getBaseUrlDiagnostics: vi.fn(() => ({
+        subscriberCount: 0,
+        layoutLoaded: false,
+        lastFrameAt: null,
+        lastErrorAt: null,
+        lastErrorMessage: null,
+      })),
+      getHealthForBaseUrl: vi.fn(),
+      getPushStatsForBaseUrl: vi.fn(),
+      setWorkloadInputFieldsDataForBaseUrl: vi.fn(),
+      setWorkloadInputConnectionStateForBaseUrl: vi.fn(),
+      reset: vi.fn(),
+    } satisfies NonNullable<StudioControlRouteDependencies["telemetryService"]>;
+
+    const dependencies = createControlDependencies(projectPath, { telemetryService });
+    const modelsResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/studio/telemetry/models",
+      dependencies,
+      null
+    );
+    const layoutResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/studio/telemetry/models/barr-e-face/layout",
+      dependencies,
+      null
+    );
+    const snapshotResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/studio/telemetry/models/barr-e-face/snapshot",
+      dependencies,
+      null
+    );
+    const rawResult = await dispatchStudioControlCommand(
+      "GET",
+      "/v1/studio/telemetry/models/barr-e-face/raw-buffer",
+      dependencies,
+      null
+    );
+
+    expect(modelsResult).toMatchObject({
+      statusCode: 200,
+      payload: { resource_type: "robotick_studio_telemetry_models" },
+    });
+    expect(layoutResult).toMatchObject({
+      statusCode: 200,
+      payload: { resource_type: "robotick_studio_telemetry_model_layout" },
+    });
+    expect(snapshotResult).toMatchObject({
+      statusCode: 200,
+      payload: { resource_type: "robotick_studio_telemetry_model_snapshot" },
+    });
+    expect(rawResult).toMatchObject({
+      statusCode: 200,
+      contentType: "application/octet-stream",
+      headers: {
+        "X-Robotick-Frame-Seq": "7",
+        "X-Robotick-Engine-Session-Id": "sid",
+      },
+    });
+    expect("body" in rawResult! ? Buffer.from(rawResult.body) : null).toEqual(
+      Buffer.from([1, 2, 3, 4])
+    );
+    expect(telemetryService.getSnapshot).toHaveBeenCalledWith("barr-e-face");
+  });
+
+  it("routes Studio telemetry raw-buffer responses as bytes", async () => {
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "robotick-studio-telemetry-route-"));
+    const projectPath = path.join(projectDir, "barr-e.project.yaml");
+    fs.writeFileSync(projectPath, 'name: "Barr.e"\n', "utf-8");
+    const modelInfo = {
+      model_id: "barr-e-face",
+      display_name: "Barr.e Face",
+      model_path: "models/barr-e-face.model.yaml",
+      engine_model_id: "barr_e_face",
+      telemetry_base_url: "http://localhost:9030",
+      telemetry_port: 9030,
+      telemetry_push_rate_hz: 20,
+      health: "ready" as const,
+      stale: false,
+      latest_frame_seq: 11,
+      latest_engine_session_id: "sid-raw",
+      latest_raw_at: "2026-06-17T12:00:00.000Z",
+      latest_error: null,
+    };
+    const chunks: Buffer[] = [];
+    const response = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      writeHead(statusCode: number, headers: Record<string, string>) {
+        this.statusCode = statusCode;
+        this.headers = headers;
+      },
+      end(chunk: Buffer | string) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      },
+    };
+
+    await routeStudioControlRequest(
+      {
+        url: "/v1/studio/telemetry/models/barr-e-face/raw-buffer",
+        method: "GET",
+        async *[Symbol.asyncIterator]() {},
+      } as any,
+      response as any,
+      createControlDependencies(projectPath, {
+        telemetryService: {
+          listModels: vi.fn(),
+          getLayout: vi.fn(),
+          getSnapshot: vi.fn(),
+          getRawBuffer: vi.fn(async () => ({
+            resource_type: "robotick_studio_telemetry_model_raw_buffer" as const,
+            model: modelInfo,
+            body: Buffer.from([9, 8, 7]),
+            byte_length: 3,
+            frame_seq: 11,
+            engine_session_id: "sid-raw",
+            loaded_at: "2026-06-17T12:00:00.000Z",
+          })),
+          ensureLayoutForBaseUrl: vi.fn(),
+          refreshLayoutForBaseUrl: vi.fn(),
+          subscribeBaseUrl: vi.fn(() => vi.fn()),
+          getBaseUrlDiagnostics: vi.fn(() => ({
+            subscriberCount: 0,
+            layoutLoaded: false,
+            lastFrameAt: null,
+            lastErrorAt: null,
+            lastErrorMessage: null,
+          })),
+          getHealthForBaseUrl: vi.fn(),
+          getPushStatsForBaseUrl: vi.fn(),
+          setWorkloadInputFieldsDataForBaseUrl: vi.fn(),
+          setWorkloadInputConnectionStateForBaseUrl: vi.fn(),
+          reset: vi.fn(),
+        } satisfies NonNullable<StudioControlRouteDependencies["telemetryService"]>,
+      })
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers).toMatchObject({
+      "Content-Type": "application/octet-stream",
+      "Content-Length": "3",
+      "X-Robotick-Frame-Seq": "11",
+      "X-Robotick-Engine-Session-Id": "sid-raw",
+    });
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from([9, 8, 7]));
   });
 
   it("returns diagnostics endpoints with stale hub warnings and hub health", async () => {

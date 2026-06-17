@@ -1516,6 +1516,185 @@ def test_instance_diagnostics_telemetry_queries_hub_endpoint(
     }
 
 
+def test_instance_telemetry_models_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "robotick_studio_telemetry_models",
+            "models": [{"model_id": "barr-e-face"}],
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "telemetry", "models"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/telemetry/models"
+    assert captured["output"] == {
+        "resource_type": "robotick_studio_telemetry_models",
+        "models": [{"model_id": "barr-e-face"}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "resource_type"),
+    [
+        ("layout", "robotick_studio_telemetry_model_layout"),
+        ("snapshot", "robotick_studio_telemetry_model_snapshot"),
+    ],
+)
+def test_instance_telemetry_model_json_commands_query_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    resource_type: str,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": resource_type,
+            "model": {"model_id": "barr-e-face"},
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "telemetry", "model", "barr-e-face", action],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        captured["path"]
+        == f"/v1/studio/instances/studio-1234/telemetry/models/barr-e-face/{action}"
+    )
+    assert captured["output"] == {
+        "resource_type": resource_type,
+        "model": {"model_id": "barr-e-face"},
+    }
+
+
+def test_instance_telemetry_raw_buffer_writes_output_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    output_path = tmp_path / "face.raw"
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return b"\x01\x02\x03"
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_bytes", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        [
+            "studio-1234",
+            "telemetry",
+            "model",
+            "barr-e-face",
+            "raw-buffer",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        captured["path"]
+        == "/v1/studio/instances/studio-1234/telemetry/models/barr-e-face/raw-buffer"
+    )
+    assert output_path.read_bytes() == b"\x01\x02\x03"
+    assert captured["output"] == {
+        "resource_type": "robotick_studio_telemetry_raw_buffer_file",
+        "model_id": "barr-e-face",
+        "output_path": str(output_path),
+        "byte_length": 3,
+    }
+
+
+def test_instance_telemetry_raw_buffer_requires_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    with pytest.raises(CliError) as exc:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "telemetry", "model", "barr-e-face", "raw-buffer"],
+        )
+
+    assert exc.value.code == "invalid_arguments"
+    assert "raw-buffer --output <path>" in str(exc.value)
+
+
 @pytest.mark.parametrize(
     ("args", "expected_path", "resource_type"),
     [

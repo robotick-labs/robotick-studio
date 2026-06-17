@@ -12,7 +12,7 @@ export type StudioControlCommandProvider =
 export type StudioControlCommandAvailability = {
   requires_live_instance: boolean;
   requires_renderer: boolean;
-  resource_scope: "instance" | "resource" | "diagnostics" | "project";
+  resource_scope: "instance" | "resource" | "diagnostics" | "project" | "telemetry";
 };
 
 export type StudioControlCommandDescriptor = {

@@ -11,6 +11,7 @@
 export type {
   ITelemetryModel,
   ITelemetryWorkload,
+  ITelemetryProcessThread,
   ITelemetryField,
   ITelemetryStruct,
   LayoutModel,

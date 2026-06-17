@@ -8,7 +8,6 @@ import React, {
   useState,
 } from "react";
 import { useProjectContext } from "./ProjectContext";
-import { buildUrl } from "./launcher-interface";
 import { getProjectModelsStateSnapshot } from "./LauncherDataContext";
 import { isAppQuitting } from "../../../utils/appQuitting";
 import {
@@ -764,10 +763,20 @@ async function checkRobotAlive(
     models.map(async (model) => {
       const launcherModel = launcherModels[model.modelShortName];
       const detachedLaunched = isDetachedLaunchedModel(launcherModel);
-      const url = buildUrl(model.telemetryBaseUrl, "/api/telemetry/health");
       try {
-        const res = await fetch(url);
-        if (!res.ok) {
+        const telemetryBridge = window.robotick?.telemetry;
+        if (!telemetryBridge) {
+          throw new Error("Electron telemetry bridge is required.");
+        }
+        const res = await telemetryBridge.getHealth(model.telemetryBaseUrl) as {
+          ok?: unknown;
+          status?: unknown;
+          statusText?: unknown;
+        };
+        const ok = res.ok === true;
+        const status = typeof res.status === "number" ? res.status : 0;
+        const statusText = typeof res.statusText === "string" ? res.statusText : "";
+        if (!ok) {
           if (detachedLaunched) {
             return {
               modelId: model.modelShortName,
@@ -775,7 +784,7 @@ async function checkRobotAlive(
                 alive: true,
                 loading: false,
                 error: null,
-                warning: `${res.status} ${res.statusText}`.trim(),
+                warning: `${status} ${statusText}`.trim(),
               },
             };
           }
@@ -784,7 +793,7 @@ async function checkRobotAlive(
             health: {
               alive: false,
               loading: false,
-              error: `${res.status} ${res.statusText}`,
+              error: `${status} ${statusText}`.trim(),
               warning: null,
             },
           };

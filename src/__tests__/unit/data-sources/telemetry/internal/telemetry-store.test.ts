@@ -2,9 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createTelemetryStore,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-store";
-import type {
-  TelemetryWsListener,
-} from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
 
 const createTelemetryModel = vi.fn();
 
@@ -28,27 +25,39 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
-describe("telemetry-store websocket", () => {
+describe("telemetry-store Electron bridge", () => {
   let store: ReturnType<typeof createTelemetryStore>;
   let eventTarget: EventTarget;
-  let listenersByBaseUrl: Map<string, TelemetryWsListener>;
-  let subscribeTelemetryWs: ReturnType<typeof vi.fn>;
+  let listenersByBaseUrl: Map<string, (event: any) => void>;
+  let electronTelemetryBridge: NonNullable<Window["robotick"]>["telemetry"];
 
   beforeEach(() => {
     vi.useFakeTimers();
     createTelemetryModel.mockImplementation(makeModel);
     eventTarget = new EventTarget();
     listenersByBaseUrl = new Map();
-    subscribeTelemetryWs = vi.fn((baseUrl: string, listener: TelemetryWsListener) => {
+    electronTelemetryBridge = {
+      ensureLayout: vi.fn(async () => ({
+        layout,
+        latestRaw: null,
+      })),
+      refreshLayout: vi.fn(async () => ({
+        layout,
+        latestRaw: null,
+      })),
+      getDiagnostics: vi.fn(),
+      setWorkloadInputFieldsData: vi.fn(),
+      setWorkloadInputConnectionState: vi.fn(),
+      subscribe: vi.fn((baseUrl: string, listener: (event: any) => void) => {
       listenersByBaseUrl.set(baseUrl, listener);
       return () => listenersByBaseUrl.delete(baseUrl);
-    });
+      }),
+    };
 
     store = createTelemetryStore({
-      subscribeTelemetryWs,
       createTelemetryModel: (...args) => createTelemetryModel(...args),
+      electronTelemetryBridge,
       launcherEventTarget: eventTarget,
-      layoutEnsureTimeoutMs: 1000,
     });
   });
 
@@ -60,18 +69,28 @@ describe("telemetry-store websocket", () => {
   });
 
   function emitLayout(baseUrl: string, nextLayout = layout) {
-    listenersByBaseUrl.get(baseUrl)?.onLayout?.(nextLayout as any);
-  }
-
-  function emitFrame(baseUrl: string, sid: string, frameSeq: number | null, bytes = 4) {
-    listenersByBaseUrl.get(baseUrl)?.onFrame?.({
-      raw: new ArrayBuffer(bytes),
-      sid,
-      frameSeq,
+    listenersByBaseUrl.get(baseUrl)?.({
+      type: "layout",
+      payload: {
+        layout: nextLayout,
+        latestRaw: null,
+      },
     });
   }
 
-  it("uses subscriber cadence throttling with websocket frames", async () => {
+  function emitFrame(baseUrl: string, sid: string, frameSeq: number | null, bytes = 4) {
+    listenersByBaseUrl.get(baseUrl)?.({
+      type: "frame",
+      payload: {
+        raw: new ArrayBuffer(bytes),
+        sid,
+        frameSeq,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  it("uses subscriber cadence throttling with Electron bridge frames", async () => {
     const fastCb = vi.fn();
     const slowCb = vi.fn();
 
@@ -170,10 +189,12 @@ describe("telemetry-store websocket", () => {
   });
 
   it("can preload layout before first frame", async () => {
-    const ensurePromise = store.ensureLayout("base");
+    electronTelemetryBridge.ensureLayout = vi.fn(async () => ({
+      layout: { ...layout, engine_session_id: "sid-layout" },
+      latestRaw: null,
+    }));
 
-    emitLayout("base", { ...layout, engine_session_id: "sid-layout" });
-    const ensured = await ensurePromise;
+    const ensured = await store.ensureLayout("base");
 
     expect(ensured).not.toBeNull();
     expect(createTelemetryModel).toHaveBeenCalledTimes(1);
@@ -206,7 +227,10 @@ describe("telemetry-store websocket", () => {
 
     emitLayout("base");
     emitFrame("base", "sid", 2);
-    listenersByBaseUrl.get("base")?.onError?.(new Error("socket broke"));
+    listenersByBaseUrl.get("base")?.({
+      type: "error",
+      message: "socket broke",
+    });
 
     const diagnostics = store.getDiagnostics("base");
 
@@ -219,5 +243,90 @@ describe("telemetry-store websocket", () => {
     expect(error).toHaveBeenCalledTimes(1);
 
     unsubscribe();
+  });
+
+  it("clears telemetry diagnostics errors after recovered websocket data", () => {
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+    });
+
+    listenersByBaseUrl.get("base")?.({
+      type: "error",
+      message: "socket broke",
+    });
+    expect(store.getDiagnostics("base").lastErrorMessage).toBe("socket broke");
+
+    emitLayout("base");
+    expect(store.getDiagnostics("base").lastErrorMessage).toBeNull();
+
+    listenersByBaseUrl.get("base")?.({
+      type: "error",
+      message: "socket broke again",
+    });
+    expect(store.getDiagnostics("base").lastErrorMessage).toBe("socket broke again");
+
+    emitFrame("base", "sid", 2);
+    expect(store.getDiagnostics("base").lastErrorMessage).toBeNull();
+
+    unsubscribe();
+  });
+  it("uses the Electron telemetry bridge instead of opening a renderer websocket", async () => {
+    createTelemetryModel.mockImplementation(makeModel);
+    const callbacks: Array<(event: any) => void> = [];
+    const unsubscribe = vi.fn();
+    const isolatedElectronTelemetryBridge = {
+      ensureLayout: vi.fn(async () => ({
+        layout,
+        latestRaw: {
+          raw: new ArrayBuffer(8),
+          sid: "sid",
+          frameSeq: 2,
+          timestamp: 1000,
+        },
+      })),
+      refreshLayout: vi.fn(),
+      getDiagnostics: vi.fn(),
+      setWorkloadInputFieldsData: vi.fn(),
+      setWorkloadInputConnectionState: vi.fn(),
+      subscribe: vi.fn((_baseUrl: string, callback: (event: any) => void) => {
+        callbacks.push(callback);
+        return unsubscribe;
+      }),
+    };
+    const store = createTelemetryStore({
+      createTelemetryModel: (...args) => createTelemetryModel(...args),
+      electronTelemetryBridge: isolatedElectronTelemetryBridge,
+      launcherEventTarget: new EventTarget(),
+    });
+
+    try {
+      const callback = vi.fn();
+      const stop = store.subscribeTelemetry("base", 20, { callback });
+      const ensured = await store.ensureLayout("base");
+
+      expect(ensured).not.toBeNull();
+      expect(isolatedElectronTelemetryBridge.subscribe).toHaveBeenCalledWith(
+        "base",
+        expect.any(Function),
+      );
+      expect(isolatedElectronTelemetryBridge.ensureLayout).toHaveBeenCalledWith("base");
+
+      callbacks[0]?.({
+        type: "frame",
+        payload: {
+          raw: new ArrayBuffer(8),
+          sid: "sid",
+          frameSeq: 4,
+          timestamp: 1100,
+        },
+      });
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      stop();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      store.reset();
+    }
   });
 });

@@ -488,6 +488,109 @@ const expose = () => {
     },
   };
 
+  type TelemetryBridgeEvent =
+    | {
+        subscriptionId: string;
+        type: "layout";
+        payload: unknown;
+      }
+    | {
+        subscriptionId: string;
+        type: "frame";
+        payload: unknown;
+      }
+    | {
+        subscriptionId: string;
+        type: "error";
+        message: string;
+      };
+  type TelemetryBridgeCallbackEvent =
+    | {
+        type: "layout";
+        payload: unknown;
+      }
+    | {
+        type: "frame";
+        payload: unknown;
+      }
+    | {
+        type: "error";
+        message: string;
+      };
+  let telemetrySubscriptionSeq = 0;
+  const telemetryBridge = {
+    ensureLayout(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:ensure-layout", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    refreshLayout(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:refresh-layout", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getDiagnostics(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:diagnostics", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getHealth(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:health", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getPushStats(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:push-stats", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    setWorkloadInputFieldsData(baseUrl: string, request: unknown) {
+      return ipcRenderer.invoke(
+        "robotick-telemetry:set-workload-input-fields-data",
+        {
+          baseUrl,
+          request,
+        },
+      ) as Promise<unknown>;
+    },
+    setWorkloadInputConnectionState(baseUrl: string, request: unknown) {
+      return ipcRenderer.invoke(
+        "robotick-telemetry:set-workload-input-connection-state",
+        {
+          baseUrl,
+          request,
+        },
+      ) as Promise<unknown>;
+    },
+    subscribe(
+      baseUrl: string,
+      callback: (event: TelemetryBridgeCallbackEvent) => void
+    ) {
+      const subscriptionId = `renderer-${process.pid}-${Date.now()}-${++telemetrySubscriptionSeq}`;
+      const listener = (_event: unknown, payload: TelemetryBridgeEvent | undefined) => {
+        if (!payload || payload.subscriptionId !== subscriptionId) {
+          return;
+        }
+        if (payload.type === "error") {
+          callback({ type: "error", message: payload.message });
+          return;
+        }
+        callback({ type: payload.type, payload: payload.payload });
+      };
+      ipcRenderer.on("robotick-telemetry:event", listener);
+      void ipcRenderer.invoke("robotick-telemetry:subscribe", {
+        subscriptionId,
+        baseUrl,
+      });
+      return () => {
+        ipcRenderer.off("robotick-telemetry:event", listener);
+        void ipcRenderer.invoke("robotick-telemetry:unsubscribe", {
+          subscriptionId,
+        });
+      };
+    },
+  };
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
@@ -513,6 +616,7 @@ const expose = () => {
     storage: storageBridge,
     studioPersistence: studioPersistenceBridge,
     projectSelection: projectSelectionBridge,
+    telemetry: telemetryBridge,
   };
 
   contextBridge.exposeInMainWorld("robotick", robotickGlobals);

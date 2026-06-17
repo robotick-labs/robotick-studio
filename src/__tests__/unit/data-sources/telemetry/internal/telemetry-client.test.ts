@@ -5,14 +5,20 @@ import {
   setWorkloadInputConnectionState,
   setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
-import { sendTelemetryWriteWs } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
 
-vi.mock(
-  "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client",
-  () => ({
-    sendTelemetryWriteWs: vi.fn(),
-  }),
-);
+function installTelemetryBridge(overrides: Partial<NonNullable<Window["robotick"]>["telemetry"]>) {
+  const telemetry = {
+    ensureLayout: vi.fn(),
+    refreshLayout: vi.fn(),
+    getDiagnostics: vi.fn(),
+    setWorkloadInputFieldsData: vi.fn(),
+    setWorkloadInputConnectionState: vi.fn(),
+    subscribe: vi.fn(),
+    ...overrides,
+  };
+  (window as unknown as { robotick?: unknown }).robotick = { telemetry };
+  return telemetry;
+}
 
 describe("setWorkloadInputFieldsData", () => {
   beforeEach(() => {
@@ -21,13 +27,13 @@ describe("setWorkloadInputFieldsData", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
+    delete (window as unknown as { robotick?: unknown }).robotick;
     vi.clearAllMocks();
   });
 
   it("retries on retryable status and eventually succeeds", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData
       .mockResolvedValueOnce(
         {
           ok: false,
@@ -57,14 +63,14 @@ describe("setWorkloadInputFieldsData", () => {
     await vi.runAllTimersAsync();
     const result = await requestPromise;
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(2);
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(2);
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
   it("does not retry non-retryable status codes", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock.mockResolvedValue({
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData.mockResolvedValue({
       ok: false,
       status: 400,
       body: { error: "bad_request" },
@@ -75,14 +81,14 @@ describe("setWorkloadInputFieldsData", () => {
       writes: [{ field_handle: 7, value: 123 }],
     });
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(1);
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
     expect(result.status).toBe(400);
   });
 
   it("retries once with the corrected engine session id on session mismatch", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData
       .mockResolvedValueOnce({
         ok: false,
         status: 412,
@@ -102,8 +108,8 @@ describe("setWorkloadInputFieldsData", () => {
       writes: [{ field_handle: 7, value: 0.5 }],
     });
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(2);
-    expect(sendWriteMock.mock.calls[1]?.[1]?.engine_session_id).toBe(
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(2);
+    expect(telemetry.setWorkloadInputFieldsData.mock.calls[1]?.[1]?.engine_session_id).toBe(
       "sid-corrected",
     );
     expect(result.ok).toBe(true);
@@ -114,82 +120,73 @@ describe("setWorkloadInputFieldsData", () => {
 
 describe("setWorkloadInputConnectionState", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    delete (window as unknown as { robotick?: unknown }).robotick;
     vi.clearAllMocks();
   });
 
-  it("posts connection suppression updates over REST", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          status: "processed",
-          updates: [
-            {
-              field_handle: 7,
-              incoming_connection_enabled: false,
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
+  it("sends connection suppression updates through the Electron telemetry bridge", async () => {
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputConnectionState.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        status: "processed",
+        updates: [
+          {
+            field_handle: 7,
+            incoming_connection_enabled: false,
           },
-        },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+        ],
+      },
+    });
 
     const result = await setWorkloadInputConnectionState("http://example", {
       engine_session_id: "sid",
       updates: [{ field_handle: 7, enabled: false }],
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://example/api/telemetry/set_workload_input_connection_state",
-      expect.objectContaining({
-        method: "POST",
-      }),
+    expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledWith(
+      "http://example",
+      {
+        engine_session_id: "sid",
+        updates: [{ field_handle: 7, enabled: false }],
+      },
     );
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
   it("retries connection suppression with the corrected engine session id", async () => {
-    const fetchMock = vi
-      .fn()
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputConnectionState
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            error: "session_mismatch",
-            engine_session_id: "sid-corrected",
-          }),
-          {
-            status: 412,
-            headers: {
-              "Content-Type": "application/json",
-            },
+        {
+          ok: false,
+          status: 412,
+          body: {
+          error: "session_mismatch",
+          engine_session_id: "sid-corrected",
           },
-        ),
+        },
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: "processed" }), {
+        {
+          ok: true,
           status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }),
+          body: { status: "processed" },
+        },
       );
-    vi.stubGlobal("fetch", fetchMock);
 
     const result = await setWorkloadInputConnectionState("http://example", {
       engine_session_id: "sid-stale",
       updates: [{ field_handle: 7, enabled: false }],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const retryBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
-    expect(retryBody.engine_session_id).toBe("sid-corrected");
+    expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledTimes(2);
+    expect(
+      telemetry.setWorkloadInputConnectionState.mock.calls[1]?.[1]
+        ?.engine_session_id,
+    ).toBe("sid-corrected");
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
@@ -197,25 +194,22 @@ describe("setWorkloadInputConnectionState", () => {
   it("retries connection suppression on retryable REST failures", async () => {
     vi.useFakeTimers();
     try {
-      const fetchMock = vi
-        .fn()
+      const telemetry = installTelemetryBridge({});
+      telemetry.setWorkloadInputConnectionState
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ error: "busy", retry_after_ms: 1 }), {
+          {
+            ok: false,
             status: 503,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }),
+            body: { error: "busy", retry_after_ms: 1 },
+          },
         )
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ status: "processed" }), {
+          {
+            ok: true,
             status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }),
+            body: { status: "processed" },
+          },
         );
-      vi.stubGlobal("fetch", fetchMock);
 
       const requestPromise = setWorkloadInputConnectionState(
         "http://example",
@@ -233,7 +227,7 @@ describe("setWorkloadInputConnectionState", () => {
       await vi.runAllTimersAsync();
       const result = await requestPromise;
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledTimes(2);
       expect(result.ok).toBe(true);
       expect(result.status).toBe(200);
     } finally {
@@ -284,6 +278,113 @@ describe("createTelemetryModel", () => {
     model.raw = raw;
 
     expect(model.getField?.("detector.outputs.class_id")?.getValue()).toBe(-7);
+  });
+
+  it("decodes 64-bit workload span stats", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 320,
+      process_memory_used: 0,
+      workloads: [
+        {
+          name: "sequenced",
+          type: "SequencedGroupWorkload",
+          offset_within_container: 16,
+          stats_offset_within_container: 96,
+        },
+      ],
+      types: [
+        { name: "bool", size: 1 },
+        { name: "int32_t", size: 4 },
+        { name: "uint64_t", size: 8 },
+        {
+          name: "WorkloadLatestSpanStats",
+          size: 72,
+          fields: [
+            {
+              name: "tick_seq",
+              type: "uint64_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+            {
+              name: "kernel_thread_id",
+              type: "uint64_t",
+              offset_within_container: 16,
+              element_count: 1,
+            },
+            {
+              name: "logical_cpu_start_id",
+              type: "int32_t",
+              offset_within_container: 24,
+              element_count: 1,
+            },
+            {
+              name: "scheduled_start_time_ns",
+              type: "uint64_t",
+              offset_within_container: 32,
+              element_count: 1,
+            },
+            {
+              name: "is_running",
+              type: "bool",
+              offset_within_container: 64,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "WorkloadInstanceStats",
+          size: 168,
+          fields: [
+            {
+              name: "latest_span",
+              type: "WorkloadLatestSpanStats",
+              offset_within_container: 96,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+    const raw = new ArrayBuffer(320);
+    const view = new DataView(raw);
+    const latestSpanOffset = 96 + 96;
+    view.setBigUint64(latestSpanOffset, 1234n, true);
+    view.setBigUint64(latestSpanOffset + 16, 42n, true);
+    view.setInt32(latestSpanOffset + 24, 7, true);
+    view.setBigUint64(latestSpanOffset + 32, 1_000_000_000n, true);
+    view.setUint8(latestSpanOffset + 64, 1);
+
+    const model = createTelemetryModel(layout);
+    model.raw = raw;
+    const latestSpan = model.workloads[0]?.stats?.fields.find(
+      (field) => field.name === "latest_span",
+    );
+
+    expect(
+      latestSpan?.fields?.find((field) => field.name === "tick_seq")?.getValue(),
+    ).toBe(1234);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "kernel_thread_id")
+        ?.getValue(),
+    ).toBe(42);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "logical_cpu_start_id")
+        ?.getValue(),
+    ).toBe(7);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "scheduled_start_time_ns")
+        ?.getValue(),
+    ).toBe(1_000_000_000);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "is_running")
+        ?.getValue(),
+    ).toBe(true);
   });
 
   it("computes per-workload static and dynamic workloads-buffer memory", () => {

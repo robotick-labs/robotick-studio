@@ -6,7 +6,6 @@ import {
   ITelemetryModel,
   useTelemetryService,
 } from "../../../../data-sources/telemetry";
-import { buildUrl } from "../../../../data-sources/launcher/internal/launcher-interface";
 import styles from "../Telemetry.module.css";
 import { formatBytesWithCommas } from "../utils/format-bytes";
 
@@ -159,16 +158,18 @@ export function TelemetryModel({
         telemetryService.getIngressRateHz(model.instanceURL, 4000)
       );
       try {
-        const response = await fetch(
-          buildUrl(model.instanceURL, "/api/telemetry/push_stats"),
-          {
-            cache: "no-store",
-          }
-        );
-        if (!response.ok || cancelled) {
+        const telemetryBridge = window.robotick?.telemetry;
+        if (!telemetryBridge) {
+          throw new Error("Electron telemetry bridge is required.");
+        }
+        const response = await telemetryBridge.getPushStats(model.instanceURL) as {
+          ok?: unknown;
+          body?: unknown;
+        };
+        if (response.ok !== true || cancelled) {
           return;
         }
-        const payload = (await response.json()) as {
+        const payload = (response.body ?? {}) as {
           configured_push_rate_hz?: number;
           goal_push_rate_hz?: number;
           source_tick_rate_hz?: number;
