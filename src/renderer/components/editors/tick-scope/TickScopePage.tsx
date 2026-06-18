@@ -29,6 +29,14 @@ type ThreadRow = {
   spans: WorkSpan[];
   note?: string;
   copyData?: unknown;
+  workerThreads?: ProcessThreadSummary[];
+};
+
+type ProcessThreadSummary = {
+  threadId: number;
+  name: string;
+  displayName?: string;
+  role?: string;
 };
 
 type ModelTick = {
@@ -394,19 +402,21 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       !seenThreadIds.has(thread.threadId) && thread.threadId !== mainThreadId,
   );
   if (unmatchedProcessThreads.length > 0) {
+    const workerThreads = unmatchedProcessThreads.map((thread) => ({
+      threadId: thread.threadId,
+      name: thread.name,
+      displayName: thread.displayName,
+      role: thread.role,
+    }));
     threadRows.set("process-workers", {
       name: `+${unmatchedProcessThreads.length} process worker threads`,
       role: "observed",
       note: "present in process, no Robotick span in latest tick",
       spans: [],
+      workerThreads,
       copyData: {
         note: "present in process, no Robotick span in latest tick",
-        threads: unmatchedProcessThreads.map((thread) => ({
-          threadId: thread.threadId,
-          name: thread.name,
-          displayName: thread.displayName,
-          role: thread.role,
-        })),
+        threads: workerThreads,
       },
     });
   }
@@ -638,32 +648,82 @@ const ThreadLane = memo(function ThreadLane({
   model: ModelTick;
   thread: ThreadRow;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasWorkerThreads = Boolean(thread.workerThreads?.length);
+  const toggleExpanded = () => setExpanded((current) => !current);
+
+  if (thread.copyData) {
+    return (
+      <div className={`${styles.threadLane} ${styles.workerThreadLane}`}>
+        <div className={styles.workerThreadHeader}>
+          {hasWorkerThreads ? (
+            <div
+              className={`${styles.workerThreadDisclosure} ${expanded ? styles.workerThreadDisclosureExpanded : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={toggleExpanded}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  toggleExpanded();
+                }
+              }}
+            >
+              <span className={styles.workerThreadChevron} aria-hidden="true" />
+              <div className={styles.workerThreadHeadingText}>
+                <strong>{thread.name}</strong>
+                {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
+              </div>
+              <span className={styles.workerThreadCount}></span>
+            </div>
+          ) : (
+            <div className={styles.workerThreadHeadingText}>
+              <strong>{thread.name}</strong>
+              {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
+            </div>
+          )}
+          <CopyJsonButton label="Copy raw" data={thread.copyData} />
+        </div>
+        {expanded && hasWorkerThreads ? (
+          <div className={styles.workerThreadList}>
+            {thread.workerThreads?.map((worker) => (
+              <div className={styles.workerThreadItem} key={worker.threadId}>
+                <span>{worker.displayName?.trim() || worker.name || "thread"}</span>
+                <span>
+                  tid {worker.threadId}
+                  {worker.role ? ` · ${worker.role}` : ""}
+                  {worker.displayName && worker.name && worker.displayName !== worker.name
+                    ? ` · ${worker.name}`
+                    : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={styles.threadLane}>
       <div className={styles.threadLabel}>
         <strong>{thread.name}</strong>
         {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
       </div>
-      {thread.copyData ? (
-        <div className={styles.threadActions}>
-          <CopyJsonButton label="Copy raw" data={thread.copyData} />
-        </div>
-      ) : (
-        <div className={styles.threadTrackStack}>
-          {packSpansIntoSubLanes(thread.spans).map((laneSpans, laneIndex) => (
-            <div className={styles.laneTrack} key={`${thread.name}:lane:${laneIndex}`}>
-              <div className={styles.deadlineLine} />
-              {laneSpans.map((span, index) => (
-                <SpanBlock
-                  key={`${thread.name}:${laneIndex}:${index}:${span.workload}`}
-                  periodMs={model.periodMs}
-                  span={span}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className={styles.threadTrackStack}>
+        {packSpansIntoSubLanes(thread.spans).map((laneSpans, laneIndex) => (
+          <div className={styles.laneTrack} key={`${thread.name}:lane:${laneIndex}`}>
+            <div className={styles.deadlineLine} />
+            {laneSpans.map((span, index) => (
+              <SpanBlock
+                key={`${thread.name}:${laneIndex}:${index}:${span.workload}`}
+                periodMs={model.periodMs}
+                span={span}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 });
@@ -723,12 +783,16 @@ const SpanBlock = memo(function SpanBlock({
     span.kind !== "local_inputs" &&
     span.kind !== "sleep";
   const style = getSpanBlockStyle(span, periodMs) as React.CSSProperties;
+  const durationMs = Math.max(0, span.endMs - span.startMs);
+  const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
+  const widthPct = (durationMs / safePeriodMs) * 100;
+  const traceClass = durationMs > 0 && widthPct < 0.2 ? styles.spanTrace : "";
 
   return (
     <div
-      className={`${styles.spanBlock} ${styles[`span_${span.kind}`]}`}
+      className={`${styles.spanBlock} ${styles[`span_${span.kind}`]} ${traceClass}`}
       style={style}
-      title={`${span.workload}: ${formatMs(span.endMs - span.startMs)}`}
+      title={`${span.workload}: ${formatMs(durationMs)}`}
     >
       <span className={styles.spanName}>{span.workload}</span>
       {showCpuBadge ? (

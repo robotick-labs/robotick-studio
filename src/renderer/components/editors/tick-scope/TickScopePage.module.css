@@ -194,7 +194,7 @@
 .threadRows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 
 .threadLane {
@@ -202,6 +202,12 @@
   grid-template-columns: minmax(200px, 0.34fr) minmax(330px, 1fr);
   gap: 8px;
   min-height: 42px;
+  padding: 6px 0;
+  border-bottom: 1px solid #26313a;
+}
+
+.threadLane:last-child {
+  border-bottom: 0;
 }
 
 .threadLabel {
@@ -236,7 +242,116 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 6px;
   min-height: 42px;
+}
+
+.workerThreadList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 4px;
+}
+
+.workerThreadLane {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.workerThreadHeader {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.workerThreadDisclosure {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #dce6ed;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.workerThreadDisclosure:hover,
+.workerThreadDisclosure:focus-visible {
+  background: #17222b;
+  outline: 1px solid #4d6070;
+  outline-offset: -1px;
+}
+
+.workerThreadChevron {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid currentColor;
+  color: #afbdc8;
+  transform-origin: 50% 50%;
+  transition: transform 120ms ease;
+}
+
+.workerThreadDisclosureExpanded .workerThreadChevron {
+  transform: rotate(90deg);
+}
+
+.workerThreadHeadingText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workerThreadHeadingText strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.workerThreadHeadingText span {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+}
+
+.workerThreadCount {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.workerThreadItem {
+  min-width: 0;
+  border: 1px solid #26313a;
+  border-radius: 5px;
+  background: #0f151a;
+  padding: 5px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workerThreadItem span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workerThreadItem span:first-child {
+  color: #dce6ed;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.workerThreadItem span:last-child {
+  color: var(--app-text-muted);
+  font-size: 0.7rem;
 }
 
 .laneTrack {
@@ -263,6 +378,7 @@
 
 .spanBlock {
   position: absolute;
+  box-sizing: border-box;
   top: 7px;
   bottom: 7px;
   border-radius: 5px;
@@ -273,6 +389,21 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
+}
+
+.spanTrace {
+  padding: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.spanTrace .spanName,
+.spanTrace .cpuBadge,
+.spanTrace .carryBadge {
+  display: none;
 }
 
 .span_useful {
