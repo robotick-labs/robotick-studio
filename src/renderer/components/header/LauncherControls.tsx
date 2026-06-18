@@ -28,7 +28,10 @@ export function LauncherControls() {
   const controlActive = status !== "stopped";
   const canRestart = isRunning && !isBusy;
   const controlsDisabled = isBusy || isAwaitingStatus;
-  const toggleDisabled = status === "stopping" ? true : !controlActive && controlsDisabled;
+  const toggleDisabled =
+    status === "stopping" || (isRunning && isAwaitingStatus)
+      ? true
+      : !controlActive && controlsDisabled;
   const [isStatusOpen, setIsStatusOpen] = React.useState(false);
   const statusMenuRef = React.useRef<HTMLDivElement | null>(null);
   const tooltipSummary = buildTooltipSummary(

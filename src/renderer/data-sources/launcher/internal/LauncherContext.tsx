@@ -39,11 +39,10 @@ export type LauncherModelHealth = {
   warning?: string | null;
 };
 
-type PendingModelTarget = "running" | "stopped";
+type PendingModelTarget = "running" | "stopped" | "restarting";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
-const RESTART_STOP_WAIT_TIMEOUT_MS = 10000;
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -103,13 +102,6 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   >({});
   const lastStatusRef = useRef<LauncherStatus | null>(null);
   const robotCheckPromiseRef = useRef<Promise<void> | null>(null);
-  const restartGenerationRef = useRef(0);
-  const [restartPending, setRestartPending] = useState(false);
-  const restartPendingRef = useRef(false);
-
-  useEffect(() => {
-    restartPendingRef.current = restartPending;
-  }, [restartPending]);
 
   useEffect(() => {
     pendingModelTargetsRef.current = pendingModelTargets;
@@ -119,10 +111,37 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     fastPollUntilRef.current = Date.now() + 1500;
   }, []);
 
-  const setRestartPendingState = useCallback((value: boolean) => {
-    restartPendingRef.current = value;
-    setRestartPending(value);
+  const setPendingModelTarget = useCallback(
+    (modelId: string, target: PendingModelTarget) => {
+      const nextTargets = {
+        ...pendingModelTargetsRef.current,
+        [modelId]: target,
+      };
+      pendingModelTargetsRef.current = nextTargets;
+      setPendingModelTargets(nextTargets);
+      setLauncherModels((prev) => projectPendingModelTargets(prev, nextTargets));
+    },
+    []
+  );
+
+  const clearPendingModelTarget = useCallback((modelId: string) => {
+    const nextTargets = { ...pendingModelTargetsRef.current };
+    delete nextTargets[modelId];
+    pendingModelTargetsRef.current = nextTargets;
+    setPendingModelTargets(nextTargets);
   }, []);
+
+  const setAllActiveModelsStopping = useCallback(() => {
+    const nextTargets = { ...pendingModelTargetsRef.current };
+    for (const [modelId, model] of Object.entries(launcherModels)) {
+      if (!isModelEffectivelyStopped(model)) {
+        nextTargets[modelId] = "stopped";
+      }
+    }
+    pendingModelTargetsRef.current = nextTargets;
+    setPendingModelTargets(nextTargets);
+    setLauncherModels((prev) => projectPendingModelTargets(prev, nextTargets));
+  }, [launcherModels]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,20 +229,8 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             setModelHealth({});
           }
 
-          const visualStatus: LauncherStatus =
-            restartPendingRef.current && launcherStatus === "stopped"
-              ? "launching"
-              : launcherStatus;
-
-          if (
-            restartPendingRef.current &&
-            (launcherStatus === "launching" || launcherStatus === "running")
-          ) {
-            setRestartPendingState(false);
-          }
-
           setStatus((prev) =>
-            prev === visualStatus ? prev : visualStatus
+            prev === launcherStatus ? prev : launcherStatus
           );
           setPendingTarget((target) => {
             if (!target) {
@@ -243,9 +250,6 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
             if (!current) {
               return null;
             }
-            if (restartPendingRef.current) {
-              return current;
-            }
             return launcherStatus !== "launching" ? null : current;
           });
         } catch (err) {
@@ -262,16 +266,12 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     };
   }, [launcherService]);
 
-  const requestRun = useCallback(async (cancelRestart: boolean) => {
+  const requestRun = useCallback(async () => {
     if (!projectPath) {
       setLastError("Select a project before running the launcher.");
       return;
     }
 
-    if (cancelRestart) {
-      restartGenerationRef.current += 1;
-      setRestartPendingState(false);
-    }
     setIsBusy(true);
     setLastError(null);
     setPendingTarget("running");
@@ -295,7 +295,7 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
   }, [launcherProfile, launcherService, projectPath, wakeFastPolling]);
 
   const run = useCallback(async () => {
-    await requestRun(true);
+    await requestRun();
   }, [requestRun]);
 
   const runProfile = useCallback(
@@ -335,44 +335,39 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const platform = resolveProfilePlatform(launcherProfile);
-      setIsBusy(true);
       setLastError(null);
-      setPendingModelTargets((prev) => ({
-        ...prev,
-        [modelId]: "running",
-      }));
-      setLauncherModels((prev) =>
-        projectPendingModelTargets(prev, { ...pendingModelTargetsRef.current, [modelId]: "running" })
-      );
+      setPendingModelTarget(modelId, "running");
       wakeFastPolling();
       launcherEvents.dispatchEvent(
         new CustomEvent("run-requested", { detail: { modelId } })
       );
       try {
-        await launcherService.requestLauncherRunModel(projectPath, platform, modelId);
+        await launcherService.requestLauncherRunModel(
+          projectPath,
+          platform,
+          modelId
+        );
       } catch (err) {
-        setPendingModelTargets((prev) => {
-          const next = { ...prev };
-          delete next[modelId];
-          return next;
-        });
+        clearPendingModelTarget(modelId);
         setLastError(err instanceof Error ? err.message : String(err));
         throw err;
-      } finally {
-        setIsBusy(false);
       }
     },
-    [launcherProfile, launcherService, projectPath, wakeFastPolling]
+    [
+      clearPendingModelTarget,
+      launcherProfile,
+      launcherService,
+      projectPath,
+      setPendingModelTarget,
+      wakeFastPolling,
+    ]
   );
 
-  const requestStop = useCallback(async (cancelRestart: boolean) => {
-    if (cancelRestart) {
-      restartGenerationRef.current += 1;
-      setRestartPending(false);
-    }
+  const requestStop = useCallback(async () => {
     setIsBusy(true);
     setLastError(null);
     setPendingTarget("stopped");
+    setAllActiveModelsStopping();
     wakeFastPolling();
     launcherEvents.dispatchEvent(new Event("stop-requested"));
     try {
@@ -384,10 +379,10 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsBusy(false);
     }
-  }, [launcherService, wakeFastPolling]);
+  }, [launcherService, setAllActiveModelsStopping, wakeFastPolling]);
 
   const stop = useCallback(async () => {
-    await requestStop(true);
+    await requestStop();
   }, [requestStop]);
 
   const stopModel = useCallback(
@@ -397,31 +392,29 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const platform = resolveProfilePlatform(launcherProfile);
-      setIsBusy(true);
       setLastError(null);
-      setPendingModelTargets((prev) => ({
-        ...prev,
-        [modelId]: "stopped",
-      }));
-      setLauncherModels((prev) =>
-        projectPendingModelTargets(prev, { ...pendingModelTargetsRef.current, [modelId]: "stopped" })
-      );
+      setPendingModelTarget(modelId, "stopped");
       wakeFastPolling();
       try {
-        await launcherService.requestLauncherStopModel(projectPath, platform, modelId);
+        await launcherService.requestLauncherStopModel(
+          projectPath,
+          platform,
+          modelId
+        );
       } catch (err) {
-        setPendingModelTargets((prev) => {
-          const next = { ...prev };
-          delete next[modelId];
-          return next;
-        });
+        clearPendingModelTarget(modelId);
         setLastError(err instanceof Error ? err.message : String(err));
         throw err;
-      } finally {
-        setIsBusy(false);
       }
     },
-    [launcherProfile, launcherService, projectPath, wakeFastPolling]
+    [
+      clearPendingModelTarget,
+      launcherProfile,
+      launcherService,
+      projectPath,
+      setPendingModelTarget,
+      wakeFastPolling,
+    ]
   );
 
   const restart = useCallback(async () => {
@@ -430,52 +423,27 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const generation = restartGenerationRef.current + 1;
-    restartGenerationRef.current = generation;
-    setRestartPendingState(true);
+    setIsBusy(true);
     setLastError(null);
     setPendingTarget("running");
     setOptimisticStatus("launching");
     wakeFastPolling();
-
-    await requestStop(false);
-
-    const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
-    while (restartGenerationRef.current === generation) {
-        if (Date.now() >= restartStopWaitDeadline) {
-          const message = "Timed out waiting for the launcher to stop during restart.";
-          setLastError(message);
-          setPendingTarget(null);
-          setRestartPendingState(false);
-          throw new Error(message);
-        }
-
-      let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
-      try {
-        snapshot = await readLauncherStatus(launcherService);
-      } catch {
-        await sleep(100);
-        continue;
-      }
-      if (snapshot.status === "stopped") {
-        break;
-      }
-      await sleep(100);
-    }
-
-    if (restartGenerationRef.current !== generation) {
-      setPendingTarget(null);
-      setRestartPendingState(false);
-      return;
-    }
+    launcherEvents.dispatchEvent(new Event("restart-requested"));
 
     try {
-      await requestRun(false);
+      await launcherService.requestLauncherRestart(
+        projectPath,
+        launcherProfile || "local:ALL"
+      );
     } catch (err) {
-      setRestartPendingState(false);
+      setLastError(err instanceof Error ? err.message : String(err));
+      setPendingTarget(null);
+      setOptimisticStatus(null);
       throw err;
+    } finally {
+      setIsBusy(false);
     }
-  }, [launcherService, projectPath, requestRun, requestStop, setRestartPendingState, wakeFastPolling]);
+  }, [launcherProfile, launcherService, projectPath, wakeFastPolling]);
 
   const restartProfile = useCallback(
     async (profile: string) => {
@@ -484,69 +452,66 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const generation = restartGenerationRef.current + 1;
-      restartGenerationRef.current = generation;
-      setRestartPendingState(true);
+      setIsBusy(true);
       setLastError(null);
       setPendingTarget("running");
       setOptimisticStatus("launching");
       wakeFastPolling();
-
-      await requestStop(false);
-
-      const restartStopWaitDeadline = Date.now() + RESTART_STOP_WAIT_TIMEOUT_MS;
-      while (restartGenerationRef.current === generation) {
-        if (Date.now() >= restartStopWaitDeadline) {
-          const message =
-            "Timed out waiting for the launcher to stop during restart.";
-          setLastError(message);
-          setPendingTarget(null);
-          setRestartPendingState(false);
-          throw new Error(message);
-        }
-
-        let snapshot: Awaited<ReturnType<typeof readLauncherStatus>>;
-        try {
-          snapshot = await readLauncherStatus(launcherService);
-        } catch {
-          await sleep(100);
-          continue;
-        }
-        if (snapshot.status === "stopped") {
-          break;
-        }
-        await sleep(100);
-      }
-
-      if (restartGenerationRef.current !== generation) {
-        setPendingTarget(null);
-        setRestartPendingState(false);
-        return;
-      }
+      launcherEvents.dispatchEvent(
+        new CustomEvent("restart-requested", { detail: { profile } })
+      );
 
       try {
-        await runProfile(profile);
+        await launcherService.requestLauncherRestart(projectPath, profile);
       } catch (err) {
-        setRestartPendingState(false);
+        setLastError(err instanceof Error ? err.message : String(err));
+        setPendingTarget(null);
+        setOptimisticStatus(null);
         throw err;
+      } finally {
+        setIsBusy(false);
       }
     },
     [
       launcherService,
       projectPath,
-      requestStop,
-      setRestartPendingState,
-      runProfile,
       wakeFastPolling,
     ]
   );
 
   const restartModel = useCallback(
     async (modelId: string) => {
-      await stopModel(modelId);
-      await runModel(modelId);
+      if (!projectPath) {
+        setLastError("Select a project before running the launcher.");
+        return;
+      }
+      const platform = resolveProfilePlatform(launcherProfile);
+      setLastError(null);
+      setPendingModelTarget(modelId, "restarting");
+      wakeFastPolling();
+      launcherEvents.dispatchEvent(
+        new CustomEvent("restart-requested", { detail: { modelId } })
+      );
+      try {
+        await launcherService.requestLauncherRestartModel(
+          projectPath,
+          platform,
+          modelId
+        );
+      } catch (err) {
+        clearPendingModelTarget(modelId);
+        setLastError(err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     },
-    [runModel, stopModel]
+    [
+      clearPendingModelTarget,
+      launcherProfile,
+      launcherService,
+      projectPath,
+      setPendingModelTarget,
+      wakeFastPolling,
+    ]
   );
 
   const effectiveStatus = optimisticStatus ?? status;
@@ -679,6 +644,17 @@ function projectPendingModelTargets(
   const nextModels = { ...launcherModels };
   for (const [modelId, target] of Object.entries(pendingModelTargets)) {
     const current = nextModels[modelId];
+    if (target === "restarting") {
+      nextModels[modelId] = {
+        ...current,
+        stage: "stop",
+        status: "stopping",
+        lifecycle: "stopping",
+        readiness: "pending",
+        freshness: "pending",
+      };
+      continue;
+    }
     if (target === "running" && !isModelEffectivelyRunning(current)) {
       nextModels[modelId] = {
         ...current,
@@ -711,6 +687,23 @@ function reconcilePendingModelTargets(
   const nextTargets: Record<string, PendingModelTarget> = {};
   for (const [modelId, target] of Object.entries(pendingModelTargets)) {
     const current = launcherModels[modelId];
+    if (target === "restarting") {
+      const status = current?.status?.trim();
+      const lifecycle = current?.lifecycle?.trim();
+      const readiness = current?.readiness?.trim();
+      const freshness = current?.freshness?.trim();
+      if (
+        status === "starting" ||
+        status === "stopping" ||
+        lifecycle === "starting" ||
+        lifecycle === "stopping" ||
+        readiness === "pending" ||
+        freshness === "pending"
+      ) {
+        nextTargets[modelId] = target;
+      }
+      continue;
+    }
     if (target === "running") {
       if (!isModelEffectivelyRunning(current)) {
         nextTargets[modelId] = target;

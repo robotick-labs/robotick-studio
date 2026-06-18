@@ -867,6 +867,7 @@ def test_launcher_launch_posts_profile_and_intent_payloads(
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": True,
         "profile": "native:ALL",
     }
     assert captured["output"] == {
@@ -883,6 +884,7 @@ def test_launcher_launch_posts_profile_and_intent_payloads(
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": True,
         "intent": {
             "project": "barr-e",
             "scope": {"kind": "model", "value": "brain"},
@@ -1008,6 +1010,7 @@ def test_launcher_stop_and_restart_use_model_control_endpoints(
     assert captured["path"] == "/v1/launcher/models/stop"
     assert captured["payload"]["project_name"] == "barr-e"
     assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["payload"]["wait"] is True
     assert captured["timeout_seconds"] == 120
 
     result = robotick_cli.launcher.run_launcher_command(
@@ -1018,6 +1021,7 @@ def test_launcher_stop_and_restart_use_model_control_endpoints(
     assert captured["path"] == "/v1/launcher/models/restart"
     assert captured["payload"]["project_name"] == "barr-e"
     assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["payload"]["wait"] is True
     assert captured["payload"]["intent"] == {
         "project": "barr-e",
         "scope": {"kind": "model", "value": "brain"},

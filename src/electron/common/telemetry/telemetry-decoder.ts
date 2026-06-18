@@ -59,6 +59,8 @@ export interface LayoutWritableInput {
 export interface LayoutProcessThread {
   thread_id: number;
   name?: string;
+  display_name?: string;
+  role?: string;
 }
 
 export interface LayoutModel {
@@ -120,6 +122,8 @@ export interface ITelemetryWorkload {
 export interface ITelemetryProcessThread {
   threadId: number;
   name: string;
+  displayName?: string;
+  role?: string;
 }
 
 export interface ITelemetryModel {
@@ -748,6 +752,15 @@ namespace TelemetryFactory {
               typeof thread.name === "string" && thread.name.trim().length > 0
                 ? thread.name.trim()
                 : `thread ${thread.thread_id}`,
+            displayName:
+              typeof thread.display_name === "string" &&
+              thread.display_name.trim().length > 0
+                ? thread.display_name.trim()
+                : undefined,
+            role:
+              typeof thread.role === "string" && thread.role.trim().length > 0
+                ? thread.role.trim()
+                : undefined,
           }))
           .filter((thread) => Number.isFinite(thread.threadId))
       : [];

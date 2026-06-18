@@ -147,7 +147,7 @@ function formatThreadName(
   threadInfo?: ITelemetryProcessThread,
   isMainThread = false,
 ): string {
-  const rawName = threadInfo?.name?.trim();
+  const rawName = threadInfo?.displayName?.trim() || threadInfo?.name?.trim();
   const baseName = rawName && rawName !== `thread ${threadId}` ? rawName : "thread";
   const suffix = isMainThread ? " main" : "";
   return `${baseName}${suffix} - tid ${threadId}`;
@@ -404,6 +404,8 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
         threads: unmatchedProcessThreads.map((thread) => ({
           threadId: thread.threadId,
           name: thread.name,
+          displayName: thread.displayName,
+          role: thread.role,
         })),
       },
     });
@@ -427,6 +429,8 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     processThreads: processThreads.map((thread) => ({
       threadId: thread.threadId,
       name: thread.name,
+      displayName: thread.displayName,
+      role: thread.role,
     })),
     workloads: rawWorkloads,
   };

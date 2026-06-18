@@ -561,6 +561,66 @@ describe("launcher-interface gateway telemetry resolution", () => {
     });
   });
 
+  it("prioritizes in-flight stop state over still-live runtime health", async () => {
+    vi.mocked(readStorageValue).mockImplementation((key: string) => {
+      if (key === "robotick-studio.projectPath") {
+        return "/workspace/robots/sample-robot/sample-robot.project.yaml";
+      }
+      return "";
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/v1/launcher/runtime") {
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      }
+      return createJsonResponse({
+        resource_type: "robotick_launcher_runtime_status",
+        state: "pending",
+        models: [
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-face",
+            lifecycle: "running",
+            readiness: "ready",
+            freshness: "live",
+            health: { configured: true, healthy: true, error: null },
+          },
+          {
+            project_id: "sample-robot",
+            model_id: "sample-robot-spine",
+            lifecycle: "stopping",
+            readiness: "pending",
+            freshness: "pending",
+            operation: { action: "stopping" },
+            health: { configured: true, healthy: true, error: null },
+          },
+        ],
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await expect(launcherInterface.fetchLauncherStatus()).resolves.toMatchObject({
+      status: "stopping",
+      phase: "stop",
+      models: {
+        "sample-robot-face": {
+          stage: "run",
+          status: "running",
+        },
+        "sample-robot-spine": {
+          stage: "stop",
+          status: "stopping",
+          lifecycle: "stopping",
+        },
+      },
+    });
+  });
+
   it("stops the current project through the model control endpoint", async () => {
     vi.mocked(readStorageValue).mockImplementation((key: string) => {
       if (key === "robotick-studio.projectPath") {
@@ -626,6 +686,85 @@ describe("launcher-interface gateway telemetry resolution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("restarts the current project through the model control endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/launcher/models/restart") {
+          expect(init?.method).toBe("POST");
+          expect(init?.headers).toEqual({
+            "Content-Type": "application/json",
+          });
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+            profile: "native:ALL",
+            creator: {
+              client: "studio",
+            },
+          });
+          return createJsonResponse({ sessions: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await launcherInterface.requestLauncherRestart(
+      "/workspace/robots/sample-robot/sample-robot.project.yaml",
+      "native:ALL",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts one model through the model control endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/launcher/models/restart") {
+          expect(init?.method).toBe("POST");
+          expect(init?.headers).toEqual({
+            "Content-Type": "application/json",
+          });
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+            model_ids: ["sample-robot-face"],
+            intent: {
+              project: "sample-robot",
+              scope: {
+                kind: "model",
+                value: "sample-robot-face",
+              },
+              target_policy: "native",
+            },
+            creator: {
+              client: "studio",
+            },
+          });
+          return createJsonResponse({ sessions: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const launcherInterface =
+      await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
+
+    await launcherInterface.requestLauncherRestartModel(
+      "/workspace/robots/sample-robot/sample-robot.project.yaml",
+      "native",
+      "sample-robot-face",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("reduces launcher status from runtime models", async () => {
     const readStorage = vi.mocked(readStorageValue);
     readStorage.mockImplementation((key: string) => {
@@ -680,7 +819,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
     readStorage.mockImplementation(() => "");
   });
 
-  it("keeps project status running while one model restarts", async () => {
+  it("surfaces restart WIP above still-running model health", async () => {
     vi.mocked(readStorageValue).mockImplementation((key: string) => {
       if (key === "robotick-studio.projectPath") {
         return "/workspace/robots/sample-robot/sample-robot.project.yaml";
@@ -722,7 +861,7 @@ describe("launcher-interface gateway telemetry resolution", () => {
       await import("../../../../renderer/data-sources/launcher/internal/launcher-interface");
 
     await expect(launcherInterface.fetchLauncherStatus()).resolves.toMatchObject({
-      status: "running",
+      status: "stopping",
       phase: "stop",
       models: {
         "sample-robot-camera": {

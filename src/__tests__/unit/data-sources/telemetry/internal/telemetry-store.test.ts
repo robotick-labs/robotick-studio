@@ -245,6 +245,45 @@ describe("telemetry-store Electron bridge", () => {
     unsubscribe();
   });
 
+  it("clears stale renderer frames on stop and reconnects on restart requests", () => {
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeTelemetry("base", 10, {
+      callback,
+    });
+
+    emitLayout("base", { ...layout, engine_session_id: "sid-old" });
+    emitFrame("base", "sid-old", 2);
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(store.getDiagnostics("base").lastFrameAt).toEqual(
+      expect.any(String)
+    );
+
+    eventTarget.dispatchEvent(new Event("stop-requested"));
+
+    expect(listenersByBaseUrl.has("base")).toBe(false);
+    expect(store.getDiagnostics("base")).toMatchObject({
+      subscriberCount: 1,
+      layoutLoaded: false,
+      lastFrameAt: null,
+      lastErrorMessage: null,
+    });
+    expect(store.getLatestModel("base")).toBeNull();
+
+    eventTarget.dispatchEvent(new Event("restart-requested"));
+
+    expect(listenersByBaseUrl.has("base")).toBe(true);
+    emitLayout("base", { ...layout, engine_session_id: "sid-new" });
+    emitFrame("base", "sid-new", 2);
+
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(store.getDiagnostics("base").lastFrameAt).toEqual(
+      expect.any(String)
+    );
+
+    unsubscribe();
+  });
+
   it("clears telemetry diagnostics errors after recovered websocket data", () => {
     const callback = vi.fn();
     const unsubscribe = store.subscribeTelemetry("base", 10, {

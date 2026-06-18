@@ -873,18 +873,18 @@ function buildRuntimeModelStatusMap(
 function reduceRuntimeLauncherStatus(
   models: LauncherRuntimeModelRecord[]
 ): "stopped" | "launching" | "running" | "stopping" {
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  if (models.some((model) => model.lifecycle === "starting")) {
+    return "launching";
+  }
   if (
     models.some(
       (model) => model.lifecycle === "running" || model.freshness === "live"
     )
   ) {
     return "running";
-  }
-  if (models.some((model) => model.lifecycle === "stopping")) {
-    return "stopping";
-  }
-  if (models.some((model) => model.lifecycle === "starting")) {
-    return "launching";
   }
   return "stopped";
 }
@@ -929,6 +929,23 @@ async function createLauncherGroupRequest(
   payload: Record<string, unknown>
 ): Promise<void> {
   const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/launch");
+  await fetchJSON(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function createLauncherControlRequest(
+  action: "stop" | "restart",
+  payload: Record<string, unknown>
+): Promise<void> {
+  const url = buildUrl(
+    await getLauncherApiBase(),
+    `/v1/launcher/models/${action}`
+  );
   await fetchJSON(url, {
     method: "POST",
     headers: {
@@ -1035,13 +1052,8 @@ export async function requestLauncherStop(): Promise<void> {
   if (!projectName) {
     return;
   }
-  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
-  await fetchJSON(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ project_name: projectName }),
+  await createLauncherControlRequest("stop", {
+    project_name: projectName,
   });
 }
 
@@ -1056,13 +1068,54 @@ export async function requestLauncherStopModel(
     return;
   }
   void platform;
-  const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/stop");
-  await fetchJSON(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  await createLauncherControlRequest("stop", {
+    project_name: projectName,
+    model_ids: [modelId],
+  });
+}
+
+export async function requestLauncherRestart(
+  projectPath: string,
+  launcherProfile: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const projectName = deriveProjectName(normalizedProjectPath);
+  if (!projectName) {
+    return;
+  }
+  await createLauncherControlRequest("restart", {
+    project_name: projectName,
+    profile: launcherProfile,
+    creator: {
+      client: "studio",
     },
-    body: JSON.stringify({ project_name: projectName, model_ids: [modelId] }),
+  });
+}
+
+export async function requestLauncherRestartModel(
+  projectPath: string,
+  platform: "local" | "native",
+  modelId: string
+): Promise<void> {
+  const normalizedProjectPath = await resolveProjectPath(projectPath);
+  const projectName = deriveProjectName(normalizedProjectPath);
+  if (!projectName) {
+    return;
+  }
+  await createLauncherControlRequest("restart", {
+    project_name: projectName,
+    model_ids: [modelId],
+    intent: {
+      project: projectName,
+      scope: {
+        kind: "model",
+        value: modelId,
+      },
+      target_policy: platform,
+    },
+    creator: {
+      client: "studio",
+    },
   });
 }
 
@@ -1422,6 +1475,8 @@ const currentProject: LauncherService = {
   requestLauncherRunModel,
   requestLauncherStop,
   requestLauncherStopModel,
+  requestLauncherRestart,
+  requestLauncherRestartModel,
   fetchLauncherStatus,
   getLauncherLogStreamUrl,
   getLauncherLogStreamUrlAsync,

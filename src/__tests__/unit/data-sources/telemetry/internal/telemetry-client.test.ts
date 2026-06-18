@@ -237,6 +237,35 @@ describe("setWorkloadInputConnectionState", () => {
 });
 
 describe("createTelemetryModel", () => {
+  it("keeps process thread raw names and decoded display metadata", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+      process_threads: [
+        {
+          thread_id: 13,
+          name: "barr-e-:disk$0",
+          display_name: "Mesa disk cache",
+          role: "graphics",
+        },
+      ],
+      workloads: [],
+      types: [],
+    };
+
+    const model = createTelemetryModel(layout);
+
+    expect(model.process_threads).toEqual([
+      {
+        threadId: 13,
+        name: "barr-e-:disk$0",
+        displayName: "Mesa disk cache",
+        role: "graphics",
+      },
+    ]);
+  });
+
   it("decodes int32_t primitive fields", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",

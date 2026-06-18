@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encode as encodePng } from "fast-png";
 
-const { subscribeTelemetry } = vi.hoisted(() => ({
+const { refreshTelemetryLayout, subscribeTelemetry } = vi.hoisted(() => ({
+  refreshTelemetryLayout: vi.fn(async () => null),
   subscribeTelemetry: vi.fn(() => vi.fn()),
 }));
 
@@ -56,6 +57,7 @@ const projectModelsState = {
 };
 
 vi.mock("../../../../renderer/data-sources/telemetry", () => ({
+  refreshTelemetryLayout,
   subscribeTelemetry,
 }));
 
@@ -104,6 +106,8 @@ import {
 describe("viewer-streaming-image frame rate config", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="viewer-container"></div>';
+    refreshTelemetryLayout.mockClear();
+    refreshTelemetryLayout.mockResolvedValue(null);
     subscribeTelemetry.mockClear();
     vi
       .spyOn(HTMLCanvasElement.prototype, "getContext")
@@ -188,6 +192,8 @@ describe("viewer-streaming-image stream selection", () => {
   beforeEach(() => {
     document.body.innerHTML = '<div id="viewer-container"></div>';
     window.localStorage.clear();
+    refreshTelemetryLayout.mockClear();
+    refreshTelemetryLayout.mockResolvedValue(null);
     subscribeTelemetry.mockClear();
     subscribeTelemetry.mockImplementation(() => vi.fn());
     vi
@@ -442,6 +448,108 @@ describe("viewer-streaming-image stream selection", () => {
     callback({ getField });
 
     expect(getField).toHaveBeenCalledWith("head_depth_png.outputs.image");
+  });
+
+  it("shows explicit stream state while waiting and when fields are missing", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Chase",
+      streams: {
+        Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+      },
+      frameRateHz: 30,
+    });
+
+    expect(
+      document.querySelector('[data-role="stream-status"]')?.textContent,
+    ).toContain("Waiting for image stream");
+
+    const callback = subscribeTelemetry.mock.calls[0][2].callback;
+    const getField = vi.fn(() => undefined);
+    callback({ getField });
+
+    expect(getField).toHaveBeenCalledWith("chase_camera_jpeg.outputs.image");
+    expect(
+      document.querySelector('[data-role="stream-status"]')?.textContent,
+    ).toContain("Image field not found");
+    expect(
+      document.querySelector('[data-role="stream-status"]')?.textContent,
+    ).toContain("chase_camera_jpeg.outputs.image");
+  });
+
+  it("clears stream state after image bytes arrive", async () => {
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      selectedStream: "Chase",
+      streams: {
+        Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+      },
+      frameRateHz: 30,
+    });
+
+    expect(
+      document.querySelector('[data-role="stream-status"]')?.textContent,
+    ).toContain("Waiting for image stream");
+
+    const callback = subscribeTelemetry.mock.calls[0][2].callback;
+    callback({
+      getField: vi.fn(() => ({
+        mime_type: "image/jpeg",
+        getValue: () =>
+          new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+      })),
+    });
+
+    expect(document.querySelector('[data-role="stream-status"]')).toBeNull();
+  });
+
+  it("refreshes the latest telemetry snapshot when the image stream stalls", async () => {
+    vi.useFakeTimers();
+    refreshTelemetryLayout.mockResolvedValueOnce({
+      getField: vi.fn(() => ({
+        mime_type: "image/jpeg",
+        getValue: () =>
+          new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+      })),
+    });
+
+    try {
+      await init({
+        camera: { fov: 60, near: 0.1, far: 100 },
+        models: [],
+        selectedStream: "Chase",
+        streams: {
+          Chase: "demo-robot-simulator.chase_camera_jpeg.outputs.image",
+        },
+        frameRateHz: 30,
+        frameStallTimeoutMs: 250,
+      });
+
+      const callback = subscribeTelemetry.mock.calls[0][2].callback;
+      callback({
+        getField: vi.fn(() => ({
+          mime_type: "image/jpeg",
+          getValue: () =>
+            new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+        })),
+      });
+
+      await vi.advanceTimersByTimeAsync(300);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(refreshTelemetryLayout).toHaveBeenCalledWith(
+        "http://example.test:7096",
+      );
+      expect(
+        document.querySelector('[data-role="stream-status"]')?.textContent ??
+          "",
+      ).not.toContain("Image stream stalled");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resolves configured workload names to runtime workload ids without guessing by suffix", async () => {

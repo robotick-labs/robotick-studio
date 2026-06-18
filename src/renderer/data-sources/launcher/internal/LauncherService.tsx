@@ -76,6 +76,15 @@ export interface LauncherService {
     platform: "local" | "native",
     modelId: string
   ): Promise<void>;
+  requestLauncherRestart(
+    projectPath: string,
+    launcherProfile: string
+  ): Promise<void>;
+  requestLauncherRestartModel(
+    projectPath: string,
+    platform: "local" | "native",
+    modelId: string
+  ): Promise<void>;
   fetchLauncherStatus(): Promise<{
     status: string;
     phase?: string | null;

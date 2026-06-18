@@ -57,7 +57,6 @@ HUB_FEATURES = [
     "studio_focused",
     "launcher_status",
     "launcher_ensure",
-    "launcher_groups",
 ]
 
 

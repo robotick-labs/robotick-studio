@@ -88,6 +88,7 @@ export function createTelemetryStore(
 
   let statusChangeListener: EventListener | null = null;
   let runRequestedListener: EventListener | null = null;
+  let restartRequestedListener: EventListener | null = null;
   let stopRequestedListener: EventListener | null = null;
   let telemetrySuspended = false;
 
@@ -113,6 +114,23 @@ export function createTelemetryStore(
   function setEntryLayout(entry: StoreEntry, layout: LayoutModel | null) {
     entry.layout = layout;
     entry.model = null;
+  }
+
+  function clearEntryRuntimeState(entry: StoreEntry) {
+    setEntryLayout(entry, null);
+    entry.lastRaw = null;
+    entry.ingressTimestampsMs = [];
+    entry.lastErrorAt = null;
+    entry.lastErrorMessage = null;
+    entry.subscribers.forEach((subscriber) => {
+      subscriber.lastNotified = 0;
+    });
+  }
+
+  function clearRuntimeStateForAllEntries() {
+    for (const entry of stores.values()) {
+      clearEntryRuntimeState(entry);
+    }
   }
 
   function getOrCreateModel(entry: StoreEntry): ITelemetryModel | null {
@@ -356,6 +374,18 @@ export function createTelemetryStore(
     }
   }
 
+  function reconnectActiveSubscriptions() {
+    for (const entry of stores.values()) {
+      if (entry.subscribers.size === 0) {
+        continue;
+      }
+      teardownWsSubscription(entry);
+      if (!telemetrySuspended) {
+        ensureWsSubscription(entry);
+      }
+    }
+  }
+
   function handleLauncherStatus(status: LauncherStatus | undefined | null) {
     if (!status) return;
     setTelemetrySuspended(status !== "running");
@@ -366,9 +396,17 @@ export function createTelemetryStore(
     handleLauncherStatus(detail?.status);
   };
   const runEventHandler: EventListener = () => {
+    clearRuntimeStateForAllEntries();
     setTelemetrySuspended(false);
+    reconnectActiveSubscriptions();
+  };
+  const restartEventHandler: EventListener = () => {
+    clearRuntimeStateForAllEntries();
+    setTelemetrySuspended(false);
+    reconnectActiveSubscriptions();
   };
   const stopEventHandler: EventListener = () => {
+    clearRuntimeStateForAllEntries();
     setTelemetrySuspended(true);
   };
 
@@ -384,6 +422,13 @@ export function createTelemetryStore(
     if (!runRequestedListener) {
       runRequestedListener = runEventHandler;
       launcherEventTarget.addEventListener("run-requested", runRequestedListener);
+    }
+    if (!restartRequestedListener) {
+      restartRequestedListener = restartEventHandler;
+      launcherEventTarget.addEventListener(
+        "restart-requested",
+        restartRequestedListener
+      );
     }
     if (!stopRequestedListener) {
       stopRequestedListener = stopEventHandler;
@@ -409,6 +454,13 @@ export function createTelemetryStore(
         runRequestedListener
       );
       runRequestedListener = null;
+    }
+    if (restartRequestedListener) {
+      launcherEventTarget.removeEventListener(
+        "restart-requested",
+        restartRequestedListener
+      );
+      restartRequestedListener = null;
     }
     if (stopRequestedListener) {
       launcherEventTarget.removeEventListener(

@@ -352,4 +352,64 @@ describe("createElectronTelemetryService", () => {
     unsubscribeSecond();
     expect(sockets[0]?.close).toHaveBeenCalledTimes(1);
   });
+
+  it("pairs websocket frame metadata with binary payloads in order under backpressure", async () => {
+    const sockets: Array<{
+      binaryType: string;
+      readyState: number;
+      onopen: ((event: unknown) => void) | null;
+      onmessage: ((event: { data: unknown }) => void) | null;
+      onerror: ((event: unknown) => void) | null;
+      onclose: ((event: unknown) => void) | null;
+      close: ReturnType<typeof vi.fn>;
+    }> = [];
+    const { service } = createService({
+      webSocketFactory: vi.fn(() => {
+        const socket = {
+          binaryType: "",
+          readyState: 1,
+          onopen: null,
+          onmessage: null,
+          onerror: null,
+          onclose: null,
+          close: vi.fn(),
+        };
+        sockets.push(socket);
+        return socket;
+      }),
+    });
+    const events: unknown[] = [];
+
+    service.subscribeBaseUrl("http://localhost:9030", (event) => {
+      events.push(event);
+    });
+
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({
+        type: "frame",
+        engine_session_id: "session-a",
+        frame_seq: 22,
+      }),
+    });
+    sockets[0]?.onmessage?.({ data: makeRawBuffer() });
+    sockets[0]?.onmessage?.({
+      data: JSON.stringify({
+        type: "frame",
+        engine_session_id: "session-a",
+        frame_seq: 24,
+      }),
+    });
+    sockets[0]?.onmessage?.({ data: makeRawBuffer() });
+    await flushMicrotasks();
+
+    const frameSeqs = events
+      .filter(
+        (event): event is { type: "frame"; payload: { frameSeq: number } } =>
+          Boolean(event) &&
+          typeof event === "object" &&
+          (event as { type?: unknown }).type === "frame",
+      )
+      .map((event) => event.payload.frameSeq);
+    expect(frameSeqs).toEqual([22, 24]);
+  });
 });

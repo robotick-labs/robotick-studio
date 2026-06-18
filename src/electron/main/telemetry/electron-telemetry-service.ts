@@ -270,6 +270,7 @@ const DEFAULT_TELEMETRY_PORT = 7090;
 const DEFAULT_TELEMETRY_PUSH_RATE_HZ = 20;
 const RECONNECT_MIN_DELAY_MS = 300;
 const RECONNECT_MAX_DELAY_MS = 5000;
+const MAX_PENDING_FRAME_META = 64;
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 
@@ -497,7 +498,7 @@ class ElectronTelemetryWsClient {
   private socket: ElectronTelemetryWebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = RECONNECT_MIN_DELAY_MS;
-  private pendingFrameMeta: PendingFrameMeta | null = null;
+  private pendingFrameMetaQueue: PendingFrameMeta[] = [];
   private suppressCloseFailure = false;
 
   constructor(
@@ -545,7 +546,7 @@ class ElectronTelemetryWsClient {
       if (this.socket === socket) {
         this.socket = null;
       }
-      this.pendingFrameMeta = null;
+      this.pendingFrameMetaQueue = [];
       if (!this.suppressCloseFailure) {
         this.onError(new Error("telemetry websocket disconnected"));
       }
@@ -556,7 +557,7 @@ class ElectronTelemetryWsClient {
 
   close() {
     this.clearReconnectTimer();
-    this.pendingFrameMeta = null;
+    this.pendingFrameMetaQueue = [];
     if (!this.socket) {
       return;
     }
@@ -608,8 +609,7 @@ class ElectronTelemetryWsClient {
       return;
     }
 
-    const meta = this.pendingFrameMeta;
-    this.pendingFrameMeta = null;
+    const meta = this.pendingFrameMetaQueue.shift() ?? null;
     if (!meta) {
       return;
     }
@@ -645,14 +645,17 @@ class ElectronTelemetryWsClient {
       return;
     }
     if (obj.type === "frame") {
-      this.pendingFrameMeta = {
+      this.pendingFrameMetaQueue.push({
         engine_session_id:
           typeof obj.engine_session_id === "string" ? obj.engine_session_id : undefined,
         frame_seq:
           typeof obj.frame_seq === "number" && Number.isFinite(obj.frame_seq)
             ? obj.frame_seq
             : undefined,
-      };
+      });
+      if (this.pendingFrameMetaQueue.length > MAX_PENDING_FRAME_META) {
+        this.pendingFrameMetaQueue.shift();
+      }
       return;
     }
     if (obj.type === "heartbeat" || obj.type === "hello") {

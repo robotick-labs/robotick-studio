@@ -166,7 +166,11 @@ def handle_launch_command(ctx: AppContext, args: list[str]) -> None:
 
     record = ensure_hub(ctx.workspace_root)
     creator = {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"}
-    request_payload: dict[str, Any] = {"project_name": project_name, "creator": creator}
+    request_payload: dict[str, Any] = {
+        "project_name": project_name,
+        "creator": creator,
+        "wait": True,
+    }
     profile = positional_profile or profile_flag
     if profile:
         if local or native:
@@ -368,6 +372,7 @@ def run_model_action(ctx: AppContext, parsed: dict[str, Any], *, action: str) ->
         "project_name": project_id,
         "model_ids": selection["model_ids"],
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": True,
     }
     if action == "restart":
         if selection["model_ids"]:
