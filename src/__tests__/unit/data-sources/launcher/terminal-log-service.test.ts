@@ -111,6 +111,7 @@ describe("terminal log service", () => {
     vi.spyOn(launcherService, "getLauncherLogStreamUrlAsync").mockResolvedValue(
       "ws://127.0.0.1:7001/v1/launcher/models/logs/stream"
     );
+    vi.spyOn(launcherService, "fetchLauncherLogSnapshot").mockResolvedValue(null);
     const sockets: string[] = [];
     class FakeWebSocket extends EventTarget {
       onopen: (() => void) | null = null;
@@ -126,6 +127,7 @@ describe("terminal log service", () => {
       close() {}
     }
     vi.stubGlobal("WebSocket", FakeWebSocket);
+    const unsubscribe = terminalLogService.subscribe(() => {});
 
     launcherEvents.dispatchEvent(new Event("run-requested"));
     await Promise.resolve();
@@ -140,5 +142,33 @@ describe("terminal log service", () => {
     expect(sockets).toEqual([
       "ws://127.0.0.1:7001/v1/launcher/models/logs/stream",
     ]);
+    unsubscribe();
+  });
+
+  it("does not open a terminal websocket before any subscriber is present", async () => {
+    const sockets: string[] = [];
+    class FakeWebSocket extends EventTarget {
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(url: string) {
+        super();
+        sockets.push(url);
+      }
+
+      close() {}
+    }
+    vi.spyOn(launcherService, "getLauncherLogStreamUrlAsync").mockResolvedValue(
+      "ws://127.0.0.1:7001/v1/launcher/models/logs/stream"
+    );
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+
+    launcherEvents.dispatchEvent(new Event("run-requested"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sockets).toEqual([]);
   });
 });

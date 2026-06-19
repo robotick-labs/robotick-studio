@@ -28,6 +28,7 @@ def test_workloads_registry_resolves_project_dir_tokens(tmp_path: Path):
             [
                 'name: "Demo Project"',
                 "schema_version: 1",
+                "models: []",
                 "runtime:",
                 "  workload_sources:",
                 "    - id: demo-workloads",

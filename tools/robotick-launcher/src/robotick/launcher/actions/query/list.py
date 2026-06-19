@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional
 import typer
+import yaml
 
 
 def _is_within_launcher(path: Path) -> bool:
@@ -30,14 +31,52 @@ def list_project_models(project_file_path: str) -> list[str]:
         raise FileNotFoundError(f"Project file not found: {project_file_path}")
 
     project_dir = project_path.parent
-    return find_files_by_wildcard("*.model.yaml", str(project_dir))
+    try:
+        project_data = yaml.safe_load(project_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in project file: {project_path}") from exc
+
+    models = project_data.get("models") if isinstance(project_data, dict) else None
+    if not isinstance(models, list):
+        raise ValueError(
+            f"Project file must declare a top-level 'models' list: {project_path}"
+        )
+
+    project_dir_resolved = project_dir.resolve()
+    model_paths: list[str] = []
+    for index, model in enumerate(models):
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError(
+                f"Project 'models[{index}]' must be a non-empty relative path"
+            )
+
+        model_rel_path = Path(model)
+        if model_rel_path.is_absolute():
+            raise ValueError(
+                f"Project 'models[{index}]' must be relative to the project directory"
+            )
+
+        model_full_path = (project_dir_resolved / model_rel_path).resolve()
+        try:
+            normalized_rel_path = model_full_path.relative_to(project_dir_resolved)
+        except ValueError as exc:
+            raise ValueError(
+                f"Project 'models[{index}]' must stay inside the project directory"
+            ) from exc
+
+        if not model_full_path.exists():
+            raise FileNotFoundError(f"Model file not found: {normalized_rel_path}")
+
+        model_paths.append(normalized_rel_path.as_posix())
+
+    return model_paths
 
 
 def list_project_models_for_cli(project_file_path: str):
     try:
         for model in list_project_models(project_file_path):
             print(model)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"[error] {e}")
         raise typer.Exit(code=1)
 

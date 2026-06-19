@@ -185,6 +185,8 @@ def get_project_models(
         return list_project_models(str(project_path_resolved))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _load_yaml_as_json(path: Path) -> dict:

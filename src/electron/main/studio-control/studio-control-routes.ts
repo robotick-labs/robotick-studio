@@ -6,7 +6,7 @@ import type {
 } from "../../common/studio-control-contract";
 import type { StudioDiagnosticsProvider } from "./studio-diagnostics";
 import type { StudioRuntimeSnapshotProvider } from "./studio-runtime-snapshot";
-import type { ElectronTelemetryService } from "../telemetry/electron-telemetry-service";
+import type { ElectronTelemetryService } from "../data-sources/telemetry/electron-telemetry-service";
 import { dispatchStudioControlCommand } from "./studio-command-registry";
 
 export type StudioControlRouteDependencies = {

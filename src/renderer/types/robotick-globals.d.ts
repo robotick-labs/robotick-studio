@@ -1,3 +1,6 @@
+import type { RobotickLauncherBridge } from "../../electron/common/launcher-bridge-contract";
+import type { RobotickTelemetryBridge } from "../../electron/common/telemetry-bridge-contract";
+
 export interface RobotickEnvironment {
   readonly isStandaloneApp: boolean;
   readonly appTitle: string;
@@ -162,40 +165,6 @@ export interface RobotickProjectSelection {
   ) => () => void;
 }
 
-export type RobotickTelemetryBridgeEvent =
-  | {
-      readonly type: "layout";
-      readonly payload: unknown;
-    }
-  | {
-      readonly type: "frame";
-      readonly payload: unknown;
-    }
-  | {
-      readonly type: "error";
-      readonly message: string;
-    };
-
-export interface RobotickTelemetryBridge {
-  readonly ensureLayout: (baseUrl: string) => Promise<unknown>;
-  readonly refreshLayout: (baseUrl: string) => Promise<unknown>;
-  readonly getDiagnostics: (baseUrl: string) => Promise<unknown>;
-  readonly getHealth: (baseUrl: string) => Promise<unknown>;
-  readonly getPushStats: (baseUrl: string) => Promise<unknown>;
-  readonly setWorkloadInputFieldsData: (
-    baseUrl: string,
-    request: unknown
-  ) => Promise<unknown>;
-  readonly setWorkloadInputConnectionState: (
-    baseUrl: string,
-    request: unknown
-  ) => Promise<unknown>;
-  readonly subscribe: (
-    baseUrl: string,
-    callback: (event: RobotickTelemetryBridgeEvent) => void
-  ) => () => void;
-}
-
 export interface RobotickGlobals {
   readonly environment: RobotickEnvironment;
   readonly hub?: RobotickHub;
@@ -206,6 +175,7 @@ export interface RobotickGlobals {
   readonly storage?: RobotickStorage;
   readonly studioPersistence?: RobotickStudioPersistence;
   readonly projectSelection?: RobotickProjectSelection;
+  readonly launcher?: RobotickLauncherBridge;
   readonly telemetry?: RobotickTelemetryBridge;
   [key: string]: unknown;
 }

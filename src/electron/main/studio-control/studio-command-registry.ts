@@ -19,7 +19,7 @@ import {
   getStudioRuntimeFocused,
   getStudioRuntimeStatus,
 } from "./studio-runtime-snapshot";
-import { ElectronTelemetryServiceError } from "../telemetry/electron-telemetry-service";
+import { ElectronTelemetryServiceError } from "../data-sources/telemetry/electron-telemetry-service";
 
 type StudioControlCommandResult =
   | {

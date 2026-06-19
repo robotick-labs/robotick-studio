@@ -27,8 +27,21 @@ import {
   StudioDiagnosticsLogStore,
   type StudioDiagnosticsLogSeverity,
 } from "./studio-control/studio-diagnostics-log";
-import { createElectronTelemetryService } from "./telemetry/electron-telemetry-service";
+import { createElectronLauncherDataSource } from "./data-sources/launcher/electron-launcher-data-source";
+import { createElectronTelemetryService } from "./data-sources/telemetry/electron-telemetry-service";
 import type { StudioControlActivationResponse } from "../common/studio-control-contract";
+import type {
+  LauncherLogSnapshotPayload,
+  LauncherModelControlPayload,
+  LauncherProjectModelsPayload,
+  LauncherProjectPathPayload,
+  LauncherProjectProfilePayload,
+  LauncherTargetPayload,
+} from "../common/launcher-bridge-contract";
+import type {
+  ElectronTelemetryBaseUrlPayload,
+  ElectronTelemetrySubscriptionPayload,
+} from "../common/telemetry-bridge-contract";
 import type {
   BrowserWindow as ElectronBrowserWindow,
   IpcMain,
@@ -1235,6 +1248,16 @@ export async function bootstrapElectron({
         env.ROBOTICK_HUB_ENDPOINT
       ),
   });
+  const launcherDataSource = createElectronLauncherDataSource({
+    getWorkspaceRoot: () =>
+      (env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot || "").trim(),
+    getStaticHubEndpoint: () => env.ROBOTICK_HUB_ENDPOINT?.trim() || "",
+    getHubEndpoint: () =>
+      readCurrentHubEndpoint(
+        env.ROBOTICK_WORKSPACE_ROOT || resolvedProjectRoot,
+        env.ROBOTICK_HUB_ENDPOINT
+      ),
+  });
   const telemetryRendererSubscriptions = new Map<string, () => void>();
 
   const telemetrySubscriptionKey = (
@@ -2200,6 +2223,180 @@ export async function bootstrapElectron({
         env.ROBOTICK_HUB_ENDPOINT
       )
     );
+    ipcMain.handle("robotick-launcher:list-project-paths", () =>
+      launcherDataSource.fetchProjectPaths()
+    );
+    ipcMain.handle(
+      "robotick-launcher:get-project-settings",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.fetchProjectSettingsData(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-launcher:get-project-rc-settings",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.fetchProjectRemoteControlSettings(
+          payload?.projectPath?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:list-project-model-paths",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.fetchProjectModelPaths(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-launcher:get-workloads-registry",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherTargetPayload | undefined
+      ) =>
+        launcherDataSource.fetchProjectWorkloadsRegistry(
+          payload?.projectPath?.trim() || "",
+          payload?.target?.trim() || "linux"
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:get-core-model-schema",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherTargetPayload | undefined
+      ) =>
+        launcherDataSource.fetchProjectCoreModelSchema(
+          payload?.projectPath?.trim() || "",
+          payload?.target?.trim() || "linux"
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:get-project-models",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectModelsPayload | undefined
+      ) => {
+        const projectPath = payload?.projectPath?.trim() || "";
+        const launcherProfile = payload?.launcherProfile?.trim() || "";
+        return payload?.force
+          ? launcherDataSource.refreshProjectModels(projectPath, launcherProfile)
+          : launcherDataSource.getProjectModels(projectPath, launcherProfile);
+      }
+    );
+    ipcMain.handle(
+      "robotick-launcher:clear-project-model-cache",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectProfilePayload | undefined
+      ) => {
+        launcherDataSource.clearProjectModelCache(
+          payload?.projectPath?.trim() || undefined,
+          payload?.launcherProfile?.trim() || undefined
+        );
+        return { accepted: true };
+      }
+    );
+    ipcMain.handle(
+      "robotick-launcher:run",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectProfilePayload | undefined
+      ) =>
+        launcherDataSource.requestLauncherRun(
+          payload?.projectPath?.trim() || "",
+          payload?.launcherProfile?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:run-model",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherModelControlPayload | undefined
+      ) =>
+        launcherDataSource.requestLauncherRunModel(
+          payload?.projectPath?.trim() || "",
+          payload?.platform === "native" ? "native" : "local",
+          payload?.modelId?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:stop",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.requestLauncherStop(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-launcher:stop-model",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherModelControlPayload | undefined
+      ) =>
+        launcherDataSource.requestLauncherStopModel(
+          payload?.projectPath?.trim() || "",
+          payload?.platform === "native" ? "native" : "local",
+          payload?.modelId?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:restart",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectProfilePayload | undefined
+      ) =>
+        launcherDataSource.requestLauncherRestart(
+          payload?.projectPath?.trim() || "",
+          payload?.launcherProfile?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:restart-model",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherModelControlPayload | undefined
+      ) =>
+        launcherDataSource.requestLauncherRestartModel(
+          payload?.projectPath?.trim() || "",
+          payload?.platform === "native" ? "native" : "local",
+          payload?.modelId?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:status",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectProfilePayload | undefined
+      ) =>
+        launcherDataSource.fetchLauncherStatus(
+          payload?.projectPath?.trim() || "",
+          payload?.launcherProfile?.trim() || ""
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:log-stream-url",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.getLauncherLogStreamUrl(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-launcher:log-snapshot",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherLogSnapshotPayload | undefined
+      ) =>
+        launcherDataSource.fetchLauncherLogSnapshot(
+          payload?.projectPath?.trim() || "",
+          typeof payload?.tail === "number" ? payload.tail : 300
+        )
+    );
+    ipcMain.handle(
+      "robotick-launcher:log-clear",
+      (_event: IpcMainInvokeEvent, payload: LauncherProjectPathPayload | undefined) =>
+        launcherDataSource.requestLauncherLogClear(payload?.projectPath?.trim() || "")
+    );
+    ipcMain.handle(
+      "robotick-launcher:diagnostics",
+      (
+        _event: IpcMainInvokeEvent,
+        payload: LauncherProjectProfilePayload | undefined
+      ) =>
+        launcherDataSource.getDiagnostics(
+          payload?.projectPath?.trim() || "",
+          payload?.launcherProfile?.trim() || ""
+        )
+    );
     ipcMain.handle(
       "robotick-project-selection:set",
       (
@@ -2226,7 +2423,7 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:ensure-layout",
-      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+      async (_event: IpcMainInvokeEvent, payload: ElectronTelemetryBaseUrlPayload | undefined) => {
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
         if (!baseUrl) {
           return null;
@@ -2236,7 +2433,7 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:refresh-layout",
-      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+      async (_event: IpcMainInvokeEvent, payload: ElectronTelemetryBaseUrlPayload | undefined) => {
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
         if (!baseUrl) {
           return null;
@@ -2246,14 +2443,17 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:diagnostics",
-      (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+      (_event: IpcMainInvokeEvent, payload: ElectronTelemetryBaseUrlPayload | undefined) => {
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
         return telemetryService.getBaseUrlDiagnostics(baseUrl);
       }
     );
+    ipcMain.handle("robotick-telemetry:shared-diagnostics", () =>
+      telemetryService.getSharedDiagnostics()
+    );
     ipcMain.handle(
       "robotick-telemetry:health",
-      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+      async (_event: IpcMainInvokeEvent, payload: ElectronTelemetryBaseUrlPayload | undefined) => {
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
         if (!baseUrl) {
           return { ok: false, status: 0, statusText: "", body: { error: "invalid_request" } };
@@ -2263,7 +2463,7 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:push-stats",
-      async (_event: IpcMainInvokeEvent, payload: { baseUrl?: string } | undefined) => {
+      async (_event: IpcMainInvokeEvent, payload: ElectronTelemetryBaseUrlPayload | undefined) => {
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
         if (!baseUrl) {
           return { ok: false, status: 0, body: { error: "invalid_request" } };
@@ -2330,7 +2530,7 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:subscribe",
-      (event: IpcMainInvokeEvent, payload: { subscriptionId?: string; baseUrl?: string } | undefined) => {
+      (event: IpcMainInvokeEvent, payload: ElectronTelemetrySubscriptionPayload | undefined) => {
         const subscriptionId =
           typeof payload?.subscriptionId === "string" ? payload.subscriptionId.trim() : "";
         const baseUrl = typeof payload?.baseUrl === "string" ? payload.baseUrl.trim() : "";
@@ -2361,7 +2561,7 @@ export async function bootstrapElectron({
     );
     ipcMain.handle(
       "robotick-telemetry:unsubscribe",
-      (event: IpcMainInvokeEvent, payload: { subscriptionId?: string } | undefined) => {
+      (event: IpcMainInvokeEvent, payload: ElectronTelemetrySubscriptionPayload | undefined) => {
         const subscriptionId =
           typeof payload?.subscriptionId === "string" ? payload.subscriptionId.trim() : "";
         if (!subscriptionId) {

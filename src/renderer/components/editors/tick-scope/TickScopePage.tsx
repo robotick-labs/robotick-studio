@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Launcher,
   Project,
@@ -10,14 +10,21 @@ import {
   type ITelemetryProcessThread,
   type ITelemetryStruct,
   type ITelemetryWorkload,
+  useTelemetryService,
   useTelemetryStream,
 } from "../../../data-sources/telemetry";
+import type { ModelSortKey } from "../telemetry/view/TelemetryApp";
 import {
   getSpanBlockStyle,
   packSpansIntoSubLanes,
   type TickScopeSpanKind,
   type TickScopeWorkSpan,
 } from "./internal/tick-scope-layout";
+import { formatBytesWithCommas } from "../telemetry/utils/format-bytes";
+import { usePanelSettings } from "../../workbenches/PanelInstanceContext";
+import { tickScopePagePersistence } from "./TickScopePage.persistence";
+import { publishRendererStartupTiming } from "../../../services/studio-diagnostics";
+import { msSinceRendererStartup } from "../../../services/startup-timing";
 import styles from "./TickScopePage.module.css";
 
 type WorkSpan = TickScopeWorkSpan;
@@ -48,16 +55,21 @@ type ProcessThreadSummary = {
 type ModelTick = {
   id: string;
   name: string;
+  modelPath: string;
+  telemetryBaseUrl: string;
   tickSeq: number;
   periodMs: number;
   slackMs: number;
   status: "healthy" | "tight" | "miss";
+  processMemoryUsed: number | null;
+  workloadsMemoryUsed: number | null;
   threads: ThreadRow[];
   rawSnapshot: unknown;
 };
 
 type TickScopeModelDescriptor = {
   modelName: string;
+  modelPath: string;
   telemetryBaseUrl: string;
   telemetryPushRateHz: number;
 };
@@ -72,6 +84,7 @@ type DeviceTickScope = {
 
 type LiveModelEntry = {
   modelName: string;
+  modelPath: string;
   telemetryBaseUrl: string;
   model: ITelemetryModel | null;
 };
@@ -81,6 +94,29 @@ type SmoothingSample = {
   sampledAtMs: number;
   value: number;
 };
+
+type WorkerThreadSortKey = "cpu" | "name" | "thread_id" | "logical_cpu";
+
+const MODEL_SORT_OPTIONS: ReadonlyArray<{
+  value: ModelSortKey;
+  label: string;
+}> = [
+  { value: "telemetry_port", label: "Telemetry Port" },
+  { value: "model_name", label: "Model Name" },
+  { value: "model_path", label: "Model Path" },
+  { value: "memory_process", label: "Memory - Process" },
+  { value: "memory_workloads", label: "Memory - Workloads" },
+];
+
+const WORKER_THREAD_SORT_OPTIONS: ReadonlyArray<{
+  value: WorkerThreadSortKey;
+  label: string;
+}> = [
+  { value: "cpu", label: "CPU" },
+  { value: "name", label: "Name" },
+  { value: "thread_id", label: "TID" },
+  { value: "logical_cpu", label: "Core" },
+];
 
 function formatMs(value: number): string {
   if (!Number.isFinite(value)) return "0 ms";
@@ -101,6 +137,10 @@ function formatPercent(value: number): string {
   if (Math.abs(value) < 1) return `${value.toFixed(2)}%`;
   if (Math.abs(value) < 10) return `${value.toFixed(1)}%`;
   return `${Math.round(value)}%`;
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function averageThreadCpuMsForPeriod(
@@ -135,6 +175,54 @@ function totalThreadCpuMsForPeriod(
     hasSample = true;
   }
   return hasSample ? total : null;
+}
+
+function workerThreadCpuMs(thread: ProcessThreadSummary, periodMs: number): number | null {
+  return thread.cpuMs ?? averageThreadCpuMsForPeriod(thread, periodMs);
+}
+
+function compareNullableNumbers(
+  lhs: number | null | undefined,
+  rhs: number | null | undefined,
+  direction: "asc" | "desc",
+): number {
+  const lhsValid = typeof lhs === "number" && Number.isFinite(lhs);
+  const rhsValid = typeof rhs === "number" && Number.isFinite(rhs);
+  if (!lhsValid && !rhsValid) return 0;
+  if (!lhsValid) return 1;
+  if (!rhsValid) return -1;
+  return direction === "asc" ? lhs - rhs : rhs - lhs;
+}
+
+function sortWorkerThreads(
+  threads: ProcessThreadSummary[] | undefined,
+  sortKey: WorkerThreadSortKey,
+  periodMs: number,
+): ProcessThreadSummary[] {
+  return [...(threads ?? [])].sort((lhs, rhs) => {
+    let result = 0;
+    switch (sortKey) {
+      case "cpu":
+        result = compareNullableNumbers(
+          workerThreadCpuMs(lhs, periodMs),
+          workerThreadCpuMs(rhs, periodMs),
+          "desc",
+        );
+        break;
+      case "name":
+        result = (lhs.displayName?.trim() || lhs.name).localeCompare(
+          rhs.displayName?.trim() || rhs.name,
+        );
+        break;
+      case "thread_id":
+        result = lhs.threadId - rhs.threadId;
+        break;
+      case "logical_cpu":
+        result = compareNullableNumbers(lhs.logicalCpuId, rhs.logicalCpuId, "asc");
+        break;
+    }
+    return result || lhs.threadId - rhs.threadId;
+  });
 }
 
 function relativeMs(valueNs: number, originNs: number): number {
@@ -332,6 +420,55 @@ function deviceIdFor(baseUrl: string): string {
   } catch {
     const hostWithoutPort = baseUrl.trim().split("/")[0]?.split(":")[0];
     return hostWithoutPort || "local";
+  }
+}
+
+function extractPort(url?: string): number {
+  if (!url) return 0;
+  try {
+    const parsed = new URL(url);
+    return parseInt(parsed.port || "0", 10);
+  } catch {
+    return 0;
+  }
+}
+
+function compareTickScopeModels(
+  left: TickScopeModelDescriptor,
+  right: TickScopeModelDescriptor,
+  sortKey: ModelSortKey,
+  getLatestMetrics: (
+    baseUrl: string,
+  ) => { processMemoryUsed: number; workloadsMemoryUsed: number },
+): number {
+  switch (sortKey) {
+    case "model_name":
+      return left.modelName.localeCompare(right.modelName);
+    case "model_path":
+      return left.modelPath.localeCompare(right.modelPath);
+    case "memory_process": {
+      const leftMetrics = getLatestMetrics(left.telemetryBaseUrl);
+      const rightMetrics = getLatestMetrics(right.telemetryBaseUrl);
+      const byProcess =
+        rightMetrics.processMemoryUsed - leftMetrics.processMemoryUsed;
+      if (byProcess !== 0) return byProcess;
+      return left.modelName.localeCompare(right.modelName);
+    }
+    case "memory_workloads": {
+      const leftMetrics = getLatestMetrics(left.telemetryBaseUrl);
+      const rightMetrics = getLatestMetrics(right.telemetryBaseUrl);
+      const byWorkloads =
+        rightMetrics.workloadsMemoryUsed - leftMetrics.workloadsMemoryUsed;
+      if (byWorkloads !== 0) return byWorkloads;
+      return left.modelName.localeCompare(right.modelName);
+    }
+    case "telemetry_port":
+    default: {
+      const portA = extractPort(left.telemetryBaseUrl);
+      const portB = extractPort(right.telemetryBaseUrl);
+      if (portA !== portB) return portA - portB;
+      return left.telemetryBaseUrl.localeCompare(right.telemetryBaseUrl);
+    }
   }
 }
 
@@ -641,10 +778,14 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
   return {
     id: entry.telemetryBaseUrl,
     name: entry.modelName,
+    modelPath: entry.modelPath,
+    telemetryBaseUrl: entry.telemetryBaseUrl,
     tickSeq,
     periodMs,
     slackMs,
     status,
+    processMemoryUsed: finiteNumber(model.process_memory_used),
+    workloadsMemoryUsed: finiteNumber(model.workloads_buffer_size_used),
     threads,
     rawSnapshot,
   };
@@ -654,12 +795,28 @@ export default function TickScopePage() {
   const { projectPath } = Project.Context.use();
   const { status } = Launcher.Context.use();
   const { projectModels } = ProjectData.use();
+  const telemetryService = useTelemetryService();
+  const [settings, updateSettings] = usePanelSettings(tickScopePagePersistence);
   const [paused, setPaused] = useState(false);
-  const [smoothingDurationInput, setSmoothingDurationInput] = useState("0");
+  const publishedMountTimingRef = useRef(false);
+  const publishedActiveTimingRef = useRef(false);
+  const [smoothingDurationInput, setSmoothingDurationInput] = useState(
+    String(settings.smoothingDurationSeconds),
+  );
+  useEffect(() => {
+    if (publishedMountTimingRef.current) {
+      return;
+    }
+    publishedMountTimingRef.current = true;
+    publishRendererStartupTiming("tick_scope_mounted_ms", msSinceRendererStartup());
+  }, []);
+  useEffect(() => {
+    setSmoothingDurationInput(String(settings.smoothingDurationSeconds));
+  }, [settings.smoothingDurationSeconds]);
   const smoothingDurationSeconds = useMemo(() => {
-    const parsed = Number(smoothingDurationInput);
+    const parsed = Number(settings.smoothingDurationSeconds);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [smoothingDurationInput]);
+  }, [settings.smoothingDurationSeconds]);
 
   const telemetryDescriptors = useMemo<TickScopeModelDescriptor[]>(
     () =>
@@ -667,10 +824,20 @@ export default function TickScopePage() {
         .filter((model) => Boolean(model.telemetryBaseUrl))
         .map((model) => ({
           modelName: model.modelName,
+          modelPath: model.modelPath,
           telemetryBaseUrl: model.telemetryBaseUrl,
           telemetryPushRateHz: Math.max(1, model.telemetryPushRateHz || 20),
-        })),
-    [projectModels.data],
+        }))
+        .sort((left, right) =>
+          compareTickScopeModels(left, right, settings.modelSortKey, (baseUrl) => {
+            const latest = telemetryService.getLatestModel(baseUrl);
+            return {
+              processMemoryUsed: latest?.process_memory_used ?? -1,
+              workloadsMemoryUsed: latest?.workloads_buffer_size_used ?? -1,
+            };
+          }),
+        ),
+    [projectModels.data, settings.modelSortKey, telemetryService],
   );
 
   const devices = useMemo<DeviceTickScope[]>(() => {
@@ -693,6 +860,22 @@ export default function TickScopePage() {
     return [...byDevice.values()];
   }, [telemetryDescriptors]);
 
+  useEffect(() => {
+    if (publishedActiveTimingRef.current) {
+      return;
+    }
+    if (!projectPath || status !== "running" || projectModels.loading || devices.length === 0) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (publishedActiveTimingRef.current) {
+        return;
+      }
+      publishedActiveTimingRef.current = true;
+      publishRendererStartupTiming("tick_scope_active_ms", msSinceRendererStartup());
+    });
+  }, [devices.length, projectModels.loading, projectPath, status]);
+
   let body: React.ReactNode;
   if (!projectPath) {
     body = <p className={styles.message}>Select a project to view Tick Scope.</p>;
@@ -711,6 +894,7 @@ export default function TickScopePage() {
             device={device}
             paused={paused}
             smoothingDurationSeconds={smoothingDurationSeconds}
+            showCpuIds={settings.showCpuIds}
           />
         ))}
       </div>
@@ -738,13 +922,46 @@ export default function TickScopePage() {
                 min="0"
                 step="0.1"
                 value={smoothingDurationInput}
-                onChange={(event) => setSmoothingDurationInput(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSmoothingDurationInput(nextValue);
+                  const parsed = Number(nextValue);
+                  updateSettings({
+                    smoothingDurationSeconds:
+                      Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
+                  });
+                }}
                 aria-label="Tick Scope smoothing window in seconds"
               />
               <span>s</span>
             </label>
+            <button
+              className={`${styles.headerToggleButton} ${settings.showCpuIds ? styles.headerToggleButtonActive : ""}`}
+              type="button"
+              aria-pressed={settings.showCpuIds}
+              onClick={() => updateSettings({ showCpuIds: !settings.showCpuIds })}
+            >
+              CPU IDs
+            </button>
           </div>
         </div>
+        <label className={styles.panelHeaderControlLabel}>
+          Sort models by:
+          <select
+            id="tick-scope-model-sort"
+            className={styles.panelHeaderControlSelect}
+            value={settings.modelSortKey}
+            onChange={(event) =>
+              updateSettings({ modelSortKey: event.target.value as ModelSortKey })
+            }
+          >
+            {MODEL_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
       {body}
@@ -756,10 +973,12 @@ const DeviceSection = memo(function DeviceSection({
   device,
   paused,
   smoothingDurationSeconds,
+  showCpuIds,
 }: {
   device: DeviceTickScope;
   paused: boolean;
   smoothingDurationSeconds: number;
+  showCpuIds: boolean;
 }) {
   return (
     <section className={styles.deviceSection}>
@@ -779,6 +998,7 @@ const DeviceSection = memo(function DeviceSection({
             descriptor={model}
             paused={paused}
             smoothingDurationSeconds={smoothingDurationSeconds}
+            showCpuIds={showCpuIds}
           />
         ))}
       </div>
@@ -790,13 +1010,16 @@ const LiveModelCard = memo(function LiveModelCard({
   descriptor,
   paused,
   smoothingDurationSeconds,
+  showCpuIds,
 }: {
   descriptor: TickScopeModelDescriptor;
   paused: boolean;
   smoothingDurationSeconds: number;
+  showCpuIds: boolean;
 }) {
   const pausedModelTickRef = useRef<ModelTick | null>(null);
   const smoothingHistoryRef = useRef<Map<string, SmoothingSample[]>>(new Map());
+  const publishedFirstTelemetryRef = useRef(false);
   const { model, revision } = useTelemetryStream(
     descriptor.telemetryBaseUrl,
     descriptor.telemetryPushRateHz,
@@ -806,6 +1029,7 @@ const LiveModelCard = memo(function LiveModelCard({
     () =>
       toModelTick({
         modelName: descriptor.modelName,
+        modelPath: descriptor.modelPath,
         telemetryBaseUrl: descriptor.telemetryBaseUrl,
         model,
       }),
@@ -824,6 +1048,17 @@ const LiveModelCard = memo(function LiveModelCard({
   }
   const visibleModelTick = paused ? pausedModelTickRef.current : smoothedModelTick;
 
+  useEffect(() => {
+    if (publishedFirstTelemetryRef.current || !visibleModelTick) {
+      return;
+    }
+    publishedFirstTelemetryRef.current = true;
+    publishRendererStartupTiming(
+      "tick_scope_first_telemetry_frame_ms",
+      msSinceRendererStartup()
+    );
+  }, [visibleModelTick]);
+
   if (!visibleModelTick) {
     return (
       <article className={`${styles.modelCard} ${styles.model_healthy}`}>
@@ -837,21 +1072,44 @@ const LiveModelCard = memo(function LiveModelCard({
     );
   }
 
-  return <ModelCard model={visibleModelTick} paused={paused} />;
+  return (
+    <ModelCard
+      model={visibleModelTick}
+      paused={paused}
+      showCpuIds={showCpuIds}
+    />
+  );
 });
 
 const ModelCard = memo(function ModelCard({
   model,
   paused,
+  showCpuIds,
 }: {
   model: ModelTick;
   paused: boolean;
+  showCpuIds: boolean;
 }) {
   return (
     <article className={`${styles.modelCard} ${styles[`model_${model.status}`]}`}>
       <div className={styles.modelHeader}>
         <div>
           <h3>{model.name}</h3>
+          <p className={styles.modelOverview}>
+            {model.processMemoryUsed != null ? (
+              <>
+                {"process memory: "}
+                {formatBytesWithCommas(model.processMemoryUsed)} bytes
+              </>
+            ) : null}
+            {model.workloadsMemoryUsed != null ? (
+              <>
+                {model.processMemoryUsed != null ? " | " : ""}
+                {"workloads memory: "}
+                {formatBytesWithCommas(model.workloadsMemoryUsed)} bytes
+              </>
+            ) : null}
+          </p>
           <p>
             tick {model.tickSeq} · {formatMs(model.periodMs)} window
             {paused ? " · paused" : ""}
@@ -869,7 +1127,12 @@ const ModelCard = memo(function ModelCard({
       </div>
       <div className={styles.threadRows}>
         {model.threads.map((thread) => (
-          <ThreadLane key={thread.name} model={model} thread={thread} />
+          <ThreadLane
+            key={thread.name}
+            model={model}
+            thread={thread}
+            showCpuIds={showCpuIds}
+          />
         ))}
       </div>
     </article>
@@ -879,12 +1142,20 @@ const ModelCard = memo(function ModelCard({
 const ThreadLane = memo(function ThreadLane({
   model,
   thread,
+  showCpuIds,
 }: {
   model: ModelTick;
   thread: ThreadRow;
+  showCpuIds: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [workerThreadSortKey, setWorkerThreadSortKey] =
+    useState<WorkerThreadSortKey>("cpu");
   const hasWorkerThreads = Boolean(thread.workerThreads?.length);
+  const sortedWorkerThreads = useMemo(
+    () => sortWorkerThreads(thread.workerThreads, workerThreadSortKey, model.periodMs),
+    [model.periodMs, thread.workerThreads, workerThreadSortKey],
+  );
   const toggleExpanded = () => setExpanded((current) => !current);
 
   if (thread.copyData) {
@@ -926,11 +1197,29 @@ const ThreadLane = memo(function ThreadLane({
               titlePrefix="Total worker CPU"
             />
           ) : null}
+          {hasWorkerThreads ? (
+            <label className={styles.workerThreadSortControl}>
+              <span>Sort</span>
+              <select
+                value={workerThreadSortKey}
+                onChange={(event) =>
+                  setWorkerThreadSortKey(event.target.value as WorkerThreadSortKey)
+                }
+                aria-label="Sort worker threads"
+              >
+                {WORKER_THREAD_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <CopyJsonButton label="Copy raw" data={thread.copyData} />
         </div>
         {expanded && hasWorkerThreads ? (
           <div className={styles.workerThreadList}>
-            {thread.workerThreads?.map((worker) => (
+            {sortedWorkerThreads.map((worker) => (
               <div className={styles.workerThreadItem} key={worker.threadId}>
                 <div className={styles.workerThreadText}>
                   <span>{worker.displayName?.trim() || worker.name || "thread"}</span>
@@ -944,7 +1233,7 @@ const ThreadLane = memo(function ThreadLane({
                   </span>
                 </div>
                 <WorkerThreadCpuBar
-                  cpuMs={worker.cpuMs ?? averageThreadCpuMsForPeriod(worker, model.periodMs)}
+                  cpuMs={workerThreadCpuMs(worker, model.periodMs)}
                   periodMs={model.periodMs}
                   rawDeltaNs={worker.cpuTimeDeltaNs}
                   sampleWindowNs={worker.cpuSampleWindowNs}
@@ -972,6 +1261,7 @@ const ThreadLane = memo(function ThreadLane({
                 key={`${thread.name}:${laneIndex}:${index}:${span.workload}`}
                 periodMs={model.periodMs}
                 span={span}
+                showCpuIds={showCpuIds}
               />
             ))}
           </div>
@@ -1075,12 +1365,15 @@ const WorkerThreadCpuBar = memo(function WorkerThreadCpuBar({
 const SpanBlock = memo(function SpanBlock({
   span,
   periodMs,
+  showCpuIds,
 }: {
   span: WorkSpan;
   periodMs: number;
+  showCpuIds: boolean;
 }) {
   const migrated = span.cpuStart !== span.cpuEnd;
   const showCpuBadge =
+    showCpuIds &&
     span.kind !== "engine_io" &&
     span.kind !== "sync_wait" &&
     span.kind !== "local_inputs" &&

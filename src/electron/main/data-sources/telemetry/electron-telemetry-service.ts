@@ -8,7 +8,13 @@ import {
   type ITelemetryStruct,
   type ITelemetryWorkload,
   type LayoutModel,
-} from "../../common/telemetry/telemetry-decoder";
+} from "../../../common/telemetry/telemetry-decoder";
+import type {
+  ElectronTelemetryBaseUrlDiagnostics,
+  ElectronTelemetryLayoutFrame,
+  ElectronTelemetryRawFrame,
+  ElectronTelemetrySharedDiagnostics,
+} from "../../../common/telemetry-bridge-contract";
 
 export type ElectronTelemetryModelInfo = {
   model_id: string;
@@ -78,6 +84,7 @@ export type ElectronTelemetryService = {
     listener: ElectronTelemetryStreamListener,
   ): () => void;
   getBaseUrlDiagnostics(baseUrl: string): ElectronTelemetryBaseUrlDiagnostics;
+  getSharedDiagnostics(): ElectronTelemetrySharedDiagnostics;
   getHealthForBaseUrl(baseUrl: string): Promise<ElectronTelemetryHealthResult>;
   getPushStatsForBaseUrl(baseUrl: string): Promise<ElectronTelemetryPushStatsResult>;
   setWorkloadInputFieldsDataForBaseUrl(
@@ -99,18 +106,6 @@ export type ElectronTelemetryServiceDependencies = {
   webSocketFactory?: (url: string) => ElectronTelemetryWebSocket;
 };
 
-export type ElectronTelemetryRawFrame = {
-  raw: ArrayBuffer;
-  sid: string;
-  frameSeq: number | null;
-  timestamp: number;
-};
-
-export type ElectronTelemetryLayoutFrame = {
-  layout: LayoutModel;
-  latestRaw: ElectronTelemetryRawFrame | null;
-};
-
 export type ElectronTelemetryStreamEvent =
   | {
       type: "layout";
@@ -128,14 +123,6 @@ export type ElectronTelemetryStreamEvent =
 export type ElectronTelemetryStreamListener = (
   event: ElectronTelemetryStreamEvent,
 ) => void;
-
-export type ElectronTelemetryBaseUrlDiagnostics = {
-  subscriberCount: number;
-  layoutLoaded: boolean;
-  lastFrameAt: string | null;
-  lastErrorAt: string | null;
-  lastErrorMessage: string | null;
-};
 
 export type ElectronTelemetryHealthResult = {
   ok: boolean;
@@ -509,6 +496,10 @@ class ElectronTelemetryWsClient {
     private readonly onError: (error: unknown) => void,
     private readonly now: () => Date,
   ) {}
+
+  get readyState(): number | null {
+    return this.socket?.readyState ?? null;
+  }
 
   connect() {
     if (this.socket) {
@@ -1152,6 +1143,31 @@ export function createElectronTelemetryService(
         lastFrameAt: entry?.raw ? new Date(entry.raw.timestamp).toISOString() : null,
         lastErrorAt: entry?.lastErrorAt ?? null,
         lastErrorMessage: entry?.lastErrorMessage ?? null,
+      };
+    },
+
+    getSharedDiagnostics() {
+      const baseUrls = Array.from(baseUrlEntries.values())
+        .sort((left, right) => left.baseUrl.localeCompare(right.baseUrl))
+        .map((entry) => ({
+          baseUrl: entry.baseUrl,
+          subscriberCount: entry.listeners.size,
+          layoutLoaded: Boolean(entry.layout),
+          rawLoaded: Boolean(entry.raw),
+          latestFrameSeq: entry.raw?.frameSeq ?? null,
+          latestEngineSessionId: entry.raw?.sid ?? null,
+          websocketConnected: entry.client?.readyState === WS_OPEN,
+          lastFrameAt: entry.raw ? new Date(entry.raw.timestamp).toISOString() : null,
+          lastErrorAt: entry.lastErrorAt,
+          lastErrorMessage: entry.lastErrorMessage,
+        }));
+      return {
+        activeBaseUrlCount: baseUrls.length,
+        totalSubscriberCount: baseUrls.reduce(
+          (total, entry) => total + entry.subscriberCount,
+          0,
+        ),
+        baseUrls,
       };
     },
 

@@ -5,6 +5,7 @@ import { launcherService } from "./LauncherService";
 import { createPollingTask } from "../../../utils/polling";
 import { isAppQuitting } from "../../../utils/appQuitting";
 import { recordRendererWebSocketFailure } from "../../../services/studio-diagnostics";
+import { publishRendererStartupTiming } from "../../../services/studio-diagnostics";
 import type { RobotickDiagnosticsLogRecord } from "../../../types/robotick-globals";
 
 type TerminalLogSubscriber = () => void;
@@ -180,9 +181,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
   private droppedCount = 0;
 
   constructor() {
-    if (HAS_WEBSOCKET && !IS_TEST_ENV) {
-      this.connect();
-    } else if (!HAS_WEBSOCKET) {
+    if (!HAS_WEBSOCKET) {
       console.warn("[terminal] WebSocket unavailable in this environment");
     }
     launcherEvents.addEventListener("run-requested", this.handleRunRequested);
@@ -205,13 +204,20 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   subscribe(listener: TerminalLogSubscriber) {
+    const wasEmpty = this.subscribers.size === 0;
     this.subscribers.add(listener);
     listener();
     if (this.messages.length === 0) {
       void this.loadInitialMessages();
     }
+    if (wasEmpty && HAS_WEBSOCKET && !IS_TEST_ENV) {
+      this.connect();
+    }
     return () => {
       this.subscribers.delete(listener);
+      if (this.subscribers.size === 0) {
+        this.disconnect();
+      }
     };
   }
 
@@ -249,6 +255,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   private handleRunRequested = () => {
+    if (this.subscribers.size === 0) {
+      return;
+    }
     if (this.getClearOnRun()) {
       this.clearMessages();
       void launcherService
@@ -266,6 +275,14 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
   private reconnect() {
     this.connectGeneration += 1;
+    this.disconnect();
+    if (this.subscribers.size === 0) {
+      return;
+    }
+    this.connect();
+  }
+
+  private disconnect() {
     if (this.ws) {
       try {
         this.ws.close();
@@ -275,7 +292,6 @@ class TerminalLogServiceImpl implements TerminalLogService {
       this.ws = null;
     }
     this.reconnectTask.stop();
-    this.connect();
   }
 
   private async loadSnapshot(options?: { replace?: boolean }) {
@@ -284,6 +300,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
     }
     const replace = options?.replace ?? false;
     this.snapshotRequest = (async () => {
+      const startedAt = performance.now();
       try {
         const snapshot = await launcherService.fetchLauncherLogSnapshot(
           SNAPSHOT_TAIL_LINES
@@ -299,6 +316,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
           }))
         );
         this.mergeMessages(messages, { replace });
+        publishRendererStartupTiming(
+          "terminal_runtime_snapshot_ms",
+          Math.round((performance.now() - startedAt) * 1000) / 1000
+        );
       } catch (error) {
         console.warn("[terminal] Failed to load log snapshot:", error);
       } finally {
@@ -309,6 +330,7 @@ class TerminalLogServiceImpl implements TerminalLogService {
   }
 
   private async loadStudioSnapshot(options?: { replace?: boolean }) {
+    const startedAt = performance.now();
     try {
       const records =
         (await getDiagnosticsBridge()?.getLogSnapshot?.({
@@ -321,6 +343,10 @@ class TerminalLogServiceImpl implements TerminalLogService {
         event: record,
       }));
       this.mergeMessages(messages, { replace: options?.replace ?? false });
+      publishRendererStartupTiming(
+        "terminal_studio_snapshot_ms",
+        Math.round((performance.now() - startedAt) * 1000) / 1000
+      );
     } catch (error) {
       console.warn("[terminal] Failed to load Studio diagnostics log snapshot:", error);
     }
@@ -343,6 +369,9 @@ class TerminalLogServiceImpl implements TerminalLogService {
 
   private connect() {
     if (this.shuttingDown || isAppQuitting()) {
+      return;
+    }
+    if (this.subscribers.size === 0) {
       return;
     }
     if (!HAS_WEBSOCKET) {

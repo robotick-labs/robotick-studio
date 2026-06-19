@@ -17,6 +17,27 @@
   gap: 16px;
 }
 
+.panelHeaderControlLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.panelHeaderControlSelect {
+  min-width: 180px;
+  border: 1px solid var(--app-panel-border);
+  background: var(--app-surface-base);
+  color: var(--app-text-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
 .header h1,
 .deviceHeader h2,
 .modelHeader h3 {
@@ -62,6 +83,30 @@
 }
 
 .pauseButtonActive {
+  border-color: #6aa3d8;
+  background: #18314a;
+  color: #eef7ff;
+}
+
+.headerToggleButton {
+  border: 1px solid #35404a;
+  border-radius: 6px;
+  background: #141c23;
+  color: #afbdc8;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.headerToggleButton:hover {
+  border-color: #4d6070;
+  background: #1d2a34;
+  color: #dce6ed;
+}
+
+.headerToggleButtonActive {
   border-color: #6aa3d8;
   background: #18314a;
   color: #eef7ff;
@@ -141,7 +186,8 @@
 .modelGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(630px, 1fr));
-  gap: 10px;
+  row-gap: 20px;
+  column-gap: 10px;
 }
 
 .modelCard {
@@ -176,6 +222,12 @@
 
 .modelHeader h3 {
   font-size: 0.96rem;
+}
+
+.modelOverview {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.1rem;
 }
 
 .modelStatus {
@@ -362,6 +414,34 @@
   color: var(--app-text-muted);
   font-size: 0.72rem;
   white-space: nowrap;
+}
+
+.workerThreadSortControl {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #33414c;
+  border-radius: 5px;
+  background: #111920;
+  color: #afbdc8;
+  padding: 0 6px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.workerThreadSortControl select {
+  min-height: 20px;
+  border: 1px solid #2d3842;
+  border-radius: 4px;
+  background: #0f151b;
+  color: #dce6ed;
+  font-size: 0.7rem;
+}
+
+.workerThreadSortControl select:focus {
+  outline: 1px solid #6aa3d8;
+  outline-offset: 1px;
 }
 
 .workerThreadItem {

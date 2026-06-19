@@ -371,7 +371,9 @@ def test_workload_deps_cmake_allows_plain_link_signature_for_embedded_targets():
 
 def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - auditory.model.yaml\n  - mind.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "auditory.model.yaml").write_text("id: auditory_model_A1\nworkloads: []\n")
     (tmp_path / "mind.model.yaml").write_text(
@@ -418,7 +420,9 @@ remote_models:
 
 def test_prepare_codegen_model_data_propagates_receiver_side_remote_mode(tmp_path):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - spine.model.yaml\n  - simulator.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "spine.model.yaml").write_text("id: spine_model_A1\nworkloads: []\n")
     (tmp_path / "simulator.model.yaml").write_text(
@@ -485,7 +489,9 @@ def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declar
     tmp_path,
 ):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - auditory.model.yaml\n  - mind.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "auditory.model.yaml").write_text(
         """

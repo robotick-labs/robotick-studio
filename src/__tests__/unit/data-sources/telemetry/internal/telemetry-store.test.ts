@@ -45,6 +45,13 @@ describe("telemetry-store Electron bridge", () => {
         latestRaw: null,
       })),
       getDiagnostics: vi.fn(),
+      getSharedDiagnostics: vi.fn(async () => ({
+        activeBaseUrlCount: 0,
+        totalSubscriberCount: 0,
+        baseUrls: [],
+      })),
+      getHealth: vi.fn(),
+      getPushStats: vi.fn(),
       setWorkloadInputFieldsData: vi.fn(),
       setWorkloadInputConnectionState: vi.fn(),
       subscribe: vi.fn((baseUrl: string, listener: (event: any) => void) => {
@@ -325,6 +332,13 @@ describe("telemetry-store Electron bridge", () => {
       })),
       refreshLayout: vi.fn(),
       getDiagnostics: vi.fn(),
+      getSharedDiagnostics: vi.fn(async () => ({
+        activeBaseUrlCount: 0,
+        totalSubscriberCount: 0,
+        baseUrls: [],
+      })),
+      getHealth: vi.fn(),
+      getPushStats: vi.fn(),
       setWorkloadInputFieldsData: vi.fn(),
       setWorkloadInputConnectionState: vi.fn(),
       subscribe: vi.fn((_baseUrl: string, callback: (event: any) => void) => {

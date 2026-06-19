@@ -82,6 +82,14 @@ def models_by_id(payload: dict) -> dict[str, dict]:
     }
 
 
+def project_yaml(name: str, models: list[str], extra_lines: list[str] | None = None) -> str:
+    lines = [f"name: {name}", "models:"]
+    lines.extend(f"  - {model}.model.yaml" for model in models)
+    if extra_lines:
+        lines.extend(extra_lines)
+    return "\n".join(lines) + "\n"
+
+
 def test_health_and_registry_record() -> None:
     workspace = create_fake_workspace()
     with build_client(workspace) as client:
@@ -220,7 +228,7 @@ def test_workspace_query_endpoints_without_launcher() -> None:
     (workspace / "robots" / "barr-e").mkdir(parents=True)
     (workspace / "robots" / "barr-e" / "assets").mkdir(parents=True)
     (workspace / "robots" / "barr-e" / "barr-e.project.yaml").write_text(
-        'name: "Barr.e"\ndescription: "Barr project."\n',
+        'name: "Barr.e"\ndescription: "Barr project."\nmodels:\n  - brain.model.yaml\n',
         encoding="utf-8",
     )
     (workspace / "robots" / "barr-e" / "barr-e.rc.yaml").write_text(
@@ -294,6 +302,8 @@ def test_legacy_launcher_routes_are_gone_and_query_schema_is_in_process(
     project_path.write_text(
         "\n".join(
             [
+                "models:",
+                "  - brain.model.yaml",
                 "runtime:",
                 "  engine: ./engine",
             ]
@@ -425,9 +435,12 @@ def test_launcher_runtime_endpoint_projects_live_per_model_truth(
     workspace = create_fake_workspace()
     project_dir = workspace / "robots" / "barr-e"
     project_dir.mkdir(parents=True)
-    (project_dir / "barr-e.project.yaml").write_text("name: Barr.e\n", encoding="utf-8")
     for model_name in ("healthy", "missing", "pid-live", "stopping"):
         (project_dir / f"{model_name}.model.yaml").write_text("name: Test\n", encoding="utf-8")
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["healthy", "missing", "pid-live", "stopping"]),
+        encoding="utf-8",
+    )
     records = [
         {
             "project_id": "barr-e",
@@ -516,8 +529,11 @@ def test_launcher_runtime_culls_phonebook_records_for_absent_models() -> None:
     workspace = create_fake_workspace()
     project_dir = workspace / "robots" / "pip-e"
     project_dir.mkdir(parents=True)
-    (project_dir / "pip-e.project.yaml").write_text("name: Pip.e\n", encoding="utf-8")
     (project_dir / "pip-e-face.model.yaml").write_text("name: Face\n", encoding="utf-8")
+    (project_dir / "pip-e.project.yaml").write_text(
+        project_yaml("Pip.e", ["pip-e-face"]),
+        encoding="utf-8",
+    )
     live_record = ability._write_runtime_phonebook_record(
         str(workspace),
         {
@@ -555,8 +571,11 @@ def test_launcher_runtime_status_hydrates_blank_phonebook_from_live_session(
     workspace = create_fake_workspace()
     project_dir = workspace / "robots" / "barr-e"
     project_dir.mkdir(parents=True)
-    (project_dir / "barr-e.project.yaml").write_text("name: Barr.e\n", encoding="utf-8")
     (project_dir / "brain.model.yaml").write_text("name: Brain\n", encoding="utf-8")
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["brain"]),
+        encoding="utf-8",
+    )
 
     domain = ability._launcher_domain()
     store = ability._json_store(str(workspace))
@@ -742,12 +761,7 @@ def test_launcher_model_controls_remain_independent_across_projects(
         project_dir.mkdir(parents=True)
         (project_dir / "engine").mkdir()
         (project_dir / f"{project_name}.project.yaml").write_text(
-            "\n".join(
-                [
-                    "runtime:",
-                    "  engine: ./engine",
-                ]
-            ),
+            project_yaml(project_name, ["brain"], ["runtime:", "  engine: ./engine"]),
             encoding="utf-8",
         )
         (project_dir / "brain.model.yaml").write_text(
@@ -823,12 +837,7 @@ def test_launcher_all_launch_skips_models_with_live_runtime_authority(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["brain", "face"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     for model_name in ("brain", "face"):
@@ -903,12 +912,7 @@ def test_launcher_model_endpoints_fan_out_and_coalesce_active_models(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["brain", "face", "spine"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     for model_name in ("brain", "face", "spine"):
@@ -989,12 +993,7 @@ def test_launcher_model_launch_default_returns_pending_before_resolution(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     (project_dir / "face.model.yaml").write_text(
@@ -1071,12 +1070,7 @@ def test_launcher_model_stop_and_restart_target_selected_models_only(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["brain", "face", "spine"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     for model_name in ("brain", "face", "spine"):
@@ -1165,12 +1159,7 @@ def test_launcher_model_stop_default_returns_pending_status(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     (project_dir / "face.model.yaml").write_text(
@@ -1258,12 +1247,7 @@ def test_launcher_model_restart_default_returns_restarting_before_stop_completes
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     (project_dir / "face.model.yaml").write_text(
@@ -1560,12 +1544,7 @@ def test_launcher_runtime_authority_handoff_marks_session_ready(
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["brain"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     (project_dir / "brain.model.yaml").write_text(
@@ -1743,12 +1722,7 @@ def test_launcher_runtime_probe_failure_before_handoff_records_worker_exit_diagn
     project_dir.mkdir(parents=True)
     (project_dir / "engine").mkdir()
     (project_dir / "barr-e.project.yaml").write_text(
-        "\n".join(
-            [
-                "runtime:",
-                "  engine: ./engine",
-            ]
-        ),
+        project_yaml("Barr.e", ["brain"], ["runtime:", "  engine: ./engine"]),
         encoding="utf-8",
     )
     (project_dir / "brain.model.yaml").write_text(

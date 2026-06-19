@@ -111,6 +111,25 @@ export function publishRendererDiagnosticsPatch(
   publishCurrentSnapshot();
 }
 
+export function publishRendererStartupTiming(name: string, value: number): void {
+  const timingName = name.trim();
+  if (!timingName || !Number.isFinite(value)) {
+    return;
+  }
+  const existingTimings =
+    currentSnapshot.startup_timings &&
+    typeof currentSnapshot.startup_timings === "object" &&
+    !Array.isArray(currentSnapshot.startup_timings)
+      ? (currentSnapshot.startup_timings as Record<string, unknown>)
+      : {};
+  publishRendererDiagnosticsPatch({
+    startup_timings: {
+      ...existingTimings,
+      [timingName]: value,
+    },
+  });
+}
+
 export function resetProjectScopedRendererDiagnostics(
   projectPath?: string
 ): void {

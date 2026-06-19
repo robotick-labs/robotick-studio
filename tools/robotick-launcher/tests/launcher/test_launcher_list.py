@@ -112,8 +112,8 @@ def test_list_project_models_accepts_relative_path(tmp_path):
     project_file = project_dir / "pip.project.yaml"
     model_file = project_dir / "pip.model.yaml"
     project_dir.mkdir()
-    project_file.write_text("# pip project")
     model_file.write_text("# pip model")
+    project_file.write_text("models:\n  - pip.model.yaml\n")
 
     cwd = tmp_path / "runner"
     cwd.mkdir()
@@ -126,6 +126,30 @@ def test_list_project_models_accepts_relative_path(tmp_path):
         assert model_file.name in models[0]
     finally:
         os.chdir(original_cwd)
+
+
+def test_list_project_models_requires_manifest(tmp_path):
+    project_file = tmp_path / "pip.project.yaml"
+    model_file = tmp_path / "pip.model.yaml"
+    project_file.write_text("# pip project")
+    model_file.write_text("# pip model")
+
+    try:
+        list_project_models(str(project_file))
+        assert False, "Expected ValueError"
+    except ValueError as e:
+        assert "top-level 'models' list" in str(e)
+
+
+def test_list_project_models_ignores_unlisted_model_files(tmp_path):
+    project_file = tmp_path / "pip.project.yaml"
+    listed_model = tmp_path / "listed.model.yaml"
+    unlisted_model = tmp_path / "unlisted.model.yaml"
+    listed_model.write_text("# listed")
+    unlisted_model.write_text("# unlisted")
+    project_file.write_text("models:\n  - listed.model.yaml\n")
+
+    assert list_project_models(str(project_file)) == ["listed.model.yaml"]
 
 
 def test_list_project_models_invalid_path_raises():

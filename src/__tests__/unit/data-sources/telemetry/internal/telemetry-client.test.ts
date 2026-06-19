@@ -11,6 +11,13 @@ function installTelemetryBridge(overrides: Partial<NonNullable<Window["robotick"
     ensureLayout: vi.fn(),
     refreshLayout: vi.fn(),
     getDiagnostics: vi.fn(),
+    getSharedDiagnostics: vi.fn(async () => ({
+      activeBaseUrlCount: 0,
+      totalSubscriberCount: 0,
+      baseUrls: [],
+    })),
+    getHealth: vi.fn(),
+    getPushStats: vi.fn(),
     setWorkloadInputFieldsData: vi.fn(),
     setWorkloadInputConnectionState: vi.fn(),
     subscribe: vi.fn(),

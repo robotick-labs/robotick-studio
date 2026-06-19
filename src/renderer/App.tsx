@@ -26,9 +26,11 @@ import styles from "./styles/App.module.css";
 import { ContextMenuProvider } from "./components/context-menu/ContextMenuProvider";
 import {
   publishRendererDiagnosticsPatch,
+  publishRendererStartupTiming,
   resetProjectScopedRendererDiagnostics,
 } from "./services/studio-diagnostics";
 import { getLauncherRendererDiagnosticsSnapshot } from "./data-sources/launcher/internal/launcher-interface";
+import { msSinceRendererStartup } from "./services/startup-timing";
 
 type RouterSelectionOptions = {
   isStandaloneApp?: boolean;
@@ -121,6 +123,12 @@ export function App({
       window.clearInterval(intervalId);
       clearUserTimingEntries();
     };
+  }, []);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      publishRendererStartupTiming("renderer_shell_ready_ms", msSinceRendererStartup());
+    });
   }, []);
 
   return (
@@ -220,10 +228,20 @@ function RendererDiagnosticsPublisher() {
   }, [projectPath]);
 
   useEffect(() => {
-    const publish = () =>
+    let cancelled = false;
+    const publish = async () => {
+      const [launcher, telemetryDataSource] = await Promise.all([
+        getLauncherRendererDiagnosticsSnapshot(),
+        window.robotick?.telemetry?.getSharedDiagnostics?.().catch(() => null) ??
+          Promise.resolve(null),
+      ]);
+      if (cancelled) {
+        return;
+      }
       publishRendererDiagnosticsPatch({
-        launcher: getLauncherRendererDiagnosticsSnapshot(),
+        launcher,
         telemetry: {
+          data_source: telemetryDataSource,
           loading: projectModels.loading,
           error: projectModels.error,
           model_count: projectModels.data.length,
@@ -245,10 +263,12 @@ function RendererDiagnosticsPublisher() {
           })),
         },
       });
+    };
 
-    publish();
+    void publish();
     const intervalId = window.setInterval(publish, 2000);
     return () => {
+      cancelled = true;
       window.clearInterval(intervalId);
     };
   }, [projectModels.data, projectModels.error, projectModels.loading, telemetry]);

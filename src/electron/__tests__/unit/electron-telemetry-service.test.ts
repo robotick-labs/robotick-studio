@@ -3,7 +3,7 @@ import {
   createElectronTelemetryService,
   ElectronTelemetryServiceError,
   type ElectronTelemetryServiceDependencies,
-} from "../../main/telemetry/electron-telemetry-service";
+} from "../../main/data-sources/telemetry/electron-telemetry-service";
 import type { LayoutModel } from "../../common/telemetry/telemetry-decoder";
 
 const layout: LayoutModel = {
@@ -349,6 +349,38 @@ describe("createElectronTelemetryService", () => {
     expect(sockets[0]?.close).not.toHaveBeenCalled();
     unsubscribeSecond();
     expect(sockets[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes shared base-url diagnostics for subscribers and cached layouts", async () => {
+    const { service } = createService({
+      webSocketFactory: vi.fn(() => ({
+        binaryType: "",
+        readyState: 1,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null,
+        close: vi.fn(),
+      })),
+    });
+
+    const unsubscribe = service.subscribeBaseUrl("http://localhost:9030", () => {});
+    await service.ensureLayoutForBaseUrl("http://localhost:9030");
+
+    expect(service.getSharedDiagnostics()).toMatchObject({
+      activeBaseUrlCount: 1,
+      totalSubscriberCount: 1,
+      baseUrls: [
+        {
+          baseUrl: "http://localhost:9030",
+          subscriberCount: 1,
+          layoutLoaded: true,
+          websocketConnected: true,
+        },
+      ],
+    });
+
+    unsubscribe();
   });
 
   it("pairs websocket frame metadata with binary payloads in order under backpressure", async () => {
