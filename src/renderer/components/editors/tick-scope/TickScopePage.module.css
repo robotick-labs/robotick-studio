@@ -599,13 +599,34 @@
 }
 
 .span_sleep {
-  background: rgba(85, 166, 235, 0.32);
-  border-color: rgba(135, 206, 255, 0.55);
+  background: rgba(245, 203, 77, 0.3);
+  border-color: rgba(255, 220, 98, 0.48);
   box-shadow: none;
 }
 
-.span_sleep .spanName {
-  color: rgba(226, 242, 255, 0.96);
+.span_sleep_coarse {
+  background: rgba(245, 203, 77, 0.08);
+  border-color: rgba(255, 220, 98, 0.16);
+  box-shadow: none;
+}
+
+.span_sleep_yield {
+  background: rgba(245, 203, 77, 0.24);
+  border-color: rgba(255, 220, 98, 0.42);
+  box-shadow: none;
+}
+
+.span_sleep_spin {
+  background: rgba(245, 203, 77, 0.58);
+  border-color: rgba(255, 230, 126, 0.78);
+  box-shadow: none;
+}
+
+.span_sleep .spanName,
+.span_sleep_coarse .spanName,
+.span_sleep_yield .spanName,
+.span_sleep_spin .spanName {
+  color: rgba(255, 243, 183, 0.96);
   font-weight: 600;
 }
 

@@ -26,6 +26,11 @@ function laneHasNoOverlaps(lane: TickScopeWorkSpan[]): boolean {
   return sorted.every((item, index) => index === 0 || item.startMs >= sorted[index - 1].endMs);
 }
 
+function inChain(span: TickScopeWorkSpan, snapChainId: string): TickScopeWorkSpan {
+  span.snapChainId = snapChainId;
+  return span;
+}
+
 describe("Tick Scope layout", () => {
   it("uses exact span percentages without imposing a minimum visual width", () => {
     const sleepStyle = getSpanBlockStyle(span("sleep/yield", 0.166, 16.666, "sleep"), 16.667);
@@ -78,5 +83,83 @@ describe("Tick Scope layout", () => {
     expect(lanes[1].map((item) => item.workload)).toEqual([
       "sequenced_group_workload_2805B754",
     ]);
+  });
+
+  it("keeps staged sleep contiguous with the preceding workload span", () => {
+    const coarseSleep = inChain(span("coarse sleep", 0.005, 16.4, "sleep_coarse"), "workload");
+    coarseSleep.snapStartToPreviousEnd = true;
+
+    const lanes = packSpansIntoSubLanes([
+      inChain(span("workload", 0.004, 0.008), "workload"),
+      coarseSleep,
+      inChain(span("yield", 16.4, 16.6, "sleep_yield"), "workload"),
+    ]);
+
+    expect(lanes).toHaveLength(1);
+    expect(laneHasNoOverlaps(lanes[0])).toBe(true);
+    expect(lanes[0][1]).toMatchObject({
+      workload: "coarse sleep",
+      startMs: 0.008,
+    });
+  });
+
+  it("keeps pre-work phases, useful work, and staged sleep on one row when smoothing nudges boundaries", () => {
+    const useful = inChain(span("workload", 0.006, 0.012), "workload");
+    useful.snapStartToPreviousEnd = true;
+    const coarseSleep = inChain(span("coarse sleep", 0.01, 16.4, "sleep_coarse"), "workload");
+    coarseSleep.snapStartToPreviousEnd = true;
+
+    const lanes = packSpansIntoSubLanes([
+      inChain(span("engine I/O", 0, 0.008, "engine_io"), "workload"),
+      useful,
+      coarseSleep,
+    ]);
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0].map((item) => item.workload)).toEqual([
+      "engine I/O",
+      "workload",
+      "coarse sleep",
+    ]);
+    expect(lanes[0][1].startMs).toBe(0.008);
+    expect(lanes[0][2].startMs).toBe(0.012);
+  });
+
+  it("keeps thread sleep on the parent group row when group spans enclose inline children", () => {
+    const lanes = packSpansIntoSubLanes([
+      span("root_group", 0.15, 0.23),
+      span("child_workload", 0.16, 0.22),
+      span("coarse sleep", 0.23, 16.4, "sleep_coarse"),
+    ]);
+
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0].map((item) => item.workload)).toEqual(["child_workload"]);
+    expect(lanes[1].map((item) => item.workload)).toEqual([
+      "root_group",
+      "coarse sleep",
+    ]);
+  });
+
+  it("keeps parent phases with the group row even when workload input order is not chronological", () => {
+    const rootGroup = inChain(span("root_group", 0.12, 0.23), "root");
+    rootGroup.snapStartToPreviousEnd = true;
+    const coarseSleep = inChain(span("coarse sleep", 0.23, 16.4, "sleep_coarse"), "root");
+    coarseSleep.snapStartToPreviousEnd = true;
+
+    const lanes = packSpansIntoSubLanes([
+      inChain(span("child_workload", 0.16, 0.22), "child"),
+      inChain(span("engine I/O", 0.03, 0.15, "engine_io"), "root"),
+      rootGroup,
+      coarseSleep,
+    ]);
+
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0].map((item) => item.workload)).toEqual(["child_workload"]);
+    expect(lanes[1].map((item) => item.workload)).toEqual([
+      "engine I/O",
+      "root_group",
+      "coarse sleep",
+    ]);
+    expect(lanes[1][1].startMs).toBe(0.15);
   });
 });

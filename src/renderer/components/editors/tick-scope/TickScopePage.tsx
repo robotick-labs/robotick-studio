@@ -118,6 +118,8 @@ const WORKER_THREAD_SORT_OPTIONS: ReadonlyArray<{
   { value: "logical_cpu", label: "Core" },
 ];
 
+const TRACE_SPAN_WIDTH_PCT = 2;
+
 function formatMs(value: number): string {
   if (!Number.isFinite(value)) return "0 ms";
   if (Math.abs(value) < 1) return `${value.toFixed(2)} ms`;
@@ -333,14 +335,30 @@ function applyTickScopeSmoothing(
   const slackMs = smooth("model:slackMs", modelTick.slackMs) ?? modelTick.slackMs;
   const threads = modelTick.threads.map((thread) => {
     const threadKey = thread.threadId != null ? `thread:${thread.threadId}` : `thread:${thread.name}`;
+    const previousSmoothedEndMsByChain = new Map<string, number>();
     const spans = thread.spans.map((span, index) => {
       const spanKey = `${threadKey}:span:${index}:${span.kind}:${span.workload}`;
-      const startMs = smooth(`${spanKey}:startMs`, span.startMs) ?? span.startMs;
+      const smoothedStartMs = smooth(`${spanKey}:startMs`, span.startMs) ?? span.startMs;
+      const previousChainEndMs =
+        span.snapChainId == null
+          ? null
+          : previousSmoothedEndMsByChain.get(span.snapChainId) ?? null;
+      const startMs =
+        span.snapStartToPreviousEnd && previousChainEndMs != null
+          ? previousChainEndMs
+          : smoothedStartMs;
       const endMs = smooth(`${spanKey}:endMs`, span.endMs) ?? span.endMs;
+      const normalizedEndMs = Math.max(startMs, endMs);
+      if (span.snapChainId != null) {
+        previousSmoothedEndMsByChain.set(
+          span.snapChainId,
+          Math.max(previousChainEndMs ?? Number.NEGATIVE_INFINITY, normalizedEndMs),
+        );
+      }
       return {
         ...span,
         startMs,
-        endMs: Math.max(startMs, endMs),
+        endMs: normalizedEndMs,
         carryOutMs: span.carryOutMs == null
           ? undefined
           : smooth(`${spanKey}:carryOutMs`, span.carryOutMs) ?? span.carryOutMs,
@@ -388,6 +406,23 @@ function statusLabel(status: ModelTick["status"]): string {
       return "tight";
     case "miss":
       return "miss";
+  }
+}
+
+function spanStageExplanation(span: WorkSpan): string | null {
+  switch (span.kind) {
+    case "sleep_coarse":
+      return "OS sleep phase: hands most of the wait budget to the scheduler; lowest CPU cost, least precise wake.";
+    case "sleep_yield":
+      return "Yield phase: repeatedly yields near the deadline to reduce wake lateness without busy-spinning.";
+    case "sleep_spin":
+      return "Spin phase: holds the final tiny timing window for the tightest wake timing; highest CPU cost.";
+    case "sleep":
+      return span.workload === "sleep remainder"
+        ? "Unattributed wait time left after the measured sleep stages."
+        : "Aggregate wait after work completes; stage timings were not available for this span.";
+    default:
+      return null;
   }
 }
 
@@ -504,6 +539,12 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
         numericStat(workload, ["latest_span", "wait_total_ns"]) ?? 0;
       const waitRequestedNs =
         numericStat(workload, ["latest_span", "wait_requested_ns"]) ?? 0;
+      const waitCoarseSleepNs =
+        numericStat(workload, ["latest_span", "wait_coarse_sleep_ns"]) ?? 0;
+      const waitYieldPhaseNs =
+        numericStat(workload, ["latest_span", "wait_yield_phase_ns"]) ?? 0;
+      const waitSpinPhaseNs =
+        numericStat(workload, ["latest_span", "wait_spin_phase_ns"]) ?? 0;
       const wakeLatenessNs =
         numericStat(workload, ["latest_span", "wake_lateness_ns"]) ?? 0;
       const engineIoStartNs =
@@ -547,6 +588,9 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
         endNs: isRunning ? Math.max(endNs, startNs) : endNs,
         waitTotalNs,
         waitRequestedNs,
+        waitCoarseSleepNs,
+        waitYieldPhaseNs,
+        waitSpinPhaseNs,
         wakeLatenessNs,
         engineIoStartNs,
         engineIoEndNs,
@@ -632,6 +676,9 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       phases,
       waitStats: {
         requestedMs: nsToMs(span.waitRequestedNs),
+        coarseSleepMs: nsToMs(span.waitCoarseSleepNs),
+        yieldPhaseMs: nsToMs(span.waitYieldPhaseNs),
+        spinPhaseMs: nsToMs(span.waitSpinPhaseNs),
         totalMs: nsToMs(span.waitTotalNs),
         wakeLatenessMs: nsToMs(span.wakeLatenessNs),
       },
@@ -661,6 +708,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     }
 
     const carryOutNs = Math.max(0, span.endNs - span.scheduledEndNs);
+    const snapChainId = `${span.kernelThreadId}:${span.workload.name}:${span.tickSeq}`;
     const addPhase = (
       workload: string,
       kind: TickScopeSpanKind,
@@ -675,13 +723,16 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
         endMs: (endNs - originNs) / 1_000_000,
         cpuStart: span.cpuStart,
         cpuEnd: span.cpuStart,
+        snapChainId,
       });
     };
 
+    const phaseCountBefore = row.spans.length;
     addPhase("engine I/O", "engine_io", span.engineIoStartNs, span.engineIoEndNs);
     addPhase("sync wait", "sync_wait", span.syncWaitStartNs, span.syncWaitEndNs);
     addPhase("local inputs", "local_inputs", span.localInputsStartNs, span.localInputsEndNs);
 
+    const hasPreWorkPhase = row.spans.length > phaseCountBefore;
     row.spans.push({
       workload: displayWorkloadName(span.workload),
       kind: carryOutNs > 0 ? "carry" : "useful",
@@ -690,9 +741,41 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       cpuStart: span.cpuStart,
       cpuEnd: span.cpuEnd,
       carryOutMs: carryOutNs > 0 ? carryOutNs / 1_000_000 : undefined,
+      snapStartToPreviousEnd: hasPreWorkPhase || undefined,
+      snapChainId,
     });
 
-    addPhase("sleep/yield", "sleep", span.sleepYieldStartNs, span.sleepYieldEndNs);
+    let sleepStageStartNs = span.sleepYieldStartNs;
+    const sleepStageEndNs = span.sleepYieldEndNs;
+    const addSleepStage = (
+      workload: string,
+      kind: TickScopeSpanKind,
+      durationNs: number,
+    ) => {
+      if (durationNs <= 0 || sleepStageStartNs >= sleepStageEndNs) return;
+      const endNs = Math.min(sleepStageEndNs, sleepStageStartNs + durationNs);
+      const spanCountBefore = row.spans.length;
+      addPhase(workload, kind, sleepStageStartNs, endNs);
+      const addedSpan = row.spans[spanCountBefore];
+      if (addedSpan) {
+        addedSpan.snapStartToPreviousEnd = true;
+      }
+      sleepStageStartNs = endNs;
+    };
+
+    addSleepStage("coarse sleep", "sleep_coarse", span.waitCoarseSleepNs);
+    addSleepStage("yield", "sleep_yield", span.waitYieldPhaseNs);
+    addSleepStage("spin", "sleep_spin", span.waitSpinPhaseNs);
+    if (sleepStageStartNs === span.sleepYieldStartNs) {
+      addPhase("sleep/yield", "sleep", span.sleepYieldStartNs, span.sleepYieldEndNs);
+    } else {
+      const spanCountBefore = row.spans.length;
+      addPhase("sleep remainder", "sleep", sleepStageStartNs, sleepStageEndNs);
+      const addedSpan = row.spans[spanCountBefore];
+      if (addedSpan) {
+        addedSpan.snapStartToPreviousEnd = true;
+      }
+    }
   }
 
   for (const row of threadRows.values()) {
@@ -703,7 +786,10 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
             span.kind !== "engine_io" &&
             span.kind !== "sync_wait" &&
             span.kind !== "local_inputs" &&
-            span.kind !== "sleep",
+            span.kind !== "sleep" &&
+            span.kind !== "sleep_coarse" &&
+            span.kind !== "sleep_yield" &&
+            span.kind !== "sleep_spin",
         )
         .map((span) => span.workload),
     );
@@ -1381,18 +1467,25 @@ const SpanBlock = memo(function SpanBlock({
     span.kind !== "engine_io" &&
     span.kind !== "sync_wait" &&
     span.kind !== "local_inputs" &&
-    span.kind !== "sleep";
+    span.kind !== "sleep" &&
+    span.kind !== "sleep_coarse" &&
+    span.kind !== "sleep_yield" &&
+    span.kind !== "sleep_spin";
   const style = getSpanBlockStyle(span, periodMs) as React.CSSProperties;
   const durationMs = Math.max(0, span.endMs - span.startMs);
   const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
   const widthPct = (durationMs / safePeriodMs) * 100;
-  const traceClass = durationMs > 0 && widthPct < 0.2 ? styles.spanTrace : "";
+  const traceClass = durationMs > 0 && widthPct < TRACE_SPAN_WIDTH_PCT ? styles.spanTrace : "";
+  const explanation = spanStageExplanation(span);
+  const title = explanation
+    ? `${span.workload}: ${formatMs(durationMs)}\n${explanation}`
+    : `${span.workload}: ${formatMs(durationMs)}`;
 
   return (
     <div
       className={`${styles.spanBlock} ${styles[`span_${span.kind}`]} ${traceClass}`}
       style={style}
-      title={`${span.workload}: ${formatMs(durationMs)}`}
+      title={title}
     >
       <span className={styles.spanName}>{span.workload}</span>
       {showCpuBadge ? (

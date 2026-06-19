@@ -5,7 +5,10 @@ export type TickScopeSpanKind =
   | "engine_io"
   | "sync_wait"
   | "local_inputs"
-  | "sleep";
+  | "sleep"
+  | "sleep_coarse"
+  | "sleep_yield"
+  | "sleep_spin";
 
 export type TickScopeWorkSpan = {
   workload: string;
@@ -15,6 +18,8 @@ export type TickScopeWorkSpan = {
   cpuStart: number;
   cpuEnd: number;
   carryOutMs?: number;
+  snapStartToPreviousEnd?: boolean;
+  snapChainId?: string;
 };
 
 export type TickScopeSpanStyle = {
@@ -42,10 +47,30 @@ export function packSpansIntoSubLanes(spans: TickScopeWorkSpan[]): TickScopeWork
     return lhs.workload.localeCompare(rhs.workload);
   });
 
+  const previousEndMsByChain = new Map<string, number>();
+  const normalizedSpans = sortedSpans.map((span) => {
+    const previousChainEndMs =
+      span.snapChainId == null ? null : previousEndMsByChain.get(span.snapChainId) ?? null;
+    const startMs =
+      span.snapStartToPreviousEnd && previousChainEndMs != null
+        ? previousChainEndMs
+        : span.startMs;
+    const endMs = Math.max(startMs, span.endMs);
+    if (span.snapChainId != null) {
+      previousEndMsByChain.set(
+        span.snapChainId,
+        Math.max(previousChainEndMs ?? Number.NEGATIVE_INFINITY, endMs),
+      );
+    }
+    return startMs === span.startMs && endMs === span.endMs
+      ? span
+      : { ...span, startMs, endMs };
+  });
+
   const lanes: TickScopeWorkSpan[][] = [];
   const laneEnds: number[] = [];
 
-  for (const span of sortedSpans) {
+  for (const span of normalizedSpans) {
     let laneIndex = laneEnds.findIndex((endMs) => span.startMs >= endMs);
     if (laneIndex < 0) {
       laneIndex = lanes.length;
