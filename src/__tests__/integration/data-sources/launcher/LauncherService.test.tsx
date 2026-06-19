@@ -335,6 +335,59 @@ describe("Launcher service integration", () => {
     unmount();
   });
 
+  it("clears per-model start pending state when the launcher reports stopped", async () => {
+    vi.useFakeTimers();
+
+    const requestLauncherRunModel = vi.fn().mockResolvedValue(undefined);
+    const fetchLauncherStatus = vi.fn().mockResolvedValue({
+      status: "stopped",
+      phase: null,
+      models: {},
+    });
+
+    const service = createMockLauncherService({
+      projectPath: "/proj",
+      getLauncherProfile: () => "local:ALL",
+      getProjectModels: async () => [demoModel],
+      refreshProjectModels: async () => [demoModel],
+      requestLauncherRunModel,
+      fetchLauncherStatus,
+    });
+
+    const { unmount } = renderWithLauncherService(
+      service,
+      <Project.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
+      </Project.Context.Provider>
+    );
+
+    await flushPromises();
+    await advance(1000);
+
+    const startButton = document.querySelector(
+      'button[aria-label="Start demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(startButton).not.toBeNull();
+
+    await act(async () => {
+      startButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("launching");
+
+    await advance(1000);
+    expect(document.body.textContent).not.toContain("launching");
+    expect(document.body.textContent).toContain("stopped");
+
+    vi.useRealTimers();
+    unmount();
+  });
+
   it("shows an immediate stopping state for a per-model stop request", async () => {
     vi.useFakeTimers();
 

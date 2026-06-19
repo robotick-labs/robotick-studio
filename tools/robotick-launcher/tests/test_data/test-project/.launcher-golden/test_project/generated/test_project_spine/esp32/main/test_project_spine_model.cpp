@@ -28,7 +28,8 @@ void populate_model_test_project_spine(robotick::Model& model)
         30.0f,
         {},    // children
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("steering_mixer")
     };
 
 
@@ -38,7 +39,8 @@ void populate_model_test_project_spine(robotick::Model& model)
         30.0f,
         {},    // children
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("basex")
     };
 
     static const WorkloadSeed* const sequenced_group_workload_5AB6C106_children[] = {
@@ -51,7 +53,8 @@ void populate_model_test_project_spine(robotick::Model& model)
         30.0f,
         sequenced_group_workload_5AB6C106_children,
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("control_sequence")
     };
 
     static const FieldConfigEntry heartbeat_display_workload_726A380B_config[] = {
@@ -64,7 +67,8 @@ void populate_model_test_project_spine(robotick::Model& model)
         30.0f,
         {},    // children
         heartbeat_display_workload_726A380B_config,
-        {}    // inputs
+        {},    // inputs
+        StringView("heart_ui")
     };
 
     static const WorkloadSeed* const sequenced_group_workload_41F3A4E9_children[] = {
@@ -77,7 +81,8 @@ void populate_model_test_project_spine(robotick::Model& model)
         30.0f,
         sequenced_group_workload_41F3A4E9_children,
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("esp32_root")
     };
 
     static const WorkloadSeed* const all_workloads[] = {

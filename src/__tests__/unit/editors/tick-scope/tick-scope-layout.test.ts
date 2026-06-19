@@ -62,4 +62,21 @@ describe("Tick Scope layout", () => {
     expect(lanes.every(laneHasNoOverlaps)).toBe(true);
     expect(lanes.flat().map((item) => item.workload)).toContain("sleep/yield");
   });
+
+  it("renders overlapping sequenced-group children before their enclosing group row", () => {
+    const lanes = packSpansIntoSubLanes([
+      span("sequenced_group_workload_2805B754", 0, 0.2),
+      span("expressive_state_workload_FC09EB3E", 0.04, 0.06),
+      span("anim_clips_evaluator_workload_12AF4D01", 0.08, 0.1),
+    ]);
+
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0].map((item) => item.workload)).toEqual([
+      "expressive_state_workload_FC09EB3E",
+      "anim_clips_evaluator_workload_12AF4D01",
+    ]);
+    expect(lanes[1].map((item) => item.workload)).toEqual([
+      "sequenced_group_workload_2805B754",
+    ]);
+  });
 });

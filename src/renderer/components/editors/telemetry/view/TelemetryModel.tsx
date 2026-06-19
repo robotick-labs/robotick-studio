@@ -30,7 +30,7 @@ function toFiniteNumber(value: unknown): number | null {
 
 type WorkloadSortKey =
   | "none"
-  | "unique_name"
+  | "unique_id"
   | "workload_type"
   | "memory_total"
   | "memory_static"
@@ -48,7 +48,7 @@ const WORKLOAD_SORT_OPTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { value: "none", label: "-" },
-  { value: "unique_name", label: "Unique Name" },
+  { value: "unique_id", label: "Unique ID" },
   { value: "workload_type", label: "Workload Type" },
   { value: "memory_total", label: "Memory - Total" },
   { value: "memory_static", label: "Memory - Static" },
@@ -81,7 +81,7 @@ function compareWorkloads(
       return byDynamic !== 0 ? byDynamic : left.name.localeCompare(right.name);
     }
     case "none":
-    case "unique_name":
+    case "unique_id":
     default:
       return left.name.localeCompare(right.name);
   }

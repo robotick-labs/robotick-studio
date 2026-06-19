@@ -35,6 +35,7 @@ void populate_model_test_project_brain(robotick::Model& model)
         {},    // children
         {},    // config
         remote_control_workload_59511193_initial_inputs,
+        StringView("remote_control")
     };
 
     static const FieldConfigEntry face_display_workload_EE6DA533_config[] = {
@@ -49,7 +50,8 @@ void populate_model_test_project_brain(robotick::Model& model)
         30.0f,
         {},    // children
         face_display_workload_EE6DA533_config,
-        {}    // inputs
+        {},    // inputs
+        StringView("face")
     };
 
 
@@ -59,7 +61,8 @@ void populate_model_test_project_brain(robotick::Model& model)
         30.0f,
         {},    // children
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("speech_to_text")
     };
 
 
@@ -69,7 +72,8 @@ void populate_model_test_project_brain(robotick::Model& model)
         30.0f,
         {},    // children
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("camera")
     };
 
 
@@ -79,7 +83,8 @@ void populate_model_test_project_brain(robotick::Model& model)
         30.0f,
         {},    // children
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("mic")
     };
 
     static const WorkloadSeed* const synced_group_workload_E6E41091_children[] = {
@@ -92,7 +97,8 @@ void populate_model_test_project_brain(robotick::Model& model)
         30.0f,
         synced_group_workload_E6E41091_children,
         {},    // config
-        {}    // inputs
+        {},    // inputs
+        StringView("root_group")
     };
 
     static const WorkloadSeed* const all_workloads[] = {

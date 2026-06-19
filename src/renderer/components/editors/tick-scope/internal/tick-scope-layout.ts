@@ -57,5 +57,5 @@ export function packSpansIntoSubLanes(spans: TickScopeWorkSpan[]): TickScopeWork
     laneEnds[laneIndex] = Math.max(laneEnds[laneIndex], span.endMs);
   }
 
-  return lanes;
+  return lanes.reverse();
 }

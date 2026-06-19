@@ -106,6 +106,7 @@ def prepare_codegen_model_data(config):
     workload_id_to_var = {}
     for w in config.model.get("workloads", []):
         workload_id = str(w.get("id", "")).strip()
+        workload_display_name = str(w.get("name", "")).strip()
         var_name = _sanitize_cpp_identifier(workload_id, fallback="workload")
         workload_id_to_var[workload_id] = var_name
         config_entries = _flatten_field_entries(w.get("config"))
@@ -124,6 +125,7 @@ def prepare_codegen_model_data(config):
                 **w,
                 "children": children,
                 "var_name": var_name,
+                "display_name_normalized": _normalize_field_value_for_cpp(workload_display_name),
                 "config_entries": config_entries,
                 "config_entries_render": _build_render_entries(config_entries),
                 "input_entries": input_entries,

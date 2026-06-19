@@ -196,12 +196,12 @@ describe("TelemetryModel", () => {
 
     act(() => {
       if (sortSelect) {
-        sortSelect.value = "unique_name";
+        sortSelect.value = "unique_id";
         sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
     expect(tree.container.querySelector("[data-testid='persisted-state']")?.textContent).toContain(
-      '"workloadSortKey":"unique_name"'
+      '"workloadSortKey":"unique_id"'
     );
 
     const reorderedRows = Array.from(

@@ -203,6 +203,7 @@ type SerializedTelemetryStruct = {
 
 type SerializedTelemetryWorkload = {
   name: string;
+  display_name?: string;
   type: string;
   memory: {
     total_bytes: number;
@@ -445,6 +446,7 @@ function serializeStruct(
 function serializeWorkload(workload: ITelemetryWorkload): SerializedTelemetryWorkload {
   return {
     name: workload.name,
+    display_name: workload.displayName,
     type: workload.type,
     memory: {
       total_bytes: workload.workloadsBufferTotalBytes,

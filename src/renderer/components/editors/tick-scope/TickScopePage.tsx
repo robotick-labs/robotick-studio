@@ -414,6 +414,10 @@ function numericStat(
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
+function displayWorkloadName(workload: ITelemetryWorkload): string {
+  return workload.displayName?.trim() || workload.name;
+}
+
 function deviceIdFor(baseUrl: string): string {
   try {
     return new URL(baseUrl).hostname || "local";
@@ -604,7 +608,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       sleepYield: rawPhaseSnapshot(span.sleepYieldStartNs, span.sleepYieldEndNs, originNs),
     };
     const snapshot = {
-      workloadName: span.workload.name,
+      workloadName: displayWorkloadName(span.workload),
       workloadType: span.workload.type,
       tickSeq: span.tickSeq,
       threadId: span.kernelThreadId,
@@ -679,7 +683,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     addPhase("local inputs", "local_inputs", span.localInputsStartNs, span.localInputsEndNs);
 
     row.spans.push({
-      workload: span.workload.name,
+      workload: displayWorkloadName(span.workload),
       kind: carryOutNs > 0 ? "carry" : "useful",
       startMs: (span.startNs - originNs) / 1_000_000,
       endMs: (span.endNs - originNs) / 1_000_000,

@@ -1239,7 +1239,7 @@ def test_launcher_model_stop_default_returns_pending_status(
     assert runtime_models["face"]["operation"]["action"] == "stopping"
 
 
-def test_launcher_model_restart_default_returns_restarting_before_stop_completes(
+def test_launcher_model_restart_async_returns_restarting_before_stop_completes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -1300,15 +1300,15 @@ def test_launcher_model_restart_default_returns_restarting_before_stop_completes
     monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda pid: int(pid) in live_pids or int(pid) == 9300)
 
-    try:
-        with build_client(workspace) as client:
+    with build_client(workspace) as client:
+        try:
             launch_response = client.post(
                 "/v1/launcher/models/launch",
                 json={"project_name": "barr-e", "profile": "native:ALL", "wait": True},
             )
             restart_response = client.post(
                 "/v1/launcher/models/restart",
-                json={"project_name": "barr-e", "model_ids": ["face"]},
+                json={"project_name": "barr-e", "model_ids": ["face"], "wait": False},
             )
             runtime_response = client.get(
                 "/v1/launcher/runtime",
@@ -1316,8 +1316,8 @@ def test_launcher_model_restart_default_returns_restarting_before_stop_completes
             )
             stop_wait_started_before_release = stop_wait_started.wait(timeout=1)
             launched_models_before_release = list(launched_models)
-    finally:
-        stop_continue.set()
+        finally:
+            stop_continue.set()
 
     assert launch_response.status_code == 200
     assert restart_response.status_code == 200
@@ -1338,6 +1338,100 @@ def test_launcher_model_restart_default_returns_restarting_before_stop_completes
     assert runtime_models["face"]["operation"]["action"] == "restarting"
     assert restart_launch_called.wait(timeout=1)
     assert launched_models == ["face", "face"]
+
+
+def test_launcher_model_restart_keeps_queued_restarting_after_stop_finalizes() -> None:
+    from robotick.launcher import domain
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
+        encoding="utf-8",
+    )
+    (project_dir / "face.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    store = domain.LauncherSessionStore(workspace)
+    intent = domain.LaunchIntent(
+        project="barr-e",
+        scope=domain.LaunchScope(kind=domain.ScopeKind.MODEL, value="face"),
+        target_policy=domain.TargetPolicy.LOCAL,
+    )
+    group = store.create_group(
+        domain.ModelSessionGroupRecord(
+            workspace_id="robotick-knitware",
+            project_id="barr-e",
+            project_path=str(project_dir / "barr-e.project.yaml"),
+            intent=intent,
+            resolved_model_ids=["face"],
+            status=domain.GroupStatus.RUNNING,
+        )
+    )
+    session = store.create_session(
+        domain.ModelSessionRecord(
+            group_id=group.id,
+            project_id="barr-e",
+            model_id="face",
+            target=domain.TargetOverride(platform="linux"),
+            lifecycle=domain.SessionLifecycle.STOPPING,
+            runtime={
+                "worker": {
+                    "pid": 8401,
+                    "command": ["python", "-m", "robotick.launcher.cli"],
+                    "log_path": "/tmp/8401.log",
+                },
+                "control": {
+                    "action": "restart",
+                    "pid": 9400,
+                    "command": ["python", "-m", "stop"],
+                    "log_path": "/tmp/9400-restart.log",
+                },
+            },
+        )
+    )
+    ability._set_runtime_operation(
+        str(workspace),
+        session,
+        project_path=str(project_dir / "barr-e.project.yaml"),
+        action="restarting",
+        pid=9400,
+        command=["python", "-m", "stop"],
+        log_path="/tmp/9400-restart.log",
+        request_id="restart-request",
+    )
+
+    ability._finalize_stop_model_sessions(
+        str(workspace),
+        [
+            (
+                session,
+                FakeWorkerProcess(9400, returncode=0),
+                "/tmp/9400-restart.log",
+                ["python", "-m", "stop"],
+            )
+        ],
+        action="restart",
+    )
+
+    runtime_payload = ability._launcher_runtime_projection(str(workspace), project_id="barr-e")
+    runtime_models = models_by_id(runtime_payload)
+    operation = runtime_models["face"]["operation"]
+    assert runtime_payload["state"] == "pending"
+    assert runtime_models["face"]["lifecycle"] == "stopping"
+    assert operation["action"] == "restarting"
+    assert operation["queued"] is True
+    assert operation["request_id"] == "restart-request"
 
 
 def test_launcher_model_logs_snapshot_and_clear_use_per_model_offsets() -> None:

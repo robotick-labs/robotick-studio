@@ -701,7 +701,11 @@ function reconcilePendingModelTargets(
       continue;
     }
     if (target === "running") {
-      if (!isModelEffectivelyRunning(current)) {
+      if (
+        current &&
+        !isModelEffectivelyStopped(current) &&
+        !isModelEffectivelyRunning(current)
+      ) {
         nextTargets[modelId] = target;
       }
       continue;

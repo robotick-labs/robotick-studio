@@ -37,6 +37,7 @@ export interface LayoutWorkloadStruct {
 
 export interface LayoutWorkload {
   name: string;
+  display_name?: string;
   type: string;
   offset_within_container: number;
   stats_offset_within_container: number;
@@ -100,6 +101,7 @@ export interface ITelemetryStruct {
 
 export interface ITelemetryWorkload {
   name: string;
+  displayName?: string;
   type: string;
   workloadsBufferTotalBytes: number;
   workloadsBufferStaticBytes: number;
@@ -771,6 +773,7 @@ namespace TelemetryFactory {
       const memoryBytes = computeWorkloadMemoryBytes(wl, typeMap);
       const d: ITelemetryWorkload = {
         name: wl.name,
+        displayName: wl.display_name,
         type: wl.type,
         workloadsBufferTotalBytes: memoryBytes.totalBytes,
         workloadsBufferStaticBytes: memoryBytes.staticBytes,

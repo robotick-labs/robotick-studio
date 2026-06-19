@@ -17,6 +17,7 @@ from robotick.launcher.actions.launch.generate import resolve_codegen_flags
 from robotick.launcher.actions.launch.generate_workloads_registry import (
     emit_cmake_fragment,
 )
+from robotick.launcher.utils import render_template
 
 runner = CliRunner()
 app = create_app()
@@ -264,6 +265,42 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert remote_models == []
     assert telemetry == {}
     assert telemetry_peers == []
+
+
+def test_prepare_codegen_model_data_propagates_workload_display_name():
+    cfg = SimpleNamespace(
+        model={
+            "id": "auditory_model_1234ABCD",
+            "workloads": [
+                {
+                    "id": "sequenced_group_workload_AD49E158",
+                    "name": "auditory_sequence",
+                    "type": "SequencedGroupWorkload",
+                    "tick_rate_hz": 86.1,
+                }
+            ],
+        }
+    )
+
+    workloads, connections, remote_models, telemetry, telemetry_peers = prepare_codegen_model_data(cfg)
+
+    assert len(workloads) == 1
+    assert workloads[0]["display_name_normalized"] == "auditory_sequence"
+
+    rendered = render_template(
+        "template_model.cpp",
+        {
+            "config": SimpleNamespace(model_name_safe="auditory_model", model={"root_var_name": ""}),
+            "workloads": workloads,
+            "connections": connections,
+            "remote_models": remote_models,
+            "telemetry": telemetry,
+            "telemetry_peers": telemetry_peers,
+        },
+    )
+
+    assert 'StringView("sequenced_group_workload_AD49E158")' in rendered
+    assert 'StringView("auditory_sequence")' in rendered
 
 
 def test_resolve_codegen_flags_defaults_to_full_standalone_generation():

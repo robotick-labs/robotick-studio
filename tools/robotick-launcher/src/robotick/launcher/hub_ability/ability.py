@@ -311,7 +311,7 @@ def _hydrate_runtime_phonebook_record_from_session(
         and not operation.get("queued")
     ):
         return record
-    if operation is not None and operation.get("action") in {"stopping", "restarting"}:
+    if operation is not None and operation.get("action") == "stopping":
         operation = None
     if not _runtime_phonebook_record_needs_session_hydration(record):
         if operation is None and isinstance(record.get("operation"), dict):
@@ -1904,6 +1904,12 @@ def _finalize_stop_model_sessions(
     for session, child, log_path, command in stop_workers:
         returncode = child.wait()
         final_runtime = dict(session.runtime or {})
+        operation_id = None
+        runtime_record = _runtime_phonebook_record(workspace_root, session.project_id, session.model_id)
+        if isinstance(runtime_record, dict):
+            operation = runtime_record.get("operation")
+            if isinstance(operation, dict):
+                operation_id = operation.get("request_id")
         final_runtime["control"] = {
             "action": "restart-stop" if action == "restart" else "stop",
             "pid": child.pid,
@@ -1948,16 +1954,29 @@ def _finalize_stop_model_sessions(
             )
             failed.append(updated)
         store.update_session(updated)
-        _clear_runtime_operation(
-            workspace_root,
-            updated,
-            project_path=str(_resolve_project_path(workspace_root, updated.project_id)),
-            result={
-                "action": "restart-stop" if action == "restart" else "stop",
-                "returncode": returncode,
-                "finished_at": _utc_now().isoformat(),
-            },
-        )
+        project_path = str(_resolve_project_path(workspace_root, updated.project_id))
+        if action == "restart" and returncode == 0:
+            _set_runtime_operation(
+                workspace_root,
+                updated,
+                project_path=project_path,
+                action="restarting",
+                pid=None,
+                command=None,
+                log_path=log_path,
+                request_id=str(operation_id) if operation_id else None,
+            )
+        else:
+            _clear_runtime_operation(
+                workspace_root,
+                updated,
+                project_path=project_path,
+                result={
+                    "action": "restart-stop" if action == "restart" else "stop",
+                    "returncode": returncode,
+                    "finished_at": _utc_now().isoformat(),
+                },
+            )
         group = store.get_group(updated.group_id)
         if group is not None:
             _refresh_group_record(store, domain, group)
