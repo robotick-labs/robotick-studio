@@ -30,6 +30,7 @@ type ThreadRow = {
   note?: string;
   copyData?: unknown;
   workerThreads?: ProcessThreadSummary[];
+  workerThreadCpuTotalMs?: number | null;
 };
 
 type ProcessThreadSummary = {
@@ -37,6 +38,11 @@ type ProcessThreadSummary = {
   name: string;
   displayName?: string;
   role?: string;
+  cpuTimeNs?: number;
+  cpuTimeDeltaNs?: number;
+  cpuSampleWindowNs?: number;
+  logicalCpuId?: number;
+  cpuMs?: number | null;
 };
 
 type ModelTick = {
@@ -70,6 +76,12 @@ type LiveModelEntry = {
   model: ITelemetryModel | null;
 };
 
+type SmoothingSample = {
+  tickSeq: number;
+  sampledAtMs: number;
+  value: number;
+};
+
 function formatMs(value: number): string {
   if (!Number.isFinite(value)) return "0 ms";
   if (Math.abs(value) < 1) return `${value.toFixed(2)} ms`;
@@ -82,6 +94,47 @@ function roundMs(value: number): number {
 
 function nsToMs(valueNs: number): number {
   return roundMs(valueNs / 1_000_000);
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  if (Math.abs(value) < 1) return `${value.toFixed(2)}%`;
+  if (Math.abs(value) < 10) return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
+}
+
+function averageThreadCpuMsForPeriod(
+  thread: ProcessThreadSummary,
+  periodMs: number,
+): number | null {
+  const deltaNs = thread.cpuTimeDeltaNs;
+  if (typeof deltaNs !== "number" || !Number.isFinite(deltaNs) || deltaNs <= 0) {
+    return deltaNs === 0 ? 0 : null;
+  }
+  const sampleWindowNs = thread.cpuSampleWindowNs;
+  if (
+    typeof sampleWindowNs === "number" &&
+    Number.isFinite(sampleWindowNs) &&
+    sampleWindowNs > 0
+  ) {
+    return (deltaNs / sampleWindowNs) * periodMs;
+  }
+  return nsToMs(deltaNs);
+}
+
+function totalThreadCpuMsForPeriod(
+  threads: ProcessThreadSummary[],
+  periodMs: number,
+): number | null {
+  let total = 0;
+  let hasSample = false;
+  for (const thread of threads) {
+    const value = thread.cpuMs ?? averageThreadCpuMsForPeriod(thread, periodMs);
+    if (value == null) continue;
+    total += value;
+    hasSample = true;
+  }
+  return hasSample ? total : null;
 }
 
 function relativeMs(valueNs: number, originNs: number): number {
@@ -100,6 +153,138 @@ function rawPhaseSnapshot(
     startMs: relativeMs(startNs, originNs),
     endMs: relativeMs(endNs, originNs),
     durationMs: nsToMs(endNs - startNs),
+  };
+}
+
+function timeWeightedAverageSmoothingSamples(
+  samples: SmoothingSample[],
+  oldestMs: number,
+  nowMs: number,
+): number | null {
+  if (samples.length === 0) return null;
+  if (samples.length === 1) return samples[0].value;
+
+  let weightedTotal = 0;
+  let durationTotal = 0;
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index];
+    const nextSample = samples[index + 1];
+    const segmentStart = Math.max(oldestMs, sample.sampledAtMs);
+    const segmentEnd = Math.min(nowMs, nextSample?.sampledAtMs ?? nowMs);
+    const durationMs = Math.max(0, segmentEnd - segmentStart);
+    if (durationMs <= 0) continue;
+    weightedTotal += sample.value * durationMs;
+    durationTotal += durationMs;
+  }
+
+  return durationTotal > 0 ? weightedTotal / durationTotal : samples[samples.length - 1].value;
+}
+
+function smoothTimeValue(
+  key: string,
+  value: number | null | undefined,
+  tickSeq: number,
+  smoothingDurationSeconds: number,
+  nowMs: number,
+  history: Map<string, SmoothingSample[]>,
+): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+
+  const windowMs = smoothingDurationSeconds * 1000;
+  const oldestMs = nowMs - windowMs;
+  const existingSamples = history.get(key) ?? [];
+  const samples = existingSamples.filter(
+    (sample) => sample.sampledAtMs >= oldestMs,
+  );
+  const previousSample = existingSamples
+    .filter((sample) => sample.sampledAtMs < oldestMs)
+    .at(-1);
+  if (previousSample) {
+    samples.unshift(previousSample);
+  }
+  const lastSample = samples[samples.length - 1];
+  if (lastSample?.tickSeq === tickSeq) {
+    samples[samples.length - 1] = { tickSeq, sampledAtMs: nowMs, value };
+  } else {
+    samples.push({ tickSeq, sampledAtMs: nowMs, value });
+  }
+  history.set(key, samples);
+  return timeWeightedAverageSmoothingSamples(samples, oldestMs, nowMs);
+}
+
+function statusForSlack(slackMs: number, periodMs: number): ModelTick["status"] {
+  return slackMs < 0 ? "miss" : slackMs < periodMs * 0.1 ? "tight" : "healthy";
+}
+
+function applyTickScopeSmoothing(
+  modelTick: ModelTick,
+  smoothingDurationSeconds: number,
+  history: Map<string, SmoothingSample[]>,
+): ModelTick {
+  if (!Number.isFinite(smoothingDurationSeconds) || smoothingDurationSeconds <= 0) {
+    history.clear();
+    return modelTick;
+  }
+
+  const nowMs = performance.now();
+  const seenKeys = new Set<string>();
+  const smooth = (key: string, value: number | null | undefined) => {
+    seenKeys.add(key);
+    return smoothTimeValue(
+      key,
+      value,
+      modelTick.tickSeq,
+      smoothingDurationSeconds,
+      nowMs,
+      history,
+    );
+  };
+
+  const periodMs = smooth("model:periodMs", modelTick.periodMs) ?? modelTick.periodMs;
+  const slackMs = smooth("model:slackMs", modelTick.slackMs) ?? modelTick.slackMs;
+  const threads = modelTick.threads.map((thread) => {
+    const threadKey = thread.threadId != null ? `thread:${thread.threadId}` : `thread:${thread.name}`;
+    const spans = thread.spans.map((span, index) => {
+      const spanKey = `${threadKey}:span:${index}:${span.kind}:${span.workload}`;
+      const startMs = smooth(`${spanKey}:startMs`, span.startMs) ?? span.startMs;
+      const endMs = smooth(`${spanKey}:endMs`, span.endMs) ?? span.endMs;
+      return {
+        ...span,
+        startMs,
+        endMs: Math.max(startMs, endMs),
+        carryOutMs: span.carryOutMs == null
+          ? undefined
+          : smooth(`${spanKey}:carryOutMs`, span.carryOutMs) ?? span.carryOutMs,
+      };
+    });
+    const workerThreads = thread.workerThreads?.map((worker) => {
+      const cpuMs = smooth(
+        `${threadKey}:worker:${worker.threadId}:cpuMs`,
+        averageThreadCpuMsForPeriod(worker, modelTick.periodMs),
+      );
+      return { ...worker, cpuMs };
+    });
+    return {
+      ...thread,
+      spans,
+      workerThreads,
+      workerThreadCpuTotalMs: workerThreads
+        ? totalThreadCpuMsForPeriod(workerThreads, periodMs)
+        : thread.workerThreadCpuTotalMs,
+    };
+  });
+
+  for (const key of history.keys()) {
+    if (!seenKeys.has(key)) history.delete(key);
+  }
+
+  return {
+    ...modelTick,
+    periodMs,
+    slackMs,
+    status: statusForSlack(slackMs, periodMs),
+    threads,
   };
 }
 
@@ -407,6 +592,10 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       name: thread.name,
       displayName: thread.displayName,
       role: thread.role,
+      cpuTimeNs: thread.cpuTimeNs,
+      cpuTimeDeltaNs: thread.cpuTimeDeltaNs,
+      cpuSampleWindowNs: thread.cpuSampleWindowNs,
+      logicalCpuId: thread.logicalCpuId,
     }));
     threadRows.set("process-workers", {
       name: `+${unmatchedProcessThreads.length} process worker threads`,
@@ -414,6 +603,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       note: "present in process, no Robotick span in latest tick",
       spans: [],
       workerThreads,
+      workerThreadCpuTotalMs: totalThreadCpuMsForPeriod(workerThreads, periodMs),
       copyData: {
         note: "present in process, no Robotick span in latest tick",
         threads: workerThreads,
@@ -422,8 +612,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
   }
 
   const slackMs = (scheduledEndNs - activeEndNs) / 1_000_000;
-  const status: ModelTick["status"] =
-    slackMs < 0 ? "miss" : slackMs < periodMs * 0.1 ? "tight" : "healthy";
+  const status = statusForSlack(slackMs, periodMs);
   const tickSeq = Math.max(...rawSpans.map((span) => span.tickSeq));
   const threads = [...threadRows.values()];
 
@@ -441,6 +630,10 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       name: thread.name,
       displayName: thread.displayName,
       role: thread.role,
+      cpuTimeNs: thread.cpuTimeNs,
+      cpuTimeDeltaNs: thread.cpuTimeDeltaNs,
+      cpuSampleWindowNs: thread.cpuSampleWindowNs,
+      logicalCpuId: thread.logicalCpuId,
     })),
     workloads: rawWorkloads,
   };
@@ -462,6 +655,11 @@ export default function TickScopePage() {
   const { status } = Launcher.Context.use();
   const { projectModels } = ProjectData.use();
   const [paused, setPaused] = useState(false);
+  const [smoothingDurationInput, setSmoothingDurationInput] = useState("0");
+  const smoothingDurationSeconds = useMemo(() => {
+    const parsed = Number(smoothingDurationInput);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [smoothingDurationInput]);
 
   const telemetryDescriptors = useMemo<TickScopeModelDescriptor[]>(
     () =>
@@ -508,7 +706,12 @@ export default function TickScopePage() {
     body = (
       <div className={styles.deviceList}>
         {devices.map((device) => (
-          <DeviceSection key={device.id} device={device} paused={paused} />
+          <DeviceSection
+            key={device.id}
+            device={device}
+            paused={paused}
+            smoothingDurationSeconds={smoothingDurationSeconds}
+          />
         ))}
       </div>
     );
@@ -520,13 +723,27 @@ export default function TickScopePage() {
         <div>
           <h1>Tick Scope</h1>
           <p>Project-wide latest tick layout</p>
-          <button
-            className={`${styles.pauseButton} ${paused ? styles.pauseButtonActive : ""}`}
-            type="button"
-            onClick={() => setPaused((current) => !current)}
-          >
-            {paused ? "Resume" : "Pause"}
-          </button>
+          <div className={styles.headerControls}>
+            <button
+              className={`${styles.pauseButton} ${paused ? styles.pauseButtonActive : ""}`}
+              type="button"
+              onClick={() => setPaused((current) => !current)}
+            >
+              {paused ? "Resume" : "Pause"}
+            </button>
+            <label className={styles.smoothingControl}>
+              <span>Smooth</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={smoothingDurationInput}
+                onChange={(event) => setSmoothingDurationInput(event.target.value)}
+                aria-label="Tick Scope smoothing window in seconds"
+              />
+              <span>s</span>
+            </label>
+          </div>
         </div>
       </header>
 
@@ -538,9 +755,11 @@ export default function TickScopePage() {
 const DeviceSection = memo(function DeviceSection({
   device,
   paused,
+  smoothingDurationSeconds,
 }: {
   device: DeviceTickScope;
   paused: boolean;
+  smoothingDurationSeconds: number;
 }) {
   return (
     <section className={styles.deviceSection}>
@@ -555,7 +774,12 @@ const DeviceSection = memo(function DeviceSection({
       </div>
       <div className={styles.modelGrid}>
         {device.models.map((model) => (
-          <LiveModelCard key={model.telemetryBaseUrl} descriptor={model} paused={paused} />
+          <LiveModelCard
+            key={model.telemetryBaseUrl}
+            descriptor={model}
+            paused={paused}
+            smoothingDurationSeconds={smoothingDurationSeconds}
+          />
         ))}
       </div>
     </section>
@@ -565,11 +789,14 @@ const DeviceSection = memo(function DeviceSection({
 const LiveModelCard = memo(function LiveModelCard({
   descriptor,
   paused,
+  smoothingDurationSeconds,
 }: {
   descriptor: TickScopeModelDescriptor;
   paused: boolean;
+  smoothingDurationSeconds: number;
 }) {
   const pausedModelTickRef = useRef<ModelTick | null>(null);
+  const smoothingHistoryRef = useRef<Map<string, SmoothingSample[]>>(new Map());
   const { model, revision } = useTelemetryStream(
     descriptor.telemetryBaseUrl,
     descriptor.telemetryPushRateHz,
@@ -584,10 +811,18 @@ const LiveModelCard = memo(function LiveModelCard({
       }),
     [descriptor.modelName, descriptor.telemetryBaseUrl, model, revision],
   );
-  if (!paused && modelTick) {
-    pausedModelTickRef.current = modelTick;
+  const smoothedModelTick =
+    modelTick && !paused
+      ? applyTickScopeSmoothing(
+          modelTick,
+          smoothingDurationSeconds,
+          smoothingHistoryRef.current,
+        )
+      : modelTick;
+  if (!paused && smoothedModelTick) {
+    pausedModelTickRef.current = smoothedModelTick;
   }
-  const visibleModelTick = paused ? pausedModelTickRef.current : modelTick;
+  const visibleModelTick = paused ? pausedModelTickRef.current : smoothedModelTick;
 
   if (!visibleModelTick) {
     return (
@@ -674,7 +909,9 @@ const ThreadLane = memo(function ThreadLane({
                 <strong>{thread.name}</strong>
                 {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
               </div>
-              <span className={styles.workerThreadCount}></span>
+              <span className={styles.workerThreadCount}>
+                {thread.workerThreads?.length ?? 0}
+              </span>
             </div>
           ) : (
             <div className={styles.workerThreadHeadingText}>
@@ -682,20 +919,36 @@ const ThreadLane = memo(function ThreadLane({
               {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
             </div>
           )}
+          {hasWorkerThreads ? (
+            <WorkerThreadCpuBar
+              cpuMs={thread.workerThreadCpuTotalMs}
+              periodMs={model.periodMs}
+              titlePrefix="Total worker CPU"
+            />
+          ) : null}
           <CopyJsonButton label="Copy raw" data={thread.copyData} />
         </div>
         {expanded && hasWorkerThreads ? (
           <div className={styles.workerThreadList}>
             {thread.workerThreads?.map((worker) => (
               <div className={styles.workerThreadItem} key={worker.threadId}>
-                <span>{worker.displayName?.trim() || worker.name || "thread"}</span>
-                <span>
-                  tid {worker.threadId}
-                  {worker.role ? ` · ${worker.role}` : ""}
-                  {worker.displayName && worker.name && worker.displayName !== worker.name
-                    ? ` · ${worker.name}`
-                    : ""}
-                </span>
+                <div className={styles.workerThreadText}>
+                  <span>{worker.displayName?.trim() || worker.name || "thread"}</span>
+                  <span>
+                    tid {worker.threadId}
+                    {worker.logicalCpuId != null ? ` · CPU ${worker.logicalCpuId}` : ""}
+                    {worker.role ? ` · ${worker.role}` : ""}
+                    {worker.displayName && worker.name && worker.displayName !== worker.name
+                      ? ` · ${worker.name}`
+                      : ""}
+                  </span>
+                </div>
+                <WorkerThreadCpuBar
+                  cpuMs={worker.cpuMs ?? averageThreadCpuMsForPeriod(worker, model.periodMs)}
+                  periodMs={model.periodMs}
+                  rawDeltaNs={worker.cpuTimeDeltaNs}
+                  sampleWindowNs={worker.cpuSampleWindowNs}
+                />
               </div>
             ))}
           </div>
@@ -766,6 +1019,56 @@ const CopyJsonButton = memo(function CopyJsonButton({
     >
       {copyState === "copied" ? "Copied" : copyState === "failed" ? "Failed" : label}
     </button>
+  );
+});
+
+const WorkerThreadCpuBar = memo(function WorkerThreadCpuBar({
+  cpuMs,
+  periodMs,
+  rawDeltaNs,
+  sampleWindowNs,
+  titlePrefix = "CPU",
+}: {
+  cpuMs: number | null | undefined;
+  periodMs: number;
+  rawDeltaNs?: number;
+  sampleWindowNs?: number;
+  titlePrefix?: string;
+}) {
+  const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
+  const loadPct = cpuMs == null ? 0 : (cpuMs / safePeriodMs) * 100;
+  const widthPct = Math.max(0, Math.min(100, loadPct));
+  const rawDeltaMs =
+    typeof rawDeltaNs === "number" && Number.isFinite(rawDeltaNs)
+      ? nsToMs(rawDeltaNs)
+      : null;
+  const sampleWindowMs =
+    typeof sampleWindowNs === "number" &&
+    Number.isFinite(sampleWindowNs) &&
+    sampleWindowNs > 0
+      ? nsToMs(sampleWindowNs)
+      : null;
+  const label =
+    cpuMs == null
+      ? "n/a"
+      : `${formatMs(cpuMs)} · ${formatPercent(loadPct)}`;
+  const title =
+    cpuMs == null
+      ? `${titlePrefix} sample unavailable`
+      : sampleWindowMs != null && rawDeltaMs != null
+        ? `${titlePrefix}: ${formatMs(cpuMs)} average per tick period (${formatMs(rawDeltaMs)} over ${formatMs(sampleWindowMs)})`
+        : `${titlePrefix}: ${formatMs(cpuMs)} average per tick period`;
+
+  return (
+    <div className={styles.workerThreadCpu} title={title}>
+      <div className={styles.workerThreadCpuTrack}>
+        <span
+          className={styles.workerThreadCpuFill}
+          style={{ width: `${widthPct}%` }}
+        />
+      </div>
+      <span className={styles.workerThreadCpuLabel}>{label}</span>
+    </div>
   );
 });
 

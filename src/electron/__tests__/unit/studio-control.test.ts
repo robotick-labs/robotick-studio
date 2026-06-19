@@ -789,7 +789,7 @@ describe("Studio control runtime status", () => {
       getLayout: vi.fn(async () => ({
         resource_type: "robotick_studio_telemetry_model_layout" as const,
         model: modelInfo,
-        layout: { workloads: [], types: [], workloads_buffer_size_used: 0, process_memory_used: 0 },
+        layout: { workloads: [], types: [], workloads_buffer_size_used: 0 },
         loaded_at: "2026-06-17T12:00:00.000Z",
       })),
       getSnapshot: vi.fn(async () => ({
@@ -803,7 +803,7 @@ describe("Studio control runtime status", () => {
           layout_loaded_at: "2026-06-17T12:00:00.000Z",
           raw_loaded_at: "2026-06-17T12:00:00.000Z",
         },
-        layout: { workloads: [], types: [], workloads_buffer_size_used: 0, process_memory_used: 0 },
+        layout: { workloads: [], types: [], workloads_buffer_size_used: 0 },
         engine: null,
         process_threads: [],
         workloads: [],

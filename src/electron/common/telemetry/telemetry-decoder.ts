@@ -56,21 +56,12 @@ export interface LayoutWritableInput {
   incoming_connection_enabled?: boolean;
 }
 
-export interface LayoutProcessThread {
-  thread_id: number;
-  name?: string;
-  display_name?: string;
-  role?: string;
-}
-
 export interface LayoutModel {
   engine?: LayoutWorkloadStruct;
   workloads: LayoutWorkload[];
   types: LayoutType[];
   engine_session_id?: string;
   workloads_buffer_size_used: number;
-  process_memory_used: number;
-  process_threads?: LayoutProcessThread[];
   writable_inputs?: LayoutWritableInput[];
 }
 
@@ -124,6 +115,10 @@ export interface ITelemetryProcessThread {
   name: string;
   displayName?: string;
   role?: string;
+  cpuTimeNs?: number;
+  cpuTimeDeltaNs?: number;
+  cpuSampleWindowNs?: number;
+  logicalCpuId?: number;
 }
 
 export interface ITelemetryModel {
@@ -266,6 +261,85 @@ function bytesPerPrimitive(type: string, mime_type: string): number {
     return parseInt(type.replace(/\D/g, ""), 10) || 0; // FixedStringN
   }
   return 1;
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (
+    typeof value === "bigint" &&
+    value <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    value >= BigInt(Number.MIN_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return undefined;
+}
+
+function decorateProcessThread(
+  name: string,
+): Pick<ITelemetryProcessThread, "displayName" | "role"> {
+  const lower = name.toLowerCase();
+  if (lower === "rtk-tel-ws-bcst") {
+    return { displayName: "Telemetry websocket broadcast", role: "telemetry" };
+  }
+  if (lower.startsWith("civetweb")) {
+    return { displayName: "Civetweb worker", role: "telemetry" };
+  }
+  if (lower.includes("mesa")) {
+    return { displayName: "Mesa graphics driver", role: "graphics" };
+  }
+  return {};
+}
+
+function mapEngineProcessThreads(
+  engine: ITelemetryStruct | undefined,
+): ITelemetryProcessThread[] | null {
+  const processThreadsField = engine?.fields.find(
+    (field) => field.name === "process_threads",
+  );
+  const value = processThreadsField?.getValue();
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const vector = value as { data_buffer?: unknown; count?: unknown };
+  const count = Math.max(0, toFiniteNumber(vector.count) ?? 0);
+  if (!Array.isArray(vector.data_buffer) || count <= 0) {
+    return [];
+  }
+  return vector.data_buffer
+    .slice(0, count)
+    .map((entry, index) => {
+      const thread =
+        entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const threadId = toFiniteNumber(thread.thread_id) ?? 0;
+      const nameValue = thread.name;
+      const name =
+        typeof nameValue === "string" && nameValue.trim().length > 0
+          ? nameValue.trim()
+          : `thread ${threadId || index}`;
+      const decoration = decorateProcessThread(name);
+      return {
+        threadId,
+        name,
+        displayName: decoration.displayName,
+        role: decoration.role,
+        cpuTimeNs: toFiniteNumber(thread.cpu_time_ns),
+        cpuTimeDeltaNs: toFiniteNumber(thread.cpu_time_delta_ns),
+        cpuSampleWindowNs: toFiniteNumber(thread.cpu_sample_window_ns),
+        logicalCpuId: toFiniteNumber(thread.logical_cpu_id),
+      };
+    })
+    .filter((thread) => Number.isFinite(thread.threadId) && thread.threadId > 0);
+}
+
+function mapEngineProcessMemoryUsed(engine: ITelemetryStruct | undefined): number | null {
+  const processMemoryUsedField = engine?.fields.find(
+    (field) => field.name === "process_memory_used",
+  );
+  const value = toFiniteNumber(processMemoryUsedField?.getValue());
+  return value == null ? null : value;
 }
 
 export function readValue(
@@ -743,27 +817,6 @@ namespace TelemetryFactory {
     }
 
     model.workloads_buffer_size_used = layout.workloads_buffer_size_used;
-    model.process_memory_used = layout.process_memory_used;
-    model.process_threads = Array.isArray(layout.process_threads)
-      ? layout.process_threads
-          .map((thread) => ({
-            threadId: Number(thread.thread_id),
-            name:
-              typeof thread.name === "string" && thread.name.trim().length > 0
-                ? thread.name.trim()
-                : `thread ${thread.thread_id}`,
-            displayName:
-              typeof thread.display_name === "string" &&
-              thread.display_name.trim().length > 0
-                ? thread.display_name.trim()
-                : undefined,
-            role:
-              typeof thread.role === "string" && thread.role.trim().length > 0
-                ? thread.role.trim()
-                : undefined,
-          }))
-          .filter((thread) => Number.isFinite(thread.threadId))
-      : [];
     model.workloads = workloads;
 
     // Path lookup identical to previous behaviour
@@ -825,10 +878,8 @@ namespace TelemetryFactory {
 class TelemetryModel implements ITelemetryModel {
   engine?: ITelemetryStruct;
   workloads: ITelemetryWorkload[] = [];
-  process_threads: ITelemetryProcessThread[] = [];
   schemaSessionId: string = "";
   workloads_buffer_size_used: number = 0;
-  process_memory_used: number = 0;
   writable_inputs_by_path: ReadonlyMap<string, LayoutWritableInput> = new Map();
   private _raw: ArrayBuffer | null = null;
   private _view: DataView | null = null;
@@ -841,6 +892,14 @@ class TelemetryModel implements ITelemetryModel {
   set raw(buf: ArrayBuffer | null) {
     this._raw = buf;
     this._view = buf ? new DataView(buf) : null;
+  }
+
+  get process_threads(): ITelemetryProcessThread[] {
+    return mapEngineProcessThreads(this.engine) ?? [];
+  }
+
+  get process_memory_used(): number {
+    return mapEngineProcessMemoryUsed(this.engine) ?? 0;
   }
 
   getField?: ITelemetryModel["getField"];

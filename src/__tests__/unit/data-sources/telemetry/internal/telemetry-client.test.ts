@@ -237,40 +237,134 @@ describe("setWorkloadInputConnectionState", () => {
 });
 
 describe("createTelemetryModel", () => {
-  it("keeps process thread raw names and decoded display metadata", () => {
-    const layout: LayoutModel = {
+  it("ignores legacy layout process thread samples", () => {
+    const layout = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       process_threads: [
         {
           thread_id: 13,
-          name: "barr-e-:disk$0",
-          display_name: "Mesa disk cache",
-          role: "graphics",
+          name: "runtime-worker",
+          display_name: "Runtime worker",
+          role: "runtime",
+          cpu_time_ns: 50000000,
+          cpu_time_delta_ns: 2000000,
+          cpu_sample_window_ns: 50000000,
+          logical_cpu_id: 3,
         },
       ],
       workloads: [],
       types: [],
-    };
+    } as unknown as LayoutModel;
 
     const model = createTelemetryModel(layout);
 
+    expect(model.process_threads).toEqual([]);
+  });
+
+  it("decodes process thread CPU samples from the current engine raw buffer", () => {
+    const threadSize = 104;
+    const processThreadsOffset = 8;
+    const vectorCountOffset = threadSize * 64;
+    const rawCountOffset = processThreadsOffset + vectorCountOffset;
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: rawCountOffset + 4,
+      engine: {
+        type: "EngineInfo",
+        offset_within_container: 0,
+      },
+      workloads: [],
+      types: [
+        { name: "uint32_t", size: 4 },
+        { name: "uint64_t", size: 8 },
+        { name: "int32_t", size: 4 },
+        { name: "FixedString64", size: 64, mime_type: "text/plain" },
+        {
+          name: "EngineProcessThreadStats",
+          size: threadSize,
+          fields: [
+            { name: "thread_id", type: "uint64_t", offset_within_container: 0, element_count: 1 },
+            { name: "name", type: "FixedString64", offset_within_container: 8, element_count: 1 },
+            { name: "cpu_time_ns", type: "uint64_t", offset_within_container: 72, element_count: 1 },
+            { name: "cpu_time_delta_ns", type: "uint64_t", offset_within_container: 80, element_count: 1 },
+            { name: "cpu_sample_window_ns", type: "uint64_t", offset_within_container: 88, element_count: 1 },
+            { name: "logical_cpu_id", type: "int32_t", offset_within_container: 96, element_count: 1 },
+          ],
+        },
+        {
+          name: "EngineProcessThreadStatsVector",
+          size: vectorCountOffset + 4,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "EngineProcessThreadStats",
+              offset_within_container: 0,
+              element_count: 64,
+            },
+            { name: "count", type: "uint32_t", offset_within_container: vectorCountOffset, element_count: 1 },
+          ],
+        },
+        {
+          name: "EngineInfo",
+          size: rawCountOffset + 4,
+          fields: [
+            {
+              name: "process_memory_used",
+              type: "uint64_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+            {
+              name: "process_threads",
+              type: "EngineProcessThreadStatsVector",
+              offset_within_container: processThreadsOffset,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const writeSample = (deltaNs: bigint, processMemoryUsed: bigint) => {
+      const raw = new ArrayBuffer(rawCountOffset + 4);
+      const view = new DataView(raw);
+      view.setBigUint64(0, processMemoryUsed, true);
+      view.setBigUint64(processThreadsOffset, 42n, true);
+      new Uint8Array(raw, processThreadsOffset + 8, 64).set(new TextEncoder().encode("rtk-tel-ws-bcst"));
+      view.setBigUint64(processThreadsOffset + 72, 100000000n + deltaNs, true);
+      view.setBigUint64(processThreadsOffset + 80, deltaNs, true);
+      view.setBigUint64(processThreadsOffset + 88, 50000000n, true);
+      view.setInt32(processThreadsOffset + 96, 7, true);
+      view.setUint32(rawCountOffset, 1, true);
+      return raw;
+    };
+
+    const model = createTelemetryModel(layout);
+    model.raw = writeSample(1000000n, 64000000n);
+    expect(model.process_memory_used).toBe(64000000);
     expect(model.process_threads).toEqual([
       {
-        threadId: 13,
-        name: "barr-e-:disk$0",
-        displayName: "Mesa disk cache",
-        role: "graphics",
+        threadId: 42,
+        name: "rtk-tel-ws-bcst",
+        displayName: "Telemetry websocket broadcast",
+        role: "telemetry",
+        cpuTimeNs: 101000000,
+        cpuTimeDeltaNs: 1000000,
+        cpuSampleWindowNs: 50000000,
+        logicalCpuId: 7,
       },
     ]);
+
+    model.raw = writeSample(3000000n, 65000000n);
+    expect(model.process_memory_used).toBe(65000000);
+    expect(model.process_threads[0]?.cpuTimeDeltaNs).toBe(3000000);
   });
 
   it("decodes int32_t primitive fields", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 128,
-      process_memory_used: 0,
       workloads: [
         {
           name: "detector",
@@ -313,7 +407,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 320,
-      process_memory_used: 0,
       workloads: [
         {
           name: "sequenced",
@@ -420,7 +513,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "jpeg",
@@ -539,7 +631,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "mic",
@@ -662,7 +753,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 4096,
-      process_memory_used: 0,
       workloads: [
         {
           name: "first",
@@ -794,7 +884,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "plain",

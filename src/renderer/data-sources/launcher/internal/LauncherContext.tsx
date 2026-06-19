@@ -690,15 +690,11 @@ function reconcilePendingModelTargets(
     if (target === "restarting") {
       const status = current?.status?.trim();
       const lifecycle = current?.lifecycle?.trim();
-      const readiness = current?.readiness?.trim();
-      const freshness = current?.freshness?.trim();
       if (
         status === "starting" ||
         status === "stopping" ||
         lifecycle === "starting" ||
-        lifecycle === "stopping" ||
-        readiness === "pending" ||
-        freshness === "pending"
+        lifecycle === "stopping"
       ) {
         nextTargets[modelId] = target;
       }

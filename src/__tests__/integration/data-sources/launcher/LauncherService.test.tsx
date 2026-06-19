@@ -636,6 +636,78 @@ describe("Launcher service integration", () => {
     unmount();
   });
 
+  it("clears per-model restart pending state when the launcher reports the model stopped", async () => {
+    vi.useFakeTimers();
+
+    let currentModels: Record<string, Record<string, string>> = {
+      "demo-robot-face": {
+        stage: "run",
+        status: "running",
+        lifecycle: "running",
+        readiness: "ready",
+        freshness: "live",
+      },
+    };
+    const requestLauncherRestartModel = vi.fn().mockImplementation(async () => {
+      currentModels = {
+        "demo-robot-face": {
+          stage: "stop",
+          status: "stopped",
+          lifecycle: "stopped",
+          readiness: "pending",
+          freshness: "stopped",
+        },
+      };
+    });
+    const fetchLauncherStatus = vi.fn().mockImplementation(async () => ({
+      status: "stopped",
+      phase: null,
+      models: currentModels,
+    }));
+
+    const service = createMockLauncherService({
+      projectPath: "/proj",
+      getLauncherProfile: () => "local:ALL",
+      getProjectModels: async () => [demoModel],
+      refreshProjectModels: async () => [demoModel],
+      requestLauncherRestartModel,
+      fetchLauncherStatus,
+    });
+
+    const { unmount } = renderWithLauncherService(
+      service,
+      <Project.Context.Provider>
+        <ProjectData.Provider>
+          <Launcher.Context.Provider>
+            <LauncherControls />
+          </Launcher.Context.Provider>
+        </ProjectData.Provider>
+      </Project.Context.Provider>
+    );
+
+    await flushPromises();
+    await advance(1000);
+
+    const restartButton = document.querySelector(
+      'button[aria-label="Restart demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(restartButton).not.toBeNull();
+
+    await act(async () => {
+      restartButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("stopping");
+
+    await advance(1000);
+    expect(document.body.textContent).not.toContain("stopping");
+    expect(document.body.textContent).toContain("stopped");
+
+    vi.useRealTimers();
+    unmount();
+  });
+
   it("reflects a launcher-reported stopped gap during restart polling", async () => {
     vi.useFakeTimers();
 

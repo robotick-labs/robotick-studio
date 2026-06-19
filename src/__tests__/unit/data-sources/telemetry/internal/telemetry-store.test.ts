@@ -10,7 +10,6 @@ const layout = {
   types: [],
   engine_session_id: "sid",
   workloads_buffer_size_used: 0,
-  process_memory_used: 0,
 };
 
 function makeModel() {

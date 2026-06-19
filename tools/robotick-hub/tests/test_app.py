@@ -547,6 +547,125 @@ def test_launcher_runtime_culls_phonebook_records_for_absent_models() -> None:
     assert not ability._runtime_phonebook_path(str(workspace), "pip-e", "pip-e-brain").exists()
 
 
+def test_launcher_runtime_status_hydrates_blank_phonebook_from_live_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "barr-e.project.yaml").write_text("name: Barr.e\n", encoding="utf-8")
+    (project_dir / "brain.model.yaml").write_text("name: Brain\n", encoding="utf-8")
+
+    domain = ability._launcher_domain()
+    store = ability._json_store(str(workspace))
+    session = domain.ModelSessionRecord(
+        group_id="msg_brain",
+        project_id="barr-e",
+        model_id="brain",
+        lifecycle=domain.SessionLifecycle.STARTING,
+        runtime={
+            "worker": {
+                "pid": 4242,
+                "command": ["python", "-m", "robotick.launcher.cli"],
+                "log_path": "/tmp/4242.log",
+            },
+            "probe": {
+                "authority": "robotick-engine",
+                "host": "127.0.0.1",
+                "port": 7090,
+                "telemetry_url": "http://127.0.0.1:7090/api/telemetry",
+                "health_urls": ["http://127.0.0.1:7090/api/telemetry/health"],
+            },
+        },
+    )
+    store.create_session(session)
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "project_path": str(project_dir / "barr-e.project.yaml"),
+            "model_id": "brain",
+            "pid": None,
+            "log_path": None,
+            "telemetry_host": None,
+            "telemetry_port": None,
+            "telemetry_url": None,
+            "health_urls": [],
+            "last_session_id": session.id,
+            "operation": {
+                "action": "restarting",
+                "pid": None,
+                "started_at": ability._utc_now().isoformat(),
+            },
+            "last_known_runtime": {},
+        },
+    )
+
+    monkeypatch.setattr(ability, "_pid_alive", lambda pid: int(pid) == 4242)
+    monkeypatch.setattr(
+        ability,
+        "_probe_runtime_authority",
+        lambda _session, timeout=0.25: {
+            "configured": True,
+            "healthy": True,
+            "health_url": "http://127.0.0.1:7090/api/telemetry/health",
+            "error": None,
+            "authority": "robotick-engine",
+        },
+    )
+    monkeypatch.setattr(
+        ability,
+        "_probe_runtime_phonebook_record",
+        lambda record, timeout=0.25: {
+            "configured": bool(record.get("health_urls")),
+            "healthy": bool(record.get("health_urls")),
+            "health_url": (record.get("health_urls") or [None])[0],
+            "error": None if record.get("health_urls") else "runtime_probe_unconfigured",
+        },
+    )
+
+    with build_client(workspace) as client:
+        response = client.get("/v1/launcher/runtime", params={"project_id": "barr-e"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    models = models_by_id(payload)
+    assert payload["state"] == "running"
+    assert models["brain"]["lifecycle"] == "running"
+    assert models["brain"]["readiness"] == "ready"
+    assert models["brain"]["freshness"] == "live"
+    assert models["brain"]["operation"] is None
+    assert models["brain"]["pid"] == 4242
+    assert models["brain"]["telemetry_port"] == 7090
+
+    hydrated = ability._runtime_phonebook_record(str(workspace), "barr-e", "brain")
+    assert hydrated is not None
+    assert hydrated["pid"] == 4242
+    assert hydrated["operation"] is None
+    assert hydrated["health_urls"] == ["http://127.0.0.1:7090/api/telemetry/health"]
+
+
+def test_launcher_control_launch_request_prefers_profile_when_intent_also_present() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    request = ability.LauncherModelControlRequest(
+        project_name="barr-e",
+        profile="native:ALL",
+        intent={
+            "project": "barr-e",
+            "scope": {"kind": "model", "value": "brain"},
+            "target_policy": "native",
+        },
+    )
+
+    launch_request = ability._launch_request_from_control(request)
+
+    assert launch_request.profile == "native:ALL"
+    assert launch_request.intent is None
+
+
 def test_launcher_status_does_not_probe_stopped_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -9,8 +9,6 @@ import type { LayoutModel } from "../../common/telemetry/telemetry-decoder";
 const layout: LayoutModel = {
   engine_session_id: "session-a",
   workloads_buffer_size_used: 16,
-  process_memory_used: 4096,
-  process_threads: [{ thread_id: 12, name: "barr-e-face main" }],
   workloads: [
     {
       name: "sequenced_group_workload_8F25A952",
@@ -201,7 +199,7 @@ describe("createElectronTelemetryService", () => {
         engine_session_id: "session-a",
         raw_byte_length: 16,
       },
-      process_threads: [{ threadId: 12, name: "barr-e-face main" }],
+      process_threads: [],
       workloads: [
         {
           name: "sequenced_group_workload_8F25A952",

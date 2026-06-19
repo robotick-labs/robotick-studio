@@ -292,6 +292,72 @@ def _runtime_phonebook_record(
     return payload if isinstance(payload, dict) else None
 
 
+def _runtime_phonebook_record_needs_session_hydration(record: dict[str, Any]) -> bool:
+    if record.get("pid") or record.get("log_path"):
+        return False
+    if record.get("telemetry_url") or record.get("telemetry_port") or record.get("health_urls"):
+        return False
+    return bool(str(record.get("last_session_id") or "").strip())
+
+
+def _hydrate_runtime_phonebook_record_from_session(
+    workspace_root: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    operation = _operation_in_flight(record)
+    if (
+        operation is not None
+        and operation.get("action") in {"stopping", "restarting"}
+        and not operation.get("queued")
+    ):
+        return record
+    if operation is not None and operation.get("action") in {"stopping", "restarting"}:
+        operation = None
+    if not _runtime_phonebook_record_needs_session_hydration(record):
+        if operation is None and isinstance(record.get("operation"), dict):
+            return _write_runtime_phonebook_record(workspace_root, {**record, "operation": None})
+        return record
+
+    session_id = str(record.get("last_session_id") or "").strip()
+    store = _json_store(workspace_root)
+    session = store.get_session(session_id)
+    if session is None:
+        return record
+    if session.project_id != record.get("project_id") or session.model_id != record.get("model_id"):
+        return record
+    if not _session_is_active(session):
+        return record
+
+    runtime = dict(session.runtime or {})
+    worker = dict(runtime.get("worker") or {})
+    probe = dict(runtime.get("probe") or {})
+    if not worker.get("pid") and not worker.get("log_path") and not probe.get("health_urls"):
+        return record
+
+    pid = worker.get("pid")
+    worker_alive = _pid_alive(int(pid)) if isinstance(pid, int) or str(pid).isdigit() else False
+    reconciled = _reconcile_session_runtime_state(
+        workspace_root,
+        session,
+        worker_alive=worker_alive,
+    )
+    if reconciled != session:
+        session = store.update_session(reconciled)
+        group = store.get_group(session.group_id)
+        if group is not None:
+            _refresh_group_record(store, _launcher_domain(), group)
+
+    return _write_runtime_phonebook_record(
+        workspace_root,
+        _runtime_phonebook_record_from_session(
+            workspace_root,
+            session,
+            project_path=record.get("project_path"),
+            operation=operation,
+        ),
+    )
+
+
 def _new_operation_request_id(action: str) -> str:
     return f"{action}-{uuid.uuid4().hex[:12]}"
 
@@ -1417,6 +1483,10 @@ def _launcher_runtime_projection(
         project_id=project_id,
         model_ids=model_ids,
     )
+    records = [
+        _hydrate_runtime_phonebook_record_from_session(workspace_root, record)
+        for record in records
+    ]
     models = [_runtime_live_projection(record) for record in records]
     if not models:
         state = "stopped"
@@ -2014,11 +2084,12 @@ def _launch_request_after_resolve_async(
 
 
 def _launch_request_from_control(request: LauncherModelControlRequest) -> LauncherModelLaunchRequest:
-    return LauncherModelLaunchRequest(
-        project_name=request.project_name,
-        profile=request.profile,
-        intent=request.intent
-        or {
+    intent = request.intent
+    profile = request.profile
+    if profile:
+        intent = None
+    elif intent is None:
+        intent = {
             "project": request.project_name,
             "scope": (
                 {"kind": "ALL", "value": "ALL"}
@@ -2026,7 +2097,11 @@ def _launch_request_from_control(request: LauncherModelControlRequest) -> Launch
                 else {"kind": "models", "value": request.model_ids}
             ),
             "target_policy": "native",
-        },
+        }
+    return LauncherModelLaunchRequest(
+        project_name=request.project_name,
+        profile=profile,
+        intent=intent,
         creator=request.creator,
         clear_logs=request.clear_logs,
     )
@@ -2520,6 +2595,7 @@ class LauncherAbility:
         def launcher_models_restart(request: LauncherModelControlRequest) -> JSONResponse:
             context = context_provider()
             project_path = _resolve_project_path(context.workspace_root, request.project_name)
+            launch_request = _launch_request_from_control(request)
             operation_id = _new_operation_request_id("restart")
             provisional_model_ids = _provisional_launch_model_ids(
                 context.workspace_root,
@@ -2536,7 +2612,6 @@ class LauncherAbility:
                 overwrite_active=True,
                 clear_session_id=False,
             )
-            launch_request = _launch_request_from_control(request)
             if request.wait:
                 project_path, _intent, resolved = _resolve_launch_request(
                     context.workspace_root,
