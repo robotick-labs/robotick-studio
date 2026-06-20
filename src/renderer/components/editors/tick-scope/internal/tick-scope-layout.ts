@@ -27,11 +27,17 @@ export type TickScopeSpanStyle = {
   width: string;
 };
 
-export function getSpanBlockStyle(span: TickScopeWorkSpan, periodMs: number): TickScopeSpanStyle {
+export function getSpanVisibleWidthPct(span: TickScopeWorkSpan, periodMs: number): number {
   const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
   const startPct = Math.max(0, Math.min(100, (span.startMs / safePeriodMs) * 100));
   const endPct = Math.max(0, Math.min(100, (span.endMs / safePeriodMs) * 100));
-  const widthPct = Math.max(0, endPct - startPct);
+  return Math.max(0, endPct - startPct);
+}
+
+export function getSpanBlockStyle(span: TickScopeWorkSpan, periodMs: number): TickScopeSpanStyle {
+  const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
+  const startPct = Math.max(0, Math.min(100, (span.startMs / safePeriodMs) * 100));
+  const widthPct = getSpanVisibleWidthPct(span, periodMs);
   return {
     left: `${startPct}%`,
     width: `${widthPct}%`,

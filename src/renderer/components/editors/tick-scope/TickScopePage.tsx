@@ -16,6 +16,7 @@ import {
 import type { ModelSortKey } from "../telemetry/view/TelemetryApp";
 import {
   getSpanBlockStyle,
+  getSpanVisibleWidthPct,
   packSpansIntoSubLanes,
   type TickScopeSpanKind,
   type TickScopeWorkSpan,
@@ -729,7 +730,6 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
 
     const phaseCountBefore = row.spans.length;
     addPhase("engine I/O", "engine_io", span.engineIoStartNs, span.engineIoEndNs);
-    addPhase("sync wait", "sync_wait", span.syncWaitStartNs, span.syncWaitEndNs);
     addPhase("local inputs", "local_inputs", span.localInputsStartNs, span.localInputsEndNs);
 
     const hasPreWorkPhase = row.spans.length > phaseCountBefore;
@@ -1473,8 +1473,7 @@ const SpanBlock = memo(function SpanBlock({
     span.kind !== "sleep_spin";
   const style = getSpanBlockStyle(span, periodMs) as React.CSSProperties;
   const durationMs = Math.max(0, span.endMs - span.startMs);
-  const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
-  const widthPct = (durationMs / safePeriodMs) * 100;
+  const widthPct = getSpanVisibleWidthPct(span, periodMs);
   const traceClass = durationMs > 0 && widthPct < TRACE_SPAN_WIDTH_PCT ? styles.spanTrace : "";
   const explanation = spanStageExplanation(span);
   const title = explanation
