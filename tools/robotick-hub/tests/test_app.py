@@ -956,7 +956,7 @@ def test_launcher_model_endpoints_fan_out_and_coalesce_active_models(
 
     with build_client(workspace) as client:
         all_response = client.post(
-            "/v1/launcher/models/launch",
+            "/v1/launcher/models/start",
             json={"project_name": "barr-e", "profile": "native:ALL", "wait": True},
         )
         duplicate_subset_response = client.post(
@@ -973,6 +973,7 @@ def test_launcher_model_endpoints_fan_out_and_coalesce_active_models(
         )
 
     assert all_response.status_code == 200
+    assert all_response.json()["resource_type"] == "robotick_launcher_model_start_result"
     assert sorted(all_response.json()["launched_models"]) == ["brain", "face", "spine"]
     assert duplicate_subset_response.status_code == 200
     assert duplicate_subset_response.json()["launched_models"] == []
@@ -983,7 +984,61 @@ def test_launcher_model_endpoints_fan_out_and_coalesce_active_models(
     assert spawned_models == ["brain", "face", "spine"]
 
 
-def test_launcher_model_launch_default_returns_pending_before_resolution(
+def test_launcher_start_returns_pollable_operation_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
+        encoding="utf-8",
+    )
+    (project_dir / "face.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        lambda *_args, **_kwargs: (7301, "/tmp/face.log", ["python", "-m", "robotick.launcher.cli"]),
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda pid: int(pid) == 7301)
+
+    with build_client(workspace) as client:
+        response = client.post(
+            "/v1/launcher/models/start",
+            json={"project_name": "barr-e", "profile": "native:ALL", "wait": True},
+        )
+        payload = response.json()
+        group_id = payload["operation_group"]["id"]
+        operation_id = payload["operations"][0]["id"]
+        group_response = client.get(f"/v1/launcher/operation-groups/{group_id}")
+        operation_response = client.get(
+            f"/v1/launcher/models/face/operations/{operation_id}",
+            params={"project_id": "barr-e"},
+        )
+
+    assert response.status_code == 200
+    assert payload["operation_group"]["action"] == "start"
+    assert payload["operation_group"]["model_ids"] == ["face"]
+    assert payload["operations"] == payload["operation_group"]["operations"]
+    assert payload["operations"][0]["model_id"] == "face"
+    assert payload["operations"][0]["phase"] == "succeeded"
+    assert group_response.status_code == 200
+    assert group_response.json()["id"] == group_id
+    assert operation_response.status_code == 200
+    assert operation_response.json()["id"] == operation_id
+
+
+def test_launcher_model_start_default_returns_operation_before_resolution_without_runtime_projection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from robotick.launcher.hub_ability import ability
@@ -1035,7 +1090,7 @@ def test_launcher_model_launch_default_returns_pending_before_resolution(
     try:
         with build_client(workspace) as client:
             response = client.post(
-                "/v1/launcher/models/launch",
+                "/v1/launcher/models/start",
                 json={"project_name": "barr-e", "profile": "native:ALL"},
             )
             assert resolve_started.wait(timeout=1)
@@ -1052,14 +1107,154 @@ def test_launcher_model_launch_default_returns_pending_before_resolution(
     assert response.status_code == 200
     assert payload["launched_models"] == []
     assert payload["pending_models"] == ["face"]
-    assert payload["runtime"]["state"] == "pending"
-    assert payload["runtime"]["models"][0]["lifecycle"] == "starting"
+    assert payload["operation_group"]["phase"] == "accepted"
+    assert payload["operations"][0]["phase"] == "accepted"
+    assert payload["runtime"]["state"] == "stopped"
+    assert payload["runtime"]["models"] == []
     assert runtime_response.status_code == 200
     runtime_payload = runtime_response.json()
-    runtime_models = models_by_id(runtime_payload)
-    assert runtime_payload["state"] == "pending"
-    assert runtime_models["face"]["lifecycle"] == "starting"
-    assert runtime_models["face"]["operation"]["action"] == "launching"
+    assert runtime_payload["state"] == "stopped"
+    assert runtime_payload["models"] == []
+
+
+def test_launcher_stop_cancels_start_before_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
+        encoding="utf-8",
+    )
+    (project_dir / "face.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    resolve_started = threading.Event()
+    resolve_continue = threading.Event()
+    spawn_called = threading.Event()
+    original_resolve_launch_request = ability._resolve_launch_request
+
+    def slow_resolve_launch_request(*args, **kwargs):
+        resolve_started.set()
+        resolve_continue.wait(timeout=5)
+        return original_resolve_launch_request(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._resolve_launch_request",
+        slow_resolve_launch_request,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        lambda *_args, **_kwargs: spawn_called.set(),
+    )
+
+    try:
+        with build_client(workspace) as client:
+            start_response = client.post(
+                "/v1/launcher/models/start",
+                json={"project_name": "barr-e", "profile": "native:ALL"},
+            )
+            assert resolve_started.wait(timeout=1)
+            operation_id = start_response.json()["operations"][0]["id"]
+            stop_response = client.post(
+                "/v1/launcher/models/stop",
+                json={"project_name": "barr-e", "wait": True},
+            )
+            operation_response = client.get(
+                f"/v1/launcher/models/face/operations/{operation_id}",
+                params={"project_id": "barr-e"},
+            )
+            runtime_response = client.get("/v1/launcher/runtime", params={"project_id": "barr-e"})
+    finally:
+        resolve_continue.set()
+
+    assert start_response.status_code == 200
+    assert stop_response.status_code == 200
+    assert stop_response.json()["cancelled_operations"][0]["id"] == operation_id
+    assert stop_response.json()["cancelled_operations"][0]["phase"] == "cancelled_by_stop"
+    assert stop_response.json()["operation_group"]["action"] == "stop"
+    assert stop_response.json()["operation_group"]["phase"] == "succeeded"
+    assert operation_response.status_code == 200
+    assert operation_response.json()["phase"] == "cancelled_by_stop"
+    assert runtime_response.json()["state"] == "stopped"
+    assert runtime_response.json()["models"] == []
+    assert not spawn_called.wait(timeout=0.2)
+
+
+def test_launcher_stop_clears_queued_no_pid_runtime_operations() -> None:
+    from robotick.launcher.hub_ability import ability
+
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    project_path = project_dir / "barr-e.project.yaml"
+    project_path.write_text(
+        project_yaml("Barr.e", ["face"], ["runtime:", "  engine: ./engine"]),
+        encoding="utf-8",
+    )
+    (project_dir / "face.model.yaml").write_text(
+        "\n".join(
+            [
+                "runtime:",
+                "  target_platform: linux",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ability._write_runtime_phonebook_record(
+        str(workspace),
+        {
+            "project_id": "barr-e",
+            "project_path": str(project_path),
+            "model_id": "face",
+            "target": {},
+            "pid": None,
+            "command": None,
+            "log_path": None,
+            "telemetry_host": None,
+            "telemetry_port": None,
+            "telemetry_url": None,
+            "health_urls": [],
+            "last_session_id": None,
+            "operation": {
+                "action": "launching",
+                "pid": None,
+                "command": None,
+                "log_path": None,
+                "started_at": ability._utc_now().isoformat(),
+                "request_id": "start-group-stale",
+            },
+            "last_known_runtime": {},
+        },
+    )
+
+    with build_client(workspace) as client:
+        before_response = client.get("/v1/launcher/runtime", params={"project_id": "barr-e"})
+        stop_response = client.post(
+            "/v1/launcher/models/stop",
+            json={"project_name": "barr-e", "wait": True},
+        )
+        after_response = client.get("/v1/launcher/runtime", params={"project_id": "barr-e"})
+
+    assert before_response.json()["state"] == "pending"
+    assert before_response.json()["models"][0]["lifecycle"] == "starting"
+    assert stop_response.status_code == 200
+    assert stop_response.json()["cleared_runtime_operations"][0]["model_id"] == "face"
+    assert after_response.json()["state"] == "stopped"
+    assert after_response.json()["models"][0]["lifecycle"] == "stopped"
+    assert after_response.json()["models"][0]["operation"] is None
 
 
 def test_launcher_model_stop_and_restart_target_selected_models_only(
@@ -1149,6 +1344,85 @@ def test_launcher_model_stop_and_restart_target_selected_models_only(
     assert brain_restart_response.json()["launched_models"] == ["brain"]
     assert spawned_models == ["brain", "face", "spine", "brain"]
     assert [model_by_session_id[session_id] for session_id in stopped_sessions] == ["face", "brain"]
+
+
+def test_launcher_model_restart_all_relaunches_same_selected_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    project_dir = workspace / "robots" / "barr-e"
+    project_dir.mkdir(parents=True)
+    (project_dir / "engine").mkdir()
+    (project_dir / "barr-e.project.yaml").write_text(
+        project_yaml("Barr.e", ["brain", "face"], ["runtime:", "  engine: ./engine"]),
+        encoding="utf-8",
+    )
+    for model_name in ("brain", "face"):
+        (project_dir / f"{model_name}.model.yaml").write_text(
+            "\n".join(
+                [
+                    "runtime:",
+                    "  target_platform: linux",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    launched_models: list[str] = []
+    stopped_models: list[str] = []
+    live_pids: set[int] = set()
+    session_pid_by_model: dict[str, int] = {}
+    model_by_session_id: dict[str, str] = {}
+
+    def spawn_session_worker(_workspace_root, _project_name, _project_dir, session, **_kwargs):
+        launched_models.append(session.model_id)
+        pid = 10200 + len(launched_models)
+        live_pids.add(pid)
+        session_pid_by_model[session.model_id] = pid
+        model_by_session_id[session.id] = session.model_id
+        return pid, f"/tmp/{pid}.log", ["python", "-m", "robotick.launcher.cli"]
+
+    def spawn_stop_session_worker(_workspace_root, session_id):
+        stop_pid = 11200 + len(stopped_models)
+
+        def on_wait(_pid):
+            model_id = model_by_session_id[session_id]
+            stopped_models.append(model_id)
+            live_pids.discard(session_pid_by_model[model_id])
+
+        return FakeWorkerProcess(stop_pid, on_wait=on_wait), f"/tmp/{stop_pid}-restart.log", ["python", "-m", "stop"]
+
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_session_worker",
+        spawn_session_worker,
+    )
+    monkeypatch.setattr(
+        "robotick.launcher.hub_ability.ability._spawn_stop_session_worker",
+        spawn_stop_session_worker,
+    )
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._watch_session", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("robotick.launcher.hub_ability.ability._pid_alive", lambda pid: int(pid) in live_pids)
+
+    with build_client(workspace) as client:
+        launch_response = client.post(
+            "/v1/launcher/models/start",
+            json={"project_name": "barr-e", "profile": "native:ALL", "wait": True},
+        )
+        restart_response = client.post(
+            "/v1/launcher/models/restart",
+            json={"project_name": "barr-e", "wait": True},
+        )
+
+    assert launch_response.status_code == 200
+    assert restart_response.status_code == 200
+    assert sorted(restart_response.json()["stopped_models"]) == ["brain", "face"]
+    assert sorted(restart_response.json()["launched_models"]) == ["brain", "face"]
+    assert not [
+        item for item in restart_response.json()["skipped_models"]
+        if item.get("reason") == "already_running"
+    ]
+    assert sorted(stopped_models) == ["brain", "face"]
+    assert sorted(launched_models) == ["brain", "brain", "face", "face"]
 
 
 def test_launcher_model_stop_default_returns_pending_status(

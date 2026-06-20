@@ -326,7 +326,7 @@ Current command hierarchy:
 
 Target future command hierarchy:
 
-- `robotick launcher launch|stop|wait-ready ...`
+- `robotick launcher start|stop|restart|wait-ready ...`
   operate on robot/model run lifecycle through the launcher capability
 - `robotick studio <instance> wait-ready viewer ...`
   wait for Studio workbench/viewer readiness
@@ -349,7 +349,7 @@ studio/<instance>/windows/<window>/workbenches/<workbench>/layouts/<layout>/pane
 
 `ls` lists child contexts and actions available at the current shell binding. `cd` changes only the CLI cursor over loaded or available structure. It must not activate Studio runtime state. `status` returns the currently bound Studio node as JSON. `activate` is the explicit mutating verb for changing Studio runtime state.
 
-Top-level capability namespaces remain addressable from a bound prompt, but they keep their ownership model. For example, a future `launcher launch ...` invoked from `robotick:studio:studio-12345>` may attach `owner_studio_instance_id` metadata for diagnostics and UX, but launcher service identity remains Robotick-workspace-scoped.
+Top-level capability namespaces remain addressable from a bound prompt, but they keep their ownership model. For example, a future `launcher start ...` invoked from `robotick:studio:studio-12345>` may attach `owner_studio_instance_id` metadata for diagnostics and UX, but launcher service identity remains Robotick-workspace-scoped.
 
 ### Command Semantics
 
@@ -367,7 +367,7 @@ Instance targeting uses explicit ids in one-shot mode, such as `robotick studio 
 
 `activate` is idempotent. Activating an already-active target returns an accepted no-op result rather than an error. Activating a deep child should activate the required parent chain, for example panel -> layout -> workbench -> window. Unsupported activation should return a stable JSON error such as `studio_activation_unsupported`; locked or runtime-rejected activation should gain stable codes when Studio has resources that can reject activation for those reasons.
 
-Future `launcher launch` returns a machine-targetable `launcher_run` identity such as `launcher-full-67890`. Launch subtype is also explicit in fields such as `launch_kind`, `profile_id`, `requested_stages`, and optional `target_models`; callers must not parse the id to recover that meaning.
+Future `launcher start` returns a machine-targetable operation/run identity such as `launcher-full-67890`. Start subtype is also explicit in fields such as `profile_id`, `requested_stages`, and optional `target_models`; callers must not parse the id to recover that meaning.
 
 Future `launcher wait-ready` and `launcher stop` target explicit run ids. They do not silently operate on ambient singleton runtime state.
 
@@ -1024,7 +1024,7 @@ One-shot flow:
 robotick studio open
 robotick studio studio-12345 select-project barr-e
 robotick studio studio-12345 windows main workbenches remote-control activate
-robotick launcher launch --project barr-e --profile local:ALL --owner-instance studio-12345
+robotick launcher start --project barr-e --profile local:ALL --owner-instance studio-12345
 robotick launcher wait-ready launcher-full-67890 --readiness launcher-run
 robotick studio studio-12345 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
 robotick studio studio-12345 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...
@@ -1045,7 +1045,7 @@ cd main
 cd workbenches
 cd remote-control
 activate
-launcher launch --project barr-e --profile local:ALL
+launcher start --project barr-e --profile local:ALL
 launcher wait-ready launcher-full-67890 --readiness launcher-run
 wait-ready viewer --workbench remote-control --panel main --run launcher-full-67890
 capture panel --workbench remote-control --panel main --run launcher-full-67890 --require capture-ready --out artifacts/...

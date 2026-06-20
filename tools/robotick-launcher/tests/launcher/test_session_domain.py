@@ -37,6 +37,9 @@ def write_project(tmp_path: Path) -> Path:
             [
                 "runtime:",
                 "  engine: ./engine",
+                "models:",
+                "  - face.model.yaml",
+                "  - spine.model.yaml",
                 "profiles:",
                 "  face-pack:",
                 "    models:",

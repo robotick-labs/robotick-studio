@@ -242,6 +242,7 @@ function mapRuntimeModelToLegacyModelStatus(
     lifecycle: model.lifecycle,
     readiness: model.readiness,
     freshness: model.freshness,
+    operation: model.operation ?? null,
     logRefs: model.log_path ? [{ kind: "worker", path: model.log_path }] : [],
   } satisfies Omit<LegacyLauncherModelStatus, "stage" | "status">;
 
@@ -282,12 +283,6 @@ function buildRuntimeModelStatusMap(
 function reduceRuntimeLauncherStatus(
   models: LauncherRuntimeModelRecord[]
 ): "stopped" | "launching" | "running" | "stopping" {
-  if (models.some((model) => model.lifecycle === "stopping")) {
-    return "stopping";
-  }
-  if (models.some((model) => model.lifecycle === "starting")) {
-    return "launching";
-  }
   if (
     models.some(
       (model) => model.lifecycle === "running" || model.freshness === "live"
@@ -295,10 +290,19 @@ function reduceRuntimeLauncherStatus(
   ) {
     return "running";
   }
+  if (models.some((model) => model.lifecycle === "stopping")) {
+    return "stopping";
+  }
+  if (models.some((model) => model.lifecycle === "starting")) {
+    return "launching";
+  }
   return "stopped";
 }
 
 function reduceRuntimeLauncherPhase(models: LauncherRuntimeModelRecord[]): string | null {
+  if (models.some((model) => model.lifecycle === "running" || model.freshness === "live")) {
+    return "run";
+  }
   if (models.some((model) => model.lifecycle === "stopping")) {
     return "stop";
   }
@@ -514,7 +518,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   }
 
   async function createLauncherGroupRequest(payload: Record<string, unknown>): Promise<void> {
-    const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/launch");
+    const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/start");
     await fetchJSON(url, {
       method: "POST",
       headers: {

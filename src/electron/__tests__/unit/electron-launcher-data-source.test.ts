@@ -267,7 +267,7 @@ describe("electron-launcher-data-source", () => {
       if (url.pathname === "/query/list-projects") {
         return createJsonResponse(["robots/sample-robot/sample-robot.project.yaml"]);
       }
-      if (url.pathname === "/v1/launcher/models/launch") {
+      if (url.pathname === "/v1/launcher/models/start") {
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({
           project_name: "sample-robot",
@@ -423,6 +423,66 @@ describe("electron-launcher-data-source", () => {
         "ws://127.0.0.1:53401/v1/launcher/models/logs/stream?project_id=barr-e",
     });
     await dataSource.requestLauncherLogClear("/workspace/robots/barr-e/barr-e.project.yaml");
+  });
+
+  it("keeps aggregate launcher status running when one model restarts while another remains live", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/runtime") {
+        return createJsonResponse({
+          resource_type: "robotick_launcher_runtime_status",
+          state: "running",
+          models: [
+            {
+              project_id: "barr-e",
+              model_id: "barr-e-face",
+              lifecycle: "running",
+              readiness: "ready",
+              freshness: "live",
+            },
+            {
+              project_id: "barr-e",
+              model_id: "barr-e-spine",
+              lifecycle: "stopping",
+              readiness: "pending",
+              freshness: "pending",
+              operation: {
+                action: "restarting",
+                phase: "stopping",
+                request_id: "restart-barr-e-spine",
+              },
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const dataSource = createDataSource();
+
+    await expect(
+      dataSource.fetchLauncherStatus(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
+    ).resolves.toMatchObject({
+      status: "running",
+      phase: "run",
+      models: {
+        "barr-e-face": {
+          status: "running",
+        },
+        "barr-e-spine": {
+          status: "stopping",
+          operation: {
+            action: "restarting",
+            phase: "stopping",
+            request_id: "restart-barr-e-spine",
+          },
+        },
+      },
+    });
   });
 
   it("shares rapid runtime status reads through the Electron data-source cache", async () => {

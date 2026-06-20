@@ -33,6 +33,11 @@ type StoreEntry = {
   lastErrorMessage: string | null;
 };
 
+type LauncherModelEventDetail = {
+  modelId?: string;
+  telemetryBaseUrl?: string;
+};
+
 type ElectronTelemetryBridge = NonNullable<Window["robotick"]>["telemetry"];
 
 type TelemetryStoreDeps = {
@@ -131,6 +136,32 @@ export function createTelemetryStore(
     for (const entry of stores.values()) {
       clearEntryRuntimeState(entry);
     }
+  }
+
+  function findEntryForLauncherEvent(event: Event): StoreEntry | null {
+    const detail = (event as CustomEvent<LauncherModelEventDetail>).detail;
+    const baseUrl = detail?.telemetryBaseUrl?.trim();
+    if (!baseUrl) {
+      return null;
+    }
+    return stores.get(baseUrl) ?? null;
+  }
+
+  function isModelScopedLauncherEvent(event: Event): boolean {
+    const detail = (event as CustomEvent<LauncherModelEventDetail>).detail;
+    return Boolean(detail?.modelId || detail?.telemetryBaseUrl);
+  }
+
+  function clearRuntimeStateForLauncherEvent(event: Event): "scoped" | "global" {
+    if (!isModelScopedLauncherEvent(event)) {
+      clearRuntimeStateForAllEntries();
+      return "global";
+    }
+    const entry = findEntryForLauncherEvent(event);
+    if (entry) {
+      clearEntryRuntimeState(entry);
+    }
+    return "scoped";
   }
 
   function getOrCreateModel(entry: StoreEntry): ITelemetryModel | null {
@@ -395,19 +426,46 @@ export function createTelemetryStore(
     const detail = (event as CustomEvent<{ status: LauncherStatus }>).detail;
     handleLauncherStatus(detail?.status);
   };
-  const runEventHandler: EventListener = () => {
-    clearRuntimeStateForAllEntries();
+  const runEventHandler: EventListener = (event) => {
+    const scope = clearRuntimeStateForLauncherEvent(event);
     setTelemetrySuspended(false);
-    reconnectActiveSubscriptions();
+    if (scope === "global") {
+      reconnectActiveSubscriptions();
+      return;
+    }
+    const entry = findEntryForLauncherEvent(event);
+    if (entry) {
+      teardownWsSubscription(entry);
+      if (entry.subscribers.size > 0) {
+        ensureWsSubscription(entry);
+      }
+    }
   };
-  const restartEventHandler: EventListener = () => {
-    clearRuntimeStateForAllEntries();
+  const restartEventHandler: EventListener = (event) => {
+    const scope = clearRuntimeStateForLauncherEvent(event);
     setTelemetrySuspended(false);
-    reconnectActiveSubscriptions();
+    if (scope === "global") {
+      reconnectActiveSubscriptions();
+      return;
+    }
+    const entry = findEntryForLauncherEvent(event);
+    if (entry) {
+      teardownWsSubscription(entry);
+      if (entry.subscribers.size > 0) {
+        ensureWsSubscription(entry);
+      }
+    }
   };
-  const stopEventHandler: EventListener = () => {
-    clearRuntimeStateForAllEntries();
-    setTelemetrySuspended(true);
+  const stopEventHandler: EventListener = (event) => {
+    const scope = clearRuntimeStateForLauncherEvent(event);
+    if (scope === "global") {
+      setTelemetrySuspended(true);
+      return;
+    }
+    const entry = findEntryForLauncherEvent(event);
+    if (entry) {
+      teardownWsSubscription(entry);
+    }
   };
 
   function registerLauncherListeners() {

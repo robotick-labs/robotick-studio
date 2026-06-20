@@ -253,7 +253,8 @@ def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
     }
     studio_projection = launcher_cli.format_launcher_status_payload(status_payload)
     raw_state = str(hub_runtime.get("state") or hub_runtime.get("status") or "")
-    projected_state = str((studio_projection.get("service") or {}).get("state") or "")
+    projected_raw_state = str(((studio_projection.get("runtime") or {}).get("state")) or "")
+    projected_display_state = str((studio_projection.get("service") or {}).get("state") or "")
     write_json(
         {
             "resource_type": "robotick_studio_launcher_status",
@@ -264,9 +265,10 @@ def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
                 "runtime": studio_projection.get("runtime"),
             },
             "comparison": {
-                "state_agrees": raw_state == projected_state,
+                "state_agrees": raw_state == projected_raw_state,
                 "hub_state": raw_state,
-                "studio_state": projected_state,
+                "studio_raw_state": projected_raw_state,
+                "studio_display_state": projected_display_state,
             },
         }
     )

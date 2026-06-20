@@ -446,6 +446,7 @@ def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
 def test_launcher_ls_exposes_launcher_actions() -> None:
     text = format_shell_context(ShellState(namespace="launcher"), str(create_fake_workspace()))
     assert "Available in launcher:" in text
+    assert "- start [project]" in text
     assert "- launch [project]" in text
     assert "- status" in text
     assert "- wait-ready" in text
@@ -495,7 +496,8 @@ def test_launcher_help_describes_status_and_ensure_by_semantics() -> None:
     assert "Commands:" in text
     assert "Output:" in text
     assert "status returns launcher service state and per-model runtime status as JSON." in text
-    assert "launch, stop, and restart operate on project/model selections." in text
+    assert "start, stop, and restart operate on project/model selections." in text
+    assert "launch remains a compatibility alias for start." in text
 
 
 def test_bound_studio_help_describes_navigation_and_output() -> None:
@@ -713,7 +715,8 @@ def test_studio_launcher_status_compares_runtime_and_projection(
     assert output["comparison"] == {
         "state_agrees": True,
         "hub_state": "stopped",
-        "studio_state": "stopped",
+        "studio_raw_state": "stopped",
+        "studio_display_state": "stopped",
     }
     assert output["studio_projection"]["service"]["state"] == "stopped"
     assert output["studio_projection"]["runtime"]["models"] == [
@@ -836,7 +839,7 @@ def test_studio_focused_falls_back_to_most_recent_focus(
     assert captured["output"]["instance_name"] == "studio-2222"
 
 
-def test_launcher_launch_posts_profile_and_intent_payloads(
+def test_launcher_start_posts_profile_and_intent_payloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -859,38 +862,55 @@ def test_launcher_launch_posts_profile_and_intent_payloads(
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
-        ["launch", "barr-e", "native:ALL"],
+        ["start", "barr-e", "native:ALL"],
     )
     assert result.exit_code == 0
-    assert captured["path"] == "/v1/launcher/models/launch"
-    assert captured["timeout_seconds"] == 120
+    assert captured["path"] == "/v1/launcher/models/start"
+    assert captured["timeout_seconds"] == 15
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
-        "wait": True,
+        "wait": False,
         "profile": "native:ALL",
     }
     assert captured["output"] == {
-        "resource_type": "robotick_launcher_launch_result",
+        "resource_type": "robotick_launcher_start_result",
         "group": {"id": "msg_demo"},
         "sessions": [],
     }
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
-        ["launch", "barr-e", "--model", "brain", "--local"],
+        ["start", "barr-e", "--model", "brain", "--local"],
     )
     assert result.exit_code == 0
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
-        "wait": True,
+        "wait": False,
         "intent": {
             "project": "barr-e",
             "scope": {"kind": "model", "value": "brain"},
             "target_policy": "local",
         },
     }
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["start", "barr-e", "native:ALL", "--wait"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/start"
+    assert captured["payload"]["wait"] is True
+    assert captured["timeout_seconds"] == 120
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["launch", "barr-e", "native:ALL"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/launch"
+    assert captured["output"]["resource_type"] == "robotick_launcher_launch_result"
 
 
 def test_launcher_status_filters_project_and_model_selection(
@@ -1140,7 +1160,7 @@ def test_launcher_wait_ready_polls_until_runtime_is_ready(
     assert captured["output"]["status"] == "ready"
 
 
-def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
+def test_launcher_wait_ready_reports_degraded_for_stopped_project_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -1182,8 +1202,17 @@ def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
         ["wait-ready", "--project", "barr-e", "--timeout-seconds", "1", "--poll-ms", "1"],
     )
 
-    assert result.exit_code == 0
-    assert captured["output"]["status"] == "ready"
+    assert result.exit_code == 1
+    assert captured["output"]["status"] == "degraded"
+    assert captured["output"]["blockers"] == [
+        {
+            "model_id": "old-face",
+            "reason": "stopped",
+            "lifecycle": "stopped",
+            "readiness": "pending",
+            "freshness": "stopped",
+        }
+    ]
 
 
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:

@@ -205,9 +205,15 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
 
 LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
+        name="start",
+        usage="robotick launcher start <project> [profile]",
+        summary="Start selected project/model runtimes",
+        shell_label="start [project]",
+    ),
+    CommandSpec(
         name="launch",
         usage="robotick launcher launch <project> [profile]",
-        summary="Launch selected project/model runtimes",
+        summary="Legacy alias for start selected project/model runtimes",
         shell_label="launch [project]",
     ),
     CommandSpec(

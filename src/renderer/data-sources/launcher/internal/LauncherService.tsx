@@ -97,6 +97,20 @@ export interface LauncherService {
         lifecycle?: string;
         readiness?: string;
         freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+        operation?: {
+          action?: string;
+          phase?: string;
+          request_id?: string;
+          started_at?: string;
+          updated_at?: string;
+          pid?: number;
+          pid_alive?: boolean;
+          queued?: boolean;
+          command?: string[];
+          log_path?: string;
+          result?: Record<string, unknown>;
+          blockers?: unknown[];
+        } | null;
         diagnostics?: Array<{
           code?: string;
           message?: string;

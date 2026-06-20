@@ -347,13 +347,17 @@ def _hydrate_runtime_phonebook_record_from_session(
         if group is not None:
             _refresh_group_record(store, _launcher_domain(), group)
 
+    hydrated_operation = operation
+    if operation is not None and operation.get("queued") and worker_alive:
+        hydrated_operation = None
+
     return _write_runtime_phonebook_record(
         workspace_root,
         _runtime_phonebook_record_from_session(
             workspace_root,
             session,
             project_path=record.get("project_path"),
-            operation=operation,
+            operation=hydrated_operation,
         ),
     )
 
@@ -432,6 +436,20 @@ def _request_targets_all_models(request: Any) -> bool:
         return True
     profile = str(getattr(request, "profile", None) or "").strip()
     return profile.upper().endswith(":ALL")
+
+
+def _request_target_policy(request: Any) -> str | None:
+    intent = getattr(request, "intent", None)
+    if isinstance(intent, dict):
+        target_policy = str(intent.get("target_policy") or "").strip()
+        if target_policy:
+            return target_policy
+    profile = str(getattr(request, "profile", None) or "").strip()
+    if ":" in profile:
+        target_policy = profile.split(":", 1)[0].strip()
+        if target_policy:
+            return target_policy
+    return None
 
 
 def _provisional_launch_model_ids(
@@ -704,6 +722,45 @@ def _clear_runtime_operation(
     _write_runtime_phonebook_record(workspace_root, record)
 
 
+def _clear_queued_runtime_operations(
+    workspace_root: str,
+    *,
+    project_id: str,
+    model_ids: list[str],
+    reason: str,
+) -> list[dict[str, Any]]:
+    selected = {str(model_id).strip() for model_id in model_ids if str(model_id).strip()}
+    cleared: list[dict[str, Any]] = []
+    for record in _list_runtime_phonebook_records(workspace_root, project_id=project_id):
+        model_id = str(record.get("model_id") or "").strip()
+        if not model_id:
+            continue
+        if selected and model_id not in selected:
+            continue
+        operation = _operation_in_flight(record)
+        if operation is None or not operation.get("queued"):
+            continue
+        updated = {
+            **record,
+            "operation": None,
+            "last_operation_result": {
+                "action": operation.get("action"),
+                "result": "cancelled_by_stop",
+                "reason": reason,
+                "finished_at": _utc_now().isoformat(),
+            },
+        }
+        _write_runtime_phonebook_record(workspace_root, updated)
+        cleared.append(
+            {
+                "project_id": project_id,
+                "model_id": model_id,
+                "operation": operation,
+            }
+        )
+    return cleared
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -718,9 +775,320 @@ STOP_SUCCESS_CLEARED_DIAGNOSTIC_CODES = {
 
 OPERATION_QUEUED_GRACE_SECONDS = 120.0
 
+_OPERATION_LOCK = threading.RLock()
+_OPERATION_RECORDS: dict[str, dict[str, Any]] = {}
+_OPERATION_GROUPS: dict[str, dict[str, Any]] = {}
+_TERMINAL_OPERATION_PHASES = {
+    "succeeded",
+    "failed",
+    "cancelled",
+    "cancelled_by_stop",
+    "expired",
+}
+
 
 def _without_diagnostics(diagnostics: list[Any], codes: set[str]) -> list[Any]:
     return [diagnostic for diagnostic in diagnostics if getattr(diagnostic, "code", None) not in codes]
+
+
+def _new_operation_group_id(action: str) -> str:
+    return f"{action}-group-{uuid.uuid4().hex[:12]}"
+
+
+def _create_operation_group(
+    *,
+    workspace_root: str,
+    action: str,
+    project_id: str,
+    model_ids: list[str],
+    creator: dict[str, Any] | None = None,
+    target_policy: str | None = None,
+) -> dict[str, Any]:
+    now = _utc_now().isoformat()
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    normalized_model_ids = [str(model_id).strip() for model_id in model_ids if str(model_id).strip()]
+    group_id = _new_operation_group_id(action)
+    group = {
+        "id": group_id,
+        "resource_type": "robotick_launcher_operation_group",
+        "action": action,
+        "workspace_root": normalized_workspace_root,
+        "project_id": project_id,
+        "model_ids": normalized_model_ids,
+        "phase": "accepted",
+        "created_at": now,
+        "updated_at": now,
+        "creator": dict(creator or {}),
+        "target_policy": target_policy,
+        "operation_ids": [],
+    }
+    operations: list[dict[str, Any]] = []
+    for model_id in normalized_model_ids:
+        operation_id = _new_operation_request_id(action)
+        operation = {
+            "id": operation_id,
+            "resource_type": "robotick_launcher_model_operation",
+            "group_id": group_id,
+            "action": action,
+            "workspace_root": normalized_workspace_root,
+            "project_id": project_id,
+            "model_id": model_id,
+            "phase": "accepted",
+            "created_at": now,
+            "updated_at": now,
+            "creator": dict(creator or {}),
+            "target_policy": target_policy,
+            "pid": None,
+            "command": None,
+            "log_path": None,
+            "session_id": None,
+            "result": None,
+            "blockers": [],
+        }
+        operations.append(operation)
+        group["operation_ids"].append(operation_id)
+    with _OPERATION_LOCK:
+        _OPERATION_GROUPS[group_id] = group
+        for operation in operations:
+            _OPERATION_RECORDS[operation["id"]] = operation
+    return _operation_group_snapshot(group_id)
+
+
+def _operation_group_snapshot(group_id: str) -> dict[str, Any]:
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return {}
+        operations = [
+            dict(_OPERATION_RECORDS[operation_id])
+            for operation_id in group.get("operation_ids", [])
+            if operation_id in _OPERATION_RECORDS
+        ]
+        snapshot = dict(group)
+    snapshot["operations"] = operations
+    return snapshot
+
+
+def _operation_response_payload(group_id: str | None) -> dict[str, Any]:
+    if not group_id:
+        return {"operation_group": None, "operations": []}
+    group = _operation_group_snapshot(group_id)
+    return {
+        "operation_group": group or None,
+        "operations": list(group.get("operations") or []) if group else [],
+    }
+
+
+def _set_operation_group_phase(group_id: str | None, phase: str) -> None:
+    if not group_id:
+        return
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return
+        current_phase = str(group.get("phase") or "")
+        if current_phase in _TERMINAL_OPERATION_PHASES and phase not in _TERMINAL_OPERATION_PHASES:
+            return
+        group["phase"] = phase
+        group["updated_at"] = now
+
+
+def _set_operation_phase(
+    operation_id: str,
+    phase: str,
+    *,
+    result: dict[str, Any] | None = None,
+    blockers: list[dict[str, Any]] | None = None,
+    pid: int | None = None,
+    command: list[str] | None = None,
+    log_path: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        if operation is None:
+            return
+        current_phase = str(operation.get("phase") or "")
+        if current_phase in _TERMINAL_OPERATION_PHASES and phase not in _TERMINAL_OPERATION_PHASES:
+            return
+        operation["phase"] = phase
+        operation["updated_at"] = now
+        if result is not None:
+            operation["result"] = result
+        if blockers is not None:
+            operation["blockers"] = blockers
+        if pid is not None:
+            operation["pid"] = pid
+        if command is not None:
+            operation["command"] = command
+        if log_path is not None:
+            operation["log_path"] = log_path
+        if session_id is not None:
+            operation["session_id"] = session_id
+        group_id = str(operation.get("group_id") or "")
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is not None:
+            group["updated_at"] = now
+
+
+def _operation_id_for_model(group_id: str | None, model_id: str) -> str | None:
+    if not group_id:
+        return None
+    normalized_model_id = str(model_id or "").strip()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return None
+        for operation_id in group.get("operation_ids", []):
+            operation = _OPERATION_RECORDS.get(operation_id)
+            if operation is not None and operation.get("model_id") == normalized_model_id:
+                return str(operation_id)
+    return None
+
+
+def _set_operation_phase_for_model(
+    group_id: str | None,
+    model_id: str,
+    phase: str,
+    **kwargs: Any,
+) -> None:
+    operation_id = _operation_id_for_model(group_id, model_id)
+    if operation_id:
+        _set_operation_phase(operation_id, phase, **kwargs)
+
+
+def _set_group_operations_phase(group_id: str | None, phase: str) -> None:
+    if not group_id:
+        return
+    with _OPERATION_LOCK:
+        operation_ids = list((_OPERATION_GROUPS.get(group_id) or {}).get("operation_ids", []))
+    _set_operation_group_phase(group_id, phase)
+    for operation_id in operation_ids:
+        _set_operation_phase(operation_id, phase)
+
+
+def _refresh_operation_group_phase(group_id: str | None) -> None:
+    if not group_id:
+        return
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return
+        operations = [
+            _OPERATION_RECORDS[operation_id]
+            for operation_id in group.get("operation_ids", [])
+            if operation_id in _OPERATION_RECORDS
+        ]
+        if not operations:
+            return
+        phases = {str(operation.get("phase") or "") for operation in operations}
+        if phases <= {"cancelled_by_stop", "cancelled"}:
+            group["phase"] = "cancelled_by_stop"
+        elif phases <= _TERMINAL_OPERATION_PHASES:
+            group["phase"] = "failed" if "failed" in phases else "succeeded"
+        group["updated_at"] = now
+
+
+def _active_operation_model_ids(
+    workspace_root: str,
+    project_id: str,
+    model_ids: list[str] | None = None,
+) -> list[str]:
+    selected = {str(model_id).strip() for model_id in (model_ids or []) if str(model_id).strip()}
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    active_model_ids: set[str] = set()
+    with _OPERATION_LOCK:
+        operations = list(_OPERATION_RECORDS.values())
+    for operation in operations:
+        if operation.get("workspace_root") != normalized_workspace_root:
+            continue
+        if operation.get("project_id") != project_id:
+            continue
+        model_id = str(operation.get("model_id") or "").strip()
+        if not model_id:
+            continue
+        if selected and model_id not in selected:
+            continue
+        phase = str(operation.get("phase") or "")
+        if phase not in _TERMINAL_OPERATION_PHASES:
+            active_model_ids.add(model_id)
+    return sorted(active_model_ids)
+
+
+def _cancel_operations_for_models(
+    *,
+    workspace_root: str,
+    project_id: str,
+    model_ids: list[str],
+    reason: str,
+) -> list[dict[str, Any]]:
+    selected = {str(model_id).strip() for model_id in model_ids if str(model_id).strip()}
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    cancelled: list[dict[str, Any]] = []
+    affected_group_ids: set[str] = set()
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        for operation in _OPERATION_RECORDS.values():
+            if operation.get("workspace_root") != normalized_workspace_root:
+                continue
+            if operation.get("project_id") != project_id:
+                continue
+            model_id = str(operation.get("model_id") or "").strip()
+            if selected and model_id not in selected:
+                continue
+            phase = str(operation.get("phase") or "")
+            if phase in _TERMINAL_OPERATION_PHASES:
+                continue
+            operation["phase"] = "cancelled_by_stop"
+            operation["updated_at"] = now
+            operation["result"] = {"reason": reason}
+            operation["blockers"] = []
+            affected_group_ids.add(str(operation.get("group_id") or ""))
+            cancelled.append(dict(operation))
+    for group_id in affected_group_ids:
+        _refresh_operation_group_phase(group_id)
+    return cancelled
+
+
+def _operation_cancelled_for_model(group_id: str | None, model_id: str) -> bool:
+    operation_id = _operation_id_for_model(group_id, model_id)
+    if not operation_id:
+        return False
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        return str((operation or {}).get("phase") or "") in {"cancelled", "cancelled_by_stop"}
+
+
+def _operation_group_cancelled(group_id: str | None) -> bool:
+    if not group_id:
+        return False
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        return str((group or {}).get("phase") or "") in {"cancelled", "cancelled_by_stop"}
+
+
+def _operation_for_model(
+    operation_id: str,
+    *,
+    workspace_root: str | None = None,
+    project_id: str | None = None,
+    model_id: str | None = None,
+) -> dict[str, Any] | None:
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        if operation is None:
+            return None
+        snapshot = dict(operation)
+    if workspace_root and snapshot.get("workspace_root") != str(Path(workspace_root).resolve()):
+        return None
+    if project_id and snapshot.get("project_id") != project_id:
+        return None
+    if model_id and snapshot.get("model_id") != model_id:
+        return None
+    return snapshot
 
 
 def _has_successful_stop_control(runtime: dict[str, Any]) -> bool:
@@ -1587,8 +1955,18 @@ def _finalize_launch_runtime_metadata(
             log_path=(dict(runtime.get("worker") or {}).get("log_path")),
             request_id=operation_id,
         )
+        _set_operation_phase_for_model(
+            operation_id,
+            session.model_id,
+            "succeeded" if dict(runtime.get("worker") or {}).get("pid") else "failed",
+            pid=(dict(runtime.get("worker") or {}).get("pid")),
+            command=(dict(runtime.get("worker") or {}).get("command")),
+            log_path=(dict(runtime.get("worker") or {}).get("log_path")),
+            session_id=session.id,
+        )
         entry["session"] = session
         finalized.append(session)
+    _set_operation_group_phase(operation_id, "succeeded")
     return finalized
 
 
@@ -1622,6 +2000,7 @@ def _launch_resolved_models(
 ) -> dict[str, Any]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
+    _set_operation_group_phase(operation_id, "queued")
     runtime_projection = _launcher_runtime_projection(workspace_root, project_id=project_name)
     runtime_active_model_ids = {
         str(model.get("model_id") or "").strip()
@@ -1641,7 +2020,22 @@ def _launch_resolved_models(
     project_dir = project_path.parent.resolve()
 
     for model in resolved.models:
+        if _operation_cancelled_for_model(operation_id, model.model_id):
+            skipped.append(
+                {
+                    "model_id": model.model_id,
+                    "reason": "cancelled_by_stop",
+                    "message": "Start operation was cancelled by stop before spawn.",
+                }
+            )
+            continue
         if not model.selected:
+            _set_operation_phase_for_model(
+                operation_id,
+                model.model_id,
+                "cancelled",
+                result={"reason": "auto_launch_disabled"},
+            )
             skipped.append(
                 {
                     "model_id": model.model_id,
@@ -1651,6 +2045,12 @@ def _launch_resolved_models(
             )
             continue
         if model.model_id in runtime_active_model_ids:
+            _set_operation_phase_for_model(
+                operation_id,
+                model.model_id,
+                "succeeded",
+                result={"reason": "already_running"},
+            )
             skipped.append(
                 {
                     "model_id": model.model_id,
@@ -1690,6 +2090,12 @@ def _launch_resolved_models(
             created_by=intent.created_by,
         )
         store.create_session(session)
+        _set_operation_phase_for_model(
+            operation_id,
+            model.model_id,
+            "queued",
+            session_id=session.id,
+        )
         group = group.model_copy(
             update={
                 "session_ids": [session.id],
@@ -1720,6 +2126,7 @@ def _launch_resolved_models(
 
     for entry in launch_entries:
         session = entry["session"]
+        _set_operation_group_phase(operation_id, "spawning")
         pid, log_path, command = _spawn_session_worker(
             workspace_root,
             project_name,
@@ -1742,6 +2149,15 @@ def _launch_resolved_models(
             }
         )
         store.update_session(session)
+        _set_operation_phase_for_model(
+            operation_id,
+            session.model_id,
+            "spawning",
+            pid=pid,
+            command=command,
+            log_path=log_path,
+            session_id=session.id,
+        )
         _set_runtime_operation(
             workspace_root,
             session,
@@ -1825,6 +2241,7 @@ def _begin_stop_model_sessions(
     sessions: list[Any],
     *,
     action: str = "stop",
+    operation_id: str | None = None,
 ) -> list[tuple[Any, Any, str, list[str]]]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
@@ -1853,6 +2270,7 @@ def _begin_stop_model_sessions(
             pid=None,
             command=None,
             log_path=None,
+            request_id=operation_id,
         )
         pending_sessions.append(updated)
 
@@ -1884,6 +2302,7 @@ def _begin_stop_model_sessions(
             pid=child.pid,
             command=command,
             log_path=log_path,
+            request_id=operation_id,
         )
         stop_workers.append((session.model_copy(update={"runtime": runtime}), child, log_path, command))
 
@@ -1895,6 +2314,7 @@ def _finalize_stop_model_sessions(
     stop_workers: list[tuple[Any, Any, str, list[str]]],
     *,
     action: str = "stop",
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
@@ -1904,12 +2324,12 @@ def _finalize_stop_model_sessions(
     for session, child, log_path, command in stop_workers:
         returncode = child.wait()
         final_runtime = dict(session.runtime or {})
-        operation_id = None
+        session_operation_id = operation_id
         runtime_record = _runtime_phonebook_record(workspace_root, session.project_id, session.model_id)
-        if isinstance(runtime_record, dict):
+        if session_operation_id is None and isinstance(runtime_record, dict):
             operation = runtime_record.get("operation")
             if isinstance(operation, dict):
-                operation_id = operation.get("request_id")
+                session_operation_id = operation.get("request_id")
         final_runtime["control"] = {
             "action": "restart-stop" if action == "restart" else "stop",
             "pid": child.pid,
@@ -1964,7 +2384,7 @@ def _finalize_stop_model_sessions(
                 pid=None,
                 command=None,
                 log_path=log_path,
-                request_id=str(operation_id) if operation_id else None,
+                request_id=str(session_operation_id) if session_operation_id else None,
             )
         else:
             _clear_runtime_operation(
@@ -1993,11 +2413,12 @@ def _finalize_stop_model_sessions_async(
     stop_workers: list[tuple[Any, Any, str, list[str]]],
     *,
     action: str = "stop",
+    operation_id: str | None = None,
 ) -> None:
     thread = threading.Thread(
         target=_finalize_stop_model_sessions,
         args=(workspace_root, stop_workers),
-        kwargs={"action": action},
+        kwargs={"action": action, "operation_id": operation_id},
         name=f"robotick-launcher-{action}-finalize",
         daemon=True,
     )
@@ -2010,11 +2431,27 @@ def _stop_model_sessions(
     *,
     action: str = "stop",
     wait: bool = True,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
-    stop_workers = _begin_stop_model_sessions(workspace_root, sessions, action=action)
+    stop_workers = _begin_stop_model_sessions(
+        workspace_root,
+        sessions,
+        action=action,
+        operation_id=operation_id,
+    )
     if wait:
-        return _finalize_stop_model_sessions(workspace_root, stop_workers, action=action)
-    _finalize_stop_model_sessions_async(workspace_root, stop_workers, action=action)
+        return _finalize_stop_model_sessions(
+            workspace_root,
+            stop_workers,
+            action=action,
+            operation_id=operation_id,
+        )
+    _finalize_stop_model_sessions_async(
+        workspace_root,
+        stop_workers,
+        action=action,
+        operation_id=operation_id,
+    )
     return {
         "stopped": [],
         "failed": [],
@@ -2033,7 +2470,12 @@ def _restart_models_after_stop(
     clear_logs: bool = False,
     operation_id: str | None = None,
 ) -> None:
-    _finalize_stop_model_sessions(workspace_root, stop_workers, action="restart")
+    _finalize_stop_model_sessions(
+        workspace_root,
+        stop_workers,
+        action="restart",
+        operation_id=operation_id,
+    )
     _launch_resolved_models(
         workspace_root,
         project_name,
@@ -2071,11 +2513,15 @@ def _launch_request_after_resolve(
     project_path: Path,
     operation_id: str,
 ) -> None:
+    _set_group_operations_phase(operation_id, "resolving")
     _project_path, _intent, resolved = _resolve_launch_request(
         workspace_root,
         request,
         project_path=project_path,
     )
+    if _operation_group_cancelled(operation_id):
+        return
+    _set_group_operations_phase(operation_id, "queued")
     _launch_resolved_models(
         workspace_root,
         request.project_name,
@@ -2408,25 +2854,55 @@ class LauncherAbility:
                 )
             )
 
-        @router.post("/v1/launcher/models/launch", response_class=JSONResponse)
-        def launcher_models_launch(request: LauncherModelLaunchRequest) -> JSONResponse:
+        @router.get("/v1/launcher/operation-groups/{group_id}", response_class=JSONResponse)
+        def launcher_operation_group(group_id: str) -> JSONResponse:
+            context = context_provider()
+            group = _operation_group_snapshot(group_id)
+            if not group or group.get("workspace_root") != str(Path(context.workspace_root).resolve()):
+                raise HTTPException(status_code=404, detail=f"Launcher operation group not found: {group_id}")
+            return JSONResponse(group)
+
+        @router.get("/v1/launcher/models/{model_id}/operations/{operation_id}", response_class=JSONResponse)
+        def launcher_model_operation(
+            model_id: str,
+            operation_id: str,
+            project_id: str | None = Query(None, description="Optional project id/name"),
+        ) -> JSONResponse:
+            context = context_provider()
+            operation = _operation_for_model(
+                operation_id,
+                workspace_root=context.workspace_root,
+                project_id=project_id,
+                model_id=model_id,
+            )
+            if operation is None:
+                raise HTTPException(status_code=404, detail=f"Launcher model operation not found: {operation_id}")
+            return JSONResponse(operation)
+
+        def _launcher_models_start(
+            request: LauncherModelLaunchRequest,
+            *,
+            route_action: str,
+        ) -> JSONResponse:
             context = context_provider()
             project_path = _resolve_project_path(context.workspace_root, request.project_name)
-            operation_id = _new_operation_request_id("launch")
             provisional_model_ids = _provisional_launch_model_ids(
                 context.workspace_root,
                 request.project_name,
                 request,
             )
-            _publish_provisional_runtime_operations(
-                context.workspace_root,
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action=route_action,
                 project_id=request.project_name,
-                project_path=project_path,
                 model_ids=provisional_model_ids,
-                action="launching",
-                request_id=operation_id,
+                creator=request.creator,
+                target_policy=_request_target_policy(request),
             )
+            operation_id = str(operation_group.get("id") or _new_operation_request_id(route_action))
             if not request.wait:
+                operation_payload = _operation_response_payload(operation_id)
+                runtime_payload = _launcher_runtime_projection(context.workspace_root, project_id=request.project_name)
                 _launch_request_after_resolve_async(
                     context.workspace_root,
                     request,
@@ -2435,32 +2911,44 @@ class LauncherAbility:
                 )
                 return JSONResponse(
                     {
-                        "resource_type": "robotick_launcher_model_launch_result",
+                        "resource_type": f"robotick_launcher_model_{route_action}_result",
                         "project_id": request.project_name,
                         "launched_models": [],
                         "pending_models": provisional_model_ids,
                         "skipped_models": [],
                         "groups": [],
                         "sessions": [],
-                        "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
+                        **operation_payload,
+                        "runtime": runtime_payload,
                     }
                 )
+            _set_group_operations_phase(operation_id, "resolving")
             project_path, _intent, resolved = _resolve_launch_request(
                 context.workspace_root,
                 request,
                 project_path=project_path,
             )
-            return JSONResponse(
-                _launch_resolved_models(
-                    context.workspace_root,
-                    request.project_name,
-                    project_path,
-                    resolved,
-                    clear_logs=request.clear_logs,
-                    wait=request.wait,
-                    operation_id=operation_id,
-                )
+            _set_group_operations_phase(operation_id, "queued")
+            result = _launch_resolved_models(
+                context.workspace_root,
+                request.project_name,
+                project_path,
+                resolved,
+                clear_logs=request.clear_logs,
+                wait=request.wait,
+                operation_id=operation_id,
             )
+            result["resource_type"] = f"robotick_launcher_model_{route_action}_result"
+            result.update(_operation_response_payload(operation_id))
+            return JSONResponse(result)
+
+        @router.post("/v1/launcher/models/start", response_class=JSONResponse)
+        def launcher_models_start(request: LauncherModelLaunchRequest) -> JSONResponse:
+            return _launcher_models_start(request, route_action="start")
+
+        @router.post("/v1/launcher/models/launch", response_class=JSONResponse)
+        def launcher_models_launch(request: LauncherModelLaunchRequest) -> JSONResponse:
+            return _launcher_models_start(request, route_action="launch")
 
         @router.get("/v1/launcher/models/logs", response_class=JSONResponse)
         def launcher_models_logs(
@@ -2583,12 +3071,44 @@ class LauncherAbility:
                 project_name=request.project_name,
                 model_ids=request.model_ids,
             )
+            target_model_ids = request.model_ids or sorted(
+                {
+                    *[session.model_id for session in sessions],
+                    *_all_runtime_model_ids(context.workspace_root, request.project_name),
+                    *_active_operation_model_ids(context.workspace_root, request.project_name),
+                }
+            )
+            cancelled_operations = _cancel_operations_for_models(
+                workspace_root=context.workspace_root,
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                reason="stop_requested",
+            )
+            cleared_runtime_operations = _clear_queued_runtime_operations(
+                context.workspace_root,
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                reason="stop_requested",
+            )
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action="stop",
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                creator=request.creator,
+            )
+            operation_id = str(operation_group.get("id") or "")
             result = _stop_model_sessions(
                 context.workspace_root,
                 sessions,
                 action="stop",
                 wait=request.wait,
+                operation_id=operation_id,
             )
+            if request.wait:
+                _set_group_operations_phase(operation_id, "failed" if result["failed"] else "succeeded")
+            else:
+                _set_group_operations_phase(operation_id, "stopping")
             return JSONResponse(
                 {
                     "resource_type": "robotick_launcher_model_stop_result",
@@ -2606,6 +3126,9 @@ class LauncherAbility:
                     "pending_sessions": [
                         _enrich_session_payload(session.model_dump(mode="json")) for session in result.get("pending", [])
                     ],
+                    "cancelled_operations": cancelled_operations,
+                    "cleared_runtime_operations": cleared_runtime_operations,
+                    **_operation_response_payload(operation_id),
                     "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
                 }
             )
@@ -2615,12 +3138,20 @@ class LauncherAbility:
             context = context_provider()
             project_path = _resolve_project_path(context.workspace_root, request.project_name)
             launch_request = _launch_request_from_control(request)
-            operation_id = _new_operation_request_id("restart")
             provisional_model_ids = _provisional_launch_model_ids(
                 context.workspace_root,
                 request.project_name,
                 request,
             )
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action="restart",
+                project_id=request.project_name,
+                model_ids=provisional_model_ids,
+                creator=request.creator,
+                target_policy=_request_target_policy(request),
+            )
+            operation_id = str(operation_group.get("id") or _new_operation_request_id("restart"))
             _publish_provisional_runtime_operations(
                 context.workspace_root,
                 project_id=request.project_name,
@@ -2647,7 +3178,12 @@ class LauncherAbility:
                 model_ids=selected_model_ids,
             )
             if not request.wait:
-                stop_workers = _begin_stop_model_sessions(context.workspace_root, sessions, action="restart")
+                stop_workers = _begin_stop_model_sessions(
+                    context.workspace_root,
+                    sessions,
+                    action="restart",
+                    operation_id=operation_id,
+                )
                 if not stop_workers:
                     _launch_request_after_resolve_async(
                         context.workspace_root,
@@ -2669,6 +3205,7 @@ class LauncherAbility:
                             "pending_sessions": [],
                             "sessions": [],
                             "groups": [],
+                            **_operation_response_payload(operation_id),
                             "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
                         }
                     )
@@ -2698,11 +3235,17 @@ class LauncherAbility:
                         ],
                         "sessions": [],
                         "groups": [],
+                        **_operation_response_payload(operation_id),
                         "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
                     }
                 )
 
-            stop_result = _stop_model_sessions(context.workspace_root, sessions, action="restart")
+            stop_result = _stop_model_sessions(
+                context.workspace_root,
+                sessions,
+                action="restart",
+                operation_id=operation_id,
+            )
             launch_result = _launch_resolved_models(
                 context.workspace_root,
                 request.project_name,
@@ -2731,6 +3274,7 @@ class LauncherAbility:
                     ],
                     "sessions": launch_result["sessions"],
                     "groups": launch_result["groups"],
+                    **_operation_response_payload(operation_id),
                     "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
                 }
             )

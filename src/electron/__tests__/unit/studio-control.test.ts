@@ -827,6 +827,11 @@ describe("Studio control runtime status", () => {
         lastErrorAt: null,
         lastErrorMessage: null,
       })),
+      getSharedDiagnostics: vi.fn(() => ({
+        activeBaseUrlCount: 0,
+        totalSubscriberCount: 0,
+        baseUrls: [],
+      })),
       getHealthForBaseUrl: vi.fn(),
       getPushStatsForBaseUrl: vi.fn(),
       setWorkloadInputFieldsDataForBaseUrl: vi.fn(),
@@ -948,6 +953,11 @@ describe("Studio control runtime status", () => {
             lastFrameAt: null,
             lastErrorAt: null,
             lastErrorMessage: null,
+          })),
+          getSharedDiagnostics: vi.fn(() => ({
+            activeBaseUrlCount: 0,
+            totalSubscriberCount: 0,
+            baseUrls: [],
           })),
           getHealthForBaseUrl: vi.fn(),
           getPushStatsForBaseUrl: vi.fn(),

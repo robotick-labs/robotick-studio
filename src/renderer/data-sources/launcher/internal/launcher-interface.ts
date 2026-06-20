@@ -6,19 +6,27 @@ import {
 import type { LauncherService } from "./LauncherService";
 import type {
   ElectronLauncherDiagnosticsSnapshot,
+  LegacyLauncherStatus,
   LauncherModelLogsBatch,
   LauncherModelLogEvent,
   LauncherModelLogsSnapshot,
   ProjectModelDescriptor,
+  WorkloadsRegistryEntry,
+  WorkloadsRegistryField,
   WorkloadsRegistryResponse,
+  WorkloadsRegistryStruct,
 } from "../../../../electron/common/launcher-bridge-contract";
 
 export type {
   LauncherModelLogEvent,
   LauncherModelLogsBatch,
   LauncherModelLogsSnapshot,
+  LegacyLauncherStatus,
   ProjectModelDescriptor,
+  WorkloadsRegistryEntry,
+  WorkloadsRegistryField,
   WorkloadsRegistryResponse,
+  WorkloadsRegistryStruct,
 };
 
 function ensureTrailingSlash(url: string) {

@@ -98,15 +98,25 @@ When summarizing, identify each target URL and rendered body/workbench. A `#/hom
 ./tools/robotick studio launcher-status <project>
 ```
 
-Use this during launcher/Studio debugging to compare raw hub per-model runtime truth with the state Studio-facing code will consume. `comparison.state_agrees` should be `true`; inspect the per-model entries if hub and Studio disagree about `running`, `stopped`, or operation state.
+Use this during launcher/Studio debugging to compare raw hub per-model runtime truth with the state Studio-facing code will consume. `comparison.state_agrees` should be `true`; inspect `hub_state`, `studio_raw_state`, `studio_display_state`, and the per-model entries if hub and Studio disagree about `running`, `stopped`, or operation state.
 
-### Launch a whole project through the hub-hosted launcher ability
+### Start model runtimes through the hub-hosted launcher ability
 
 ```bash
-./tools/robotick launcher launch <project> native:ALL
+./tools/robotick launcher start <project> native:ALL
 ```
 
-Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--local` or `--native` for explicit model selection.
+Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--local` or `--native` for explicit model selection. `start` returns an acknowledged operation/group handle without waiting for build/run by default; add `--wait` only when the caller explicitly wants the old blocking behavior. `launch` is a legacy alias, not the preferred runtime verb.
+
+Prefer per-model operations when testing or debugging:
+
+```bash
+./tools/robotick launcher start <project> --model <model-id> --native
+./tools/robotick launcher stop --project <project> --model <model-id>
+./tools/robotick launcher restart --project <project> --model <model-id>
+```
+
+Whole-project actions are convenience fan-out over per-model operations. Inspect the returned `operation_group` and child `operations` when an action is interrupted or appears slow.
 
 ### Wait for launcher readiness, inspect logs, and stop model selections
 
@@ -117,6 +127,8 @@ Use `native:<profile>` for a named profile, or `--model` / `--models` plus `--lo
 ```
 
 Use `--model <id>` or `--models <id,...>` for per-model/subset control. Whole-project control is model fan-out, not a first-class group operation.
+
+`wait-ready` evaluates the selected model set it receives from launcher runtime state. A selected stopped, failed, stale, or unhealthy model must not be treated as ready; report the returned `status` and `blockers` rather than summarizing only the aggregate status.
 
 ### Restart model shorthand in the current Studio project
 
@@ -250,7 +262,7 @@ Use this when the user asks to open a robot in Studio and capture what the Remot
 
 ```bash
 ./tools/robotick studio open <project> windows main workbenches remote-control activate
-./tools/robotick launcher launch <project> native:ALL
+./tools/robotick launcher start <project> native:ALL
 ./tools/robotick launcher wait-ready --project <project>
 ./tools/robotick studio <instance> diagnostics telemetry
 ./tools/robotick studio <instance> diagnostics screenshot --resource-path windows/main/workbenches/remote-control --wait-for-render --wait-for-telemetry --validate
@@ -258,7 +270,7 @@ Use this when the user asks to open a robot in Studio and capture what the Remot
 
 Read the `studio open` result for `<instance>`. Screenshot files are written under the workspace root at `.robotick/diagnostics/`.
 
-Do not treat a successful screenshot as proof that the requested operator state is visible. First verify the active workbench is `remote-control`; then, if the user asked for the robot rather than just the Studio shell, launch the runtime and wait for `launcher wait-ready` to report `running`, `ready`, and `live`. Use `diagnostics telemetry` to confirm the renderer has consumed live model state before taking the final screenshot.
+Do not treat a successful screenshot as proof that the requested operator state is visible. First verify the active workbench is `remote-control`; then, if the user asked for the robot rather than just the Studio shell, start the runtime and wait for `launcher wait-ready` to report `ready` with no blockers. Use `diagnostics telemetry` to confirm the renderer has consumed live model state before taking the final screenshot.
 
 For UI-side inspection without opening DevTools, use CLI diagnostics:
 

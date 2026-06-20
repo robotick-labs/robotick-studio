@@ -22,6 +22,7 @@ export type LauncherModelStatus = {
   lifecycle?: string;
   readiness?: string;
   freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+  operation?: LauncherModelOperation;
   diagnostics?: Array<{
     code?: string;
     message?: string;
@@ -32,6 +33,20 @@ export type LauncherModelStatus = {
     path?: string;
   }>;
 };
+export type LauncherModelOperation = {
+  action?: string;
+  phase?: string;
+  request_id?: string;
+  started_at?: string;
+  updated_at?: string;
+  pid?: number;
+  pid_alive?: boolean;
+  queued?: boolean;
+  command?: string[];
+  log_path?: string;
+  result?: Record<string, unknown>;
+  blockers?: unknown[];
+} | null;
 export type LauncherModelHealth = {
   alive: boolean;
   loading: boolean;
@@ -43,6 +58,13 @@ type PendingModelTarget = "running" | "stopped" | "restarting";
 
 const POLLING_DEFAULT_INTERVAL_MS = 1000;
 const POLLING_FAST_INTERVAL_MS = 200;
+
+function getModelTelemetryBaseUrl(modelId: string): string | undefined {
+  const model = getProjectModelsStateSnapshot().data.find(
+    (candidate) => candidate.modelShortName === modelId
+  );
+  return model?.telemetryBaseUrl;
+}
 
 type LauncherContextValue = {
   status: LauncherStatus;
@@ -155,15 +177,16 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
 
         try {
           const launcherSnapshot = await readLauncherStatus(launcherService);
+          const launcherStatus = launcherSnapshot.status;
           const nextPendingModelTargets = reconcilePendingModelTargets(
             launcherSnapshot.models,
-            pendingModelTargetsRef.current
+            pendingModelTargetsRef.current,
+            launcherStatus
           );
           const projectedLauncherModels = projectPendingModelTargets(
             launcherSnapshot.models,
             nextPendingModelTargets
           );
-          const launcherStatus = launcherSnapshot.status;
           const launcherProfile = launcherSnapshot.profile;
           setReportedStatus((prev) =>
             prev === launcherStatus ? prev : launcherStatus
@@ -339,7 +362,12 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       setPendingModelTarget(modelId, "running");
       wakeFastPolling();
       launcherEvents.dispatchEvent(
-        new CustomEvent("run-requested", { detail: { modelId } })
+        new CustomEvent("run-requested", {
+          detail: {
+            modelId,
+            telemetryBaseUrl: getModelTelemetryBaseUrl(modelId),
+          },
+        })
       );
       try {
         await launcherService.requestLauncherRunModel(
@@ -395,6 +423,14 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       setLastError(null);
       setPendingModelTarget(modelId, "stopped");
       wakeFastPolling();
+      launcherEvents.dispatchEvent(
+        new CustomEvent("stop-requested", {
+          detail: {
+            modelId,
+            telemetryBaseUrl: getModelTelemetryBaseUrl(modelId),
+          },
+        })
+      );
       try {
         await launcherService.requestLauncherStopModel(
           projectPath,
@@ -490,7 +526,12 @@ export function LauncherProvider({ children }: { children: React.ReactNode }) {
       setPendingModelTarget(modelId, "restarting");
       wakeFastPolling();
       launcherEvents.dispatchEvent(
-        new CustomEvent("restart-requested", { detail: { modelId } })
+        new CustomEvent("restart-requested", {
+          detail: {
+            modelId,
+            telemetryBaseUrl: getModelTelemetryBaseUrl(modelId),
+          },
+        })
       );
       try {
         await launcherService.requestLauncherRestartModel(
@@ -637,6 +678,51 @@ function isModelEffectivelyStopped(
   );
 }
 
+function isModelEffectivelyFailed(
+  launcherModel?: LauncherModelStatus
+): boolean {
+  const status = launcherModel?.status?.trim();
+  const lifecycle = launcherModel?.lifecycle?.trim();
+  const readiness = launcherModel?.readiness?.trim();
+  const freshness = launcherModel?.freshness?.trim();
+  return (
+    status === "failed" ||
+    lifecycle === "failed" ||
+    readiness === "failed" ||
+    freshness === "failed"
+  );
+}
+
+function isLauncherOperationActive(operation?: LauncherModelOperation): boolean {
+  if (!operation) {
+    return false;
+  }
+  const phase = operation.phase?.trim();
+  return ![
+    "succeeded",
+    "failed",
+    "cancelled",
+    "cancelled_by_stop",
+  ].includes(phase ?? "");
+}
+
+function launcherOperationMatchesTarget(
+  operation: LauncherModelOperation | undefined,
+  target: PendingModelTarget
+): boolean {
+  if (!isLauncherOperationActive(operation)) {
+    return false;
+  }
+  const action = operation?.action?.trim();
+  if (target === "running") {
+    return action === "launching" || action === "starting";
+  }
+  if (target === "stopped") {
+    return action === "stopping" || action === "stop";
+  }
+  return action === "restarting" || action === "restart";
+}
+
 function projectPendingModelTargets(
   launcherModels: Record<string, LauncherModelStatus>,
   pendingModelTargets: Record<string, PendingModelTarget>
@@ -644,6 +730,9 @@ function projectPendingModelTargets(
   const nextModels = { ...launcherModels };
   for (const [modelId, target] of Object.entries(pendingModelTargets)) {
     const current = nextModels[modelId];
+    if (current && launcherOperationMatchesTarget(current.operation, target)) {
+      continue;
+    }
     if (target === "restarting") {
       nextModels[modelId] = {
         ...current,
@@ -682,21 +771,24 @@ function projectPendingModelTargets(
 
 function reconcilePendingModelTargets(
   launcherModels: Record<string, LauncherModelStatus>,
-  pendingModelTargets: Record<string, PendingModelTarget>
+  pendingModelTargets: Record<string, PendingModelTarget>,
+  launcherStatus: LauncherStatus
 ): Record<string, PendingModelTarget> {
   const nextTargets: Record<string, PendingModelTarget> = {};
   for (const [modelId, target] of Object.entries(pendingModelTargets)) {
     const current = launcherModels[modelId];
-    if (target === "restarting") {
-      const status = current?.status?.trim();
-      const lifecycle = current?.lifecycle?.trim();
-      if (
-        status === "starting" ||
-        status === "stopping" ||
-        lifecycle === "starting" ||
-        lifecycle === "stopping"
-      ) {
+    if (launcherOperationMatchesTarget(current?.operation, target)) {
+      continue;
+    }
+    if (!current) {
+      if (launcherStatus !== "stopped") {
         nextTargets[modelId] = target;
+      }
+      continue;
+    }
+    if (target === "restarting") {
+      if (current && isModelEffectivelyFailed(current)) {
+        continue;
       }
       continue;
     }
@@ -866,7 +958,12 @@ function areLauncherModelsEqual(
     }
     if (
       leftValue?.stage !== rightValue?.stage ||
-      leftValue?.status !== rightValue?.status
+      leftValue?.status !== rightValue?.status ||
+      leftValue?.lifecycle !== rightValue?.lifecycle ||
+      leftValue?.readiness !== rightValue?.readiness ||
+      leftValue?.freshness !== rightValue?.freshness ||
+      JSON.stringify(leftValue?.operation ?? null) !==
+        JSON.stringify(rightValue?.operation ?? null)
     ) {
       return false;
     }

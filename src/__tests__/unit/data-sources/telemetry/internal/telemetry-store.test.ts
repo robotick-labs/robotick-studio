@@ -290,6 +290,61 @@ describe("telemetry-store Electron bridge", () => {
     unsubscribe();
   });
 
+  it("clears and reconnects only the targeted telemetry entry for model restart requests", () => {
+    const faceCallback = vi.fn();
+    const spineCallback = vi.fn();
+    const unsubscribeFace = store.subscribeTelemetry("face-base", 10, {
+      callback: faceCallback,
+    });
+    const unsubscribeSpine = store.subscribeTelemetry("spine-base", 10, {
+      callback: spineCallback,
+    });
+
+    emitLayout("face-base", { ...layout, engine_session_id: "face-old" });
+    emitFrame("face-base", "face-old", 2);
+    emitLayout("spine-base", { ...layout, engine_session_id: "spine-old" });
+    emitFrame("spine-base", "spine-old", 2);
+
+    expect(faceCallback).toHaveBeenCalledTimes(1);
+    expect(spineCallback).toHaveBeenCalledTimes(1);
+    expect(store.getDiagnostics("face-base").lastFrameAt).toEqual(
+      expect.any(String)
+    );
+    expect(store.getDiagnostics("spine-base").lastFrameAt).toEqual(
+      expect.any(String)
+    );
+
+    eventTarget.dispatchEvent(
+      new CustomEvent("restart-requested", {
+        detail: { modelId: "face", telemetryBaseUrl: "face-base" },
+      })
+    );
+
+    expect(listenersByBaseUrl.has("face-base")).toBe(true);
+    expect(listenersByBaseUrl.has("spine-base")).toBe(true);
+    expect(store.getDiagnostics("face-base")).toMatchObject({
+      subscriberCount: 1,
+      layoutLoaded: false,
+      lastFrameAt: null,
+      lastErrorMessage: null,
+    });
+    expect(store.getDiagnostics("spine-base")).toMatchObject({
+      subscriberCount: 1,
+      layoutLoaded: true,
+      lastFrameAt: expect.any(String),
+      lastErrorMessage: null,
+    });
+
+    emitLayout("face-base", { ...layout, engine_session_id: "face-new" });
+    emitFrame("face-base", "face-new", 2);
+
+    expect(faceCallback).toHaveBeenCalledTimes(2);
+    expect(spineCallback).toHaveBeenCalledTimes(1);
+
+    unsubscribeFace();
+    unsubscribeSpine();
+  });
+
   it("clears telemetry diagnostics errors after recovered websocket data", () => {
     const callback = vi.fn();
     const unsubscribe = store.subscribeTelemetry("base", 10, {

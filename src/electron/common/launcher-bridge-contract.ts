@@ -8,6 +8,32 @@ export type ProjectModelDescriptor<T = unknown> = {
   data: T;
 };
 
+export type WorkloadsRegistryField = {
+  name: string;
+  type: string;
+  default?: string;
+  element_count?: number;
+  primitive_kind?: string;
+  enum_values?: string[];
+};
+
+export type WorkloadsRegistryStruct = {
+  name: string;
+  fields?: WorkloadsRegistryField[];
+};
+
+export type WorkloadsRegistryEntry = {
+  type: string;
+  roots: {
+    config?: string;
+    inputs?: string;
+    outputs?: string;
+    state?: string;
+  };
+  structs: Record<string, WorkloadsRegistryStruct>;
+  schemaError?: string;
+};
+
 export type WorkloadsRegistryResponse = {
   project: string;
   target: string;
@@ -75,6 +101,21 @@ export type LauncherLogRef = {
   path?: string;
 };
 
+export type LauncherModelOperation = {
+  action?: string;
+  phase?: string;
+  request_id?: string;
+  started_at?: string;
+  updated_at?: string;
+  pid?: number;
+  pid_alive?: boolean;
+  queued?: boolean;
+  command?: string[];
+  log_path?: string;
+  result?: Record<string, unknown>;
+  blockers?: unknown[];
+} | null;
+
 export type LauncherRuntimeModelRecord = {
   id?: string;
   project_id?: string;
@@ -83,11 +124,7 @@ export type LauncherRuntimeModelRecord = {
   lifecycle?: string;
   readiness?: string;
   freshness?: "live" | "stopped" | "pending" | "failed";
-  operation?: {
-    action?: string;
-    pid?: number;
-    pid_alive?: boolean;
-  } | null;
+  operation?: LauncherModelOperation;
   pid?: number;
   pid_alive?: boolean;
   health?: {
@@ -123,6 +160,7 @@ export type LegacyLauncherModelStatus = {
   lifecycle?: string;
   readiness?: string;
   freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
+  operation?: LauncherModelOperation;
   diagnostics?: LauncherDiagnostics[];
   logRefs?: LauncherLogRef[];
 };

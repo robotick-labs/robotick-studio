@@ -689,11 +689,18 @@ describe("Launcher service integration", () => {
     unmount();
   });
 
-  it("clears per-model restart pending state when the launcher reports the model stopped", async () => {
+  it("keeps per-model restart pending state through a launcher-reported stopped gap", async () => {
     vi.useFakeTimers();
 
-    let currentModels: Record<string, Record<string, string>> = {
+    let currentModels: Record<string, Record<string, unknown>> = {
       "demo-robot-face": {
+        stage: "run",
+        status: "running",
+        lifecycle: "running",
+        readiness: "ready",
+        freshness: "live",
+      },
+      "demo-robot-spine": {
         stage: "run",
         status: "running",
         lifecycle: "running",
@@ -703,26 +710,45 @@ describe("Launcher service integration", () => {
     };
     const requestLauncherRestartModel = vi.fn().mockImplementation(async () => {
       currentModels = {
+        ...currentModels,
         "demo-robot-face": {
           stage: "stop",
           status: "stopped",
           lifecycle: "stopped",
           readiness: "pending",
           freshness: "stopped",
+          operation: {
+            action: "restarting",
+            phase: "stopping",
+            request_id: "restart-demo-robot-face",
+          },
         },
       };
+      setTimeout(() => {
+        currentModels = {
+          ...currentModels,
+          "demo-robot-face": {
+            stage: "run",
+            status: "running",
+            lifecycle: "running",
+            readiness: "ready",
+            freshness: "live",
+            operation: null,
+          },
+        };
+      }, 1500);
     });
     const fetchLauncherStatus = vi.fn().mockImplementation(async () => ({
-      status: "stopped",
-      phase: null,
+      status: "running",
+      phase: "run",
       models: currentModels,
     }));
 
     const service = createMockLauncherService({
       projectPath: "/proj",
       getLauncherProfile: () => "local:ALL",
-      getProjectModels: async () => [demoModel],
-      refreshProjectModels: async () => [demoModel],
+      getProjectModels: async () => [demoModel, demoSpineModel],
+      refreshProjectModels: async () => [demoModel, demoSpineModel],
       requestLauncherRestartModel,
       fetchLauncherStatus,
     });
@@ -754,8 +780,24 @@ describe("Launcher service integration", () => {
     expect(document.body.textContent).toContain("stopping");
 
     await advance(1000);
+    expect(document.body.textContent).toContain("restarting");
+    expect(
+      document.querySelector('button[aria-label="Start demo-robot-face"]')
+    ).toBeNull();
+    const faceStopButton = document.querySelector(
+      'button[aria-label="Stop demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(faceStopButton?.disabled).toBe(true);
+
+    await advance(1000);
     expect(document.body.textContent).not.toContain("stopping");
-    expect(document.body.textContent).toContain("stopped");
+    expect(
+      document.querySelector('button[aria-label="Start demo-robot-face"]')
+    ).toBeNull();
+    const completedFaceStopButton = document.querySelector(
+      'button[aria-label="Stop demo-robot-face"]'
+    ) as HTMLButtonElement | null;
+    expect(completedFaceStopButton?.disabled).toBe(false);
 
     vi.useRealTimers();
     unmount();
