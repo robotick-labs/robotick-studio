@@ -881,6 +881,22 @@ def test_launcher_start_posts_profile_and_intent_payloads(
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
+        ["start", "barr-e"],
+    )
+    assert result.exit_code == 0
+    assert captured["payload"] == {
+        "project_name": "barr-e",
+        "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": False,
+        "intent": {
+            "project": "barr-e",
+            "scope": {"kind": "ALL", "value": "ALL"},
+            "target_policy": "native",
+        },
+    }
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
         ["start", "barr-e", "--model", "brain", "--local"],
     )
     assert result.exit_code == 0

@@ -271,7 +271,7 @@ export function WritableTelemetryInputField({
     getCurrentFieldDraftValueFromValue(field, readCurrentFieldValue())
   );
   const [optimisticDraftValue, setOptimisticDraftValue] = useState<string | null>(null);
-  const [optimisticConnectionEnabled, setOptimisticConnectionEnabled] = useState<boolean | null>(null);
+  const [optimisticOverrideActive, setOptimisticOverrideActive] = useState<boolean | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const scrubRef = useRef<{
     onMove: (event: MouseEvent) => void;
@@ -295,12 +295,15 @@ export function WritableTelemetryInputField({
       writableMeta?.incoming_connection_handle ?? field.incoming_connection_handle;
     const incomingConnectionEnabled =
       writableMeta?.incoming_connection_enabled ?? field.incoming_connection_enabled;
+    const inputOverrideActive =
+      writableMeta?.input_override_active ?? field.input_override_active;
 
     return {
       targetModel,
       writableHandle,
       incomingConnectionHandle,
       incomingConnectionEnabled,
+      inputOverrideActive,
     };
   };
 
@@ -318,7 +321,7 @@ export function WritableTelemetryInputField({
       return false;
     }
 
-    setOptimisticConnectionEnabled(enabled);
+    setOptimisticOverrideActive(!enabled);
     const result = await telemetryService.setWorkloadInputConnectionState(
       telemetryBaseUrl,
       {
@@ -345,6 +348,8 @@ export function WritableTelemetryInputField({
         incomingConnectionEnabled:
           refreshedInput?.incoming_connection_enabled ??
           writableMeta.incomingConnectionEnabled,
+        inputOverrideActive:
+          refreshedInput?.input_override_active ?? writableMeta.inputOverrideActive,
       };
 
       if (
@@ -368,7 +373,7 @@ export function WritableTelemetryInputField({
         if (retryResult.ok) {
           return true;
         }
-        setOptimisticConnectionEnabled(null);
+        setOptimisticOverrideActive(null);
         console.warn("setWorkloadInputConnectionState rejected", {
           fieldPath: field.path,
           status: retryResult.status,
@@ -379,7 +384,7 @@ export function WritableTelemetryInputField({
     }
 
     if (!result.ok) {
-      setOptimisticConnectionEnabled(null);
+      setOptimisticOverrideActive(null);
       console.warn("setWorkloadInputConnectionState rejected", {
         fieldPath: field.path,
         status: result.status,
@@ -397,11 +402,11 @@ export function WritableTelemetryInputField({
     }
 
     let writableMeta = getWritableMeta();
-    const connectionEnabled =
-      optimisticConnectionEnabled ?? writableMeta.incomingConnectionEnabled;
+    const overrideActive =
+      optimisticOverrideActive ?? writableMeta.inputOverrideActive;
     if (
       typeof writableMeta.incomingConnectionHandle === "number" &&
-      connectionEnabled !== false
+      overrideActive !== true
     ) {
       const suppressed = await setIncomingConnectionEnabled(false);
       if (!suppressed) {
@@ -471,9 +476,9 @@ export function WritableTelemetryInputField({
   const writableMeta = getWritableMeta();
   const hasIncomingConnection =
     typeof writableMeta.incomingConnectionHandle === "number";
-  const reportedIncomingConnectionEnabled = writableMeta.incomingConnectionEnabled;
-  const incomingConnectionEnabled =
-    optimisticConnectionEnabled ?? reportedIncomingConnectionEnabled;
+  const reportedInputOverrideActive = writableMeta.inputOverrideActive;
+  const inputOverrideActive =
+    optimisticOverrideActive ?? reportedInputOverrideActive ?? false;
   const connectionToneClassName =
     capsuleClassName === styles.remoteConnectedCapsule
       ? styles.inputWriteRowConnectionRemote
@@ -509,22 +514,22 @@ export function WritableTelemetryInputField({
 
   useEffect(() => {
     if (!hasIncomingConnection) {
-      if (optimisticConnectionEnabled !== null) {
-        setOptimisticConnectionEnabled(null);
+      if (optimisticOverrideActive !== null) {
+        setOptimisticOverrideActive(null);
       }
       return;
     }
 
     if (
-      optimisticConnectionEnabled !== null &&
-      reportedIncomingConnectionEnabled === optimisticConnectionEnabled
+      optimisticOverrideActive !== null &&
+      reportedInputOverrideActive === optimisticOverrideActive
     ) {
-      setOptimisticConnectionEnabled(null);
+      setOptimisticOverrideActive(null);
     }
   }, [
     hasIncomingConnection,
-    reportedIncomingConnectionEnabled,
-    optimisticConnectionEnabled,
+    reportedInputOverrideActive,
+    optimisticOverrideActive,
   ]);
 
   useEffect(() => {
@@ -676,7 +681,7 @@ export function WritableTelemetryInputField({
     styles.inputWriteRow,
     hasIncomingConnection ? styles.inputWriteRowHasConnection : "",
     hasIncomingConnection
-      ? incomingConnectionEnabled === false
+      ? inputOverrideActive
         ? styles.inputWriteRowConnectionSuppressed
         : connectionToneClassName
       : "",
@@ -690,22 +695,22 @@ export function WritableTelemetryInputField({
       <button
         type="button"
         className={`${styles.inputConnectionToggle} ${
-          incomingConnectionEnabled === false
+          inputOverrideActive
             ? styles.inputConnectionToggleSuppressed
             : connectionToggleToneClassName
         }`}
         onClick={() => {
-          void setIncomingConnectionEnabled(incomingConnectionEnabled === false);
+          void setIncomingConnectionEnabled(inputOverrideActive);
         }}
         title={
           formatIncomingConnectionToggleTitle(
-            incomingConnectionEnabled !== false,
+            !inputOverrideActive,
             incomingConnectionSourcePath,
             tooltipText
           )
         }
         aria-label={
-          incomingConnectionEnabled === false
+          inputOverrideActive
             ? `Re-enable incoming connection for ${field.name}`
             : `Suppress incoming connection for ${field.name}`
         }

@@ -55,6 +55,7 @@ export interface LayoutWritableInput {
   incoming_connection_handle?: number;
   incoming_connection_path?: string;
   incoming_connection_enabled?: boolean;
+  input_override_active?: boolean;
 }
 
 export interface LayoutModel {
@@ -85,6 +86,7 @@ export interface ITelemetryField {
   incoming_connection_handle?: number;
   incoming_connection_path?: string;
   incoming_connection_enabled?: boolean;
+  input_override_active?: boolean;
   fields?: ITelemetryField[]; // composite schema (one instance)
   model: ITelemetryModel;
 
@@ -726,6 +728,7 @@ namespace TelemetryFactory {
                 writableMeta?.incoming_connection_handle,
                 writableMeta?.incoming_connection_path,
                 writableMeta?.incoming_connection_enabled,
+                writableMeta?.input_override_active,
               ),
             );
           } else {
@@ -750,6 +753,7 @@ namespace TelemetryFactory {
                 writableMeta?.incoming_connection_handle,
                 writableMeta?.incoming_connection_path,
                 writableMeta?.incoming_connection_enabled,
+                writableMeta?.input_override_active,
               ),
             );
           }
@@ -962,6 +966,7 @@ class TelemetryField implements ITelemetryField {
     public readonly incoming_connection_handle?: number,
     public readonly incoming_connection_path?: string,
     public readonly incoming_connection_enabled?: boolean,
+    public readonly input_override_active?: boolean,
   ) {}
 
   getValue(): any {
@@ -1113,6 +1118,7 @@ class TelemetryField implements ITelemetryField {
       this.incoming_connection_handle,
       this.incoming_connection_path,
       this.incoming_connection_enabled,
+      this.input_override_active,
     );
   }
 
@@ -1153,6 +1159,7 @@ class TelemetryField implements ITelemetryField {
       child.incoming_connection_handle,
       child.incoming_connection_path,
       child.incoming_connection_enabled,
+      child.input_override_active,
     );
   }
 
@@ -1199,6 +1206,7 @@ class TelemetryField implements ITelemetryField {
       field.incoming_connection_handle,
       field.incoming_connection_path,
       field.incoming_connection_enabled,
+      field.input_override_active,
     );
   }
 

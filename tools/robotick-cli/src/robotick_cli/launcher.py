@@ -194,7 +194,11 @@ def handle_start_command(ctx: AppContext, args: list[str], *, command_name: str 
             "target_policy": target_policy,
         }
     else:
-        request_payload["profile"] = "native:ALL"
+        request_payload["intent"] = {
+            "project": project_name,
+            "scope": {"kind": "ALL", "value": "ALL"},
+            "target_policy": "native",
+        }
 
     payload = post_hub_json(
         record,
