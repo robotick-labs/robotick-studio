@@ -30,7 +30,7 @@ The MVP rule is:
 - hub stores a small per-model runtime phone book keyed by project plus model id
 - hub verifies phone-book entries against live process and telemetry signals before presenting state
 - in-flight launcher operations are tracked per model as `launching`, `stopping`, or `restarting`
-- whole-project launch, stop, and restart expand to the selected project models and fan out in parallel
+- whole-project start, stop, and restart expand to the selected project models and fan out in parallel
 - Studio and CLI compute aggregate toolbar/status state from granular per-model runtime records
 - stale historical session/group records must not decide current running/stopped/flatline state
 
@@ -42,7 +42,7 @@ The active MVP control endpoints are:
 - `GET /v1/launcher/runtime`
 - `GET /v1/launcher/status`, with `runtime.models` as the current-state source of truth
 
-`ALL` remains a selector meaning “expand to all selected launchable models”; it is not a separate long-lived runtime group. Restart remains simple stop-plus-launch behavior.
+`ALL` remains a selector meaning “expand to all selected launchable models”; it is not a separate long-lived runtime group. Restart remains simple stop-plus-start behavior.
 
 ## Terms
 
@@ -79,7 +79,7 @@ Implementation should assume the current code is split this way:
 - Launcher query listener: `tools/robotick-launcher/src/robotick/launcher/listen/routes_query.py` serves workloads registry, model schema, and related project/query helpers still reached through hub proxy routes.
 - Launcher domain logic: `tools/robotick-launcher/src/robotick/launcher/actions/launch/run_profile.py` and `target_plan.py` contain much of the useful profile, model, target, stage, build, deploy, run, and stop behavior to preserve.
 - Studio renderer launcher data source: `src/renderer/data-sources/launcher/internal/launcher-interface.ts` now calls `/v1/launcher/models/*` for control and `/v1/launcher/status` for live per-model runtime projection. Dedicated Studio log streaming is still follow-on work.
-- CLI launcher entrypoint: `tools/robotick-cli/src/robotick_cli/launcher.py` now exposes `launch`, `status`, `wait-ready`, `logs`, `stop`, `restart`, and a resource-native `ensure`.
+- CLI launcher entrypoint: `tools/robotick-cli/src/robotick_cli/launcher.py` now exposes `start`, `status`, `wait-ready`, `logs`, `stop`, `restart`, and a resource-native `ensure`; `launch` remains a legacy alias for start.
 
 The first implementation step should be to split reusable domain logic from listener state so hub abilities can import domain behavior without starting the singleton listener.
 
@@ -197,17 +197,17 @@ CLI and hub launcher controls should be implemented as the first practical surfa
 
 The practical command shape becomes:
 
-- `launch`: resolve a project/model selector, fan out selected model launches, and return launched/skipped model ids plus runtime projection.
+- `start`: resolve a project/model selector, fan out selected model starts, and return launched/skipped model ids plus runtime projection.
 - `wait-ready`: wait for selected runtime readiness, while reporting service-level readiness separately from runtime readiness.
 - `status`: report ability health and per-model runtime lifecycle without relying on ambient singleton launcher state.
 - `logs`: return per-model/per-source launcher worker, control, startup, and runtime log references scoped to available diagnostics.
 - `stop`: stop a project, explicit model, or explicit model set by fan-out across the selected models.
-- `restart`: simple stop-plus-launch for a project, explicit model, or explicit model set.
+- `restart`: simple stop-plus-start for a project, explicit model, or explicit model set.
 
 Current implementation clarification:
 
-- `robotick launcher launch`, `status`, `wait-ready`, `logs`, `stop`, and `restart` now exist as JSON-first CLI commands over the hub-hosted launcher ability.
-- `launch`, `stop`, and `restart` use `/v1/launcher/models/*`; current runtime projection is the supported control and status surface.
+- `robotick launcher start`, `status`, `wait-ready`, `logs`, `stop`, and `restart` now exist as JSON-first CLI commands over the hub-hosted launcher ability; `robotick launcher launch` is a legacy alias.
+- `start`, `stop`, and `restart` use `/v1/launcher/models/*`; current runtime projection is the supported control and status surface.
 - Launcher group/session records are retained only as implementation/debug records for now. They must not be returned from hot status paths or used by Studio/CLI to reconstruct current state.
 - `wait-ready` now checks current runtime projection directly.
 - `logs` now exposes per-model log snapshots from hub model-log resources.
@@ -434,7 +434,7 @@ Current implementation clarification:
 - Whole-project stop/restart works as parallel fan-out over selected models.
 - Runtime state after handoff is confirmed directly from `robotick-engine` where available.
 - Persisted state is never presented as live unless it has been recently confirmed.
-- `robotick launcher launch`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on hub-hosted launcher resources, with current state derived from per-model runtime truth.
+- `robotick launcher start`, `wait-ready`, `status`, `logs`, `stop`, and `restart` operate on hub-hosted launcher resources, with current state derived from per-model runtime truth; `launch` remains a legacy start alias.
 - Service-level readiness is reported separately from group/session runtime readiness.
 - Per-model build, launch, runtime, and failure details are agent-accessible through `robotick launcher logs --project <project> [--model <id> | --models <id,...>]`, without attaching to terminals manually.
 - Legacy ambient launcher status/control paths are removed or replaced by model runtime resources.

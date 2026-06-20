@@ -118,6 +118,28 @@ Prefer per-model operations when testing or debugging:
 
 Whole-project actions are convenience fan-out over per-model operations. Inspect the returned `operation_group` and child `operations` when an action is interrupted or appears slow.
 
+### Inspect launcher operations and recovery state
+
+Use this when start, stop, or restart is slow, interrupted, or visually inconsistent in Studio.
+
+```bash
+./tools/robotick launcher status --project <project>
+./tools/robotick studio launcher-status <project>
+./tools/robotick launcher logs --project <project> --model <model-id> --tail 220
+```
+
+Treat each model's `operation`, `lifecycle`, `readiness`, `freshness`, telemetry fields, and `health` as the raw launcher state. Studio should only do a thin display mapping on top of that raw state. If an action returns an `operation_group`, inspect the child `operations`; group/project controls are fan-out convenience, not a separate runtime authority.
+
+Expected transition behavior:
+
+- during restart, a model should keep an operation state until the replacement runtime is confirmed or has a clear blocker
+- during startup, a live worker with known telemetry port may briefly report health errors such as connection refused while the engine opens its telemetry endpoint
+- once health is confirmed, the model should converge to `running`, `ready`, `live`, and `operation: null`
+- interrupted or duplicated actions should be reconciled with `launcher status`; use `stop` to cancel queued, spawning, or running work
+- after hub restart, phonebook/session files are only recovery hints; status hydration must verify PID liveness and telemetry health before publishing live state
+
+If a model has a live worker PID but missing telemetry fields or `runtime_probe_unconfigured`, check the model log for the telemetry listening line. That state means launcher recovery/probe metadata is stale, not necessarily that the model failed.
+
 ### Wait for launcher readiness, inspect logs, and stop model selections
 
 ```bash
@@ -167,7 +189,7 @@ stat -c '%y %n' robots/<project>/models/<model>.model.yaml robots/<project>/.lau
 ./tools/robotick launcher logs --project <project> --model <model-id> --tail 220
 ```
 
-Use this when a restarted model appears stale in-engine. Restart is stop-plus-launch through the launcher ability; launch runs generation/build/deploy/run for the selected model. If the model YAML timestamp is newer than the generated source or built binary, restart has not run after the latest edit. The launcher log should show generation, build, and engine load lines for the session that Studio is currently using.
+Use this when a restarted model appears stale in-engine. Restart is stop-plus-start through the launcher ability; start runs generation/build/deploy/run for the selected model. If the model YAML timestamp is newer than the generated source or built binary, restart has not run after the latest edit. The launcher log should show generation, build, and engine load lines for the session that Studio is currently using.
 
 ## Workbench Glossary
 
@@ -286,7 +308,7 @@ Screenshot capture can also activate a resource and briefly wait for the rendere
 ./tools/robotick studio <instance> diagnostics screenshot --resource-path windows/main/workbenches/remote-control --wait-for-render
 ```
 
-If the first capture shows "Launch your robot to enable remote control.", the Studio window is correct but the project runtime is not launched or not yet reflected in the renderer. Launch/wait, then recapture.
+If the first capture shows "Launch your robot to enable remote control.", the Studio window is correct but the project runtime is not started or not yet reflected in the renderer. Start/wait, then recapture.
 
 ### Discover live Studio structure after launch
 

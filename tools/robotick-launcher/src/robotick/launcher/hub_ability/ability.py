@@ -293,11 +293,42 @@ def _runtime_phonebook_record(
 
 
 def _runtime_phonebook_record_needs_session_hydration(record: dict[str, Any]) -> bool:
-    if record.get("pid") or record.get("log_path"):
+    if not str(record.get("last_session_id") or "").strip():
         return False
-    if record.get("telemetry_url") or record.get("telemetry_port") or record.get("health_urls"):
-        return False
-    return bool(str(record.get("last_session_id") or "").strip())
+    has_worker_ref = bool(record.get("pid") or record.get("log_path"))
+    has_probe_ref = bool(record.get("telemetry_url") or record.get("telemetry_port") or record.get("health_urls"))
+    return not (has_worker_ref and has_probe_ref)
+
+
+def _runtime_has_probe_metadata(runtime: dict[str, Any]) -> bool:
+    probe = runtime.get("probe")
+    return isinstance(probe, dict) and bool(probe)
+
+
+def _runtime_with_probe_metadata(
+    workspace_root: str,
+    record: dict[str, Any],
+    session: Any,
+) -> dict[str, Any]:
+    runtime = dict(session.runtime or {})
+    if _runtime_has_probe_metadata(runtime):
+        return runtime
+
+    project_id = str(record.get("project_id") or session.project_id)
+    project_path_text = str(record.get("project_path") or "").strip()
+    project_path = Path(project_path_text) if project_path_text else _resolve_project_path(workspace_root, project_id)
+    runtime_metadata = _session_probe_metadata(
+        workspace_root,
+        project_id,
+        project_path.parent.resolve(),
+        session,
+    )
+    if not runtime_metadata:
+        return runtime
+    return {
+        **runtime,
+        **runtime_metadata,
+    }
 
 
 def _hydrate_runtime_phonebook_record_from_session(
@@ -328,7 +359,15 @@ def _hydrate_runtime_phonebook_record_from_session(
     if not _session_is_active(session):
         return record
 
-    runtime = dict(session.runtime or {})
+    runtime = _runtime_with_probe_metadata(workspace_root, record, session)
+    if runtime != dict(session.runtime or {}):
+        session = session.model_copy(
+            update={
+                "runtime": runtime,
+                "updated_at": _utc_now(),
+            }
+        )
+        session = store.update_session(session)
     worker = dict(runtime.get("worker") or {})
     probe = dict(runtime.get("probe") or {})
     if not worker.get("pid") and not worker.get("log_path") and not probe.get("health_urls"):
@@ -1935,8 +1974,8 @@ def _finalize_launch_runtime_metadata(
             session,
         )
         runtime = {
-            **runtime_metadata,
             **dict(session.runtime or {}),
+            **runtime_metadata,
         }
         session = session.model_copy(
             update={
