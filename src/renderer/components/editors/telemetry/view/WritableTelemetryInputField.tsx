@@ -203,11 +203,50 @@ function defaultFormatCurrentValue(field: TelemetryField): string {
   return String(value);
 }
 
+function extractIncomingConnectionSourcePath(tooltipText?: string | null): string | null {
+  const lines = tooltipText?.split("\n") ?? [];
+  let inIncomingBlock = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "from (local):" || trimmed === "from (remote):") {
+      inIncomingBlock = true;
+      continue;
+    }
+    if (trimmed.endsWith(":")) {
+      inIncomingBlock = false;
+      continue;
+    }
+    if (inIncomingBlock && trimmed.startsWith("- ")) {
+      const sourcePath = trimmed.slice(2).trim();
+      if (sourcePath) return sourcePath;
+    }
+  }
+  return null;
+}
+
+function formatIncomingConnectionToggleTitle(
+  enabled: boolean,
+  sourcePath?: string,
+  tooltipText?: string | null
+): string {
+  const actionText = enabled
+    ? "Incoming connection active. Click to suppress."
+    : "Incoming connection suppressed. Click to re-enable.";
+  const trimmedSourcePath =
+    sourcePath?.trim() || extractIncomingConnectionSourcePath(tooltipText);
+  return trimmedSourcePath
+    ? `${actionText}\nSource: ${trimmedSourcePath}`
+    : tooltipText?.trim()
+      ? `${actionText}\n${tooltipText.trim()}`
+      : actionText;
+}
+
 export type WritableTelemetryInputFieldProps = {
   field: TelemetryField;
   telemetryBaseUrl?: string;
   className?: string;
   capsuleClassName?: string;
+  incomingConnectionSourcePath?: string;
   tooltipText?: string | null;
   labelContextMenu?: React.MouseEventHandler<HTMLElement>;
   readCurrentValue?: (field: TelemetryField) => unknown;
@@ -219,6 +258,7 @@ export function WritableTelemetryInputField({
   telemetryBaseUrl,
   className,
   capsuleClassName,
+  incomingConnectionSourcePath,
   tooltipText,
   labelContextMenu,
   readCurrentValue,
@@ -658,9 +698,11 @@ export function WritableTelemetryInputField({
           void setIncomingConnectionEnabled(incomingConnectionEnabled === false);
         }}
         title={
-          incomingConnectionEnabled === false
-            ? "Incoming connection suppressed. Click to re-enable."
-            : "Incoming connection active. Click to suppress."
+          formatIncomingConnectionToggleTitle(
+            incomingConnectionEnabled !== false,
+            incomingConnectionSourcePath,
+            tooltipText
+          )
         }
         aria-label={
           incomingConnectionEnabled === false

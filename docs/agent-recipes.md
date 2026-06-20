@@ -68,6 +68,30 @@ instance="$(./tools/robotick studio focused | python3 -c 'import json,sys; print
 ./tools/robotick studio "$instance" telemetry model barr-e-face snapshot > results.json
 ```
 
+### Profile a running Studio renderer with Chrome DevTools Protocol
+
+Use this when Studio itself is using noticeable CPU and the running Electron process exposes a Chromium debugger port.
+
+```bash
+./tools/robotick studio focused
+pid=<focused pid>
+ss -ltnp | rg "$pid|Robotick Studio"
+curl -fsS http://127.0.0.1:<port>/json/list
+```
+
+Profile the active page target first, but also check every listed page target. Child windows can remain visible and busy even when the main window is on a different workbench. Pair the JS profile with OS process sampling so browser, GPU, and renderer costs do not get mistaken for renderer JavaScript only:
+
+```bash
+pidstat -h -u -t -p <browser-pid>,<gpu-pid>,<renderer-pid> 1 15
+```
+
+Useful CDP methods:
+
+- page target websocket: `Profiler.enable`, `Profiler.start`, `Profiler.stop`, `Performance.getMetrics`, `Runtime.evaluate`
+- browser websocket from `/json/version`: `SystemInfo.getProcessInfo`
+
+When summarizing, identify each target URL and rendered body/workbench. A `#/home` URL may be a child "New Workbench" window rather than the main Home route.
+
 ### Compare hub runtime authority with Studio-facing launcher state
 
 ```bash

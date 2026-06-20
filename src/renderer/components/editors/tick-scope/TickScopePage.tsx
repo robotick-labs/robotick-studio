@@ -72,7 +72,6 @@ type TickScopeModelDescriptor = {
   modelName: string;
   modelPath: string;
   telemetryBaseUrl: string;
-  telemetryPushRateHz: number;
 };
 
 type DeviceTickScope = {
@@ -98,6 +97,12 @@ type SmoothingSample = {
 
 type WorkerThreadSortKey = "cpu" | "name" | "thread_id" | "logical_cpu";
 
+type ModelTickCache = {
+  raw: ArrayBuffer | null;
+  schemaSessionId: string;
+  modelTick: ModelTick | null;
+};
+
 const MODEL_SORT_OPTIONS: ReadonlyArray<{
   value: ModelSortKey;
   label: string;
@@ -120,6 +125,7 @@ const WORKER_THREAD_SORT_OPTIONS: ReadonlyArray<{
 ];
 
 const TRACE_SPAN_WIDTH_PCT = 2;
+const TICK_SCOPE_UPDATE_RATE_HZ = 10;
 
 function formatMs(value: number): string {
   if (!Number.isFinite(value)) return "0 ms";
@@ -365,20 +371,12 @@ function applyTickScopeSmoothing(
           : smooth(`${spanKey}:carryOutMs`, span.carryOutMs) ?? span.carryOutMs,
       };
     });
-    const workerThreads = thread.workerThreads?.map((worker) => {
-      const cpuMs = smooth(
-        `${threadKey}:worker:${worker.threadId}:cpuMs`,
-        averageThreadCpuMsForPeriod(worker, modelTick.periodMs),
-      );
-      return { ...worker, cpuMs };
-    });
+    const workerThreads = thread.workerThreads;
     return {
       ...thread,
       spans,
       workerThreads,
-      workerThreadCpuTotalMs: workerThreads
-        ? totalThreadCpuMsForPeriod(workerThreads, periodMs)
-        : thread.workerThreadCpuTotalMs,
+      workerThreadCpuTotalMs: thread.workerThreadCpuTotalMs,
     };
   });
 
@@ -397,6 +395,22 @@ function applyTickScopeSmoothing(
 
 function jsonForClipboard(data: unknown): string {
   return JSON.stringify(data, null, 2);
+}
+
+function modelTickFromCache(
+  cache: React.MutableRefObject<ModelTickCache | null>,
+  entry: LiveModelEntry,
+): ModelTick | null {
+  const raw = entry.model?.raw ?? null;
+  const schemaSessionId = entry.model?.schemaSessionId ?? "";
+  const cached = cache.current;
+  if (cached && cached.raw === raw && cached.schemaSessionId === schemaSessionId) {
+    return cached.modelTick;
+  }
+
+  const modelTick = toModelTick(entry);
+  cache.current = { raw, schemaSessionId, modelTick };
+  return modelTick;
 }
 
 function statusLabel(status: ModelTick["status"]): string {
@@ -916,7 +930,6 @@ export default function TickScopePage() {
           modelName: model.modelName,
           modelPath: model.modelPath,
           telemetryBaseUrl: model.telemetryBaseUrl,
-          telemetryPushRateHz: Math.max(1, model.telemetryPushRateHz || 20),
         }))
         .sort((left, right) =>
           compareTickScopeModels(left, right, settings.modelSortKey, (baseUrl) => {
@@ -1108,31 +1121,41 @@ const LiveModelCard = memo(function LiveModelCard({
   showCpuIds: boolean;
 }) {
   const pausedModelTickRef = useRef<ModelTick | null>(null);
+  const modelTickCacheRef = useRef<ModelTickCache | null>(null);
   const smoothingHistoryRef = useRef<Map<string, SmoothingSample[]>>(new Map());
   const publishedFirstTelemetryRef = useRef(false);
   const { model, revision } = useTelemetryStream(
     descriptor.telemetryBaseUrl,
-    descriptor.telemetryPushRateHz,
+    TICK_SCOPE_UPDATE_RATE_HZ,
   );
 
   const modelTick = useMemo(
     () =>
-      toModelTick({
+      modelTickFromCache(modelTickCacheRef, {
         modelName: descriptor.modelName,
         modelPath: descriptor.modelPath,
         telemetryBaseUrl: descriptor.telemetryBaseUrl,
         model,
       }),
-    [descriptor.modelName, descriptor.telemetryBaseUrl, model, revision],
+    [
+      descriptor.modelName,
+      descriptor.modelPath,
+      descriptor.telemetryBaseUrl,
+      model,
+      revision,
+    ],
   );
-  const smoothedModelTick =
-    modelTick && !paused
-      ? applyTickScopeSmoothing(
-          modelTick,
-          smoothingDurationSeconds,
-          smoothingHistoryRef.current,
-        )
-      : modelTick;
+  const smoothedModelTick = useMemo(
+    () =>
+      modelTick && !paused
+        ? applyTickScopeSmoothing(
+            modelTick,
+            smoothingDurationSeconds,
+            smoothingHistoryRef.current,
+          )
+        : modelTick,
+    [modelTick, paused, smoothingDurationSeconds],
+  );
   if (!paused && smoothedModelTick) {
     pausedModelTickRef.current = smoothedModelTick;
   }
@@ -1242,9 +1265,16 @@ const ThreadLane = memo(function ThreadLane({
   const [workerThreadSortKey, setWorkerThreadSortKey] =
     useState<WorkerThreadSortKey>("cpu");
   const hasWorkerThreads = Boolean(thread.workerThreads?.length);
+  const packedSpanLanes = useMemo(
+    () => (thread.copyData ? [] : packSpansIntoSubLanes(thread.spans)),
+    [thread.copyData, thread.spans],
+  );
   const sortedWorkerThreads = useMemo(
-    () => sortWorkerThreads(thread.workerThreads, workerThreadSortKey, model.periodMs),
-    [model.periodMs, thread.workerThreads, workerThreadSortKey],
+    () =>
+      expanded
+        ? sortWorkerThreads(thread.workerThreads, workerThreadSortKey, model.periodMs)
+        : [],
+    [expanded, model.periodMs, thread.workerThreads, workerThreadSortKey],
   );
   const toggleExpanded = () => setExpanded((current) => !current);
 
@@ -1287,7 +1317,7 @@ const ThreadLane = memo(function ThreadLane({
               titlePrefix="Total worker CPU"
             />
           ) : null}
-          {hasWorkerThreads ? (
+          {expanded && hasWorkerThreads ? (
             <label className={styles.workerThreadSortControl}>
               <span>Sort</span>
               <select
@@ -1343,7 +1373,7 @@ const ThreadLane = memo(function ThreadLane({
         {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
       </div>
       <div className={styles.threadTrackStack}>
-        {packSpansIntoSubLanes(thread.spans).map((laneSpans, laneIndex) => (
+        {packedSpanLanes.map((laneSpans, laneIndex) => (
           <div className={styles.laneTrack} key={`${thread.name}:lane:${laneIndex}`}>
             <div className={styles.deadlineLine} />
             {laneSpans.map((span, index) => (

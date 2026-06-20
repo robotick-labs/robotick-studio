@@ -87,6 +87,31 @@ describe("studio-persistence main helpers", () => {
     });
   });
 
+  it("does not overwrite an invalid canonical document with the seed", async () => {
+    const projectDir = createTempProjectDir();
+    const filePath = getStudioDocumentPath(projectDir);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        `id: ${path.basename(projectDir)}-studio`,
+        "windows:",
+        "  - id: main",
+        "    label: Main Window",
+        "    windowRole: invalid-role",
+        "    workbenches: []",
+      ].join("\n"),
+      "utf-8"
+    );
+
+    await expect(ensureStudioDocument(projectDir)).rejects.toThrow(
+      "Invalid Studio document structure"
+    );
+    expect(readStudioDocument(filePath)).toContain("windowRole: invalid-role");
+  });
+
   it("adds a child window to the canonical document without disturbing the main window", async () => {
     const projectDir = createTempProjectDir();
 
@@ -112,6 +137,20 @@ describe("studio-persistence main helpers", () => {
       defaultEditorId: "home",
       defaultLayoutId: "child-telemetry:new-workbench:default",
     });
+  });
+
+  it("serializes concurrent child-window additions for the same document", async () => {
+    const projectDir = createTempProjectDir();
+
+    await Promise.all([
+      ensureChildWindowInDocument(projectDir, "child-a"),
+      ensureChildWindowInDocument(projectDir, "child-b"),
+    ]);
+    const document = await ensureStudioDocument(projectDir);
+
+    expect(document.windows.map((window) => window.id)).toEqual(
+      expect.arrayContaining(["main", "child-a", "child-b"])
+    );
   });
 
   it("deletes a child window from the canonical document on disk", async () => {

@@ -117,6 +117,7 @@ describe("TelemetryStructFields", () => {
       elementCount: 1,
       writable_input_handle: 7,
       incoming_connection_handle: 11,
+      incoming_connection_path: "demo.inputs.enabled",
       incoming_connection_enabled: true,
       model,
       getValue: () => true,
@@ -160,6 +161,14 @@ describe("TelemetryStructFields", () => {
 
     expect(tree.container.querySelector("input[type='checkbox']")).not.toBeNull();
     expect(tree.container.textContent).toContain("enabled");
+    const suppressButton = Array.from(tree.container.querySelectorAll("button")).find(
+      (button) =>
+        button.getAttribute("aria-label") ===
+        "Suppress incoming connection for enabled"
+    );
+    expect(suppressButton?.getAttribute("title")).toBe(
+      "Incoming connection active. Click to suppress.\nSource: demo.outputs.enabled"
+    );
 
     tree.unmount();
   });
