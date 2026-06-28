@@ -6,6 +6,22 @@ import {
 } from "../../utils/domEnvironment";
 import styles from "./PanelLayout.module.css";
 
+export const PANEL_CONTEXT_MENU_ACTIONS_EVENT =
+  "robotick:panel-context-menu-actions";
+
+export type PanelContextMenuAction = {
+  id: string;
+  label: string;
+  onSelect: () => void;
+};
+
+export type PanelContextMenuActionsEventDetail = {
+  actions: PanelContextMenuAction[];
+  target: EventTarget | null;
+  clientX: number;
+  clientY: number;
+};
+
 export type PanelContextMenuState = {
   panelId: string;
   editorId: string;
@@ -32,6 +48,7 @@ export type PanelContextMenuProps = {
   onResetLayout: () => void;
   onClose: () => void;
   onCreateFloatingPanel: (editorId?: string) => void;
+  editorActions?: PanelContextMenuAction[];
   showSplit?: boolean;
   showMaximize?: boolean;
   showReset?: boolean;
@@ -74,6 +91,7 @@ export function PanelContextMenu({
   onResetLayout,
   onClose,
   onCreateFloatingPanel,
+  editorActions = [],
   showSplit = true,
   showMaximize = true,
   showReset = true,
@@ -159,6 +177,24 @@ export function PanelContextMenu({
         role="menu"
         onClick={(event) => event.stopPropagation()}
       >
+        {editorActions.length > 0 && (
+          <>
+            {editorActions.map((action) => (
+              <button
+                key={action.id}
+                className={styles.contextMenuItem}
+                onClick={() => {
+                  action.onSelect();
+                  onClose();
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+            <div className={styles.contextMenuDivider} />
+          </>
+        )}
+
         {showSplit && (
           <>
             <button

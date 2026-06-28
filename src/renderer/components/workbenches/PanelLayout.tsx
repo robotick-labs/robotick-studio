@@ -11,7 +11,12 @@ import {
   subscribeFloatingPanels,
   type FloatingPanelRecord,
 } from "./floating-panels";
-import type { PanelContextMenuState } from "./PanelContextMenu";
+import {
+  PANEL_CONTEXT_MENU_ACTIONS_EVENT,
+  type PanelContextMenuAction,
+  type PanelContextMenuActionsEventDetail,
+  type PanelContextMenuState,
+} from "./PanelContextMenu";
 import { useContextMenu } from "../context-menu/ContextMenuProvider";
 import { PanelErrorBoundary } from "./PanelErrorBoundary";
 import { PanelInstanceProvider } from "./PanelInstanceContext";
@@ -62,6 +67,29 @@ const MIN_RATIO = 0.05;
 const MAX_RATIO = 0.85;
 const PANEL_CONTEXT_MENU_TAP_MAX_MS = 100;
 const PANEL_RMB_GESTURE_SUPPRESS_SELECTOR = "[data-suppress-panel-rmb-menu='active']";
+
+function collectEditorContextMenuActions(
+  event: React.MouseEvent<HTMLDivElement>
+): PanelContextMenuAction[] {
+  const target = event.target as Element | null;
+  if (!target) return [];
+  const actions: PanelContextMenuAction[] = [];
+  target.dispatchEvent(
+    new CustomEvent<PanelContextMenuActionsEventDetail>(
+      PANEL_CONTEXT_MENU_ACTIONS_EVENT,
+      {
+        bubbles: true,
+        detail: {
+          actions,
+          target,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        },
+      }
+    )
+  );
+  return actions;
+}
 
 type PanelLayoutProps = {
   workbenchId: string;
@@ -1258,8 +1286,10 @@ export function PanelLayout({
         verticalRatio: clampRatio(verticalRatio),
         editorId,
       };
+      const editorActions = collectEditorContextMenuActions(event);
       showPanelMenu({
         state,
+        editorActions,
         editorOptions,
         canClose: leafTotal > 1,
         isMaximized: maximizedPanelId === panelId,
@@ -1744,6 +1774,7 @@ function PanelLeaf({
   const panelRef = React.useRef<HTMLDivElement | null>(null);
   const rightMouseDownAtMsRef = React.useRef<number | null>(null);
   const rightMouseDownPosRef = React.useRef<{ x: number; y: number } | null>(null);
+  const rightMouseDownTargetRef = React.useRef<EventTarget | null>(null);
   const [splitPreview, setSplitPreview] = React.useState<{
     direction: "horizontal" | "vertical";
     ratio: number;
@@ -1763,12 +1794,14 @@ function PanelLeaf({
       currentTarget: HTMLDivElement,
       clientX: number,
       clientY: number,
+      target: EventTarget | null,
     ) => {
       const syntheticEvent = {
         defaultPrevented: false,
         isDefaultPrevented: () => false,
         preventDefault: () => {},
         currentTarget,
+        target: target ?? currentTarget,
         clientX,
         clientY,
       } as React.MouseEvent<HTMLDivElement>;
@@ -1893,6 +1926,7 @@ function PanelLeaf({
           if (event.button === 2) {
             rightMouseDownAtMsRef.current = performance.now();
             rightMouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+            rightMouseDownTargetRef.current = event.target;
           }
         }}
         onMouseUpCapture={(event) => {
@@ -1902,6 +1936,7 @@ function PanelLeaf({
           if ((event.target as Element | null)?.closest?.(PANEL_RMB_GESTURE_SUPPRESS_SELECTOR)) {
             rightMouseDownAtMsRef.current = null;
             rightMouseDownPosRef.current = null;
+            rightMouseDownTargetRef.current = null;
             return;
           }
           const downAt = rightMouseDownAtMsRef.current;
@@ -1914,10 +1949,16 @@ function PanelLeaf({
               x: event.clientX,
               y: event.clientY,
             };
-            openPanelMenuFromMousePoint(event.currentTarget, point.x, point.y);
+            openPanelMenuFromMousePoint(
+              event.currentTarget,
+              point.x,
+              point.y,
+              rightMouseDownTargetRef.current ?? event.target,
+            );
           }
           rightMouseDownAtMsRef.current = null;
           rightMouseDownPosRef.current = null;
+          rightMouseDownTargetRef.current = null;
         }}
         onContextMenu={handlePanelContextMenu}
       >
