@@ -244,6 +244,7 @@ function mapRuntimeModelToLegacyModelStatus(
     freshness: model.freshness,
     operation: model.operation ?? null,
     logRefs: model.log_path ? [{ kind: "worker", path: model.log_path }] : [],
+    metrics: model.metrics ?? null,
   } satisfies Omit<LegacyLauncherModelStatus, "stage" | "status">;
 
   switch (model.lifecycle) {

@@ -116,6 +116,37 @@ export type LauncherModelOperation = {
   blockers?: unknown[];
 } | null;
 
+export type LauncherRuntimeProcessMetrics = {
+  pid?: number;
+  parent_pid?: number;
+  namespace_pids?: number[];
+  name?: string;
+  display_name?: string;
+  role?: "engine" | "wrapper" | "runtime" | string;
+  cpu_percent?: number | null;
+  memory_bytes?: number | null;
+  children?: number;
+  [key: string]: unknown;
+};
+
+export type LauncherRuntimeMetrics = {
+  resource_type?: "robotick_launcher_runtime_metrics" | string;
+  source?: string;
+  sampled_at?: string;
+  root_pid?: number | null;
+  process_group_id?: number | null;
+  session_id?: number | null;
+  sample_window_ms?: number | null;
+  process_count?: number;
+  cpu_percent?: number | null;
+  memory_bytes?: number | null;
+  engine_process?: LauncherRuntimeProcessMetrics | null;
+  processes?: LauncherRuntimeProcessMetrics[];
+  top_processes?: LauncherRuntimeProcessMetrics[];
+  devices?: unknown[];
+  [key: string]: unknown;
+};
+
 export type LauncherRuntimeModelRecord = {
   id?: string;
   project_id?: string;
@@ -135,6 +166,7 @@ export type LauncherRuntimeModelRecord = {
   };
   log_path?: string | null;
   updated_at?: string;
+  metrics?: LauncherRuntimeMetrics | null;
 };
 
 export type LauncherRuntimeStatusResponse = {
@@ -163,6 +195,7 @@ export type LegacyLauncherModelStatus = {
   operation?: LauncherModelOperation;
   diagnostics?: LauncherDiagnostics[];
   logRefs?: LauncherLogRef[];
+  metrics?: LauncherRuntimeMetrics | null;
 };
 
 export type LegacyLauncherStatus = {

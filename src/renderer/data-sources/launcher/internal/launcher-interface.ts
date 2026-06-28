@@ -7,6 +7,8 @@ import type { LauncherService } from "./LauncherService";
 import type {
   ElectronLauncherDiagnosticsSnapshot,
   LegacyLauncherStatus,
+  LauncherRuntimeMetrics,
+  LauncherRuntimeProcessMetrics,
   LauncherModelLogsBatch,
   LauncherModelLogEvent,
   LauncherModelLogsSnapshot,
@@ -21,6 +23,8 @@ export type {
   LauncherModelLogEvent,
   LauncherModelLogsBatch,
   LauncherModelLogsSnapshot,
+  LauncherRuntimeMetrics,
+  LauncherRuntimeProcessMetrics,
   LegacyLauncherStatus,
   ProjectModelDescriptor,
   WorkloadsRegistryEntry,

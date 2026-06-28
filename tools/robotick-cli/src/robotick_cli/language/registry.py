@@ -223,6 +223,12 @@ LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         shell_label="status",
     ),
     CommandSpec(
+        name="metrics",
+        usage="robotick launcher metrics [--project <project>]",
+        summary="Query latest per-model runtime CPU and memory metrics as JSON",
+        shell_label="metrics",
+    ),
+    CommandSpec(
         name="ensure",
         usage="robotick launcher ensure",
         summary="Ensure the hub-backed launcher control plane is available and report status as JSON",

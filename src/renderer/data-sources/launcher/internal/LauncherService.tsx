@@ -5,6 +5,7 @@ import type {
   ProjectSelectionResult,
   ProjectSelectionState,
   WorkloadsRegistryResponse,
+  LauncherRuntimeMetrics,
   LauncherModelLogsBatch,
 } from "./launcher-interface";
 import currentProject from "./launcher-interface";
@@ -120,6 +121,7 @@ export interface LauncherService {
           kind?: string;
           path?: string;
         }>;
+        metrics?: LauncherRuntimeMetrics | null;
       }
     >;
   } | null>;

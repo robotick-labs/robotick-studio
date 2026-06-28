@@ -2,6 +2,9 @@ from pathlib import Path
 from rich import print
 import typer
 
+from robotick.launcher.actions.launch.custom_stages import (
+    custom_stage_can_skip_binary_requirement,
+)
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.utils import get_launcher_paths
 
@@ -12,7 +15,7 @@ def deploy(
     base_dir: Path = typer.Option(Path.cwd(), help="Base directory containing .launcher"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print commands without executing them"),
 ):
-    _, _, binary_path = get_launcher_paths(project, model, target, base_dir)
+    launcher_dir, _, binary_path = get_launcher_paths(project, model, target, base_dir)
     plan = resolve_target_plan(project, model, target, base_dir)
 
     print("============================================================================================")
@@ -25,6 +28,10 @@ def deploy(
             print("[yellow]⚠️ Dry run only — commands not executed.[/]")
             return
         print(f"[bold green]✅ Deploying complete ({plan.deploy.strategy}).[/]")
+        return
+
+    if not binary_path.exists() and custom_stage_can_skip_binary_requirement(launcher_dir):
+        print(f"[bold green]✅ Deploying complete ({target}, custom stage output).[/]")
         return
 
     if not binary_path.exists():

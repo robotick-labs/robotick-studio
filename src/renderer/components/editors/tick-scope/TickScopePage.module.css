@@ -656,7 +656,7 @@
   min-width: 0;
   justify-self: end;
   display: grid;
-  grid-template-columns: minmax(80px, 130px) repeat(3, max-content);
+  grid-template-columns: minmax(80px, 190px) repeat(2, max-content);
   align-items: center;
   gap: 8px;
   color: var(--app-text-muted);
@@ -707,7 +707,18 @@
   border: 1px solid #34424d;
   border-radius: 5px;
   background: #0f151a;
-  padding: 6px 8px;
+  padding: 6px 8px 6px calc(8px + (var(--process-depth, 0) * 18px));
+}
+
+.runtimeProcessRowWrapper {
+  border-color: #26323b;
+  background: #0d1318;
+  opacity: 0.78;
+}
+
+.runtimeProcessRowEngine {
+  border-color: #526b7d;
+  background: #14212a;
 }
 
 .runtimeProcessIdentity {

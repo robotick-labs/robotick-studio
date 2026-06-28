@@ -77,6 +77,20 @@ windows:
               panelId: panel-telemetry
               editorId: telemetry
             floatingPanels: []
+      - id: performance
+        path: /performance
+        label: Performance
+        group: test
+        defaultEditorId: tick-scope
+        defaultLayoutId: main:performance:default
+        layouts:
+          - id: main:performance:default
+            label: Performance | Default
+            dock:
+              nodeType: panel
+              panelId: panel-performance
+              editorId: tick-scope
+            floatingPanels: []
       - id: terminal
         path: /terminal
         label: Terminal

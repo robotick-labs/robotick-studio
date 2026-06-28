@@ -14,6 +14,7 @@ import {
   useLauncherService,
   type LauncherService,
 } from "./LauncherService";
+import type { LauncherRuntimeMetrics } from "./launcher-interface";
 
 export type LauncherStatus = "stopped" | "launching" | "running" | "stopping";
 export type LauncherModelStatus = {
@@ -23,6 +24,7 @@ export type LauncherModelStatus = {
   readiness?: string;
   freshness?: "live" | "stale" | "stopped" | "pending" | "failed";
   operation?: LauncherModelOperation;
+  metrics?: LauncherRuntimeMetrics | null;
   diagnostics?: Array<{
     code?: string;
     message?: string;
@@ -963,7 +965,9 @@ function areLauncherModelsEqual(
       leftValue?.readiness !== rightValue?.readiness ||
       leftValue?.freshness !== rightValue?.freshness ||
       JSON.stringify(leftValue?.operation ?? null) !==
-        JSON.stringify(rightValue?.operation ?? null)
+        JSON.stringify(rightValue?.operation ?? null) ||
+      JSON.stringify(leftValue?.metrics ?? null) !==
+        JSON.stringify(rightValue?.metrics ?? null)
     ) {
       return false;
     }

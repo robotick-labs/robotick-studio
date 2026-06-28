@@ -1,9 +1,12 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Launcher,
-  Project,
-  ProjectData,
-} from "../../../data-sources/launcher";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Launcher, Project, ProjectData } from "../../../data-sources/launcher";
 import {
   type ITelemetryField,
   type ITelemetryModel,
@@ -13,6 +16,10 @@ import {
   useTelemetryService,
   useTelemetryStream,
 } from "../../../data-sources/telemetry";
+import type {
+  LauncherRuntimeMetrics,
+  LauncherRuntimeProcessMetrics,
+} from "../../../data-sources/launcher/internal/launcher-interface";
 import type { ModelSortKey } from "../telemetry/view/TelemetryApp";
 import {
   getSpanBlockStyle,
@@ -30,6 +37,7 @@ import {
 import { tickScopePagePersistence } from "./TickScopePage.persistence";
 import { publishRendererStartupTiming } from "../../../services/studio-diagnostics";
 import { msSinceRendererStartup } from "../../../services/startup-timing";
+import { readStorageValue, setStorageValue } from "../../../services/storage";
 import styles from "./TickScopePage.module.css";
 
 type WorkSpan = TickScopeWorkSpan;
@@ -75,37 +83,39 @@ type ModelTick = {
 
 type RuntimeProcessSummary = {
   pid: number;
+  parentPid: number | null;
   name: string;
   role: string;
-  cpuPercent: number;
+  cpuPercent: number | null;
   rssBytes: number;
   children?: number;
-  kind?: "engine" | "runtime";
+  depth?: number;
+  kind?: "engine" | "runtime" | "wrapper";
 };
 
 type RuntimeMetricsSummary = {
-  source: "mock" | "launcher";
-  sampledAt: string;
-  sampleWindowMs: number;
+  source: "launcher" | "unavailable";
+  sampledAt: string | null;
+  sampleWindowMs: number | null;
   rootPid: number | null;
   processCount: number;
   cpuPercent: number | null;
   rssBytes: number | null;
   engineProcess: RuntimeProcessSummary | null;
-  otherProcesses: RuntimeProcessSummary[];
+  processTree: RuntimeProcessSummary[];
 };
 
 type TickScopeModelDescriptor = {
+  modelId: string;
   modelName: string;
   modelPath: string;
   telemetryBaseUrl: string;
+  runtimeMetrics?: LauncherRuntimeMetrics | null;
 };
 
 type DeviceTickScope = {
   id: string;
   name: string;
-  cpuLabel: string;
-  loadLabel: string;
   models: TickScopeModelDescriptor[];
 };
 
@@ -113,6 +123,7 @@ type LiveModelEntry = {
   modelName: string;
   modelPath: string;
   telemetryBaseUrl: string;
+  runtimeMetrics?: LauncherRuntimeMetrics | null;
   model: ITelemetryModel | null;
 };
 
@@ -128,6 +139,7 @@ type RuntimeProcessSortKey = "cpu" | "memory" | "name" | "pid";
 type ModelTickCache = {
   raw: ArrayBuffer | null;
   schemaSessionId: string;
+  runtimeMetrics: LauncherRuntimeMetrics | null | undefined;
   modelTick: ModelTick | null;
 };
 
@@ -164,6 +176,46 @@ const RUNTIME_PROCESS_SORT_OPTIONS: ReadonlyArray<{
 
 const TRACE_SPAN_WIDTH_PCT = 2;
 const TICK_SCOPE_UPDATE_RATE_HZ = 10;
+const TICK_SCOPE_DISCLOSURE_STORAGE_PREFIX = "robotick.tickScope.disclosure.v1";
+
+function tickScopeDisclosureStorageKey(
+  modelPath: string,
+  section: string,
+): string {
+  return `${TICK_SCOPE_DISCLOSURE_STORAGE_PREFIX}.${encodeURIComponent(modelPath)}.${section}`;
+}
+
+function useStoredDisclosureState(
+  storageKey: string,
+  defaultExpanded = false,
+): [boolean, (updater: boolean | ((current: boolean) => boolean)) => void] {
+  const [expanded, setExpandedState] = useState(() => {
+    const stored = readStorageValue(storageKey);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+    return defaultExpanded;
+  });
+
+  useEffect(() => {
+    const stored = readStorageValue(storageKey);
+    setExpandedState(
+      stored === "1" ? true : stored === "0" ? false : defaultExpanded,
+    );
+  }, [defaultExpanded, storageKey]);
+
+  const setExpanded = useCallback(
+    (updater: boolean | ((current: boolean) => boolean)) => {
+      setExpandedState((current) => {
+        const next = typeof updater === "function" ? updater(current) : updater;
+        setStorageValue(storageKey, next ? "1" : "0");
+        return next;
+      });
+    },
+    [storageKey],
+  );
+
+  return [expanded, setExpanded];
+}
 
 function formatMs(value: number): string {
   if (!Number.isFinite(value)) return "0 ms";
@@ -206,6 +258,61 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function numericMetricValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function namespacePidsForProcess(
+  process: LauncherRuntimeProcessMetrics,
+): number[] {
+  const candidates = [
+    process.namespace_pids,
+    process.namespacePids,
+    process.pid_namespace_ids,
+  ];
+  const pids: number[] = [];
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+    for (const value of candidate) {
+      const pid = numericMetricValue(value);
+      if (pid != null) pids.push(pid);
+    }
+  }
+  return pids;
+}
+
+function processNameFromMainThread(
+  processThreads: ITelemetryProcessThread[],
+): string | null {
+  const mainThread = processThreads[0];
+  const displayName = mainThread?.displayName?.trim();
+  const rawName = mainThread?.name?.trim();
+  const name = displayName || rawName;
+  if (!name) return null;
+  return name.replace(/\s+main$/i, "").trim() || name;
+}
+
+function runtimeProcessMetricName(
+  process: LauncherRuntimeProcessMetrics | null | undefined,
+  fallbackPid?: number | null,
+): string {
+  const displayName =
+    typeof process?.display_name === "string"
+      ? process.display_name.trim()
+      : "";
+  if (displayName) return displayName;
+  const name = typeof process?.name === "string" ? process.name.trim() : "";
+  if (name) return name;
+  return fallbackPid != null
+    ? `pid ${fallbackPid}`
+    : "<process name not found>";
+}
+
 function runtimeCpuLabel(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value)
     ? formatPercent(value)
@@ -217,7 +324,11 @@ function averageThreadCpuMsForPeriod(
   periodMs: number,
 ): number | null {
   const deltaNs = thread.cpuTimeDeltaNs;
-  if (typeof deltaNs !== "number" || !Number.isFinite(deltaNs) || deltaNs <= 0) {
+  if (
+    typeof deltaNs !== "number" ||
+    !Number.isFinite(deltaNs) ||
+    deltaNs <= 0
+  ) {
     return deltaNs === 0 ? 0 : null;
   }
   const sampleWindowNs = thread.cpuSampleWindowNs;
@@ -246,7 +357,19 @@ function totalThreadCpuMsForPeriod(
   return hasSample ? total : null;
 }
 
-function workerThreadCpuMs(thread: ProcessThreadSummary, periodMs: number): number | null {
+function engineCpuPercentFromThreads(
+  threads: ITelemetryProcessThread[],
+  periodMs: number,
+): number | null {
+  if (!(periodMs > 0)) return null;
+  const cpuMs = totalThreadCpuMsForPeriod(threads, periodMs);
+  return cpuMs == null ? null : (cpuMs / periodMs) * 100;
+}
+
+function workerThreadCpuMs(
+  thread: ProcessThreadSummary,
+  periodMs: number,
+): number | null {
   return thread.cpuMs ?? averageThreadCpuMsForPeriod(thread, periodMs);
 }
 
@@ -287,7 +410,11 @@ function sortWorkerThreads(
         result = lhs.threadId - rhs.threadId;
         break;
       case "logical_cpu":
-        result = compareNullableNumbers(lhs.logicalCpuId, rhs.logicalCpuId, "asc");
+        result = compareNullableNumbers(
+          lhs.logicalCpuId,
+          rhs.logicalCpuId,
+          "asc",
+        );
         break;
     }
     return result || lhs.threadId - rhs.threadId;
@@ -302,7 +429,7 @@ function sortRuntimeProcesses(
     let result = 0;
     switch (sortKey) {
       case "cpu":
-        result = rhs.cpuPercent - lhs.cpuPercent;
+        result = compareNullableNumbers(lhs.cpuPercent, rhs.cpuPercent, "desc");
         break;
       case "memory":
         result = rhs.rssBytes - lhs.rssBytes;
@@ -314,8 +441,133 @@ function sortRuntimeProcesses(
         result = lhs.pid - rhs.pid;
         break;
     }
-    return result || rhs.cpuPercent - lhs.cpuPercent || lhs.pid - rhs.pid;
+    return (
+      result ||
+      compareNullableNumbers(lhs.cpuPercent, rhs.cpuPercent, "desc") ||
+      lhs.pid - rhs.pid
+    );
   });
+}
+
+function sortProcessTreeSiblings(
+  processes: RuntimeProcessSummary[],
+  sortKey: RuntimeProcessSortKey,
+  subtreeCostByPid: ReadonlyMap<
+    number,
+    { cpuPercent: number | null; rssBytes: number }
+  >,
+): RuntimeProcessSummary[] {
+  if (sortKey === "cpu" || sortKey === "memory") {
+    return [...processes].sort((lhs, rhs) => {
+      const leftCost = subtreeCostByPid.get(lhs.pid);
+      const rightCost = subtreeCostByPid.get(rhs.pid);
+      const result =
+        sortKey === "cpu"
+          ? compareNullableNumbers(
+              leftCost?.cpuPercent ?? null,
+              rightCost?.cpuPercent ?? null,
+              "desc",
+            )
+          : (rightCost?.rssBytes ?? 0) - (leftCost?.rssBytes ?? 0);
+      return (
+        result ||
+        compareNullableNumbers(lhs.cpuPercent, rhs.cpuPercent, "desc") ||
+        lhs.pid - rhs.pid
+      );
+    });
+  }
+  return sortRuntimeProcesses(processes, sortKey);
+}
+
+function flattenProcessTree(
+  processes: RuntimeProcessSummary[],
+  sortKey: RuntimeProcessSortKey,
+): RuntimeProcessSummary[] {
+  const byPid = new Map(processes.map((process) => [process.pid, process]));
+  const childrenByParent = new Map<number, RuntimeProcessSummary[]>();
+  const roots: RuntimeProcessSummary[] = [];
+  for (const process of processes) {
+    const parentPid = process.parentPid;
+    if (parentPid != null && byPid.has(parentPid)) {
+      const children = childrenByParent.get(parentPid) ?? [];
+      children.push(process);
+      childrenByParent.set(parentPid, children);
+    } else {
+      roots.push(process);
+    }
+  }
+
+  const subtreeCostByPid = new Map<
+    number,
+    { cpuPercent: number | null; rssBytes: number }
+  >();
+  const calculateSubtreeCost = (
+    process: RuntimeProcessSummary,
+    ancestors: Set<number>,
+  ): { cpuPercent: number | null; rssBytes: number } => {
+    const cached = subtreeCostByPid.get(process.pid);
+    if (cached) return cached;
+    if (ancestors.has(process.pid)) {
+      return {
+        cpuPercent: process.cpuPercent,
+        rssBytes: process.rssBytes,
+      };
+    }
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(process.pid);
+    let cpuPercent = process.cpuPercent;
+    let rssBytes = process.rssBytes;
+    for (const child of childrenByParent.get(process.pid) ?? []) {
+      const childCost = calculateSubtreeCost(child, nextAncestors);
+      rssBytes += childCost.rssBytes;
+      if (childCost.cpuPercent != null) {
+        cpuPercent = (cpuPercent ?? 0) + childCost.cpuPercent;
+      }
+    }
+    const cost = { cpuPercent, rssBytes };
+    subtreeCostByPid.set(process.pid, cost);
+    return cost;
+  };
+  for (const process of processes) {
+    calculateSubtreeCost(process, new Set());
+  }
+
+  const flattened: RuntimeProcessSummary[] = [];
+  const visit = (
+    process: RuntimeProcessSummary,
+    depth: number,
+    ancestors: Set<number>,
+  ) => {
+    flattened.push({ ...process, depth });
+    if (ancestors.has(process.pid)) return;
+    const children = sortProcessTreeSiblings(
+      childrenByParent.get(process.pid) ?? [],
+      sortKey,
+      subtreeCostByPid,
+    );
+    const nextAncestors = new Set(ancestors);
+    nextAncestors.add(process.pid);
+    for (const child of children) {
+      visit(child, depth + 1, nextAncestors);
+    }
+  };
+
+  for (const root of sortProcessTreeSiblings(
+    roots,
+    sortKey,
+    subtreeCostByPid,
+  )) {
+    visit(root, 0, new Set());
+  }
+  return flattened;
+}
+
+function runtimeProcessSubtitle(
+  process: RuntimeProcessSummary | null | undefined,
+): string {
+  if (!process) return "process unavailable";
+  const name = process.name.trim() || "process";
+  return process.pid > 0 ? `${name} · pid ${process.pid}` : name;
 }
 
 function relativeMs(valueNs: number, originNs: number): number {
@@ -326,7 +578,13 @@ function rawPhaseSnapshot(
   startNs: number,
   endNs: number,
   originNs: number,
-): { startNs: number; endNs: number; startMs: number; endMs: number; durationMs: number } | null {
+): {
+  startNs: number;
+  endNs: number;
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+} | null {
   if (endNs <= startNs) return null;
   return {
     startNs,
@@ -359,7 +617,9 @@ function timeWeightedAverageSmoothingSamples(
     durationTotal += durationMs;
   }
 
-  return durationTotal > 0 ? weightedTotal / durationTotal : samples[samples.length - 1].value;
+  return durationTotal > 0
+    ? weightedTotal / durationTotal
+    : samples[samples.length - 1].value;
 }
 
 function smoothTimeValue(
@@ -385,25 +645,29 @@ function smoothTimeValue(
     samples.unshift(previousSample);
   }
   const lastSample = samples[samples.length - 1];
-  if (lastSample?.tickSeq === tickSeq) {
-    samples[samples.length - 1] = { tickSeq, sampledAtMs: nowMs, value };
-  } else {
+  if (lastSample?.tickSeq !== tickSeq || lastSample.value !== value) {
     samples.push({ tickSeq, sampledAtMs: nowMs, value });
   }
   history.set(key, samples);
   return timeWeightedAverageSmoothingSamples(samples, oldestMs, nowMs);
 }
 
-function statusForSlack(slackMs: number, periodMs: number): ModelTick["status"] {
+function statusForSlack(
+  slackMs: number,
+  periodMs: number,
+): ModelTick["status"] {
   return slackMs < 0 ? "miss" : slackMs < periodMs * 0.1 ? "tight" : "healthy";
 }
 
-function applyTickScopeSmoothing(
+export function applyTickScopeSmoothing(
   modelTick: ModelTick,
   smoothingDurationSeconds: number,
   history: Map<string, SmoothingSample[]>,
 ): ModelTick {
-  if (!Number.isFinite(smoothingDurationSeconds) || smoothingDurationSeconds <= 0) {
+  if (
+    !Number.isFinite(smoothingDurationSeconds) ||
+    smoothingDurationSeconds <= 0
+  ) {
     history.clear();
     return modelTick;
   }
@@ -422,18 +686,24 @@ function applyTickScopeSmoothing(
     );
   };
 
-  const periodMs = smooth("model:periodMs", modelTick.periodMs) ?? modelTick.periodMs;
-  const slackMs = smooth("model:slackMs", modelTick.slackMs) ?? modelTick.slackMs;
+  const periodMs =
+    smooth("model:periodMs", modelTick.periodMs) ?? modelTick.periodMs;
+  const slackMs =
+    smooth("model:slackMs", modelTick.slackMs) ?? modelTick.slackMs;
   const threads = modelTick.threads.map((thread) => {
-    const threadKey = thread.threadId != null ? `thread:${thread.threadId}` : `thread:${thread.name}`;
+    const threadKey =
+      thread.threadId != null
+        ? `thread:${thread.threadId}`
+        : `thread:${thread.name}`;
     const previousSmoothedEndMsByChain = new Map<string, number>();
     const spans = thread.spans.map((span, index) => {
       const spanKey = `${threadKey}:span:${index}:${span.kind}:${span.workload}`;
-      const smoothedStartMs = smooth(`${spanKey}:startMs`, span.startMs) ?? span.startMs;
+      const smoothedStartMs =
+        smooth(`${spanKey}:startMs`, span.startMs) ?? span.startMs;
       const previousChainEndMs =
         span.snapChainId == null
           ? null
-          : previousSmoothedEndMsByChain.get(span.snapChainId) ?? null;
+          : (previousSmoothedEndMsByChain.get(span.snapChainId) ?? null);
       const startMs =
         span.snapStartToPreviousEnd && previousChainEndMs != null
           ? previousChainEndMs
@@ -443,26 +713,85 @@ function applyTickScopeSmoothing(
       if (span.snapChainId != null) {
         previousSmoothedEndMsByChain.set(
           span.snapChainId,
-          Math.max(previousChainEndMs ?? Number.NEGATIVE_INFINITY, normalizedEndMs),
+          Math.max(
+            previousChainEndMs ?? Number.NEGATIVE_INFINITY,
+            normalizedEndMs,
+          ),
         );
       }
       return {
         ...span,
         startMs,
         endMs: normalizedEndMs,
-        carryOutMs: span.carryOutMs == null
-          ? undefined
-          : smooth(`${spanKey}:carryOutMs`, span.carryOutMs) ?? span.carryOutMs,
+        carryOutMs:
+          span.carryOutMs == null
+            ? undefined
+            : (smooth(`${spanKey}:carryOutMs`, span.carryOutMs) ??
+              span.carryOutMs),
       };
     });
-    const workerThreads = thread.workerThreads;
+    const workerThreads = thread.workerThreads?.map((workerThread) => {
+      const workerThreadKey = `${threadKey}:worker:${workerThread.threadId}`;
+      return {
+        ...workerThread,
+        cpuMs:
+          smooth(
+            `${workerThreadKey}:cpuMs`,
+            workerThreadCpuMs(workerThread, modelTick.periodMs),
+          ) ?? workerThreadCpuMs(workerThread, modelTick.periodMs),
+      };
+    });
     return {
       ...thread,
       spans,
       workerThreads,
-      workerThreadCpuTotalMs: thread.workerThreadCpuTotalMs,
+      workerThreadCpuTotalMs:
+        workerThreads && workerThreads.length > 0
+          ? totalThreadCpuMsForPeriod(workerThreads, periodMs)
+          : thread.workerThreadCpuTotalMs,
     };
   });
+  const runtimeMetrics: RuntimeMetricsSummary = {
+    ...modelTick.runtimeMetrics,
+    cpuPercent:
+      smooth("runtime:cpuPercent", modelTick.runtimeMetrics.cpuPercent) ??
+      modelTick.runtimeMetrics.cpuPercent,
+    rssBytes:
+      smooth("runtime:rssBytes", modelTick.runtimeMetrics.rssBytes) ??
+      modelTick.runtimeMetrics.rssBytes,
+    engineProcess: modelTick.runtimeMetrics.engineProcess
+      ? {
+          ...modelTick.runtimeMetrics.engineProcess,
+          cpuPercent:
+            smooth(
+              "runtime:engine:cpuPercent",
+              modelTick.runtimeMetrics.engineProcess.cpuPercent,
+            ) ?? modelTick.runtimeMetrics.engineProcess.cpuPercent,
+          rssBytes:
+            smooth(
+              "runtime:engine:rssBytes",
+              modelTick.runtimeMetrics.engineProcess.rssBytes,
+            ) ?? modelTick.runtimeMetrics.engineProcess.rssBytes,
+        }
+      : null,
+    processTree: modelTick.runtimeMetrics.processTree.map((process) => ({
+      ...process,
+      cpuPercent:
+        smooth(
+          `runtime:process:${process.pid}:cpuPercent`,
+          process.cpuPercent,
+        ) ?? process.cpuPercent,
+      rssBytes:
+        smooth(`runtime:process:${process.pid}:rssBytes`, process.rssBytes) ??
+        process.rssBytes,
+    })),
+  };
+  const processMemoryUsed =
+    smooth("model:processMemoryUsed", modelTick.processMemoryUsed) ??
+    modelTick.processMemoryUsed;
+  const workloadsMemoryUsed =
+    smooth("model:workloadsMemoryUsed", modelTick.workloadsMemoryUsed) ??
+    modelTick.workloadsMemoryUsed;
 
   for (const key of history.keys()) {
     if (!seenKeys.has(key)) history.delete(key);
@@ -473,6 +802,9 @@ function applyTickScopeSmoothing(
     periodMs,
     slackMs,
     status: statusForSlack(slackMs, periodMs),
+    processMemoryUsed,
+    workloadsMemoryUsed,
+    runtimeMetrics,
     threads,
   };
 }
@@ -502,12 +834,22 @@ function modelTickFromCache(
   const raw = entry.model?.raw ?? null;
   const schemaSessionId = entry.model?.schemaSessionId ?? "";
   const cached = cache.current;
-  if (cached && cached.raw === raw && cached.schemaSessionId === schemaSessionId) {
+  if (
+    cached &&
+    cached.raw === raw &&
+    cached.schemaSessionId === schemaSessionId &&
+    cached.runtimeMetrics === entry.runtimeMetrics
+  ) {
     return cached.modelTick;
   }
 
   const modelTick = toModelTick(entry);
-  cache.current = { raw, schemaSessionId, modelTick };
+  cache.current = {
+    raw,
+    schemaSessionId,
+    runtimeMetrics: entry.runtimeMetrics,
+    modelTick,
+  };
   return modelTick;
 }
 
@@ -555,92 +897,115 @@ function displayWorkloadName(workload: ITelemetryWorkload): string {
   return workload.displayName?.trim() || workload.name;
 }
 
-function mockProcess(
-  pid: number,
-  name: string,
-  role: string,
-  cpuPercent: number,
-  rssBytes: number,
-  children = 0,
-): RuntimeProcessSummary {
-  return {
-    pid,
-    name,
-    role,
-    cpuPercent,
-    rssBytes,
-    children,
-    kind: "runtime",
-  };
-}
-
-function mockOtherRuntimeProcesses(modelName: string): RuntimeProcessSummary[] {
-  const normalized = modelName.toLowerCase();
-  if (normalized.includes("simulator")) {
-    return [
-      mockProcess(43210, "ign gazebo", "sim physics/rendering", 92.1, 910 * 1024 * 1024, 3),
-      mockProcess(43218, "ros_gz_bridge", "camera/depth bridge", 24.5, 180 * 1024 * 1024, 2),
-      mockProcess(43222, "robot_state_publisher", "robot description", 1.8, 42 * 1024 * 1024),
-    ];
-  }
-  if (normalized.includes("perception") || normalized.includes("visual")) {
-    return [
-      mockProcess(44101, "yolo_detector_node", "OpenVINO detector", 34.2, 620 * 1024 * 1024, 1),
-      mockProcess(44106, "rtk_ros_bridge_node", "perception bridge", 6.3, 92 * 1024 * 1024),
-    ];
-  }
-  if (normalized.includes("mapping")) {
-    return [
-      mockProcess(45111, "rtabmap", "SLAM graph", 68.4, 1.4 * 1024 * 1024 * 1024, 4),
-      mockProcess(45119, "camera_odom_from_tf", "camera odometry", 5.7, 74 * 1024 * 1024),
-      mockProcess(45124, "rtk_ros_bridge_node", "mapping bridge", 3.2, 88 * 1024 * 1024),
-    ];
-  }
-  if (normalized.includes("sensor fusion")) {
-    return [
-      mockProcess(46104, "ground_truth_odom_passthrough", "sim odometry", 2.9, 58 * 1024 * 1024),
-      mockProcess(46109, "rtk_ros_bridge_node", "fusion bridge", 2.2, 67 * 1024 * 1024),
-    ];
-  }
-  return [];
-}
-
-function mockRuntimeMetricsForModel(
-  modelName: string,
+function runtimeMetricsFromLauncher(
+  metrics: LauncherRuntimeMetrics | null | undefined,
   processMemoryUsed: number | null,
   processThreads: ITelemetryProcessThread[],
+  engineProcessId: number | null,
+  periodMs: number,
 ): RuntimeMetricsSummary {
-  const otherProcesses = mockOtherRuntimeProcesses(modelName);
-  const engineCpuPercent = Math.max(
-    1.5,
-    Math.min(65, processThreads.length * 1.8),
+  const fallbackEngineCpuPercent = engineCpuPercentFromThreads(
+    processThreads,
+    periodMs,
   );
+  const effectiveEngineProcessId =
+    engineProcessId ?? processThreads[0]?.threadId ?? null;
   const engineProcess: RuntimeProcessSummary = {
-    pid: processThreads[0]?.threadId ?? 0,
-    name: "robotick-engine",
+    pid: effectiveEngineProcessId ?? 0,
+    parentPid: null,
+    name:
+      processNameFromMainThread(processThreads) ?? "<process name not found>",
     role: "model engine",
-    cpuPercent: engineCpuPercent,
+    cpuPercent: fallbackEngineCpuPercent,
     rssBytes: processMemoryUsed ?? 0,
     children: 0,
     kind: "engine",
   };
-  const cpuPercent =
-    engineCpuPercent +
-    otherProcesses.reduce((total, process) => total + process.cpuPercent, 0);
-  const rssBytes =
-    (processMemoryUsed ?? 0) +
-    otherProcesses.reduce((total, process) => total + process.rssBytes, 0);
+  if (!metrics) {
+    return {
+      source: "unavailable",
+      sampledAt: null,
+      sampleWindowMs: null,
+      rootPid: null,
+      processCount: 0,
+      cpuPercent: null,
+      rssBytes: null,
+      engineProcess,
+      processTree: [],
+    };
+  }
+  const topProcesses = Array.isArray(metrics.top_processes)
+    ? metrics.top_processes
+    : [];
+  const sampledProcesses = Array.isArray(metrics.processes)
+    ? metrics.processes
+    : topProcesses;
+  const matchesEngineProcessId = (
+    process: LauncherRuntimeProcessMetrics | null | undefined,
+  ) => {
+    if (effectiveEngineProcessId == null || process == null) return false;
+    if (numericMetricValue(process.pid) === effectiveEngineProcessId)
+      return true;
+    return namespacePidsForProcess(process).some(
+      (pid) => pid === effectiveEngineProcessId,
+    );
+  };
+  const rootPid = numericMetricValue(metrics.root_pid);
+  const engineMetricProcess =
+    metrics.engine_process ??
+    (effectiveEngineProcessId != null
+      ? sampledProcesses.find((process) => matchesEngineProcessId(process))
+      : undefined) ??
+    sampledProcesses.find((process) => process.role === "engine");
+  const engineMetricPid = numericMetricValue(engineMetricProcess?.pid);
+  const engineMetricMemory = numericMetricValue(
+    engineMetricProcess?.memory_bytes,
+  );
+  const engineMetricCpu = numericMetricValue(engineMetricProcess?.cpu_percent);
+  if (engineMetricProcess) {
+    engineProcess.pid = engineMetricPid ?? engineProcess.pid;
+    engineProcess.name = runtimeProcessMetricName(
+      engineMetricProcess,
+      engineMetricPid,
+    );
+    engineProcess.cpuPercent = engineMetricCpu ?? fallbackEngineCpuPercent;
+    engineProcess.rssBytes = engineMetricMemory ?? engineProcess.rssBytes;
+    engineProcess.children = finiteNumber(engineMetricProcess.children) ?? 0;
+  }
+  const processTree = sampledProcesses
+    .map((process): RuntimeProcessSummary | null => {
+      const pid = numericMetricValue(process.pid);
+      if (pid == null) return null;
+      const role = String(process.role || "runtime process");
+      return {
+        pid,
+        parentPid: numericMetricValue(process.parent_pid),
+        name: runtimeProcessMetricName(process, pid),
+        role,
+        cpuPercent: numericMetricValue(process.cpu_percent),
+        rssBytes: numericMetricValue(process.memory_bytes) ?? 0,
+        children: numericMetricValue(process.children) ?? 0,
+        kind:
+          matchesEngineProcessId(process) || role === "engine"
+            ? "engine"
+            : role === "wrapper"
+              ? "wrapper"
+              : "runtime",
+      };
+    })
+    .filter((process): process is RuntimeProcessSummary => process != null);
 
   return {
-    source: "mock",
-    sampledAt: new Date(0).toISOString(),
-    sampleWindowMs: 1000,
-    rootPid: engineProcess.pid || null,
-    processCount: 1 + otherProcesses.length,
-    cpuPercent,
-    rssBytes,
+    source: "launcher",
+    sampledAt:
+      typeof metrics.sampled_at === "string" ? metrics.sampled_at : null,
+    sampleWindowMs: finiteNumber(metrics.sample_window_ms),
+    rootPid,
+    processCount: finiteNumber(metrics.process_count) ?? processTree.length,
+    cpuPercent: finiteNumber(metrics.cpu_percent),
+    rssBytes: finiteNumber(metrics.memory_bytes),
     engineProcess,
-    otherProcesses,
+    processTree,
   };
 }
 
@@ -667,9 +1032,10 @@ function compareTickScopeModels(
   left: TickScopeModelDescriptor,
   right: TickScopeModelDescriptor,
   sortKey: ModelSortKey,
-  getLatestMetrics: (
-    baseUrl: string,
-  ) => { processMemoryUsed: number; workloadsMemoryUsed: number },
+  getLatestMetrics: (baseUrl: string) => {
+    processMemoryUsed: number;
+    workloadsMemoryUsed: number;
+  },
 ): number {
   switch (sortKey) {
     case "model_name":
@@ -708,7 +1074,8 @@ function formatThreadName(
   isMainThread = false,
 ): string {
   const rawName = threadInfo?.displayName?.trim() || threadInfo?.name?.trim();
-  const baseName = rawName && rawName !== `thread ${threadId}` ? rawName : "thread";
+  const baseName =
+    rawName && rawName !== `thread ${threadId}` ? rawName : "thread";
   const suffix = isMainThread ? " main" : "";
   return `${baseName}${suffix} - tid ${threadId}`;
 }
@@ -724,7 +1091,8 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
         numericStat(workload, ["latest_span", "scheduled_start_time_ns"]) ?? 0;
       const scheduledEndNs =
         numericStat(workload, ["latest_span", "scheduled_end_time_ns"]) ?? 0;
-      const startNs = numericStat(workload, ["latest_span", "start_time_ns"]) ?? 0;
+      const startNs =
+        numericStat(workload, ["latest_span", "start_time_ns"]) ?? 0;
       const endNs = numericStat(workload, ["latest_span", "end_time_ns"]) ?? 0;
       const waitTotalNs =
         numericStat(workload, ["latest_span", "wait_total_ns"]) ?? 0;
@@ -747,23 +1115,29 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       const syncWaitEndNs =
         numericStat(workload, ["latest_span", "sync_wait_end_time_ns"]) ?? 0;
       const localInputsStartNs =
-        numericStat(workload, ["latest_span", "local_inputs_start_time_ns"]) ?? 0;
+        numericStat(workload, ["latest_span", "local_inputs_start_time_ns"]) ??
+        0;
       const localInputsEndNs =
         numericStat(workload, ["latest_span", "local_inputs_end_time_ns"]) ?? 0;
       const sleepYieldStartNs =
-        numericStat(workload, ["latest_span", "sleep_yield_start_time_ns"]) ?? 0;
+        numericStat(workload, ["latest_span", "sleep_yield_start_time_ns"]) ??
+        0;
       const sleepYieldEndNs =
         numericStat(workload, ["latest_span", "sleep_yield_end_time_ns"]) ?? 0;
       const cpuStart =
         numericStat(workload, ["latest_span", "logical_cpu_start_id"]) ?? -1;
       const cpuEnd =
-        numericStat(workload, ["latest_span", "logical_cpu_end_id"]) ?? cpuStart;
+        numericStat(workload, ["latest_span", "logical_cpu_end_id"]) ??
+        cpuStart;
       const kernelThreadId =
         numericStat(workload, ["latest_span", "kernel_thread_id"]) ??
         numericStat(workload, ["latest_span", "thread_id"]) ??
         0;
       const isRunning = Boolean(
-        findNestedField(workload.stats, ["latest_span", "is_running"])?.getValue(),
+        findNestedField(workload.stats, [
+          "latest_span",
+          "is_running",
+        ])?.getValue(),
       );
 
       if (tickSeq <= 0 || scheduledEndNs <= scheduledStartNs) {
@@ -801,7 +1175,9 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
   if (rawSpans.length === 0) return null;
 
   const originNs = Math.min(...rawSpans.map((span) => span.scheduledStartNs));
-  const scheduledEndNs = Math.max(...rawSpans.map((span) => span.scheduledEndNs));
+  const scheduledEndNs = Math.max(
+    ...rawSpans.map((span) => span.scheduledEndNs),
+  );
   const visibleEndNs = Math.max(
     scheduledEndNs,
     ...rawSpans.map((span) => span.endNs),
@@ -836,11 +1212,27 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       span.localInputsEndNs,
     );
     const phases = {
-      engineIo: rawPhaseSnapshot(span.engineIoStartNs, span.engineIoEndNs, originNs),
-      syncWait: rawPhaseSnapshot(span.syncWaitStartNs, span.syncWaitEndNs, originNs),
-      localInputs: rawPhaseSnapshot(span.localInputsStartNs, span.localInputsEndNs, originNs),
+      engineIo: rawPhaseSnapshot(
+        span.engineIoStartNs,
+        span.engineIoEndNs,
+        originNs,
+      ),
+      syncWait: rawPhaseSnapshot(
+        span.syncWaitStartNs,
+        span.syncWaitEndNs,
+        originNs,
+      ),
+      localInputs: rawPhaseSnapshot(
+        span.localInputsStartNs,
+        span.localInputsEndNs,
+        originNs,
+      ),
       workload: rawPhaseSnapshot(span.startNs, span.endNs, originNs),
-      sleepYield: rawPhaseSnapshot(span.sleepYieldStartNs, span.sleepYieldEndNs, originNs),
+      sleepYield: rawPhaseSnapshot(
+        span.sleepYieldStartNs,
+        span.sleepYieldEndNs,
+        originNs,
+      ),
     };
     const snapshot = {
       workloadName: displayWorkloadName(span.workload),
@@ -919,8 +1311,18 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     };
 
     const phaseCountBefore = row.spans.length;
-    addPhase("engine I/O", "engine_io", span.engineIoStartNs, span.engineIoEndNs);
-    addPhase("local inputs", "local_inputs", span.localInputsStartNs, span.localInputsEndNs);
+    addPhase(
+      "engine I/O",
+      "engine_io",
+      span.engineIoStartNs,
+      span.engineIoEndNs,
+    );
+    addPhase(
+      "local inputs",
+      "local_inputs",
+      span.localInputsStartNs,
+      span.localInputsEndNs,
+    );
 
     const hasPreWorkPhase = row.spans.length > phaseCountBefore;
     row.spans.push({
@@ -957,7 +1359,12 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     addSleepStage("yield", "sleep_yield", span.waitYieldPhaseNs);
     addSleepStage("spin", "sleep_spin", span.waitSpinPhaseNs);
     if (sleepStageStartNs === span.sleepYieldStartNs) {
-      addPhase("sleep/yield", "sleep", span.sleepYieldStartNs, span.sleepYieldEndNs);
+      addPhase(
+        "sleep/yield",
+        "sleep",
+        span.sleepYieldStartNs,
+        span.sleepYieldEndNs,
+      );
     } else {
       const spanCountBefore = row.spans.length;
       addPhase("sleep remainder", "sleep", sleepStageStartNs, sleepStageEndNs);
@@ -1020,7 +1427,10 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
       note: "present in process, no Robotick span in latest tick",
       spans: [],
       workerThreads,
-      workerThreadCpuTotalMs: totalThreadCpuMsForPeriod(workerThreads, periodMs),
+      workerThreadCpuTotalMs: totalThreadCpuMsForPeriod(
+        workerThreads,
+        periodMs,
+      ),
       copyData: {
         note: "present in process, no Robotick span in latest tick",
         threads: workerThreads,
@@ -1034,10 +1444,12 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
   const threads = [...threadRows.values()];
   const processMemoryUsed = finiteNumber(model.process_memory_used);
   const workloadsMemoryUsed = finiteNumber(model.workloads_buffer_size_used);
-  const runtimeMetrics = mockRuntimeMetricsForModel(
-    entry.modelName,
+  const runtimeMetrics = runtimeMetricsFromLauncher(
+    entry.runtimeMetrics,
     processMemoryUsed,
     processThreads,
+    finiteNumber(model.process_id),
+    periodMs,
   );
 
   const rawSnapshot = {
@@ -1049,6 +1461,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
     tickWindowMs: roundMs(periodMs),
     activeSlackMs: roundMs(slackMs),
     status,
+    processId: finiteNumber(model.process_id),
     processThreads: processThreads.map((thread) => ({
       threadId: thread.threadId,
       name: thread.name,
@@ -1082,7 +1495,7 @@ function toModelTick(entry: LiveModelEntry): ModelTick | null {
 
 export default function TickScopePage() {
   const { projectPath } = Project.Context.use();
-  const { status } = Launcher.Context.use();
+  const { status, launcherModels } = Launcher.Context.use();
   const { projectModels } = ProjectData.use();
   const telemetryService = useTelemetryService();
   const [settings, updateSettings] = usePanelSettings(tickScopePagePersistence);
@@ -1097,7 +1510,10 @@ export default function TickScopePage() {
       return;
     }
     publishedMountTimingRef.current = true;
-    publishRendererStartupTiming("tick_scope_mounted_ms", msSinceRendererStartup());
+    publishRendererStartupTiming(
+      "tick_scope_mounted_ms",
+      msSinceRendererStartup(),
+    );
   }, []);
   useEffect(() => {
     setSmoothingDurationInput(String(settings.smoothingDurationSeconds));
@@ -1112,20 +1528,32 @@ export default function TickScopePage() {
       projectModels.data
         .filter((model) => Boolean(model.telemetryBaseUrl))
         .map((model) => ({
+          modelId: model.modelShortName,
           modelName: model.modelName,
           modelPath: model.modelPath,
           telemetryBaseUrl: model.telemetryBaseUrl,
+          runtimeMetrics: launcherModels[model.modelShortName]?.metrics ?? null,
         }))
         .sort((left, right) =>
-          compareTickScopeModels(left, right, settings.modelSortKey, (baseUrl) => {
-            const latest = telemetryService.getLatestModel(baseUrl);
-            return {
-              processMemoryUsed: latest?.process_memory_used ?? -1,
-              workloadsMemoryUsed: latest?.workloads_buffer_size_used ?? -1,
-            };
-          }),
+          compareTickScopeModels(
+            left,
+            right,
+            settings.modelSortKey,
+            (baseUrl) => {
+              const latest = telemetryService.getLatestModel(baseUrl);
+              return {
+                processMemoryUsed: latest?.process_memory_used ?? -1,
+                workloadsMemoryUsed: latest?.workloads_buffer_size_used ?? -1,
+              };
+            },
+          ),
         ),
-    [projectModels.data, settings.modelSortKey, telemetryService],
+    [
+      launcherModels,
+      projectModels.data,
+      settings.modelSortKey,
+      telemetryService,
+    ],
   );
 
   const devices = useMemo<DeviceTickScope[]>(() => {
@@ -1137,8 +1565,6 @@ export default function TickScopePage() {
         device = {
           id: deviceId,
           name: deviceId,
-          cpuLabel: "logical CPUs sampled per span",
-          loadLabel: "latest Robotick tick",
           models: [],
         };
         byDevice.set(deviceId, device);
@@ -1152,7 +1578,12 @@ export default function TickScopePage() {
     if (publishedActiveTimingRef.current) {
       return;
     }
-    if (!projectPath || status !== "running" || projectModels.loading || devices.length === 0) {
+    if (
+      !projectPath ||
+      status !== "running" ||
+      projectModels.loading ||
+      devices.length === 0
+    ) {
       return;
     }
     requestAnimationFrame(() => {
@@ -1160,15 +1591,22 @@ export default function TickScopePage() {
         return;
       }
       publishedActiveTimingRef.current = true;
-      publishRendererStartupTiming("tick_scope_active_ms", msSinceRendererStartup());
+      publishRendererStartupTiming(
+        "tick_scope_active_ms",
+        msSinceRendererStartup(),
+      );
     });
   }, [devices.length, projectModels.loading, projectPath, status]);
 
   let body: React.ReactNode;
   if (!projectPath) {
-    body = <p className={styles.message}>Select a project to view Tick Scope.</p>;
+    body = (
+      <p className={styles.message}>Select a project to view Tick Scope.</p>
+    );
   } else if (status !== "running") {
-    body = <p className={styles.message}>Launch your robot to enable Tick Scope.</p>;
+    body = (
+      <p className={styles.message}>Launch your robot to enable Tick Scope.</p>
+    );
   } else if (projectModels.loading) {
     body = <p className={styles.message}>Loading telemetry models...</p>;
   } else if (devices.length === 0) {
@@ -1227,7 +1665,9 @@ export default function TickScopePage() {
               className={`${styles.headerToggleButton} ${settings.showCpuIds ? styles.headerToggleButtonActive : ""}`}
               type="button"
               aria-pressed={settings.showCpuIds}
-              onClick={() => updateSettings({ showCpuIds: !settings.showCpuIds })}
+              onClick={() =>
+                updateSettings({ showCpuIds: !settings.showCpuIds })
+              }
             >
               CPU IDs
             </button>
@@ -1240,7 +1680,9 @@ export default function TickScopePage() {
             className={styles.panelHeaderControlSelect}
             value={settings.modelSortKey}
             onChange={(event) =>
-              updateSettings({ modelSortKey: event.target.value as ModelSortKey })
+              updateSettings({
+                modelSortKey: event.target.value as ModelSortKey,
+              })
             }
           >
             {MODEL_SORT_OPTIONS.map((option) => (
@@ -1273,9 +1715,6 @@ const DeviceSection = memo(function DeviceSection({
       <div className={styles.deviceHeader}>
         <div>
           <h2>{device.name}</h2>
-          <p>
-            {device.cpuLabel} · {device.loadLabel}
-          </p>
         </div>
         <span>{device.models.length} models</span>
       </div>
@@ -1320,11 +1759,13 @@ const LiveModelCard = memo(function LiveModelCard({
         modelName: descriptor.modelName,
         modelPath: descriptor.modelPath,
         telemetryBaseUrl: descriptor.telemetryBaseUrl,
+        runtimeMetrics: descriptor.runtimeMetrics,
         model,
       }),
     [
       descriptor.modelName,
       descriptor.modelPath,
+      descriptor.runtimeMetrics,
       descriptor.telemetryBaseUrl,
       model,
       revision,
@@ -1339,12 +1780,14 @@ const LiveModelCard = memo(function LiveModelCard({
             smoothingHistoryRef.current,
           )
         : modelTick,
-    [modelTick, paused, smoothingDurationSeconds],
+    [modelTick, paused, revision, smoothingDurationSeconds],
   );
   if (!paused && smoothedModelTick) {
     pausedModelTickRef.current = smoothedModelTick;
   }
-  const visibleModelTick = paused ? pausedModelTickRef.current : smoothedModelTick;
+  const visibleModelTick = paused
+    ? pausedModelTickRef.current
+    : smoothedModelTick;
 
   useEffect(() => {
     if (publishedFirstTelemetryRef.current || !visibleModelTick) {
@@ -1353,7 +1796,7 @@ const LiveModelCard = memo(function LiveModelCard({
     publishedFirstTelemetryRef.current = true;
     publishRendererStartupTiming(
       "tick_scope_first_telemetry_frame_ms",
-      msSinceRendererStartup()
+      msSinceRendererStartup(),
     );
   }, [visibleModelTick]);
 
@@ -1363,7 +1806,11 @@ const LiveModelCard = memo(function LiveModelCard({
         <div className={styles.modelHeader}>
           <div>
             <h3>{descriptor.modelName}</h3>
-            <p>{paused ? "Paused before first tick telemetry." : "Waiting for latest tick telemetry..."}</p>
+            <p>
+              {paused
+                ? "Paused before first tick telemetry."
+                : "Waiting for latest tick telemetry..."}
+            </p>
           </div>
         </div>
       </article>
@@ -1399,39 +1846,40 @@ const ModelCard = memo(function ModelCard({
         })),
     [model.threads],
   );
-  const contextMenuActions = useMemo<PanelContextMenuAction[]>(
-    () => {
-      const actions = [
+  const contextMenuActions = useMemo<PanelContextMenuAction[]>(() => {
+    const actions = [
       copyJsonAction("model-raw", "Copy model tick JSON", model.rawSnapshot),
       copyJsonAction(
         "runtime-metrics",
         "Copy runtime and other-process metrics JSON",
         model.runtimeMetrics,
       ),
-      ];
-      if (engineWorkerThreadPayloads.length > 0) {
-        actions.push(
-          copyJsonAction(
-            "engine-worker-threads",
-            "Copy engine worker-thread JSON",
-            engineWorkerThreadPayloads,
-          ),
-        );
-      }
-      return actions;
-    },
-    [engineWorkerThreadPayloads, model.rawSnapshot, model.runtimeMetrics],
-  );
+    ];
+    if (engineWorkerThreadPayloads.length > 0) {
+      actions.push(
+        copyJsonAction(
+          "engine-worker-threads",
+          "Copy engine worker-thread JSON",
+          engineWorkerThreadPayloads,
+        ),
+      );
+    }
+    return actions;
+  }, [engineWorkerThreadPayloads, model.rawSnapshot, model.runtimeMetrics]);
   useEffect(() => {
     const element = cardRef.current;
     if (!element) return;
     const handleActions = (event: Event) => {
-      const customEvent = event as CustomEvent<PanelContextMenuActionsEventDetail>;
+      const customEvent =
+        event as CustomEvent<PanelContextMenuActionsEventDetail>;
       customEvent.detail.actions.push(...contextMenuActions);
     };
     element.addEventListener(PANEL_CONTEXT_MENU_ACTIONS_EVENT, handleActions);
     return () => {
-      element.removeEventListener(PANEL_CONTEXT_MENU_ACTIONS_EVENT, handleActions);
+      element.removeEventListener(
+        PANEL_CONTEXT_MENU_ACTIONS_EVENT,
+        handleActions,
+      );
     };
   }, [contextMenuActions]);
 
@@ -1447,8 +1895,18 @@ const ModelCard = memo(function ModelCard({
         </div>
       </div>
       <RuntimeOverview model={model} />
-      <EngineSection model={model} showCpuIds={showCpuIds} />
-      <RuntimeProcessesSection runtimeMetrics={model.runtimeMetrics} />
+      <RuntimeProcessesSection
+        runtimeMetrics={model.runtimeMetrics}
+        storageKey={tickScopeDisclosureStorageKey(
+          model.modelPath,
+          "process-tree",
+        )}
+      />
+      <EngineSection
+        model={model}
+        showCpuIds={showCpuIds}
+        storageKey={tickScopeDisclosureStorageKey(model.modelPath, "engine")}
+      />
     </article>
   );
 });
@@ -1459,19 +1917,18 @@ const RuntimeOverview = memo(function RuntimeOverview({
   model: ModelTick;
 }) {
   const runtime = model.runtimeMetrics;
-  const mockLabel = runtime.source === "mock" ? "mock" : null;
   const engine = runtime.engineProcess;
   return (
     <div className={styles.runtimeOverviewLine}>
       <span>
-        <strong>Engine</strong> CPU {runtimeCpuLabel(engine?.cpuPercent)} · memory{" "}
-        {formatBytesCompact(engine?.rssBytes ?? model.processMemoryUsed)} · workload buffer{" "}
-        {formatBytesCompact(model.workloadsMemoryUsed)}
+        <strong>Runtime</strong> CPU {runtimeCpuLabel(runtime.cpuPercent)} ·
+        memory {formatBytesCompact(runtime.rssBytes)} · {runtime.processCount}{" "}
+        process{runtime.processCount === 1 ? "" : "es"}
       </span>
       <span>
-        <strong>Runtime{mockLabel ? ` (${mockLabel})` : ""}</strong> CPU{" "}
-        {runtimeCpuLabel(runtime.cpuPercent)} · memory {formatBytesCompact(runtime.rssBytes)} ·{" "}
-        {runtime.processCount} process{runtime.processCount === 1 ? "" : "es"}
+        <strong>Engine</strong> CPU {runtimeCpuLabel(engine?.cpuPercent)} ·
+        memory {formatBytesCompact(engine?.rssBytes ?? model.processMemoryUsed)}{" "}
+        · workload buffer {formatBytesCompact(model.workloadsMemoryUsed)}
       </span>
     </div>
   );
@@ -1480,11 +1937,13 @@ const RuntimeOverview = memo(function RuntimeOverview({
 const EngineSection = memo(function EngineSection({
   model,
   showCpuIds,
+  storageKey,
 }: {
   model: ModelTick;
   showCpuIds: boolean;
+  storageKey: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useStoredDisclosureState(storageKey, false);
   const engine = model.runtimeMetrics.engineProcess;
   return (
     <section className={styles.modelSubsection}>
@@ -1498,13 +1957,11 @@ const EngineSection = memo(function EngineSection({
           <span className={styles.sectionChevron} aria-hidden="true" />
           <div className={styles.sectionHeadingText}>
             <strong>Engine</strong>
-            <span>workload timing and engine-owned threads</span>
+            <span>{runtimeProcessSubtitle(engine)}</span>
           </div>
           <RuntimeUsageSummary
             cpuPercent={engine?.cpuPercent ?? null}
             memoryBytes={engine?.rssBytes ?? model.processMemoryUsed}
-            extraLabel="workload buffer"
-            extraValue={formatBytesCompact(model.workloadsMemoryUsed)}
           />
         </button>
       </div>
@@ -1532,37 +1989,45 @@ const EngineSection = memo(function EngineSection({
 
 const RuntimeProcessesSection = memo(function RuntimeProcessesSection({
   runtimeMetrics,
+  storageKey,
 }: {
   runtimeMetrics: RuntimeMetricsSummary;
+  storageKey: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useStoredDisclosureState(storageKey, false);
   const [sortKey, setSortKey] = useState<RuntimeProcessSortKey>("cpu");
-  const otherProcessCount = runtimeMetrics.otherProcesses.length;
-  const otherCpuPercent = runtimeMetrics.otherProcesses.reduce(
-    (total, process) => total + process.cpuPercent,
-    0,
-  );
-  const otherRssBytes = runtimeMetrics.otherProcesses.reduce(
+  const processTree = runtimeMetrics.processTree;
+  const processCount = runtimeMetrics.processCount || processTree.length;
+  const processCpuSamples = processTree
+    .map((process) => process.cpuPercent)
+    .filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isFinite(value),
+    );
+  const processCpuPercent =
+    processCpuSamples.length > 0
+      ? processCpuSamples.reduce((total, value) => total + value, 0)
+      : null;
+  const processRssBytes = processTree.reduce(
     (total, process) => total + process.rssBytes,
     0,
   );
   const topProcess = useMemo(
-    () => sortRuntimeProcesses(runtimeMetrics.otherProcesses, "cpu")[0],
-    [runtimeMetrics.otherProcesses],
+    () => sortRuntimeProcesses(processTree, "cpu")[0],
+    [processTree],
   );
-  const sortedProcesses = useMemo(
-    () => sortRuntimeProcesses(runtimeMetrics.otherProcesses, sortKey),
-    [runtimeMetrics.otherProcesses, sortKey],
+  const displayedProcesses = useMemo(
+    () => flattenProcessTree(processTree, sortKey),
+    [processTree, sortKey],
   );
 
-  if (otherProcessCount === 0) {
+  if (processCount === 0) {
     return (
       <section className={styles.modelSubsection}>
         <div className={styles.modelSubsectionHeader}>
           <div className={styles.sectionStaticSummary}>
             <div className={styles.sectionHeadingText}>
-              <strong>Other runtime processes</strong>
-              <span>None observed for this model.</span>
+              <strong>0 process-tree processes</strong>
             </div>
           </div>
         </div>
@@ -1581,23 +2046,26 @@ const RuntimeProcessesSection = memo(function RuntimeProcessesSection({
         >
           <span className={styles.sectionChevron} aria-hidden="true" />
           <div className={styles.sectionHeadingText}>
-            <strong>Other runtime processes</strong>
-            <span>{otherProcessCount > 0 ? `top ${topProcess?.name ?? "n/a"}` : "engine only"}</span>
+            <strong>
+              Process tree · {processCount} process
+              {processCount === 1 ? "" : "es"}
+            </strong>
+            {topProcess?.name ? (
+              <span>top process by CPU: {topProcess.name}</span>
+            ) : null}
           </div>
           <RuntimeUsageSummary
-            cpuPercent={otherCpuPercent}
-            memoryBytes={otherRssBytes}
-            extraLabel="external"
-            extraValue={String(otherProcessCount)}
+            cpuPercent={runtimeMetrics.cpuPercent ?? processCpuPercent}
+            memoryBytes={runtimeMetrics.rssBytes ?? processRssBytes}
           />
         </button>
       </div>
       {expanded ? (
         <div className={styles.modelSubsectionBody}>
           <div className={styles.runtimeProcessToolbar}>
-            <span>model-owned process tree after the engine</span>
+            <span>engine, runtime children, and wrappers</span>
             <label className={styles.workerThreadSortControl}>
-              <span>Sort</span>
+              <span>Sort siblings</span>
               <select
                 value={sortKey}
                 onChange={(event) =>
@@ -1613,15 +2081,15 @@ const RuntimeProcessesSection = memo(function RuntimeProcessesSection({
               </select>
             </label>
           </div>
-          {sortedProcesses.length > 0 ? (
+          {displayedProcesses.length > 0 ? (
             <div className={styles.runtimeProcessList}>
-              {sortedProcesses.map((process) => (
+              {displayedProcesses.map((process) => (
                 <RuntimeProcessRow key={process.pid} process={process} />
               ))}
             </div>
           ) : (
             <p className={styles.runtimeProcessEmpty}>
-              No non-engine runtime processes in this mock snapshot.
+              No sampled processes in this snapshot.
             </p>
           )}
         </div>
@@ -1633,13 +2101,9 @@ const RuntimeProcessesSection = memo(function RuntimeProcessesSection({
 const RuntimeUsageSummary = memo(function RuntimeUsageSummary({
   cpuPercent,
   memoryBytes,
-  extraLabel,
-  extraValue,
 }: {
   cpuPercent: number | null | undefined;
   memoryBytes: number | null | undefined;
-  extraLabel?: string;
-  extraValue?: string;
 }) {
   const hasCpu = typeof cpuPercent === "number" && Number.isFinite(cpuPercent);
   const widthPct = hasCpu ? Math.max(0, Math.min(100, cpuPercent)) : 0;
@@ -1654,11 +2118,6 @@ const RuntimeUsageSummary = memo(function RuntimeUsageSummary({
       <span className={styles.runtimeUsageMetric}>
         Memory <strong>{formatBytesCompact(memoryBytes)}</strong>
       </span>
-      {extraLabel && extraValue ? (
-        <span className={styles.runtimeUsageMetric}>
-          {extraLabel} <strong>{extraValue}</strong>
-        </span>
-      ) : null}
     </div>
   );
 });
@@ -1668,12 +2127,28 @@ const RuntimeProcessRow = memo(function RuntimeProcessRow({
 }: {
   process: RuntimeProcessSummary;
 }) {
+  const rowClassName = [
+    styles.runtimeProcessRow,
+    process.kind === "wrapper" ? styles.runtimeProcessRowWrapper : "",
+    process.kind === "engine" ? styles.runtimeProcessRowEngine : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className={styles.runtimeProcessRow}>
+    <div
+      className={rowClassName}
+      style={
+        { "--process-depth": String(process.depth ?? 0) } as React.CSSProperties
+      }
+    >
       <div className={styles.runtimeProcessIdentity}>
-        <strong>{process.name}</strong>
+        <strong>
+          {process.name}
+          {process.kind === "engine" ? " (Engine)" : ""}
+        </strong>
         <span>
           pid {process.pid}
+          {process.parentPid ? ` · parent ${process.parentPid}` : ""}
           {process.children ? ` · ${process.children} child processes` : ""}
           {process.role ? ` · ${process.role}` : ""}
         </span>
@@ -1699,7 +2174,14 @@ const ThreadLane = memo(function ThreadLane({
   thread: ThreadRow;
   showCpuIds: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const workerDisclosureKey = tickScopeDisclosureStorageKey(
+    model.modelPath,
+    `worker-threads.${encodeURIComponent(String(thread.threadId ?? thread.name))}`,
+  );
+  const [expanded, setExpanded] = useStoredDisclosureState(
+    workerDisclosureKey,
+    false,
+  );
   const [workerThreadSortKey, setWorkerThreadSortKey] =
     useState<WorkerThreadSortKey>("cpu");
   const hasWorkerThreads = Boolean(thread.workerThreads?.length);
@@ -1710,7 +2192,11 @@ const ThreadLane = memo(function ThreadLane({
   const sortedWorkerThreads = useMemo(
     () =>
       expanded
-        ? sortWorkerThreads(thread.workerThreads, workerThreadSortKey, model.periodMs)
+        ? sortWorkerThreads(
+            thread.workerThreads,
+            workerThreadSortKey,
+            model.periodMs,
+          )
         : [],
     [expanded, model.periodMs, thread.workerThreads, workerThreadSortKey],
   );
@@ -1736,13 +2222,11 @@ const ThreadLane = memo(function ThreadLane({
               <span className={styles.workerThreadChevron} aria-hidden="true" />
               <div className={styles.workerThreadHeadingText}>
                 <strong>{thread.name}</strong>
-                {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
               </div>
             </div>
           ) : (
             <div className={styles.workerThreadHeadingText}>
               <strong>{thread.name}</strong>
-              {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
             </div>
           )}
           {hasWorkerThreads ? (
@@ -1758,7 +2242,9 @@ const ThreadLane = memo(function ThreadLane({
               <select
                 value={workerThreadSortKey}
                 onChange={(event) =>
-                  setWorkerThreadSortKey(event.target.value as WorkerThreadSortKey)
+                  setWorkerThreadSortKey(
+                    event.target.value as WorkerThreadSortKey,
+                  )
                 }
                 aria-label="Sort worker threads"
               >
@@ -1776,12 +2262,18 @@ const ThreadLane = memo(function ThreadLane({
             {sortedWorkerThreads.map((worker) => (
               <div className={styles.workerThreadItem} key={worker.threadId}>
                 <div className={styles.workerThreadText}>
-                  <span>{worker.displayName?.trim() || worker.name || "thread"}</span>
+                  <span>
+                    {worker.displayName?.trim() || worker.name || "thread"}
+                  </span>
                   <span>
                     tid {worker.threadId}
-                    {worker.logicalCpuId != null ? ` · CPU ${worker.logicalCpuId}` : ""}
+                    {showCpuIds && worker.logicalCpuId != null
+                      ? ` · CPU ${worker.logicalCpuId}`
+                      : ""}
                     {worker.role ? ` · ${worker.role}` : ""}
-                    {worker.displayName && worker.name && worker.displayName !== worker.name
+                    {worker.displayName &&
+                    worker.name &&
+                    worker.displayName !== worker.name
                       ? ` · ${worker.name}`
                       : ""}
                   </span>
@@ -1804,11 +2296,16 @@ const ThreadLane = memo(function ThreadLane({
     <div className={styles.threadLane}>
       <div className={styles.threadLabel}>
         <strong>{thread.name}</strong>
-        {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
+        {thread.note || thread.role ? (
+          <span>{thread.note ?? thread.role}</span>
+        ) : null}
       </div>
       <div className={styles.threadTrackStack}>
         {packedSpanLanes.map((laneSpans, laneIndex) => (
-          <div className={styles.laneTrack} key={`${thread.name}:lane:${laneIndex}`}>
+          <div
+            className={styles.laneTrack}
+            key={`${thread.name}:lane:${laneIndex}`}
+          >
             <div className={styles.deadlineLine} />
             {laneSpans.map((span, index) => (
               <SpanBlock
@@ -1838,7 +2335,8 @@ const WorkerThreadCpuBar = memo(function WorkerThreadCpuBar({
   sampleWindowNs?: number;
   titlePrefix?: string;
 }) {
-  const safePeriodMs = Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
+  const safePeriodMs =
+    Number.isFinite(periodMs) && periodMs > 0 ? periodMs : 0.001;
   const loadPct = cpuMs == null ? 0 : (cpuMs / safePeriodMs) * 100;
   const widthPct = Math.max(0, Math.min(100, loadPct));
   const rawDeltaMs =
@@ -1852,9 +2350,7 @@ const WorkerThreadCpuBar = memo(function WorkerThreadCpuBar({
       ? nsToMs(sampleWindowNs)
       : null;
   const label =
-    cpuMs == null
-      ? "n/a"
-      : `${formatMs(cpuMs)} · ${formatPercent(loadPct)}`;
+    cpuMs == null ? "n/a" : `${formatMs(cpuMs)} · ${formatPercent(loadPct)}`;
   const title =
     cpuMs == null
       ? `${titlePrefix} sample unavailable`
@@ -1897,7 +2393,8 @@ const SpanBlock = memo(function SpanBlock({
   const style = getSpanBlockStyle(span, periodMs) as React.CSSProperties;
   const durationMs = Math.max(0, span.endMs - span.startMs);
   const widthPct = getSpanVisibleWidthPct(span, periodMs);
-  const traceClass = durationMs > 0 && widthPct < TRACE_SPAN_WIDTH_PCT ? styles.spanTrace : "";
+  const traceClass =
+    durationMs > 0 && widthPct < TRACE_SPAN_WIDTH_PCT ? styles.spanTrace : "";
   const explanation = spanStageExplanation(span);
   const title = explanation
     ? `${span.workload}: ${formatMs(durationMs)}\n${explanation}`

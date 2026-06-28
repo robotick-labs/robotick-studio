@@ -271,7 +271,9 @@ describe("createTelemetryModel", () => {
 
   it("decodes process thread CPU samples from the current engine raw buffer", () => {
     const threadSize = 104;
-    const processThreadsOffset = 8;
+    const processIdOffset = 0;
+    const processMemoryOffset = 8;
+    const processThreadsOffset = 16;
     const vectorCountOffset = threadSize * 64;
     const rawCountOffset = processThreadsOffset + vectorCountOffset;
     const layout: LayoutModel = {
@@ -317,9 +319,15 @@ describe("createTelemetryModel", () => {
           size: rawCountOffset + 4,
           fields: [
             {
+              name: "process_id",
+              type: "uint64_t",
+              offset_within_container: processIdOffset,
+              element_count: 1,
+            },
+            {
               name: "process_memory_used",
               type: "uint64_t",
-              offset_within_container: 0,
+              offset_within_container: processMemoryOffset,
               element_count: 1,
             },
             {
@@ -336,7 +344,8 @@ describe("createTelemetryModel", () => {
     const writeSample = (deltaNs: bigint, processMemoryUsed: bigint) => {
       const raw = new ArrayBuffer(rawCountOffset + 4);
       const view = new DataView(raw);
-      view.setBigUint64(0, processMemoryUsed, true);
+      view.setBigUint64(processIdOffset, 12345n, true);
+      view.setBigUint64(processMemoryOffset, processMemoryUsed, true);
       view.setBigUint64(processThreadsOffset, 42n, true);
       new Uint8Array(raw, processThreadsOffset + 8, 64).set(new TextEncoder().encode("rtk-tel-ws-bcst"));
       view.setBigUint64(processThreadsOffset + 72, 100000000n + deltaNs, true);
@@ -349,6 +358,7 @@ describe("createTelemetryModel", () => {
 
     const model = createTelemetryModel(layout);
     model.raw = writeSample(1000000n, 64000000n);
+    expect(model.process_id).toBe(12345);
     expect(model.process_memory_used).toBe(64000000);
     expect(model.process_threads).toEqual([
       {

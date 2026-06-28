@@ -1017,6 +1017,73 @@ def test_launcher_status_uses_runtime_projection_only(
     assert "sessions" not in captured["output"]
 
 
+def test_launcher_metrics_returns_filtered_model_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+    payload = {
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "running",
+        "models": [
+            {
+                "project_id": "barr-e",
+                "model_id": "brain",
+                "lifecycle": "running",
+                "freshness": "live",
+                "metrics": {
+                    "resource_type": "robotick_launcher_runtime_metrics",
+                    "cpu_percent": 12.5,
+                    "memory_bytes": 4096,
+                    "devices": [],
+                },
+            },
+        ],
+    }
+
+    monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
+    monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
+        return payload
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["metrics", "--project", "barr-e", "--model", "brain"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
+    assert captured["output"] == {
+        "resource_type": "robotick_launcher_runtime_metrics_collection",
+        "state": "running",
+        "models": [
+            {
+                "project_id": "barr-e",
+                "model_id": "brain",
+                "lifecycle": "running",
+                "freshness": "live",
+                "metrics": {
+                    "resource_type": "robotick_launcher_runtime_metrics",
+                    "cpu_percent": 12.5,
+                    "memory_bytes": 4096,
+                    "devices": [],
+                },
+            },
+        ],
+    }
+
+
 def test_launcher_stop_and_restart_use_model_control_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

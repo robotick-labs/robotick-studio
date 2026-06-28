@@ -27,6 +27,9 @@ from robotick.launcher.actions.launch import (
 from robotick.launcher.actions.launch.prepare_project_docker import (
     prepare_project_docker,
 )
+from robotick.launcher.actions.launch.custom_stages import (
+    custom_stage_can_skip_binary_requirement,
+)
 from robotick.launcher.actions.launch.stages import LaunchStage
 from robotick.launcher.actions.launch.target_plan import resolve_target_plan
 from robotick.launcher.config import Config
@@ -275,6 +278,10 @@ def _wait_for_run_readiness(
 
 def _local_deploy_can_complete_immediately(plan: Any) -> bool:
     return plan.deploy.strategy == "local" and plan.deploy.deploy_handler is None
+
+
+def _local_deploy_output_is_available(launcher_dir: Path, binary_path: Path) -> bool:
+    return binary_path.exists() or custom_stage_can_skip_binary_requirement(launcher_dir)
 
 
 def _resolve_profile_model_ids(project_path: Path, model_spec: str) -> list[str]:
@@ -1088,10 +1095,10 @@ def run_profile(
             )
 
         if _local_deploy_can_complete_immediately(plan):
-            _, _, binary_path = get_launcher_paths(
+            launcher_dir, _, binary_path = get_launcher_paths(
                 project_name, leader_model_id, model_target, base_dir
             )
-            if binary_path.exists():
+            if _local_deploy_output_is_available(launcher_dir, binary_path):
                 for model_id in job_models:
                     deployed.append(model_id)
                     _emit_status(

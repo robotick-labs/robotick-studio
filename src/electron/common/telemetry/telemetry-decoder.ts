@@ -131,6 +131,7 @@ export interface ITelemetryModel {
   raw: ArrayBuffer | null;
   schemaSessionId: string;
   workloads_buffer_size_used: number;
+  process_id?: number;
   process_memory_used: number;
   process_threads: ITelemetryProcessThread[];
   writable_inputs_by_path?: ReadonlyMap<string, LayoutWritableInput>;
@@ -343,6 +344,12 @@ function mapEngineProcessMemoryUsed(engine: ITelemetryStruct | undefined): numbe
     (field) => field.name === "process_memory_used",
   );
   const value = toFiniteNumber(processMemoryUsedField?.getValue());
+  return value == null ? null : value;
+}
+
+function mapEngineProcessId(engine: ITelemetryStruct | undefined): number | null {
+  const processIdField = engine?.fields.find((field) => field.name === "process_id");
+  const value = toFiniteNumber(processIdField?.getValue());
   return value == null ? null : value;
 }
 
@@ -907,6 +914,10 @@ class TelemetryModel implements ITelemetryModel {
 
   get process_memory_used(): number {
     return mapEngineProcessMemoryUsed(this.engine) ?? 0;
+  }
+
+  get process_id(): number | undefined {
+    return mapEngineProcessId(this.engine) ?? undefined;
   }
 
   getField?: ITelemetryModel["getField"];

@@ -36,6 +36,9 @@ def run_launcher_command(ctx: AppContext, args: list[str]) -> CommandResult:
     if command == "status":
         handle_status_command(ctx, rest)
         return CommandResult(exit_code=0)
+    if command == "metrics":
+        handle_metrics_command(ctx, rest)
+        return CommandResult(exit_code=0)
     if command == "ensure":
         handle_ensure_command(ctx, rest)
         return CommandResult(exit_code=0)
@@ -86,6 +89,68 @@ def handle_status_command(ctx: AppContext, args: list[str]) -> None:
         write_json(unavailable_launcher_status())
         return
     write_json(format_launcher_status_payload({"resource_type": "robotick_launcher_status", "runtime": payload}))
+
+
+def handle_metrics_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(
+            "Usage:\n"
+            "  robotick launcher metrics [--project <project>] [--model <id> | --models <id,...>]\n"
+        )
+        return
+    parsed = parse_launcher_args(
+        args,
+        value_flags={"--project", "--model", "--models"},
+        repeatable_flags={"--model"},
+        boolean_flags={"--json"},
+    )
+    ensure_no_positionals(parsed, "launcher metrics")
+    selection = build_selection_options(parsed)
+
+    record = discover_hub(ctx.workspace_root)
+    if record is None or not is_pid_alive(record.pid):
+        write_json(
+            {
+                "resource_type": "robotick_launcher_runtime_metrics_collection",
+                "state": "unavailable",
+                "models": [],
+            }
+        )
+        return
+    try:
+        runtime = fetch_launcher_runtime_through_hub(
+            record,
+            project_id=selection["project_id"],
+            model_ids=selection["model_ids"],
+        )
+    except HubRequestError:
+        write_json(
+            {
+                "resource_type": "robotick_launcher_runtime_metrics_collection",
+                "state": "unavailable",
+                "models": [],
+            }
+        )
+        return
+
+    models = [
+        {
+            "project_id": model.get("project_id"),
+            "model_id": model.get("model_id"),
+            "lifecycle": model.get("lifecycle"),
+            "freshness": model.get("freshness"),
+            "metrics": model.get("metrics"),
+        }
+        for model in runtime.get("models") or []
+        if isinstance(model, dict)
+    ]
+    write_json(
+        {
+            "resource_type": "robotick_launcher_runtime_metrics_collection",
+            "state": runtime.get("state"),
+            "models": models,
+        }
+    )
 
 
 def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:

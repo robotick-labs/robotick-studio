@@ -8,6 +8,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import uuid
 from typing import Any
 from typing import Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -25,6 +27,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from robotick_hub.abilities.base import AbilityManifest, AbilityStatus, HubContext
 from robotick_hub.workspace import list_workspace_project_paths
+
+_PROCESS_METRICS_CLOCK_TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+_PROCESS_METRICS_PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+_PROCESS_METRICS_LOCK = threading.RLock()
+_PROCESS_METRICS_PREVIOUS: dict[int, dict[str, Any]] = {}
+
 
 class LauncherRuntimeSelectionRequest(BaseModel):
     project_id: str | None = None
@@ -1224,6 +1232,474 @@ def _pid_alive(pid: int | None) -> bool:
     return True
 
 
+def _read_proc_stat(pid: int) -> dict[str, Any] | None:
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        text = stat_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    right_paren = text.rfind(")")
+    left_paren = text.find("(")
+    if left_paren < 0 or right_paren <= left_paren:
+        return None
+    try:
+        name = text[left_paren + 1 : right_paren]
+        parts = text[right_paren + 2 :].split()
+        state = parts[0]
+        ppid = int(parts[1])
+        process_group_id = int(parts[2])
+        session_id = int(parts[3])
+        user_ticks = int(parts[11])
+        system_ticks = int(parts[12])
+    except (IndexError, ValueError):
+        return None
+    if state == "Z":
+        return None
+    return {
+        "pid": pid,
+        "name": name,
+        "ppid": ppid,
+        "process_group_id": process_group_id,
+        "session_id": session_id,
+        "namespace_pids": _read_proc_namespace_pids(pid),
+        "cpu_ticks": user_ticks + system_ticks,
+    }
+
+
+def _read_proc_memory_bytes(pid: int) -> int | None:
+    try:
+        statm = Path(f"/proc/{pid}/statm").read_text(encoding="utf-8").split()
+        resident_pages = int(statm[1])
+    except (IndexError, OSError, ValueError):
+        return None
+    return resident_pages * _PROCESS_METRICS_PAGE_SIZE
+
+
+def _read_proc_command(pid: int) -> str:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return ""
+    command = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+    return command
+
+
+def _basename_without_empty(value: str) -> str:
+    name = Path(value).name.strip()
+    return name or value.strip()
+
+
+def _display_name_from_command(name: str, command: str) -> str:
+    command = command.strip()
+    if not command:
+        return name
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return name
+
+    wrapper_names = {
+        "python",
+        "python3",
+        "python3.10",
+        "python3.11",
+        "python3.12",
+        "ruby",
+        "node",
+    }
+    for index, part in enumerate(parts):
+        basename = _basename_without_empty(part)
+        if index == 0 and basename in wrapper_names:
+            continue
+        if basename.startswith("-"):
+            continue
+        return basename
+    return _basename_without_empty(parts[0]) or name
+
+
+def _read_proc_namespace_pids(pid: int) -> list[int]:
+    try:
+        lines = Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [pid]
+    for line in lines:
+        if not line.startswith("NSpid:"):
+            continue
+        values: list[int] = []
+        for part in line.split(":", 1)[1].split():
+            try:
+                values.append(int(part))
+            except ValueError:
+                continue
+        return values or [pid]
+    return [pid]
+
+
+def _record_runtime_port(record: dict[str, Any], probe: dict[str, Any]) -> int | None:
+    for value in (record.get("telemetry_port"), record.get("port")):
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 < port <= 65535:
+            return port
+    for key in ("telemetry_url", "health_url"):
+        raw_url = str(record.get(key) or probe.get(key) or "").strip()
+        if not raw_url:
+            continue
+        try:
+            port = urlparse(raw_url).port
+        except ValueError:
+            continue
+        if port is not None:
+            return port
+    return None
+
+
+def _runtime_probe_is_local(record: dict[str, Any], probe: dict[str, Any]) -> bool:
+    candidates = [
+        record.get("telemetry_host"),
+        record.get("host"),
+    ]
+    for key in ("telemetry_url", "health_url"):
+        raw_url = str(record.get(key) or probe.get(key) or "").strip()
+        if raw_url:
+            candidates.append(urlparse(raw_url).hostname)
+    hosts = [str(host).strip().lower() for host in candidates if str(host or "").strip()]
+    if not hosts:
+        return True
+    local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+    return any(host in local_hosts for host in hosts)
+
+
+def _listening_socket_inodes_for_port(port: int) -> set[str]:
+    inodes: set[str] = set()
+    port_hex = f"{port:04X}"
+    for proc_net_path in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+        try:
+            lines = proc_net_path.read_text(encoding="utf-8").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 10 or parts[3] != "0A":
+                continue
+            local_address = parts[1]
+            if ":" not in local_address:
+                continue
+            _, local_port_hex = local_address.rsplit(":", 1)
+            if local_port_hex.upper() == port_hex:
+                inodes.add(parts[9])
+    return inodes
+
+
+def _find_process_for_socket_inodes(inodes: set[str]) -> int | None:
+    if not inodes:
+        return None
+    socket_targets = {f"socket:[{inode}]" for inode in inodes}
+    for proc_entry in Path("/proc").iterdir():
+        if not proc_entry.name.isdigit():
+            continue
+        fd_dir = proc_entry / "fd"
+        try:
+            fd_entries = list(fd_dir.iterdir())
+        except OSError:
+            continue
+        for fd_entry in fd_entries:
+            try:
+                target = os.readlink(fd_entry)
+            except OSError:
+                continue
+            if target in socket_targets:
+                return int(proc_entry.name)
+    return None
+
+
+def _recover_runtime_pid_from_probe(record: dict[str, Any], probe: dict[str, Any]) -> int | None:
+    if not probe.get("healthy") or not _runtime_probe_is_local(record, probe):
+        return None
+    port = _record_runtime_port(record, probe)
+    if port is None:
+        return None
+    return _find_process_for_socket_inodes(_listening_socket_inodes_for_port(port))
+
+
+def _model_command_markers(model_id: str | None) -> set[str]:
+    if not model_id:
+        return set()
+    normalized = model_id.strip().lower()
+    if not normalized:
+        return set()
+    return {normalized, normalized.replace("-", "_")}
+
+
+def _command_is_runtime_anchor(command: str, markers: set[str]) -> bool:
+    normalized = command.lower()
+    if not any(marker in normalized for marker in markers):
+        return False
+    runtime_hints = (
+        "robotick.launcher.cli run",
+        "do_ros2_run.sh",
+        "ros2 launch",
+        ".launch.py",
+        "/.launcher/",
+        "/install/",
+        "docker run",
+        "docker exec",
+    )
+    return any(hint in normalized for hint in runtime_hints)
+
+
+def _classify_runtime_process(
+    process: dict[str, Any],
+    *,
+    root_pid: int,
+    model_id: str | None,
+) -> str:
+    command = str(process.get("command") or "").lower()
+    name = str(process.get("name") or "").lower()
+    wrapper_names = {
+        "bash",
+        "sh",
+        "python",
+        "python3",
+        "docker",
+        "docker-init",
+        "do_ros2_run.sh",
+        "enter_rosenv.sh",
+        "ros2",
+    }
+    if name in wrapper_names or "robotick.launcher.cli run" in command:
+        return "wrapper"
+    markers = _model_command_markers(model_id)
+    if markers and any(marker in command or marker in name for marker in markers):
+        if (
+            "/.launcher/" in command
+            or "/generated/" in command
+            or "/build/" in command
+            or any(name == marker[:15] or name == marker for marker in markers)
+        ):
+            return "engine"
+    if process["pid"] == root_pid:
+        return "wrapper"
+    return "runtime"
+
+
+def _collect_process_tree_stats(root_pid: int, model_id: str | None = None) -> dict[str, Any] | None:
+    root_stat = _read_proc_stat(root_pid)
+    if root_stat is None:
+        return None
+
+    stats_by_pid: dict[int, dict[str, Any]] = {}
+    children_by_parent: dict[int, list[int]] = {}
+    for proc_entry in Path("/proc").iterdir():
+        if not proc_entry.name.isdigit():
+            continue
+        pid = int(proc_entry.name)
+        stat = _read_proc_stat(pid)
+        if stat is not None:
+            stat["command"] = _read_proc_command(pid)
+            stat["display_name"] = _display_name_from_command(
+                str(stat.get("name") or ""),
+                str(stat.get("command") or ""),
+            )
+            stats_by_pid[pid] = stat
+            children_by_parent.setdefault(stat["ppid"], []).append(pid)
+
+    if root_pid not in stats_by_pid:
+        return None
+
+    selected: dict[int, dict[str, Any]] = {}
+
+    def add_descendants(seed_pid: int) -> None:
+        pending = [seed_pid]
+        while pending:
+            parent_pid = pending.pop()
+            stat = stats_by_pid.get(parent_pid)
+            if stat is not None:
+                selected[parent_pid] = stat
+            pending.extend(
+                child_pid
+                for child_pid in children_by_parent.get(parent_pid, [])
+                if child_pid not in selected
+            )
+
+    root_session_id = root_stat.get("session_id")
+    root_process_group_id = root_stat.get("process_group_id")
+    if root_session_id == root_pid:
+        selected.update(
+            (pid, stat)
+            for pid, stat in stats_by_pid.items()
+            if stat.get("session_id") == root_session_id
+        )
+    if len(selected) <= 1 and root_process_group_id == root_pid:
+        selected.update(
+            (pid, stat)
+            for pid, stat in stats_by_pid.items()
+            if stat.get("process_group_id") == root_process_group_id
+        )
+
+    add_descendants(root_pid)
+
+    markers = _model_command_markers(model_id)
+    if markers:
+        anchor_stats = [
+            stat
+            for stat in stats_by_pid.values()
+            if _command_is_runtime_anchor(str(stat.get("command", "")), markers)
+        ]
+        anchor_groups = {
+            stat.get("process_group_id")
+            for stat in anchor_stats
+            if stat.get("process_group_id") not in {None, 0}
+        }
+        anchor_sessions = {
+            stat.get("session_id")
+            for stat in anchor_stats
+            if stat.get("session_id") not in {None, 0}
+        }
+        for pid, stat in stats_by_pid.items():
+            if (
+                stat.get("process_group_id") in anchor_groups
+                or stat.get("session_id") in anchor_sessions
+            ):
+                selected[pid] = stat
+        for stat in anchor_stats:
+            add_descendants(stat["pid"])
+
+    for pid in list(selected):
+        stat = stats_by_pid.get(pid)
+        if stat is None:
+            continue
+        add_descendants(pid)
+
+    child_counts: dict[int, int] = {pid: 0 for pid in selected}
+    for stat in selected.values():
+        parent_pid = stat.get("ppid")
+        if parent_pid in child_counts:
+            child_counts[parent_pid] += 1
+
+    return {
+        "root": root_stat,
+        "processes": [
+            {
+                **stat,
+                "children": child_counts.get(pid, 0),
+                "memory_bytes": _read_proc_memory_bytes(pid) or 0,
+            }
+            for pid, stat in selected.items()
+        ],
+    }
+
+
+def _sample_process_tree_metrics(
+    root_pid: int | None,
+    *,
+    model_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not root_pid:
+        return None
+
+    collected = _collect_process_tree_stats(root_pid, model_id=model_id)
+    if collected is None:
+        with _PROCESS_METRICS_LOCK:
+            _PROCESS_METRICS_PREVIOUS.pop(root_pid, None)
+        return None
+
+    now_monotonic = time.monotonic()
+    now_iso = _utc_now().isoformat()
+    root = collected["root"]
+    processes = collected["processes"]
+    current_ticks = {process["pid"]: process["cpu_ticks"] for process in processes}
+    total_ticks = sum(current_ticks.values())
+    total_memory_bytes = sum(process.get("memory_bytes", 0) for process in processes)
+
+    with _PROCESS_METRICS_LOCK:
+        previous = _PROCESS_METRICS_PREVIOUS.get(root_pid)
+        _PROCESS_METRICS_PREVIOUS[root_pid] = {
+            "sampled_at_monotonic": now_monotonic,
+            "process_ticks": current_ticks,
+            "total_ticks": total_ticks,
+        }
+
+    elapsed_seconds = (
+        now_monotonic - previous["sampled_at_monotonic"]
+        if previous is not None
+        else None
+    )
+    sample_window_ms = (
+        int(round(elapsed_seconds * 1000))
+        if elapsed_seconds is not None and elapsed_seconds > 0
+        else None
+    )
+
+    def cpu_percent_for(process: dict[str, Any]) -> float | None:
+        if previous is None or not elapsed_seconds or elapsed_seconds <= 0:
+            return None
+        previous_ticks = previous["process_ticks"].get(process["pid"], process["cpu_ticks"])
+        delta_ticks = max(0, process["cpu_ticks"] - previous_ticks)
+        return round((delta_ticks / _PROCESS_METRICS_CLOCK_TICKS) / elapsed_seconds * 100, 1)
+
+    process_metrics = [
+        {
+            "pid": process["pid"],
+            "parent_pid": process.get("ppid"),
+            "namespace_pids": process.get("namespace_pids") or [process["pid"]],
+            "name": process["name"],
+            "display_name": process.get("display_name") or process["name"],
+            "command": process.get("command"),
+            "role": _classify_runtime_process(
+                process,
+                root_pid=root_pid,
+                model_id=model_id,
+            ),
+            "cpu_percent": cpu_percent_for(process),
+            "memory_bytes": process.get("memory_bytes", 0),
+            "children": process.get("children", 0),
+        }
+        for process in processes
+    ]
+    cpu_percent = None
+    if previous is not None and elapsed_seconds and elapsed_seconds > 0:
+        delta_ticks = max(0, total_ticks - previous.get("total_ticks", total_ticks))
+        cpu_percent = round(
+            (delta_ticks / _PROCESS_METRICS_CLOCK_TICKS) / elapsed_seconds * 100,
+            1,
+        )
+
+    top_processes = sorted(
+        process_metrics,
+        key=lambda process: (
+            process["cpu_percent"] if process["cpu_percent"] is not None else -1,
+            process.get("memory_bytes", 0),
+        ),
+        reverse=True,
+    )[:8]
+    engine_process = next(
+        (process for process in process_metrics if process.get("role") == "engine"),
+        None,
+    )
+
+    return {
+        "resource_type": "robotick_launcher_runtime_metrics",
+        "source": "local_procfs",
+        "sampled_at": now_iso,
+        "root_pid": root_pid,
+        "process_group_id": root.get("process_group_id"),
+        "session_id": root.get("session_id"),
+        "sample_window_ms": sample_window_ms,
+        "process_count": len(processes),
+        "cpu_percent": cpu_percent,
+        "memory_bytes": total_memory_bytes,
+        "engine_process": engine_process,
+        "processes": process_metrics,
+        "top_processes": top_processes,
+        "devices": [],
+    }
+
+
 def _signal_worker_process_group(pid: int | None) -> None:
     if not pid:
         return
@@ -1824,6 +2300,16 @@ def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
     probe = _probe_runtime_phonebook_record(record)
     pid = record.get("pid")
     pid_alive = _pid_alive(int(pid)) if isinstance(pid, int) or str(pid).isdigit() else False
+    if not pid_alive:
+        recovered_pid = _recover_runtime_pid_from_probe(record, probe)
+        if recovered_pid is not None:
+            pid = recovered_pid
+            pid_alive = _pid_alive(recovered_pid)
+    metrics = (
+        _sample_process_tree_metrics(int(pid), model_id=str(record.get("model_id") or ""))
+        if pid_alive
+        else None
+    )
     if operation is not None and operation["action"] == "launching" and probe.get("healthy"):
         operation = None
 
@@ -1864,6 +2350,7 @@ def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
         "control_available": control_available,
         "pid": pid,
         "pid_alive": pid_alive,
+        "metrics": metrics,
         "telemetry_host": record.get("telemetry_host"),
         "telemetry_port": record.get("telemetry_port"),
         "telemetry_url": record.get("telemetry_url"),
