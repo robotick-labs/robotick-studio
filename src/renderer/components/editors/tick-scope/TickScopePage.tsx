@@ -1555,6 +1555,21 @@ const RuntimeProcessesSection = memo(function RuntimeProcessesSection({
     [runtimeMetrics.otherProcesses, sortKey],
   );
 
+  if (otherProcessCount === 0) {
+    return (
+      <section className={styles.modelSubsection}>
+        <div className={styles.modelSubsectionHeader}>
+          <div className={styles.sectionStaticSummary}>
+            <div className={styles.sectionHeadingText}>
+              <strong>Other runtime processes</strong>
+              <span>None observed for this model.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className={styles.modelSubsection}>
       <div className={styles.modelSubsectionHeader}>
@@ -1723,9 +1738,6 @@ const ThreadLane = memo(function ThreadLane({
                 <strong>{thread.name}</strong>
                 {thread.note || thread.role ? <span>{thread.note ?? thread.role}</span> : null}
               </div>
-              <span className={styles.workerThreadCount}>
-                {thread.workerThreads?.length ?? 0}
-              </span>
             </div>
           ) : (
             <div className={styles.workerThreadHeadingText}>
