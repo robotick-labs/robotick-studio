@@ -72,6 +72,12 @@ function getConnectionCapsuleClass(kind: ConnectionKind | null): string {
   return "";
 }
 
+function getIncomingConnectionSourcePath(
+  hint: FieldConnectionHint | null
+): string | undefined {
+  return hint?.localIncomingFrom[0] ?? hint?.remoteIncomingFrom[0];
+}
+
 function isSectionKind(value?: string): boolean {
   return (
     value === "config" ||
@@ -255,12 +261,14 @@ function WritableTreeNodeField({
   field,
   telemetryBaseUrl,
   capsuleClassName,
+  incomingConnectionSourcePath,
   tooltipText,
   onTextContextMenu,
 }: {
   field: ITelemetryField;
   telemetryBaseUrl?: string;
   capsuleClassName?: string;
+  incomingConnectionSourcePath?: string;
   tooltipText?: string | null;
   onTextContextMenu?: React.MouseEventHandler<HTMLElement>;
 }) {
@@ -272,6 +280,7 @@ function WritableTreeNodeField({
       telemetryBaseUrl={telemetryBaseUrl}
       className={treeStyles.writableNodeEntry}
       capsuleClassName={capsuleClassName}
+      incomingConnectionSourcePath={incomingConnectionSourcePath}
       tooltipText={tooltipText}
       labelContextMenu={onTextContextMenu}
       readCurrentValue={readValue}
@@ -339,6 +348,8 @@ const TelemetryFieldTreeNode = React.memo(function TelemetryFieldTreeNode({
   const connectionKind = getConnectionKindFromHint(connectionHint);
   const capsuleClass = getConnectionCapsuleClass(connectionKind);
   const tooltipText = getConnectionTooltip(field.path, connectionHint);
+  const incomingConnectionSourcePath =
+    getIncomingConnectionSourcePath(connectionHint);
   const workloadName =
     context.workloadName ??
     explicitWorkloadName ??
@@ -404,6 +415,7 @@ const TelemetryFieldTreeNode = React.memo(function TelemetryFieldTreeNode({
             field={field}
             telemetryBaseUrl={telemetryBaseUrl}
             capsuleClassName={capsuleClass}
+            incomingConnectionSourcePath={incomingConnectionSourcePath}
             tooltipText={tooltipText}
             onTextContextMenu={handleTextContextMenu}
           />

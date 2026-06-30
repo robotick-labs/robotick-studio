@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from robotick.launcher.domain.contracts import ModelSessionGroupRecord, ModelSessionRecord
 
 
@@ -26,6 +28,24 @@ class LauncherSessionStore:
     def _session_path(self, session_id: str) -> Path:
         return self.session_dir / f"{session_id}.json"
 
+    def _read_group(self, path: Path) -> ModelSessionGroupRecord | None:
+        try:
+            text = path.read_text(encoding="utf-8")
+            if not text.strip():
+                return None
+            return ModelSessionGroupRecord.model_validate_json(text)
+        except (OSError, ValidationError, ValueError):
+            return None
+
+    def _read_session(self, path: Path) -> ModelSessionRecord | None:
+        try:
+            text = path.read_text(encoding="utf-8")
+            if not text.strip():
+                return None
+            return ModelSessionRecord.model_validate_json(text)
+        except (OSError, ValidationError, ValueError):
+            return None
+
     def create_group(self, group: ModelSessionGroupRecord) -> ModelSessionGroupRecord:
         self._ensure_dirs()
         path = self._group_path(group.id)
@@ -43,13 +63,14 @@ class LauncherSessionStore:
         path = self._group_path(group_id)
         if not path.exists():
             return None
-        return ModelSessionGroupRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        return self._read_group(path)
 
     def list_groups(self, *, project_id: str | None = None) -> list[ModelSessionGroupRecord]:
         self._ensure_dirs()
         groups = [
-            ModelSessionGroupRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            group
             for path in sorted(self.group_dir.glob("*.json"))
+            if (group := self._read_group(path)) is not None
         ]
         if project_id is not None:
             groups = [group for group in groups if group.project_id == project_id]
@@ -72,7 +93,7 @@ class LauncherSessionStore:
         path = self._session_path(session_id)
         if not path.exists():
             return None
-        return ModelSessionRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        return self._read_session(path)
 
     def list_sessions(
         self,
@@ -82,8 +103,9 @@ class LauncherSessionStore:
     ) -> list[ModelSessionRecord]:
         self._ensure_dirs()
         sessions = [
-            ModelSessionRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            session
             for path in sorted(self.session_dir.glob("*.json"))
+            if (session := self._read_session(path)) is not None
         ]
         if group_id is not None:
             sessions = [session for session in sessions if session.group_id == group_id]

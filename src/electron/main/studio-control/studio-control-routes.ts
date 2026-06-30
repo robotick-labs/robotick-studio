@@ -6,6 +6,7 @@ import type {
 } from "../../common/studio-control-contract";
 import type { StudioDiagnosticsProvider } from "./studio-diagnostics";
 import type { StudioRuntimeSnapshotProvider } from "./studio-runtime-snapshot";
+import type { ElectronTelemetryService } from "../data-sources/telemetry/electron-telemetry-service";
 import { dispatchStudioControlCommand } from "./studio-command-registry";
 
 export type StudioControlRouteDependencies = {
@@ -16,6 +17,7 @@ export type StudioControlRouteDependencies = {
     pathSegments: string[],
     alreadyActive: boolean
   ) => StudioControlActivationResponse;
+  telemetryService?: ElectronTelemetryService;
 };
 
 function writeJson(response: ServerResponse, statusCode: number, payload: unknown) {
@@ -23,6 +25,22 @@ function writeJson(response: ServerResponse, statusCode: number, payload: unknow
     "Content-Type": "application/json",
   });
   response.end(`${JSON.stringify(payload)}\n`);
+}
+
+function writeBytes(
+  response: ServerResponse,
+  statusCode: number,
+  body: Buffer | Uint8Array,
+  contentType: string,
+  headers?: Record<string, string>
+) {
+  const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  response.writeHead(statusCode, {
+    "Content-Type": contentType,
+    "Content-Length": String(buffer.byteLength),
+    ...(headers ?? {}),
+  });
+  response.end(buffer);
 }
 
 export async function readStudioControlJsonBody(
@@ -56,7 +74,17 @@ export async function routeStudioControlRequest(
     body
   );
   if (result) {
-    writeJson(response, result.statusCode, result.payload);
+    if ("body" in result) {
+      writeBytes(
+        response,
+        result.statusCode,
+        result.body,
+        result.contentType,
+        result.headers,
+      );
+    } else {
+      writeJson(response, result.statusCode, result.payload);
+    }
     return;
   }
 

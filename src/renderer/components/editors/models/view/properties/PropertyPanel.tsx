@@ -450,7 +450,7 @@ function NestedStructFields({
 
   return (
     <div style={{ marginTop: 6 }}>
-      {struct.fields.map((field) => {
+      {struct.fields.map((field: WorkloadsRegistryField) => {
         const childPath = `${path}.${field.name}`;
         const hasOverride = Object.prototype.hasOwnProperty.call(objectValue, field.name);
         const childValue = objectValue[field.name];
@@ -1116,7 +1116,9 @@ function validateDottedSchemaPath(
     if (!currentStruct) {
       return false;
     }
-    const child = (currentStruct.fields ?? []).find((field) => field.name === segment);
+    const child = (currentStruct.fields ?? []).find(
+      (field: WorkloadsRegistryField) => field.name === segment
+    );
     if (!child) {
       return false;
     }
@@ -1156,7 +1158,12 @@ function validateValueAgainstType(
       errors.push(`Wrong type for ${path}: expected '${cppType}', got '${typeof value}'.`);
       return;
     }
-    const byName = new Map((struct.fields ?? []).map((field) => [field.name, field]));
+    const byName = new Map(
+      (struct.fields ?? []).map((field: WorkloadsRegistryField) => [
+        field.name,
+        field,
+      ])
+    );
     for (const [name, childValue] of Object.entries(value)) {
       const child = byName.get(name);
       if (!child) {
@@ -1269,9 +1276,17 @@ function buildSchemasFromRegistryResponse(
   const sharedStructs = response.shared_types?.structs ?? {};
   for (const [typeName, struct] of Object.entries(sharedStructs)) {
     if (!typeName?.trim()) continue;
+    const structPayload = struct as {
+      type_name?: string;
+      fields?: Array<{
+        field_name: string;
+        field_type_name: string;
+        default_value?: string;
+      }>;
+    };
     globalStructs[typeName] = {
-      name: struct.type_name ?? typeName,
-      fields: (struct.fields ?? []).map((field) => ({
+      name: structPayload.type_name ?? typeName,
+      fields: (structPayload.fields ?? []).map((field) => ({
         name: field.field_name,
         type: field.field_type_name,
         default: field.default_value,
@@ -1297,9 +1312,19 @@ function buildSchemasFromRegistryResponse(
   for (const legacy of response.registry ?? []) {
     if (!legacy.type?.trim()) continue;
     const legacyStructs = legacy.metadata?.structs ?? {};
+    const normalizedLegacyStructs: Record<string, WorkloadsRegistryStruct> =
+      Object.fromEntries(
+        Object.entries(legacyStructs).map(([name, struct]) => [
+          name,
+          {
+            name: struct.name ?? name,
+            fields: struct.fields,
+          },
+        ])
+      );
     const mergedStructs: Record<string, WorkloadsRegistryStruct> = {
       ...globalStructs,
-      ...legacyStructs,
+      ...normalizedLegacyStructs,
     };
     const prior = byType.get(legacy.type);
     byType.set(legacy.type, {
@@ -1307,15 +1332,15 @@ function buildSchemasFromRegistryResponse(
       roots: {
         config:
           prior?.roots.config ??
-          legacyStructs.config?.name ??
+          normalizedLegacyStructs.config?.name ??
           "config",
         inputs:
           prior?.roots.inputs ??
-          legacyStructs.inputs?.name ??
+          normalizedLegacyStructs.inputs?.name ??
           "inputs",
         outputs:
           prior?.roots.outputs ??
-          legacyStructs.outputs?.name ??
+          normalizedLegacyStructs.outputs?.name ??
           "outputs",
       },
       structs: mergedStructs,

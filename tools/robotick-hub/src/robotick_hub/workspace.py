@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
-import os
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +7,7 @@ import yaml
 
 from robotick_hub.contracts import WorkspaceProject
 from robotick_hub.manifest import load_manifest
+from robotick.launcher.actions.query.list import list_project_models
 
 
 def _read_yaml_file(path: Path) -> dict[str, Any]:
@@ -16,17 +15,6 @@ def _read_yaml_file(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     return payload
-
-
-def _relative_matches(base_dir: Path, wildcard: str) -> list[str]:
-    matches: list[str] = []
-    for root, dirs, files in os.walk(base_dir, followlinks=False):
-        dirs[:] = [entry for entry in dirs if entry != ".launcher"]
-        for file_name in files:
-            if fnmatch.fnmatch(file_name, wildcard):
-                full_path = (Path(root) / file_name).resolve()
-                matches.append(str(full_path.relative_to(base_dir)))
-    return sorted(matches)
 
 
 def build_workspace_projects(workspace_root: str | Path) -> list[WorkspaceProject]:
@@ -89,7 +77,7 @@ def list_project_model_paths(project_path: str | Path) -> list[str]:
     resolved = Path(project_path).resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"Project file not found: {resolved}")
-    return _relative_matches(resolved.parent, "*.model.yaml")
+    return list_project_models(str(resolved))
 
 
 def get_project_model(project_path: str | Path, model_path: str) -> dict[str, Any]:

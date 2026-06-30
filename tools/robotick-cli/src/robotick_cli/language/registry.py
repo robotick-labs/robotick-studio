@@ -131,6 +131,18 @@ STUDIO_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         visible_in_bound_instance=True,
     ),
     CommandSpec(
+        name="telemetry",
+        usage="robotick studio <instance> telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
+        summary="Query Studio-owned model telemetry through the control service",
+        shell_label="telemetry <models|model>",
+        description_lines=(
+            "Query telemetry models, layouts, decoded snapshots, and raw workloads buffers from the targeted Studio instance.",
+            "Raw workloads buffers are binary and require --output.",
+        ),
+        visible_in_studio_root=False,
+        visible_in_bound_instance=True,
+    ),
+    CommandSpec(
         name="select-project",
         usage="robotick studio <instance> select-project <project>",
         summary="Switch the selected project inside this Studio instance",
@@ -193,9 +205,15 @@ HUB_COMMAND_SPECS: tuple[CommandSpec, ...] = (
 
 LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec(
+        name="start",
+        usage="robotick launcher start <project> [profile]",
+        summary="Start selected project/model runtimes",
+        shell_label="start [project]",
+    ),
+    CommandSpec(
         name="launch",
         usage="robotick launcher launch <project> [profile]",
-        summary="Launch selected project/model runtimes",
+        summary="Legacy alias for start selected project/model runtimes",
         shell_label="launch [project]",
     ),
     CommandSpec(
@@ -203,6 +221,12 @@ LAUNCHER_COMMAND_SPECS: tuple[CommandSpec, ...] = (
         usage="robotick launcher status",
         summary="Query launcher service status as JSON without starting it",
         shell_label="status",
+    ),
+    CommandSpec(
+        name="metrics",
+        usage="robotick launcher metrics [--project <project>]",
+        summary="Query latest per-model runtime CPU and memory metrics as JSON",
+        shell_label="metrics",
     ),
     CommandSpec(
         name="ensure",

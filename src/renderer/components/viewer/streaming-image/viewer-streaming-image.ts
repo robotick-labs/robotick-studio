@@ -4,6 +4,7 @@ import type { ViewerConfig } from "../viewer-schema";
 import type { ViewerRuntime } from "../viewer";
 import { decode as decodePng } from "fast-png";
 import {
+  refreshTelemetryLayout,
   subscribeTelemetry,
   ITelemetryModel,
 } from "../../../data-sources/telemetry";
@@ -24,6 +25,7 @@ interface StreamingImageViewerConfig extends ViewerConfig {
 
 const DEFAULT_METRICS_WINDOW_MS = 60_000;
 const DEFAULT_FRAME_STALL_TIMEOUT_MS = 2_500;
+const STALL_REFRESH_COOLDOWN_MS = 2_000;
 const MAX_METRICS_HISTORY = 20;
 const DEFAULT_FRAME_RATE_HZ = 30;
 const DEFAULT_SURFACE_RECYCLE_INTERVAL_MS = 30_000;
@@ -35,6 +37,7 @@ let activeCanvasContext: CanvasRenderingContext2D | null = null;
 let activeCanvasStackElement: HTMLDivElement | null = null;
 let viewerContainerElement: HTMLElement | null = null;
 let statsOverlayElement: HTMLDivElement | null = null;
+let streamStatusElement: HTMLDivElement | null = null;
 let detectionsOverlayElement: HTMLDivElement | null = null;
 let streamSelectorContainerElement: HTMLLabelElement | null = null;
 let streamSelectorElement: HTMLSelectElement | null = null;
@@ -64,6 +67,8 @@ let metricsSourceLabel = "";
 let lastFrameReceivedAtMs = 0;
 let lastFramePresentedAtMs = 0;
 let stallStateActive = false;
+let activePrimaryTelemetryBaseUrl: string | null = null;
+let lastStallRefreshAtMs = 0;
 let viewerSessionId = 0;
 let surfaceCreatedAtMs = 0;
 let transformScratchCanvas: HTMLCanvasElement | null = null;
@@ -72,6 +77,7 @@ let createImageBitmapUnavailableReported = false;
 let activeCompositeStreamMode = false;
 let layeredFrameSequenceByLayerId = new Map<string, number>();
 let workloadAliasCache = new Map<string, Map<string, string[]>>();
+let streamStatusKey = "";
 
 type StreamingImageRuntimeState = {
   telemetryDispose: (() => void) | null;
@@ -80,6 +86,7 @@ type StreamingImageRuntimeState = {
   activeCanvasStackElement: HTMLDivElement | null;
   viewerContainerElement: HTMLElement | null;
   statsOverlayElement: HTMLDivElement | null;
+  streamStatusElement: HTMLDivElement | null;
   detectionsOverlayElement: HTMLDivElement | null;
   streamSelectorContainerElement: HTMLLabelElement | null;
   streamSelectorElement: HTMLSelectElement | null;
@@ -108,6 +115,8 @@ type StreamingImageRuntimeState = {
   lastFrameReceivedAtMs: number;
   lastFramePresentedAtMs: number;
   stallStateActive: boolean;
+  activePrimaryTelemetryBaseUrl: string | null;
+  lastStallRefreshAtMs: number;
   viewerSessionId: number;
   surfaceCreatedAtMs: number;
   transformScratchCanvas: HTMLCanvasElement | null;
@@ -116,6 +125,7 @@ type StreamingImageRuntimeState = {
   activeCompositeStreamMode: boolean;
   layeredFrameSequenceByLayerId: Map<string, number>;
   workloadAliasCache: Map<string, Map<string, string[]>>;
+  streamStatusKey: string;
 };
 
 const runtimeStates = new Map<number, StreamingImageRuntimeState>();
@@ -139,6 +149,7 @@ function createInitialRuntimeState(): StreamingImageRuntimeState {
     activeCanvasStackElement: null,
     viewerContainerElement: null,
     statsOverlayElement: null,
+    streamStatusElement: null,
     detectionsOverlayElement: null,
     streamSelectorContainerElement: null,
     streamSelectorElement: null,
@@ -168,6 +179,8 @@ function createInitialRuntimeState(): StreamingImageRuntimeState {
     lastFrameReceivedAtMs: 0,
     lastFramePresentedAtMs: 0,
     stallStateActive: false,
+    activePrimaryTelemetryBaseUrl: null,
+    lastStallRefreshAtMs: 0,
     viewerSessionId: 0,
     surfaceCreatedAtMs: 0,
     transformScratchCanvas: null,
@@ -176,6 +189,7 @@ function createInitialRuntimeState(): StreamingImageRuntimeState {
     activeCompositeStreamMode: false,
     layeredFrameSequenceByLayerId: new Map<string, number>(),
     workloadAliasCache: new Map<string, Map<string, string[]>>(),
+    streamStatusKey: "",
   };
 }
 
@@ -187,6 +201,7 @@ function captureRuntimeState(): StreamingImageRuntimeState {
     activeCanvasStackElement,
     viewerContainerElement,
     statsOverlayElement,
+    streamStatusElement,
     detectionsOverlayElement,
     streamSelectorContainerElement,
     streamSelectorElement,
@@ -215,6 +230,8 @@ function captureRuntimeState(): StreamingImageRuntimeState {
     lastFrameReceivedAtMs,
     lastFramePresentedAtMs,
     stallStateActive,
+    activePrimaryTelemetryBaseUrl,
+    lastStallRefreshAtMs,
     viewerSessionId,
     surfaceCreatedAtMs,
     transformScratchCanvas,
@@ -223,6 +240,7 @@ function captureRuntimeState(): StreamingImageRuntimeState {
     activeCompositeStreamMode,
     layeredFrameSequenceByLayerId,
     workloadAliasCache,
+    streamStatusKey,
   };
 }
 
@@ -233,6 +251,7 @@ function applyRuntimeState(state: StreamingImageRuntimeState): void {
   activeCanvasStackElement = state.activeCanvasStackElement;
   viewerContainerElement = state.viewerContainerElement;
   statsOverlayElement = state.statsOverlayElement;
+  streamStatusElement = state.streamStatusElement;
   detectionsOverlayElement = state.detectionsOverlayElement;
   streamSelectorContainerElement = state.streamSelectorContainerElement;
   streamSelectorElement = state.streamSelectorElement;
@@ -261,6 +280,8 @@ function applyRuntimeState(state: StreamingImageRuntimeState): void {
   lastFrameReceivedAtMs = state.lastFrameReceivedAtMs;
   lastFramePresentedAtMs = state.lastFramePresentedAtMs;
   stallStateActive = state.stallStateActive;
+  activePrimaryTelemetryBaseUrl = state.activePrimaryTelemetryBaseUrl;
+  lastStallRefreshAtMs = state.lastStallRefreshAtMs;
   viewerSessionId = state.viewerSessionId;
   surfaceCreatedAtMs = state.surfaceCreatedAtMs;
   transformScratchCanvas = state.transformScratchCanvas;
@@ -269,6 +290,7 @@ function applyRuntimeState(state: StreamingImageRuntimeState): void {
   activeCompositeStreamMode = state.activeCompositeStreamMode;
   layeredFrameSequenceByLayerId = state.layeredFrameSequenceByLayerId;
   workloadAliasCache = state.workloadAliasCache;
+  streamStatusKey = state.streamStatusKey;
 }
 
 function persistActiveRuntimeState(): void {
@@ -553,6 +575,8 @@ function resetRuntimeState() {
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
+  activePrimaryTelemetryBaseUrl = null;
+  lastStallRefreshAtMs = 0;
   decodeInFlight = false;
   surfaceCreatedAtMs = 0;
   transformScratchCanvas = null;
@@ -561,6 +585,7 @@ function resetRuntimeState() {
   activeCompositeStreamMode = false;
   layeredFrameSequenceByLayerId = new Map<string, number>();
   workloadAliasCache = new Map<string, Map<string, string[]>>();
+  streamStatusKey = "";
   activeCanvasStackElement = null;
   activeFrameRateHz = DEFAULT_FRAME_RATE_HZ;
   activeTelemetrySamplingRateHz =
@@ -574,6 +599,7 @@ function resetRuntimeState() {
     presentTimerId = null;
   }
   cleanupStreamSelector();
+  cleanupStreamStatusOverlay();
   publishDebugState();
 }
 
@@ -584,6 +610,8 @@ function publishDebugState(extra: Record<string, unknown> = {}) {
   globalHost.__robotickStreamingImageDebug = {
     metricsEnabled,
     hasOverlay: Boolean(statsOverlayElement),
+    hasStreamStatus: Boolean(streamStatusElement),
+    streamStatusKey,
     hasDetectionsOverlay: Boolean(detectionsOverlayElement),
     hasCanvas: Boolean(activeCanvas),
     hasContainer: Boolean(viewerContainerElement),
@@ -595,6 +623,8 @@ function publishDebugState(extra: Record<string, unknown> = {}) {
     presentTimerActive: presentTimerId !== null,
     lastFrameReceivedAtMs,
     lastFramePresentedAtMs,
+    activePrimaryTelemetryBaseUrl,
+    lastStallRefreshAtMs,
     ...extra,
   };
 }
@@ -641,6 +671,97 @@ function cleanupStatsOverlay() {
   }
   statsOverlayElement = null;
   publishDebugState({ overlayCreated: false });
+}
+
+function ensureStreamStatusOverlay() {
+  if (!viewerContainerElement) {
+    return null;
+  }
+  if (
+    streamStatusElement &&
+    streamStatusElement.isConnected &&
+    streamStatusElement.parentElement === viewerContainerElement
+  ) {
+    return streamStatusElement;
+  }
+
+  cleanupStreamStatusOverlay();
+  ensureViewerContainerPositioned();
+
+  const overlay = document.createElement("div");
+  overlay.dataset.role = "stream-status";
+  Object.assign(overlay.style, {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    maxWidth: "min(32rem, calc(100% - 3rem))",
+    padding: "0.75rem 1rem",
+    border: "1px solid rgba(255, 255, 255, 0.16)",
+    borderRadius: "8px",
+    background: "rgba(8, 12, 20, 0.78)",
+    color: "rgba(255, 255, 255, 0.92)",
+    boxShadow: "0 14px 38px rgba(0, 0, 0, 0.32)",
+    fontFamily:
+      "var(--font-family-base, Inter, Segoe UI, system-ui, sans-serif)",
+    fontSize: "0.9rem",
+    lineHeight: "1.35",
+    letterSpacing: "0",
+    textAlign: "center",
+    pointerEvents: "none",
+    zIndex: "997",
+  });
+  streamStatusElement = overlay;
+  viewerContainerElement.appendChild(overlay);
+  publishDebugState({ streamStatusCreated: true });
+  return overlay;
+}
+
+function cleanupStreamStatusOverlay() {
+  if (streamStatusElement?.parentElement) {
+    streamStatusElement.parentElement.removeChild(streamStatusElement);
+  }
+  streamStatusElement = null;
+  streamStatusKey = "";
+  publishDebugState({ streamStatusCreated: false });
+}
+
+function setStreamStatus(message: string, detail?: string) {
+  const key = `${message}\n${detail ?? ""}`;
+  if (streamStatusKey === key && streamStatusElement) {
+    return;
+  }
+  const overlay = ensureStreamStatusOverlay();
+  if (!overlay) {
+    return;
+  }
+  streamStatusKey = key;
+  overlay.replaceChildren();
+
+  const messageElement = document.createElement("div");
+  messageElement.textContent = message;
+  Object.assign(messageElement.style, {
+    fontWeight: "650",
+  });
+  overlay.appendChild(messageElement);
+
+  if (detail) {
+    const detailElement = document.createElement("div");
+    detailElement.textContent = detail;
+    Object.assign(detailElement.style, {
+      marginTop: "0.25rem",
+      color: "rgba(255, 255, 255, 0.72)",
+      fontSize: "0.78rem",
+      fontFamily: "Menlo, Consolas, monospace",
+      overflowWrap: "anywhere",
+    });
+    overlay.appendChild(detailElement);
+  }
+  publishDebugState({ streamStatus: message, streamStatusDetail: detail });
+}
+
+function clearStreamStatus() {
+  cleanupStreamStatusOverlay();
 }
 
 function ensureViewerContainerPositioned() {
@@ -943,6 +1064,7 @@ async function renderFrameToCanvas(
   const safeBytes = sanitizeTelemetryImageBytes(frame.mime, frame.bytes);
   if (!safeBytes) {
     noteTransportError();
+    setStreamStatus("Image frame decode failed", frame.mime);
     return false;
   }
 
@@ -978,6 +1100,7 @@ async function renderFrameToCanvas(
 
   if (typeof createImageBitmap !== "function") {
     noteCreateImageBitmapUnavailable();
+    setStreamStatus("Image decoder unavailable", frame.mime);
     return false;
   }
 
@@ -1079,6 +1202,7 @@ async function presentPendingFrame() {
   } catch (err) {
     console.warn("[streaming-image] Failed to decode frame", err);
     noteTransportError();
+    setStreamStatus("Image frame decode failed", frame.mime);
   } finally {
     decodeInFlight = false;
     if (pendingFrame) {
@@ -1893,7 +2017,58 @@ function maybeHandleStall(nowMs: number) {
   if (metricsWindow) {
     metricsWindow.stallEvents += 1;
   }
+  setStreamStatus(
+    "Image stream stalled",
+    metricsSourceLabel || activeStreamingStream?.label,
+  );
   setBlackFrame();
+  requestStallRefresh(nowMs);
+}
+
+function requestStallRefresh(nowMs: number) {
+  const telemetryBase = activePrimaryTelemetryBaseUrl;
+  const stream = activeStreamingStream;
+  const primaryLayer = stream?.layers[0];
+  if (!telemetryBase || !primaryLayer) {
+    return;
+  }
+  if (nowMs - lastStallRefreshAtMs < STALL_REFRESH_COOLDOWN_MS) {
+    return;
+  }
+  lastStallRefreshAtMs = nowMs;
+  const owningInstanceId = activeRuntimeInstanceId;
+  const applyRefreshedModel = (model: ITelemetryModel | null) => {
+    if (!model || activePrimaryTelemetryBaseUrl !== telemetryBase) {
+      return;
+    }
+    handleTelemetryFrame(model, primaryLayer);
+  };
+  const handleRefreshError = (err: unknown) => {
+    console.warn(
+      `[streaming-image] Failed to refresh stalled stream ${telemetryBase}`,
+      err,
+    );
+    noteTransportError();
+  };
+  void refreshTelemetryLayout(telemetryBase)
+    .then((model) => {
+      if (owningInstanceId === null) {
+        applyRefreshedModel(model);
+        return;
+      }
+      void withRuntimeStateIfActive(owningInstanceId, () =>
+        applyRefreshedModel(model),
+      );
+    })
+    .catch((err) => {
+      if (owningInstanceId === null) {
+        handleRefreshError(err);
+        return;
+      }
+      void withRuntimeStateIfActive(owningInstanceId, () =>
+        handleRefreshError(err),
+      );
+    });
 }
 
 function maybeRecycleSurface(nowMs: number) {
@@ -2408,12 +2583,14 @@ function resetSourceRuntimeState() {
   lastFrameReceivedAtMs = 0;
   lastFramePresentedAtMs = 0;
   stallStateActive = false;
+  lastStallRefreshAtMs = 0;
   if (presentTimerId !== null && typeof clearTimeout === "function") {
     clearTimeout(presentTimerId);
     presentTimerId = null;
   }
   metricsWindow = metricsEnabled ? createMetricsWindow(Date.now()) : null;
   setBlackFrame();
+  setStreamStatus("Waiting for image stream", activeStreamingStream?.label);
 }
 
 async function switchStreamingImageSource(streamId: string) {
@@ -2443,8 +2620,8 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
   latestDetections = [];
   latestFieldOfViewRect = null;
   layeredFrameSequenceByLayerId.clear();
-  resetSourceRuntimeState();
   activeStreamingStream = stream;
+  resetSourceRuntimeState();
 
   const resolvedLayers = await Promise.all(
     stream.layers.map(async (layer) => {
@@ -2485,6 +2662,10 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
     console.warn(
       "[streaming-image] Unable to resolve telemetry base URL for viewer",
     );
+    setStreamStatus(
+      "Image stream source unavailable",
+      primaryLayer.sourceField,
+    );
     publishDebugState({
       fieldPath: primaryLayer.sourceField,
       streamId: stream.id,
@@ -2493,6 +2674,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
   }
 
   activeCompositeStreamMode = stream.layers.length > 1;
+  activePrimaryTelemetryBaseUrl = primaryTelemetryBase;
   recreateCanvasSurface(stream.layers);
   ensureStreamSelector(activeStreamSources, stream.id);
   metricsSourceLabel = `${primaryTelemetryBase} :: ${primaryLayer.sourceField}`;
@@ -2533,6 +2715,7 @@ async function subscribeToStreamingImageStream(stream: StreamingImageStream) {
               err,
             );
             noteTransportError();
+            setStreamStatus("Telemetry stream error", layer.sourceField);
           };
           if (owningInstanceId === null) {
             handleError();
@@ -2864,13 +3047,16 @@ function handleTelemetryFrame(
     : undefined;
   const field = model.getField?.(sourceFieldPath);
   if (!field) {
+    setStreamStatus("Image field not found", sourceFieldPath);
     return;
   }
   const value = field.getValue?.();
   const bytes = extractStreamingImageBytes(value);
   if (!bytes) {
+    setStreamStatus("Image field has no image bytes", sourceFieldPath);
     return;
   }
+  clearStreamStatus();
 
   const mime = resolveStreamingImageMime(field.mime_type, bytes);
   const detections = source.detectionsSourceField

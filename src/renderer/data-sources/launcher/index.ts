@@ -29,7 +29,7 @@ export const Launcher = {
    * subscribe to anything. Think “RPC over REST”.
    */
   Service: {
-    run: LauncherRest.LauncherRest.run, // POST /v1/launcher/models/launch
+    run: LauncherRest.LauncherRest.run, // POST /v1/launcher/models/start
     stop: LauncherRest.LauncherRest.stop, // POST /v1/launcher/models/stop (project/model aggregate)
     status: LauncherRest.LauncherRest.status, // GET /v1/launcher/status
     logs: {

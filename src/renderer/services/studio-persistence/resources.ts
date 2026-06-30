@@ -673,15 +673,11 @@ export async function loadStudioDocument(
   if (!raw) {
     return createEmptyStudioPersistenceModel(projectPath);
   }
-  try {
-    const parsed = parse(raw);
-    if (isRawStudioDocument(parsed)) {
-      return expandStudioDocument(parsed);
-    }
-  } catch {
-    // Invalid documents are treated as missing until stricter error handling lands.
+  const parsed = parse(raw);
+  if (!isRawStudioDocument(parsed)) {
+    throw new Error("Invalid Studio document structure");
   }
-  return createEmptyStudioPersistenceModel(projectPath);
+  return expandStudioDocument(parsed);
 }
 
 export function hasStudioDocument(model: StudioPersistenceModel): boolean {

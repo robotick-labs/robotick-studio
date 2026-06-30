@@ -4,17 +4,21 @@ import asyncio
 from collections import deque
 from datetime import datetime, timezone
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import subprocess
 import sys
 import threading
 import time
+import uuid
 from typing import Any
 from typing import Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -23,32 +27,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from robotick_hub.abilities.base import AbilityManifest, AbilityStatus, HubContext
 from robotick_hub.workspace import list_workspace_project_paths
-from robotick.launcher.hub_ability.launcher_sessions import (
-    get_model_session,
-    get_model_session_group,
-    list_model_session_groups,
-    list_model_sessions,
-)
 
-
-class LauncherGroupCreateRequest(BaseModel):
-    project_name: str
-    profile: str | None = None
-    intent: dict[str, Any] | None = None
-    creator: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_request(self) -> "LauncherGroupCreateRequest":
-        if not self.profile and not self.intent:
-            raise ValueError("Either 'profile' or 'intent' must be provided.")
-        if self.profile and self.intent:
-            raise ValueError("Provide either 'profile' or 'intent', not both.")
-        return self
-
-
-class LauncherSelectionRequest(BaseModel):
-    model_ids: list[str] = Field(default_factory=list)
-    session_ids: list[str] = Field(default_factory=list)
+_PROCESS_METRICS_CLOCK_TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+_PROCESS_METRICS_PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+_PROCESS_METRICS_LOCK = threading.RLock()
+_PROCESS_METRICS_PREVIOUS: dict[int, dict[str, Any]] = {}
 
 
 class LauncherRuntimeSelectionRequest(BaseModel):
@@ -62,6 +45,7 @@ class LauncherModelLaunchRequest(BaseModel):
     intent: dict[str, Any] | None = None
     creator: dict[str, Any] = Field(default_factory=dict)
     clear_logs: bool = False
+    wait: bool = False
 
     @model_validator(mode="after")
     def validate_request(self) -> "LauncherModelLaunchRequest":
@@ -79,6 +63,7 @@ class LauncherModelControlRequest(BaseModel):
     intent: dict[str, Any] | None = None
     creator: dict[str, Any] = Field(default_factory=dict)
     clear_logs: bool = False
+    wait: bool = False
 
 
 class LauncherModelLogsClearRequest(BaseModel):
@@ -102,9 +87,7 @@ def _launcher_domain() -> Any:
 
 def _launcher_query() -> Any:
     _ensure_launcher_import_path()
-    from robotick.launcher.domain import query as launcher_query
-
-    return launcher_query
+    return importlib.import_module("robotick.launcher.domain.query")
 
 
 def _launcher_list_project_models() -> Any:
@@ -315,6 +298,221 @@ def _runtime_phonebook_record(
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _runtime_phonebook_record_needs_session_hydration(record: dict[str, Any]) -> bool:
+    if not str(record.get("last_session_id") or "").strip():
+        return False
+    has_worker_ref = bool(record.get("pid") or record.get("log_path"))
+    has_probe_ref = bool(record.get("telemetry_url") or record.get("telemetry_port") or record.get("health_urls"))
+    return not (has_worker_ref and has_probe_ref)
+
+
+def _runtime_has_probe_metadata(runtime: dict[str, Any]) -> bool:
+    probe = runtime.get("probe")
+    return isinstance(probe, dict) and bool(probe)
+
+
+def _runtime_with_probe_metadata(
+    workspace_root: str,
+    record: dict[str, Any],
+    session: Any,
+) -> dict[str, Any]:
+    runtime = dict(session.runtime or {})
+    if _runtime_has_probe_metadata(runtime):
+        return runtime
+
+    project_id = str(record.get("project_id") or session.project_id)
+    project_path_text = str(record.get("project_path") or "").strip()
+    project_path = Path(project_path_text) if project_path_text else _resolve_project_path(workspace_root, project_id)
+    runtime_metadata = _session_probe_metadata(
+        workspace_root,
+        project_id,
+        project_path.parent.resolve(),
+        session,
+    )
+    if not runtime_metadata:
+        return runtime
+    return {
+        **runtime,
+        **runtime_metadata,
+    }
+
+
+def _hydrate_runtime_phonebook_record_from_session(
+    workspace_root: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    operation = _operation_in_flight(record)
+    if (
+        operation is not None
+        and operation.get("action") in {"stopping", "restarting"}
+        and not operation.get("queued")
+    ):
+        return record
+    if operation is not None and operation.get("action") == "stopping":
+        operation = None
+    if not _runtime_phonebook_record_needs_session_hydration(record):
+        if operation is None and isinstance(record.get("operation"), dict):
+            return _write_runtime_phonebook_record(workspace_root, {**record, "operation": None})
+        return record
+
+    session_id = str(record.get("last_session_id") or "").strip()
+    store = _json_store(workspace_root)
+    session = store.get_session(session_id)
+    if session is None:
+        return record
+    if session.project_id != record.get("project_id") or session.model_id != record.get("model_id"):
+        return record
+    if not _session_is_active(session):
+        return record
+
+    runtime = _runtime_with_probe_metadata(workspace_root, record, session)
+    if runtime != dict(session.runtime or {}):
+        session = session.model_copy(
+            update={
+                "runtime": runtime,
+                "updated_at": _utc_now(),
+            }
+        )
+        session = store.update_session(session)
+    worker = dict(runtime.get("worker") or {})
+    probe = dict(runtime.get("probe") or {})
+    if not worker.get("pid") and not worker.get("log_path") and not probe.get("health_urls"):
+        return record
+
+    pid = worker.get("pid")
+    worker_alive = _pid_alive(int(pid)) if isinstance(pid, int) or str(pid).isdigit() else False
+    reconciled = _reconcile_session_runtime_state(
+        workspace_root,
+        session,
+        worker_alive=worker_alive,
+    )
+    if reconciled != session:
+        session = store.update_session(reconciled)
+        group = store.get_group(session.group_id)
+        if group is not None:
+            _refresh_group_record(store, _launcher_domain(), group)
+
+    hydrated_operation = operation
+    if operation is not None and operation.get("queued") and worker_alive:
+        hydrated_operation = None
+
+    return _write_runtime_phonebook_record(
+        workspace_root,
+        _runtime_phonebook_record_from_session(
+            workspace_root,
+            session,
+            project_path=record.get("project_path"),
+            operation=hydrated_operation,
+        ),
+    )
+
+
+def _new_operation_request_id(action: str) -> str:
+    return f"{action}-{uuid.uuid4().hex[:12]}"
+
+
+def _publish_provisional_runtime_operations(
+    workspace_root: str,
+    *,
+    project_id: str,
+    project_path: Path,
+    model_ids: list[str],
+    action: str,
+    request_id: str,
+    overwrite_active: bool = False,
+    clear_session_id: bool = True,
+) -> None:
+    started_at = _utc_now().isoformat()
+    for model_id in model_ids:
+        normalized_model_id = str(model_id or "").strip()
+        if not normalized_model_id:
+            continue
+        existing = _runtime_phonebook_record(workspace_root, project_id, normalized_model_id)
+        if (
+            not overwrite_active
+            and existing is not None
+            and _runtime_model_blocks_launch(_runtime_live_projection(existing))
+        ):
+            continue
+        record = {
+            "project_id": project_id,
+            "project_path": str(project_path),
+            "model_id": normalized_model_id,
+            "target": {},
+            "pid": None,
+            "command": None,
+            "log_path": None,
+            "telemetry_host": None,
+            "telemetry_port": None,
+            "telemetry_url": None,
+            "health_urls": [],
+            "operation": {
+                "action": action,
+                "pid": None,
+                "command": None,
+                "log_path": None,
+                "started_at": started_at,
+                "request_id": request_id,
+            },
+            "last_known_runtime": {},
+        }
+        if clear_session_id:
+            record["last_session_id"] = None
+        _write_runtime_phonebook_record(workspace_root, record)
+
+
+def _model_ids_from_intent_scope(intent: dict[str, Any] | None) -> list[str]:
+    scope = dict((intent or {}).get("scope") or {})
+    kind = str(scope.get("kind") or "").strip().lower()
+    value = scope.get("value")
+    if kind == "model" and isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if kind == "models" and isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _request_targets_all_models(request: Any) -> bool:
+    intent = getattr(request, "intent", None)
+    scope = dict((intent or {}).get("scope") or {}) if isinstance(intent, dict) else {}
+    kind = str(scope.get("kind") or "").strip().lower()
+    value = str(scope.get("value") or "").strip().lower()
+    if kind == "all" or value == "all":
+        return True
+    profile = str(getattr(request, "profile", None) or "").strip()
+    return profile.upper().endswith(":ALL")
+
+
+def _request_target_policy(request: Any) -> str | None:
+    intent = getattr(request, "intent", None)
+    if isinstance(intent, dict):
+        target_policy = str(intent.get("target_policy") or "").strip()
+        if target_policy:
+            return target_policy
+    profile = str(getattr(request, "profile", None) or "").strip()
+    if ":" in profile:
+        target_policy = profile.split(":", 1)[0].strip()
+        if target_policy:
+            return target_policy
+    return None
+
+
+def _provisional_launch_model_ids(
+    workspace_root: str,
+    project_id: str,
+    request: Any,
+) -> list[str]:
+    model_ids = [str(item).strip() for item in getattr(request, "model_ids", []) if str(item).strip()]
+    if model_ids:
+        return model_ids
+    model_ids = _model_ids_from_intent_scope(getattr(request, "intent", None))
+    if model_ids:
+        return model_ids
+    if _request_targets_all_models(request):
+        return sorted(_declared_project_model_ids(workspace_root, project_id) or [])
+    return []
 
 
 def _launcher_log_root(workspace_root: str) -> Path:
@@ -531,20 +729,24 @@ def _set_runtime_operation(
     pid: int | None,
     command: list[str] | None,
     log_path: str | None,
+    request_id: str | None = None,
 ) -> None:
+    operation = {
+        "action": action,
+        "pid": pid,
+        "command": command,
+        "log_path": log_path,
+        "started_at": _utc_now().isoformat(),
+    }
+    if request_id:
+        operation["request_id"] = request_id
     _write_runtime_phonebook_record(
         workspace_root,
         _runtime_phonebook_record_from_session(
             workspace_root,
             session,
             project_path=project_path,
-            operation={
-                "action": action,
-                "pid": pid,
-                "command": command,
-                "log_path": log_path,
-                "started_at": _utc_now().isoformat(),
-            },
+            operation=operation,
         ),
     )
 
@@ -567,6 +769,45 @@ def _clear_runtime_operation(
     _write_runtime_phonebook_record(workspace_root, record)
 
 
+def _clear_queued_runtime_operations(
+    workspace_root: str,
+    *,
+    project_id: str,
+    model_ids: list[str],
+    reason: str,
+) -> list[dict[str, Any]]:
+    selected = {str(model_id).strip() for model_id in model_ids if str(model_id).strip()}
+    cleared: list[dict[str, Any]] = []
+    for record in _list_runtime_phonebook_records(workspace_root, project_id=project_id):
+        model_id = str(record.get("model_id") or "").strip()
+        if not model_id:
+            continue
+        if selected and model_id not in selected:
+            continue
+        operation = _operation_in_flight(record)
+        if operation is None or not operation.get("queued"):
+            continue
+        updated = {
+            **record,
+            "operation": None,
+            "last_operation_result": {
+                "action": operation.get("action"),
+                "result": "cancelled_by_stop",
+                "reason": reason,
+                "finished_at": _utc_now().isoformat(),
+            },
+        }
+        _write_runtime_phonebook_record(workspace_root, updated)
+        cleared.append(
+            {
+                "project_id": project_id,
+                "model_id": model_id,
+                "operation": operation,
+            }
+        )
+    return cleared
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -579,9 +820,322 @@ STOP_SUCCESS_CLEARED_DIAGNOSTIC_CODES = {
     "worker_exited_after_runtime_handoff",
 }
 
+OPERATION_QUEUED_GRACE_SECONDS = 120.0
+
+_OPERATION_LOCK = threading.RLock()
+_OPERATION_RECORDS: dict[str, dict[str, Any]] = {}
+_OPERATION_GROUPS: dict[str, dict[str, Any]] = {}
+_TERMINAL_OPERATION_PHASES = {
+    "succeeded",
+    "failed",
+    "cancelled",
+    "cancelled_by_stop",
+    "expired",
+}
+
 
 def _without_diagnostics(diagnostics: list[Any], codes: set[str]) -> list[Any]:
     return [diagnostic for diagnostic in diagnostics if getattr(diagnostic, "code", None) not in codes]
+
+
+def _new_operation_group_id(action: str) -> str:
+    return f"{action}-group-{uuid.uuid4().hex[:12]}"
+
+
+def _create_operation_group(
+    *,
+    workspace_root: str,
+    action: str,
+    project_id: str,
+    model_ids: list[str],
+    creator: dict[str, Any] | None = None,
+    target_policy: str | None = None,
+) -> dict[str, Any]:
+    now = _utc_now().isoformat()
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    normalized_model_ids = [str(model_id).strip() for model_id in model_ids if str(model_id).strip()]
+    group_id = _new_operation_group_id(action)
+    group = {
+        "id": group_id,
+        "resource_type": "robotick_launcher_operation_group",
+        "action": action,
+        "workspace_root": normalized_workspace_root,
+        "project_id": project_id,
+        "model_ids": normalized_model_ids,
+        "phase": "accepted",
+        "created_at": now,
+        "updated_at": now,
+        "creator": dict(creator or {}),
+        "target_policy": target_policy,
+        "operation_ids": [],
+    }
+    operations: list[dict[str, Any]] = []
+    for model_id in normalized_model_ids:
+        operation_id = _new_operation_request_id(action)
+        operation = {
+            "id": operation_id,
+            "resource_type": "robotick_launcher_model_operation",
+            "group_id": group_id,
+            "action": action,
+            "workspace_root": normalized_workspace_root,
+            "project_id": project_id,
+            "model_id": model_id,
+            "phase": "accepted",
+            "created_at": now,
+            "updated_at": now,
+            "creator": dict(creator or {}),
+            "target_policy": target_policy,
+            "pid": None,
+            "command": None,
+            "log_path": None,
+            "session_id": None,
+            "result": None,
+            "blockers": [],
+        }
+        operations.append(operation)
+        group["operation_ids"].append(operation_id)
+    with _OPERATION_LOCK:
+        _OPERATION_GROUPS[group_id] = group
+        for operation in operations:
+            _OPERATION_RECORDS[operation["id"]] = operation
+    return _operation_group_snapshot(group_id)
+
+
+def _operation_group_snapshot(group_id: str) -> dict[str, Any]:
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return {}
+        operations = [
+            dict(_OPERATION_RECORDS[operation_id])
+            for operation_id in group.get("operation_ids", [])
+            if operation_id in _OPERATION_RECORDS
+        ]
+        snapshot = dict(group)
+    snapshot["operations"] = operations
+    return snapshot
+
+
+def _operation_response_payload(group_id: str | None) -> dict[str, Any]:
+    if not group_id:
+        return {"operation_group": None, "operations": []}
+    group = _operation_group_snapshot(group_id)
+    return {
+        "operation_group": group or None,
+        "operations": list(group.get("operations") or []) if group else [],
+    }
+
+
+def _set_operation_group_phase(group_id: str | None, phase: str) -> None:
+    if not group_id:
+        return
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return
+        current_phase = str(group.get("phase") or "")
+        if current_phase in _TERMINAL_OPERATION_PHASES and phase not in _TERMINAL_OPERATION_PHASES:
+            return
+        group["phase"] = phase
+        group["updated_at"] = now
+
+
+def _set_operation_phase(
+    operation_id: str,
+    phase: str,
+    *,
+    result: dict[str, Any] | None = None,
+    blockers: list[dict[str, Any]] | None = None,
+    pid: int | None = None,
+    command: list[str] | None = None,
+    log_path: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        if operation is None:
+            return
+        current_phase = str(operation.get("phase") or "")
+        if current_phase in _TERMINAL_OPERATION_PHASES and phase not in _TERMINAL_OPERATION_PHASES:
+            return
+        operation["phase"] = phase
+        operation["updated_at"] = now
+        if result is not None:
+            operation["result"] = result
+        if blockers is not None:
+            operation["blockers"] = blockers
+        if pid is not None:
+            operation["pid"] = pid
+        if command is not None:
+            operation["command"] = command
+        if log_path is not None:
+            operation["log_path"] = log_path
+        if session_id is not None:
+            operation["session_id"] = session_id
+        group_id = str(operation.get("group_id") or "")
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is not None:
+            group["updated_at"] = now
+
+
+def _operation_id_for_model(group_id: str | None, model_id: str) -> str | None:
+    if not group_id:
+        return None
+    normalized_model_id = str(model_id or "").strip()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return None
+        for operation_id in group.get("operation_ids", []):
+            operation = _OPERATION_RECORDS.get(operation_id)
+            if operation is not None and operation.get("model_id") == normalized_model_id:
+                return str(operation_id)
+    return None
+
+
+def _set_operation_phase_for_model(
+    group_id: str | None,
+    model_id: str,
+    phase: str,
+    **kwargs: Any,
+) -> None:
+    operation_id = _operation_id_for_model(group_id, model_id)
+    if operation_id:
+        _set_operation_phase(operation_id, phase, **kwargs)
+
+
+def _set_group_operations_phase(group_id: str | None, phase: str) -> None:
+    if not group_id:
+        return
+    with _OPERATION_LOCK:
+        operation_ids = list((_OPERATION_GROUPS.get(group_id) or {}).get("operation_ids", []))
+    _set_operation_group_phase(group_id, phase)
+    for operation_id in operation_ids:
+        _set_operation_phase(operation_id, phase)
+
+
+def _refresh_operation_group_phase(group_id: str | None) -> None:
+    if not group_id:
+        return
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        if group is None:
+            return
+        operations = [
+            _OPERATION_RECORDS[operation_id]
+            for operation_id in group.get("operation_ids", [])
+            if operation_id in _OPERATION_RECORDS
+        ]
+        if not operations:
+            return
+        phases = {str(operation.get("phase") or "") for operation in operations}
+        if phases <= {"cancelled_by_stop", "cancelled"}:
+            group["phase"] = "cancelled_by_stop"
+        elif phases <= _TERMINAL_OPERATION_PHASES:
+            group["phase"] = "failed" if "failed" in phases else "succeeded"
+        group["updated_at"] = now
+
+
+def _active_operation_model_ids(
+    workspace_root: str,
+    project_id: str,
+    model_ids: list[str] | None = None,
+) -> list[str]:
+    selected = {str(model_id).strip() for model_id in (model_ids or []) if str(model_id).strip()}
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    active_model_ids: set[str] = set()
+    with _OPERATION_LOCK:
+        operations = list(_OPERATION_RECORDS.values())
+    for operation in operations:
+        if operation.get("workspace_root") != normalized_workspace_root:
+            continue
+        if operation.get("project_id") != project_id:
+            continue
+        model_id = str(operation.get("model_id") or "").strip()
+        if not model_id:
+            continue
+        if selected and model_id not in selected:
+            continue
+        phase = str(operation.get("phase") or "")
+        if phase not in _TERMINAL_OPERATION_PHASES:
+            active_model_ids.add(model_id)
+    return sorted(active_model_ids)
+
+
+def _cancel_operations_for_models(
+    *,
+    workspace_root: str,
+    project_id: str,
+    model_ids: list[str],
+    reason: str,
+) -> list[dict[str, Any]]:
+    selected = {str(model_id).strip() for model_id in model_ids if str(model_id).strip()}
+    normalized_workspace_root = str(Path(workspace_root).resolve())
+    cancelled: list[dict[str, Any]] = []
+    affected_group_ids: set[str] = set()
+    now = _utc_now().isoformat()
+    with _OPERATION_LOCK:
+        for operation in _OPERATION_RECORDS.values():
+            if operation.get("workspace_root") != normalized_workspace_root:
+                continue
+            if operation.get("project_id") != project_id:
+                continue
+            model_id = str(operation.get("model_id") or "").strip()
+            if selected and model_id not in selected:
+                continue
+            phase = str(operation.get("phase") or "")
+            if phase in _TERMINAL_OPERATION_PHASES:
+                continue
+            operation["phase"] = "cancelled_by_stop"
+            operation["updated_at"] = now
+            operation["result"] = {"reason": reason}
+            operation["blockers"] = []
+            affected_group_ids.add(str(operation.get("group_id") or ""))
+            cancelled.append(dict(operation))
+    for group_id in affected_group_ids:
+        _refresh_operation_group_phase(group_id)
+    return cancelled
+
+
+def _operation_cancelled_for_model(group_id: str | None, model_id: str) -> bool:
+    operation_id = _operation_id_for_model(group_id, model_id)
+    if not operation_id:
+        return False
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        return str((operation or {}).get("phase") or "") in {"cancelled", "cancelled_by_stop"}
+
+
+def _operation_group_cancelled(group_id: str | None) -> bool:
+    if not group_id:
+        return False
+    with _OPERATION_LOCK:
+        group = _OPERATION_GROUPS.get(group_id)
+        return str((group or {}).get("phase") or "") in {"cancelled", "cancelled_by_stop"}
+
+
+def _operation_for_model(
+    operation_id: str,
+    *,
+    workspace_root: str | None = None,
+    project_id: str | None = None,
+    model_id: str | None = None,
+) -> dict[str, Any] | None:
+    with _OPERATION_LOCK:
+        operation = _OPERATION_RECORDS.get(operation_id)
+        if operation is None:
+            return None
+        snapshot = dict(operation)
+    if workspace_root and snapshot.get("workspace_root") != str(Path(workspace_root).resolve()):
+        return None
+    if project_id and snapshot.get("project_id") != project_id:
+        return None
+    if model_id and snapshot.get("model_id") != model_id:
+        return None
+    return snapshot
 
 
 def _has_successful_stop_control(runtime: dict[str, Any]) -> bool:
@@ -676,6 +1230,474 @@ def _pid_alive(pid: int | None) -> bool:
         if len(stat_parts) >= 3 and stat_parts[2] == "Z":
             return False
     return True
+
+
+def _read_proc_stat(pid: int) -> dict[str, Any] | None:
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        text = stat_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    right_paren = text.rfind(")")
+    left_paren = text.find("(")
+    if left_paren < 0 or right_paren <= left_paren:
+        return None
+    try:
+        name = text[left_paren + 1 : right_paren]
+        parts = text[right_paren + 2 :].split()
+        state = parts[0]
+        ppid = int(parts[1])
+        process_group_id = int(parts[2])
+        session_id = int(parts[3])
+        user_ticks = int(parts[11])
+        system_ticks = int(parts[12])
+    except (IndexError, ValueError):
+        return None
+    if state == "Z":
+        return None
+    return {
+        "pid": pid,
+        "name": name,
+        "ppid": ppid,
+        "process_group_id": process_group_id,
+        "session_id": session_id,
+        "namespace_pids": _read_proc_namespace_pids(pid),
+        "cpu_ticks": user_ticks + system_ticks,
+    }
+
+
+def _read_proc_memory_bytes(pid: int) -> int | None:
+    try:
+        statm = Path(f"/proc/{pid}/statm").read_text(encoding="utf-8").split()
+        resident_pages = int(statm[1])
+    except (IndexError, OSError, ValueError):
+        return None
+    return resident_pages * _PROCESS_METRICS_PAGE_SIZE
+
+
+def _read_proc_command(pid: int) -> str:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return ""
+    command = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+    return command
+
+
+def _basename_without_empty(value: str) -> str:
+    name = Path(value).name.strip()
+    return name or value.strip()
+
+
+def _display_name_from_command(name: str, command: str) -> str:
+    command = command.strip()
+    if not command:
+        return name
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return name
+
+    wrapper_names = {
+        "python",
+        "python3",
+        "python3.10",
+        "python3.11",
+        "python3.12",
+        "ruby",
+        "node",
+    }
+    for index, part in enumerate(parts):
+        basename = _basename_without_empty(part)
+        if index == 0 and basename in wrapper_names:
+            continue
+        if basename.startswith("-"):
+            continue
+        return basename
+    return _basename_without_empty(parts[0]) or name
+
+
+def _read_proc_namespace_pids(pid: int) -> list[int]:
+    try:
+        lines = Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [pid]
+    for line in lines:
+        if not line.startswith("NSpid:"):
+            continue
+        values: list[int] = []
+        for part in line.split(":", 1)[1].split():
+            try:
+                values.append(int(part))
+            except ValueError:
+                continue
+        return values or [pid]
+    return [pid]
+
+
+def _record_runtime_port(record: dict[str, Any], probe: dict[str, Any]) -> int | None:
+    for value in (record.get("telemetry_port"), record.get("port")):
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            continue
+        if 0 < port <= 65535:
+            return port
+    for key in ("telemetry_url", "health_url"):
+        raw_url = str(record.get(key) or probe.get(key) or "").strip()
+        if not raw_url:
+            continue
+        try:
+            port = urlparse(raw_url).port
+        except ValueError:
+            continue
+        if port is not None:
+            return port
+    return None
+
+
+def _runtime_probe_is_local(record: dict[str, Any], probe: dict[str, Any]) -> bool:
+    candidates = [
+        record.get("telemetry_host"),
+        record.get("host"),
+    ]
+    for key in ("telemetry_url", "health_url"):
+        raw_url = str(record.get(key) or probe.get(key) or "").strip()
+        if raw_url:
+            candidates.append(urlparse(raw_url).hostname)
+    hosts = [str(host).strip().lower() for host in candidates if str(host or "").strip()]
+    if not hosts:
+        return True
+    local_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+    return any(host in local_hosts for host in hosts)
+
+
+def _listening_socket_inodes_for_port(port: int) -> set[str]:
+    inodes: set[str] = set()
+    port_hex = f"{port:04X}"
+    for proc_net_path in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+        try:
+            lines = proc_net_path.read_text(encoding="utf-8").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 10 or parts[3] != "0A":
+                continue
+            local_address = parts[1]
+            if ":" not in local_address:
+                continue
+            _, local_port_hex = local_address.rsplit(":", 1)
+            if local_port_hex.upper() == port_hex:
+                inodes.add(parts[9])
+    return inodes
+
+
+def _find_process_for_socket_inodes(inodes: set[str]) -> int | None:
+    if not inodes:
+        return None
+    socket_targets = {f"socket:[{inode}]" for inode in inodes}
+    for proc_entry in Path("/proc").iterdir():
+        if not proc_entry.name.isdigit():
+            continue
+        fd_dir = proc_entry / "fd"
+        try:
+            fd_entries = list(fd_dir.iterdir())
+        except OSError:
+            continue
+        for fd_entry in fd_entries:
+            try:
+                target = os.readlink(fd_entry)
+            except OSError:
+                continue
+            if target in socket_targets:
+                return int(proc_entry.name)
+    return None
+
+
+def _recover_runtime_pid_from_probe(record: dict[str, Any], probe: dict[str, Any]) -> int | None:
+    if not probe.get("healthy") or not _runtime_probe_is_local(record, probe):
+        return None
+    port = _record_runtime_port(record, probe)
+    if port is None:
+        return None
+    return _find_process_for_socket_inodes(_listening_socket_inodes_for_port(port))
+
+
+def _model_command_markers(model_id: str | None) -> set[str]:
+    if not model_id:
+        return set()
+    normalized = model_id.strip().lower()
+    if not normalized:
+        return set()
+    return {normalized, normalized.replace("-", "_")}
+
+
+def _command_is_runtime_anchor(command: str, markers: set[str]) -> bool:
+    normalized = command.lower()
+    if not any(marker in normalized for marker in markers):
+        return False
+    runtime_hints = (
+        "robotick.launcher.cli run",
+        "do_ros2_run.sh",
+        "ros2 launch",
+        ".launch.py",
+        "/.launcher/",
+        "/install/",
+        "docker run",
+        "docker exec",
+    )
+    return any(hint in normalized for hint in runtime_hints)
+
+
+def _classify_runtime_process(
+    process: dict[str, Any],
+    *,
+    root_pid: int,
+    model_id: str | None,
+) -> str:
+    command = str(process.get("command") or "").lower()
+    name = str(process.get("name") or "").lower()
+    wrapper_names = {
+        "bash",
+        "sh",
+        "python",
+        "python3",
+        "docker",
+        "docker-init",
+        "do_ros2_run.sh",
+        "enter_rosenv.sh",
+        "ros2",
+    }
+    if name in wrapper_names or "robotick.launcher.cli run" in command:
+        return "wrapper"
+    markers = _model_command_markers(model_id)
+    if markers and any(marker in command or marker in name for marker in markers):
+        if (
+            "/.launcher/" in command
+            or "/generated/" in command
+            or "/build/" in command
+            or any(name == marker[:15] or name == marker for marker in markers)
+        ):
+            return "engine"
+    if process["pid"] == root_pid:
+        return "wrapper"
+    return "runtime"
+
+
+def _collect_process_tree_stats(root_pid: int, model_id: str | None = None) -> dict[str, Any] | None:
+    root_stat = _read_proc_stat(root_pid)
+    if root_stat is None:
+        return None
+
+    stats_by_pid: dict[int, dict[str, Any]] = {}
+    children_by_parent: dict[int, list[int]] = {}
+    for proc_entry in Path("/proc").iterdir():
+        if not proc_entry.name.isdigit():
+            continue
+        pid = int(proc_entry.name)
+        stat = _read_proc_stat(pid)
+        if stat is not None:
+            stat["command"] = _read_proc_command(pid)
+            stat["display_name"] = _display_name_from_command(
+                str(stat.get("name") or ""),
+                str(stat.get("command") or ""),
+            )
+            stats_by_pid[pid] = stat
+            children_by_parent.setdefault(stat["ppid"], []).append(pid)
+
+    if root_pid not in stats_by_pid:
+        return None
+
+    selected: dict[int, dict[str, Any]] = {}
+
+    def add_descendants(seed_pid: int) -> None:
+        pending = [seed_pid]
+        while pending:
+            parent_pid = pending.pop()
+            stat = stats_by_pid.get(parent_pid)
+            if stat is not None:
+                selected[parent_pid] = stat
+            pending.extend(
+                child_pid
+                for child_pid in children_by_parent.get(parent_pid, [])
+                if child_pid not in selected
+            )
+
+    root_session_id = root_stat.get("session_id")
+    root_process_group_id = root_stat.get("process_group_id")
+    if root_session_id == root_pid:
+        selected.update(
+            (pid, stat)
+            for pid, stat in stats_by_pid.items()
+            if stat.get("session_id") == root_session_id
+        )
+    if len(selected) <= 1 and root_process_group_id == root_pid:
+        selected.update(
+            (pid, stat)
+            for pid, stat in stats_by_pid.items()
+            if stat.get("process_group_id") == root_process_group_id
+        )
+
+    add_descendants(root_pid)
+
+    markers = _model_command_markers(model_id)
+    if markers:
+        anchor_stats = [
+            stat
+            for stat in stats_by_pid.values()
+            if _command_is_runtime_anchor(str(stat.get("command", "")), markers)
+        ]
+        anchor_groups = {
+            stat.get("process_group_id")
+            for stat in anchor_stats
+            if stat.get("process_group_id") not in {None, 0}
+        }
+        anchor_sessions = {
+            stat.get("session_id")
+            for stat in anchor_stats
+            if stat.get("session_id") not in {None, 0}
+        }
+        for pid, stat in stats_by_pid.items():
+            if (
+                stat.get("process_group_id") in anchor_groups
+                or stat.get("session_id") in anchor_sessions
+            ):
+                selected[pid] = stat
+        for stat in anchor_stats:
+            add_descendants(stat["pid"])
+
+    for pid in list(selected):
+        stat = stats_by_pid.get(pid)
+        if stat is None:
+            continue
+        add_descendants(pid)
+
+    child_counts: dict[int, int] = {pid: 0 for pid in selected}
+    for stat in selected.values():
+        parent_pid = stat.get("ppid")
+        if parent_pid in child_counts:
+            child_counts[parent_pid] += 1
+
+    return {
+        "root": root_stat,
+        "processes": [
+            {
+                **stat,
+                "children": child_counts.get(pid, 0),
+                "memory_bytes": _read_proc_memory_bytes(pid) or 0,
+            }
+            for pid, stat in selected.items()
+        ],
+    }
+
+
+def _sample_process_tree_metrics(
+    root_pid: int | None,
+    *,
+    model_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not root_pid:
+        return None
+
+    collected = _collect_process_tree_stats(root_pid, model_id=model_id)
+    if collected is None:
+        with _PROCESS_METRICS_LOCK:
+            _PROCESS_METRICS_PREVIOUS.pop(root_pid, None)
+        return None
+
+    now_monotonic = time.monotonic()
+    now_iso = _utc_now().isoformat()
+    root = collected["root"]
+    processes = collected["processes"]
+    current_ticks = {process["pid"]: process["cpu_ticks"] for process in processes}
+    total_ticks = sum(current_ticks.values())
+    total_memory_bytes = sum(process.get("memory_bytes", 0) for process in processes)
+
+    with _PROCESS_METRICS_LOCK:
+        previous = _PROCESS_METRICS_PREVIOUS.get(root_pid)
+        _PROCESS_METRICS_PREVIOUS[root_pid] = {
+            "sampled_at_monotonic": now_monotonic,
+            "process_ticks": current_ticks,
+            "total_ticks": total_ticks,
+        }
+
+    elapsed_seconds = (
+        now_monotonic - previous["sampled_at_monotonic"]
+        if previous is not None
+        else None
+    )
+    sample_window_ms = (
+        int(round(elapsed_seconds * 1000))
+        if elapsed_seconds is not None and elapsed_seconds > 0
+        else None
+    )
+
+    def cpu_percent_for(process: dict[str, Any]) -> float | None:
+        if previous is None or not elapsed_seconds or elapsed_seconds <= 0:
+            return None
+        previous_ticks = previous["process_ticks"].get(process["pid"], process["cpu_ticks"])
+        delta_ticks = max(0, process["cpu_ticks"] - previous_ticks)
+        return round((delta_ticks / _PROCESS_METRICS_CLOCK_TICKS) / elapsed_seconds * 100, 1)
+
+    process_metrics = [
+        {
+            "pid": process["pid"],
+            "parent_pid": process.get("ppid"),
+            "namespace_pids": process.get("namespace_pids") or [process["pid"]],
+            "name": process["name"],
+            "display_name": process.get("display_name") or process["name"],
+            "command": process.get("command"),
+            "role": _classify_runtime_process(
+                process,
+                root_pid=root_pid,
+                model_id=model_id,
+            ),
+            "cpu_percent": cpu_percent_for(process),
+            "memory_bytes": process.get("memory_bytes", 0),
+            "children": process.get("children", 0),
+        }
+        for process in processes
+    ]
+    cpu_percent = None
+    if previous is not None and elapsed_seconds and elapsed_seconds > 0:
+        delta_ticks = max(0, total_ticks - previous.get("total_ticks", total_ticks))
+        cpu_percent = round(
+            (delta_ticks / _PROCESS_METRICS_CLOCK_TICKS) / elapsed_seconds * 100,
+            1,
+        )
+
+    top_processes = sorted(
+        process_metrics,
+        key=lambda process: (
+            process["cpu_percent"] if process["cpu_percent"] is not None else -1,
+            process.get("memory_bytes", 0),
+        ),
+        reverse=True,
+    )[:8]
+    engine_process = next(
+        (process for process in process_metrics if process.get("role") == "engine"),
+        None,
+    )
+
+    return {
+        "resource_type": "robotick_launcher_runtime_metrics",
+        "source": "local_procfs",
+        "sampled_at": now_iso,
+        "root_pid": root_pid,
+        "process_group_id": root.get("process_group_id"),
+        "session_id": root.get("session_id"),
+        "sample_window_ms": sample_window_ms,
+        "process_count": len(processes),
+        "cpu_percent": cpu_percent,
+        "memory_bytes": total_memory_bytes,
+        "engine_process": engine_process,
+        "processes": process_metrics,
+        "top_processes": top_processes,
+        "devices": [],
+    }
 
 
 def _signal_worker_process_group(pid: int | None) -> None:
@@ -831,87 +1853,10 @@ def _session_is_active(session: Any) -> bool:
     }
 
 
-def _matching_active_session_by_model(
-    sessions: list[Any],
-    *,
-    model_ids: list[str],
-) -> dict[str, Any]:
-    wanted = {model_id.strip() for model_id in model_ids if model_id and model_id.strip()}
-    matches: dict[str, Any] = {}
-    for session in sessions:
-        if not _session_is_active(session):
-            continue
-        model_id = str(getattr(session, "model_id", "") or "").strip()
-        if not model_id or model_id not in wanted:
-            continue
-        current = matches.get(model_id)
-        if current is None:
-            matches[model_id] = session
-            continue
-        current_generation = int(getattr(current, "generation", 0) or 0)
-        session_generation = int(getattr(session, "generation", 0) or 0)
-        if session.group_id == current.group_id and session_generation > current_generation:
-            matches[model_id] = session
-            continue
-        current_updated = getattr(current, "updated_at", None) or getattr(current, "created_at", None)
-        session_updated = getattr(session, "updated_at", None) or getattr(session, "created_at", None)
-        if session_updated and current_updated and session_updated > current_updated:
-            matches[model_id] = session
-    return matches
-
-
-def _group_is_active(group: Any) -> bool:
-    status = _enum_text(getattr(group, "status", ""))
-    return status in {"starting", "running", "degraded"}
-
-
-def _find_duplicate_active_all_group(
-    groups: list[Any],
-    sessions: list[Any],
-    *,
-    project_id: str,
-    intent: Any,
-    requested_model_ids: list[str],
-) -> Any | None:
-    scope = getattr(intent, "scope", None)
-    if scope is None or getattr(scope, "kind", None) != _launcher_domain().ScopeKind.ALL:
-        return None
-    target_policy = _enum_text(getattr(intent, "target_policy", ""))
-    requested_models = sorted(model_id.strip() for model_id in requested_model_ids if model_id.strip())
-    matches: list[Any] = []
-    for group in groups:
-        if group.project_id != project_id or not _group_is_active(group):
-            continue
-        group_scope = getattr(group.intent, "scope", None)
-        if group_scope is None or getattr(group_scope, "kind", None) != _launcher_domain().ScopeKind.ALL:
-            continue
-        if _enum_text(getattr(group.intent, "target_policy", "")) != target_policy:
-            continue
-        if sorted(group.resolved_model_ids) != requested_models:
-            continue
-        group_sessions = [session for session in sessions if session.group_id == group.id]
-        if any(_session_is_active(session) for session in group_sessions):
-            matches.append(group)
-    if len(matches) == 1:
-        return matches[0]
-    return None
-
-
 def _reduce_group_state(domain: Any, sessions: list[Any]) -> tuple[Any, str]:
     latest_sessions = _latest_sessions_by_model(domain, sessions)
     group_status = domain.reduce_group_status(latest_sessions)
     return group_status, _group_readiness(group_status)
-
-
-def _select_control_sessions(
-    domain: Any,
-    sessions: list[Any],
-    request: LauncherSelectionRequest,
-) -> list[Any]:
-    if request.session_ids:
-        return domain.select_group_sessions(sessions, session_ids=request.session_ids)
-    latest_sessions = _latest_sessions_by_model(domain, sessions)
-    return domain.select_group_sessions(latest_sessions, model_ids=request.model_ids or None)
 
 
 def _spawn_stop_session_worker(
@@ -1154,28 +2099,6 @@ def _enrich_groups_and_sessions(
     return enriched_groups, enriched_sessions
 
 
-def _session_log_record(session: Any, *, group_payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    session_payload = _enrich_session_payload(_payload_dict(session), group_payload=group_payload)
-    runtime = dict(session_payload.get("runtime") or {})
-    log_refs = list(session_payload.get("log_refs") or [])
-    return {
-        "session_id": session.id,
-        "group_id": session.group_id,
-        "project_id": session.project_id,
-        "model_id": session.model_id,
-        "generation": session.generation,
-        "lifecycle": session.lifecycle,
-        "log_refs": log_refs,
-        "runtime": runtime,
-        "diagnostics": _diagnostic_payloads(session_payload.get("diagnostics")),
-        "actionable_diagnostics": list(session_payload.get("actionable_diagnostics") or []),
-        "freshness": session_payload.get("freshness"),
-        "creator": session_payload.get("creator"),
-        "target_policy": session_payload.get("target_policy"),
-        "stage_policy": session_payload.get("stage_policy"),
-    }
-
-
 def _upsert_diagnostic(session: Any, diagnostic: Any) -> list[Any]:
     diagnostics = [item for item in session.diagnostics if item.code != diagnostic.code]
     diagnostics.append(diagnostic)
@@ -1345,13 +2268,30 @@ def _operation_in_flight(record: dict[str, Any]) -> dict[str, Any] | None:
         return None
     pid = operation.get("pid")
     pid_alive = _pid_alive(int(pid)) if isinstance(pid, int) or str(pid).isdigit() else False
-    if not pid_alive:
+    if not pid_alive and pid:
+        return None
+    if not pid and not _operation_is_recent(operation):
         return None
     return {
         **operation,
         "action": action,
-        "pid_alive": True,
+        "pid_alive": pid_alive,
+        "queued": not bool(pid),
     }
+
+
+def _operation_is_recent(operation: dict[str, Any]) -> bool:
+    started_at = str(operation.get("started_at") or "").strip()
+    if not started_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(started_at)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_seconds = (_utc_now() - parsed).total_seconds()
+    return 0 <= age_seconds <= OPERATION_QUEUED_GRACE_SECONDS
 
 
 def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
@@ -1360,6 +2300,16 @@ def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
     probe = _probe_runtime_phonebook_record(record)
     pid = record.get("pid")
     pid_alive = _pid_alive(int(pid)) if isinstance(pid, int) or str(pid).isdigit() else False
+    if not pid_alive:
+        recovered_pid = _recover_runtime_pid_from_probe(record, probe)
+        if recovered_pid is not None:
+            pid = recovered_pid
+            pid_alive = _pid_alive(recovered_pid)
+    metrics = (
+        _sample_process_tree_metrics(int(pid), model_id=str(record.get("model_id") or ""))
+        if pid_alive
+        else None
+    )
     if operation is not None and operation["action"] == "launching" and probe.get("healthy"):
         operation = None
 
@@ -1400,6 +2350,7 @@ def _runtime_live_projection(record: dict[str, Any]) -> dict[str, Any]:
         "control_available": control_available,
         "pid": pid,
         "pid_alive": pid_alive,
+        "metrics": metrics,
         "telemetry_host": record.get("telemetry_host"),
         "telemetry_port": record.get("telemetry_port"),
         "telemetry_url": record.get("telemetry_url"),
@@ -1426,6 +2377,10 @@ def _launcher_runtime_projection(
         project_id=project_id,
         model_ids=model_ids,
     )
+    records = [
+        _hydrate_runtime_phonebook_record_from_session(workspace_root, record)
+        for record in records
+    ]
     models = [_runtime_live_projection(record) for record in records]
     if not models:
         state = "stopped"
@@ -1452,10 +2407,12 @@ def _runtime_model_blocks_launch(model: dict[str, Any]) -> bool:
 
 def _resolve_launch_request(
     workspace_root: str,
-    request: LauncherModelLaunchRequest | LauncherGroupCreateRequest,
+    request: LauncherModelLaunchRequest,
+    *,
+    project_path: Path | None = None,
 ) -> tuple[Path, Any, Any]:
     domain = _launcher_domain()
-    project_path = _resolve_project_path(workspace_root, request.project_name)
+    project_path = project_path or _resolve_project_path(workspace_root, request.project_name)
     if request.profile:
         intent = domain.launch_intent_from_profile(request.project_name, project_path, request.profile)
     else:
@@ -1481,6 +2438,82 @@ def _model_intent_from_resolved_model(domain: Any, resolved: Any, model: Any) ->
     )
 
 
+def _finalize_launch_runtime_metadata(
+    workspace_root: str,
+    project_name: str,
+    project_path: Path,
+    launch_entries: list[dict[str, Any]],
+    *,
+    operation_id: str | None = None,
+) -> list[Any]:
+    store = _json_store(workspace_root)
+    project_dir = project_path.parent.resolve()
+    finalized: list[Any] = []
+    for entry in launch_entries:
+        session = entry["session"]
+        latest_session = store.get_session(session.id)
+        if latest_session is not None:
+            session = latest_session
+        runtime_metadata = _session_probe_metadata(
+            workspace_root,
+            project_name,
+            project_dir,
+            session,
+        )
+        runtime = {
+            **dict(session.runtime or {}),
+            **runtime_metadata,
+        }
+        session = session.model_copy(
+            update={
+                "runtime": runtime,
+                "updated_at": _utc_now(),
+            }
+        )
+        store.update_session(session)
+        _set_runtime_operation(
+            workspace_root,
+            session,
+            project_path=str(project_path),
+            action="launching",
+            pid=(dict(runtime.get("worker") or {}).get("pid")),
+            command=(dict(runtime.get("worker") or {}).get("command")),
+            log_path=(dict(runtime.get("worker") or {}).get("log_path")),
+            request_id=operation_id,
+        )
+        _set_operation_phase_for_model(
+            operation_id,
+            session.model_id,
+            "succeeded" if dict(runtime.get("worker") or {}).get("pid") else "failed",
+            pid=(dict(runtime.get("worker") or {}).get("pid")),
+            command=(dict(runtime.get("worker") or {}).get("command")),
+            log_path=(dict(runtime.get("worker") or {}).get("log_path")),
+            session_id=session.id,
+        )
+        entry["session"] = session
+        finalized.append(session)
+    _set_operation_group_phase(operation_id, "succeeded")
+    return finalized
+
+
+def _finalize_launch_runtime_metadata_async(
+    workspace_root: str,
+    project_name: str,
+    project_path: Path,
+    launch_entries: list[dict[str, Any]],
+    *,
+    operation_id: str | None = None,
+) -> None:
+    thread = threading.Thread(
+        target=_finalize_launch_runtime_metadata,
+        args=(workspace_root, project_name, project_path, launch_entries),
+        kwargs={"operation_id": operation_id},
+        name=f"robotick-launcher-launch-metadata-{project_name}",
+        daemon=True,
+    )
+    thread.start()
+
+
 def _launch_resolved_models(
     workspace_root: str,
     project_name: str,
@@ -1488,21 +2521,47 @@ def _launch_resolved_models(
     resolved: Any,
     *,
     clear_logs: bool = False,
+    wait: bool = True,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
+    _set_operation_group_phase(operation_id, "queued")
     runtime_projection = _launcher_runtime_projection(workspace_root, project_id=project_name)
     runtime_active_model_ids = {
         str(model.get("model_id") or "").strip()
         for model in runtime_projection.get("models") or []
-        if isinstance(model, dict) and _runtime_model_blocks_launch(model)
+        if isinstance(model, dict)
+        and _runtime_model_blocks_launch(model)
+        and not (
+            operation_id
+            and isinstance(model.get("operation"), dict)
+            and model["operation"].get("request_id") == operation_id
+        )
     }
     launched: list[Any] = []
     skipped: list[dict[str, Any]] = []
     groups: list[Any] = []
+    launch_entries: list[dict[str, Any]] = []
+    project_dir = project_path.parent.resolve()
 
     for model in resolved.models:
+        if _operation_cancelled_for_model(operation_id, model.model_id):
+            skipped.append(
+                {
+                    "model_id": model.model_id,
+                    "reason": "cancelled_by_stop",
+                    "message": "Start operation was cancelled by stop before spawn.",
+                }
+            )
+            continue
         if not model.selected:
+            _set_operation_phase_for_model(
+                operation_id,
+                model.model_id,
+                "cancelled",
+                result={"reason": "auto_launch_disabled"},
+            )
             skipped.append(
                 {
                     "model_id": model.model_id,
@@ -1512,6 +2571,12 @@ def _launch_resolved_models(
             )
             continue
         if model.model_id in runtime_active_model_ids:
+            _set_operation_phase_for_model(
+                operation_id,
+                model.model_id,
+                "succeeded",
+                result={"reason": "already_running"},
+            )
             skipped.append(
                 {
                     "model_id": model.model_id,
@@ -1550,34 +2615,13 @@ def _launch_resolved_models(
             lifecycle=domain.SessionLifecycle.STARTING,
             created_by=intent.created_by,
         )
-        pid, log_path, command = _spawn_session_worker(
-            workspace_root,
-            project_name,
-            project_path.parent.resolve(),
-            session,
-            selected=True,
-        )
-        runtime_metadata = _session_probe_metadata(
-            workspace_root,
-            project_name,
-            project_path.parent.resolve(),
-            session,
-        )
-        session = session.model_copy(
-            update={
-                "runtime": {
-                    **runtime_metadata,
-                    "authority": "launcher-worker",
-                    "worker": {
-                        "pid": pid,
-                        "command": command,
-                        "log_path": log_path,
-                        "started_at": _utc_now().isoformat(),
-                    },
-                }
-            }
-        )
         store.create_session(session)
+        _set_operation_phase_for_model(
+            operation_id,
+            model.model_id,
+            "queued",
+            session_id=session.id,
+        )
         group = group.model_copy(
             update={
                 "session_ids": [session.id],
@@ -1591,14 +2635,87 @@ def _launch_resolved_models(
             session,
             project_path=str(project_path),
             action="launching",
+            pid=None,
+            command=None,
+            log_path=None,
+            request_id=operation_id,
+        )
+        launched.append(session)
+        groups.append(group)
+        launch_entries.append(
+            {
+                "model": model,
+                "session": session,
+                "group": group,
+            }
+        )
+
+    for entry in launch_entries:
+        session = entry["session"]
+        _set_operation_group_phase(operation_id, "spawning")
+        pid, log_path, command = _spawn_session_worker(
+            workspace_root,
+            project_name,
+            project_dir,
+            session,
+            selected=True,
+        )
+        runtime = dict(session.runtime or {})
+        runtime["authority"] = "launcher-worker"
+        runtime["worker"] = {
+            "pid": pid,
+            "command": command,
+            "log_path": log_path,
+            "started_at": _utc_now().isoformat(),
+        }
+        session = session.model_copy(
+            update={
+                "runtime": runtime,
+                "updated_at": _utc_now(),
+            }
+        )
+        store.update_session(session)
+        _set_operation_phase_for_model(
+            operation_id,
+            session.model_id,
+            "spawning",
             pid=pid,
             command=command,
             log_path=log_path,
+            session_id=session.id,
+        )
+        _set_runtime_operation(
+            workspace_root,
+            session,
+            project_path=str(project_path),
+            action="launching",
+            pid=pid,
+            command=command,
+            log_path=log_path,
+            request_id=operation_id,
         )
         if pid:
-            _watch_session(workspace_root, group.id, session.id, pid)
-        launched.append(session)
-        groups.append(group)
+            _watch_session(workspace_root, entry["group"].id, session.id, pid)
+        entry["session"] = session
+
+    if wait:
+        _finalize_launch_runtime_metadata(
+            workspace_root,
+            project_name,
+            project_path,
+            launch_entries,
+            operation_id=operation_id,
+        )
+    else:
+        _finalize_launch_runtime_metadata_async(
+            workspace_root,
+            project_name,
+            project_path,
+            launch_entries,
+            operation_id=operation_id,
+        )
+
+    launched = [entry["session"] for entry in launch_entries]
 
     enriched_groups, enriched_sessions = _enrich_groups_and_sessions(
         [group.model_dump(mode="json") for group in groups],
@@ -1645,25 +2762,47 @@ def _latest_runtime_sessions_for_models(
     ]
 
 
-def _stop_model_sessions(workspace_root: str, sessions: list[Any], *, action: str = "stop") -> dict[str, Any]:
+def _begin_stop_model_sessions(
+    workspace_root: str,
+    sessions: list[Any],
+    *,
+    action: str = "stop",
+    operation_id: str | None = None,
+) -> list[tuple[Any, Any, str, list[str]]]:
     domain = _launcher_domain()
     store = _json_store(workspace_root)
-    stopped = []
-    failed = []
-    skipped = []
     stop_workers: list[tuple[Any, Any, str, list[str]]] = []
+    pending_sessions: list[Any] = []
     for session in sessions:
-        child, log_path, command = _spawn_stop_session_worker(workspace_root, session.id)
         project_path = str(_resolve_project_path(workspace_root, session.project_id))
+        runtime = dict(session.runtime or {})
+        runtime["control"] = {
+            "action": "restart-stop" if action == "restart" else "stop",
+            "started_at": _utc_now().isoformat(),
+        }
+        updated = session.model_copy(
+            update={
+                "lifecycle": domain.SessionLifecycle.STOPPING,
+                "updated_at": _utc_now(),
+                "runtime": runtime,
+            }
+        )
+        store.update_session(updated)
         _set_runtime_operation(
             workspace_root,
-            session,
+            updated,
             project_path=project_path,
             action="restarting" if action == "restart" else "stopping",
-            pid=child.pid,
-            command=command,
-            log_path=log_path,
+            pid=None,
+            command=None,
+            log_path=None,
+            request_id=operation_id,
         )
+        pending_sessions.append(updated)
+
+    for session in pending_sessions:
+        child, log_path, command = _spawn_stop_session_worker(workspace_root, session.id)
+        project_path = str(_resolve_project_path(workspace_root, session.project_id))
         runtime = dict(session.runtime or {})
         runtime["control"] = {
             "action": "restart-stop" if action == "restart" else "stop",
@@ -1681,11 +2820,42 @@ def _stop_model_sessions(workspace_root: str, sessions: list[Any], *, action: st
                 }
             )
         )
-        stop_workers.append((session, child, log_path, command))
+        _set_runtime_operation(
+            workspace_root,
+            session.model_copy(update={"runtime": runtime}),
+            project_path=project_path,
+            action="restarting" if action == "restart" else "stopping",
+            pid=child.pid,
+            command=command,
+            log_path=log_path,
+            request_id=operation_id,
+        )
+        stop_workers.append((session.model_copy(update={"runtime": runtime}), child, log_path, command))
 
+    return stop_workers
+
+
+def _finalize_stop_model_sessions(
+    workspace_root: str,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    *,
+    action: str = "stop",
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    domain = _launcher_domain()
+    store = _json_store(workspace_root)
+    stopped = []
+    failed = []
+    skipped = []
     for session, child, log_path, command in stop_workers:
         returncode = child.wait()
         final_runtime = dict(session.runtime or {})
+        session_operation_id = operation_id
+        runtime_record = _runtime_phonebook_record(workspace_root, session.project_id, session.model_id)
+        if session_operation_id is None and isinstance(runtime_record, dict):
+            operation = runtime_record.get("operation")
+            if isinstance(operation, dict):
+                session_operation_id = operation.get("request_id")
         final_runtime["control"] = {
             "action": "restart-stop" if action == "restart" else "stop",
             "pid": child.pid,
@@ -1730,16 +2900,29 @@ def _stop_model_sessions(workspace_root: str, sessions: list[Any], *, action: st
             )
             failed.append(updated)
         store.update_session(updated)
-        _clear_runtime_operation(
-            workspace_root,
-            updated,
-            project_path=str(_resolve_project_path(workspace_root, updated.project_id)),
-            result={
-                "action": "restart-stop" if action == "restart" else "stop",
-                "returncode": returncode,
-                "finished_at": _utc_now().isoformat(),
-            },
-        )
+        project_path = str(_resolve_project_path(workspace_root, updated.project_id))
+        if action == "restart" and returncode == 0:
+            _set_runtime_operation(
+                workspace_root,
+                updated,
+                project_path=project_path,
+                action="restarting",
+                pid=None,
+                command=None,
+                log_path=log_path,
+                request_id=str(session_operation_id) if session_operation_id else None,
+            )
+        else:
+            _clear_runtime_operation(
+                workspace_root,
+                updated,
+                project_path=project_path,
+                result={
+                    "action": "restart-stop" if action == "restart" else "stop",
+                    "returncode": returncode,
+                    "finished_at": _utc_now().isoformat(),
+                },
+            )
         group = store.get_group(updated.group_id)
         if group is not None:
             _refresh_group_record(store, domain, group)
@@ -1749,6 +2932,210 @@ def _stop_model_sessions(workspace_root: str, sessions: list[Any], *, action: st
         "failed": failed,
         "skipped": skipped,
     }
+
+
+def _finalize_stop_model_sessions_async(
+    workspace_root: str,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    *,
+    action: str = "stop",
+    operation_id: str | None = None,
+) -> None:
+    thread = threading.Thread(
+        target=_finalize_stop_model_sessions,
+        args=(workspace_root, stop_workers),
+        kwargs={"action": action, "operation_id": operation_id},
+        name=f"robotick-launcher-{action}-finalize",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _stop_model_sessions(
+    workspace_root: str,
+    sessions: list[Any],
+    *,
+    action: str = "stop",
+    wait: bool = True,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    stop_workers = _begin_stop_model_sessions(
+        workspace_root,
+        sessions,
+        action=action,
+        operation_id=operation_id,
+    )
+    if wait:
+        return _finalize_stop_model_sessions(
+            workspace_root,
+            stop_workers,
+            action=action,
+            operation_id=operation_id,
+        )
+    _finalize_stop_model_sessions_async(
+        workspace_root,
+        stop_workers,
+        action=action,
+        operation_id=operation_id,
+    )
+    return {
+        "stopped": [],
+        "failed": [],
+        "skipped": [],
+        "pending": [session for session, _child, _log_path, _command in stop_workers],
+    }
+
+
+def _restart_models_after_stop(
+    workspace_root: str,
+    project_name: str,
+    project_path: Path,
+    resolved: Any,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    *,
+    clear_logs: bool = False,
+    operation_id: str | None = None,
+) -> None:
+    _finalize_stop_model_sessions(
+        workspace_root,
+        stop_workers,
+        action="restart",
+        operation_id=operation_id,
+    )
+    _launch_resolved_models(
+        workspace_root,
+        project_name,
+        project_path,
+        resolved,
+        clear_logs=clear_logs,
+        wait=False,
+        operation_id=operation_id,
+    )
+
+
+def _restart_models_after_stop_async(
+    workspace_root: str,
+    project_name: str,
+    project_path: Path,
+    resolved: Any,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    *,
+    clear_logs: bool = False,
+    operation_id: str | None = None,
+) -> None:
+    thread = threading.Thread(
+        target=_restart_models_after_stop,
+        args=(workspace_root, project_name, project_path, resolved, stop_workers),
+        kwargs={"clear_logs": clear_logs, "operation_id": operation_id},
+        name=f"robotick-launcher-restart-{project_name}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _launch_request_after_resolve(
+    workspace_root: str,
+    request: LauncherModelLaunchRequest,
+    project_path: Path,
+    operation_id: str,
+) -> None:
+    _set_group_operations_phase(operation_id, "resolving")
+    _project_path, _intent, resolved = _resolve_launch_request(
+        workspace_root,
+        request,
+        project_path=project_path,
+    )
+    if _operation_group_cancelled(operation_id):
+        return
+    _set_group_operations_phase(operation_id, "queued")
+    _launch_resolved_models(
+        workspace_root,
+        request.project_name,
+        project_path,
+        resolved,
+        clear_logs=request.clear_logs,
+        wait=False,
+        operation_id=operation_id,
+    )
+
+
+def _launch_request_after_resolve_async(
+    workspace_root: str,
+    request: LauncherModelLaunchRequest,
+    project_path: Path,
+    operation_id: str,
+) -> None:
+    thread = threading.Thread(
+        target=_launch_request_after_resolve,
+        args=(workspace_root, request, project_path, operation_id),
+        name=f"robotick-launcher-launch-{request.project_name}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _launch_request_from_control(request: LauncherModelControlRequest) -> LauncherModelLaunchRequest:
+    intent = request.intent
+    profile = request.profile
+    if profile:
+        intent = None
+    elif intent is None:
+        intent = {
+            "project": request.project_name,
+            "scope": (
+                {"kind": "ALL", "value": "ALL"}
+                if not request.model_ids
+                else {"kind": "models", "value": request.model_ids}
+            ),
+            "target_policy": "native",
+        }
+    return LauncherModelLaunchRequest(
+        project_name=request.project_name,
+        profile=profile,
+        intent=intent,
+        creator=request.creator,
+        clear_logs=request.clear_logs,
+    )
+
+
+def _restart_request_after_resolve(
+    workspace_root: str,
+    request: LauncherModelControlRequest,
+    project_path: Path,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    operation_id: str,
+) -> None:
+    launch_request = _launch_request_from_control(request)
+    _project_path, _intent, resolved = _resolve_launch_request(
+        workspace_root,
+        launch_request,
+        project_path=project_path,
+    )
+    _restart_models_after_stop(
+        workspace_root,
+        request.project_name,
+        project_path,
+        resolved,
+        stop_workers,
+        clear_logs=request.clear_logs,
+        operation_id=operation_id,
+    )
+
+
+def _restart_request_after_resolve_async(
+    workspace_root: str,
+    request: LauncherModelControlRequest,
+    project_path: Path,
+    stop_workers: list[tuple[Any, Any, str, list[str]]],
+    operation_id: str,
+) -> None:
+    thread = threading.Thread(
+        target=_restart_request_after_resolve,
+        args=(workspace_root, request, project_path, stop_workers, operation_id),
+        name=f"robotick-launcher-restart-{request.project_name}",
+        daemon=True,
+    )
+    thread.start()
 
 
 def _reconcile_session_runtime_state(
@@ -1993,19 +3380,101 @@ class LauncherAbility:
                 )
             )
 
+        @router.get("/v1/launcher/operation-groups/{group_id}", response_class=JSONResponse)
+        def launcher_operation_group(group_id: str) -> JSONResponse:
+            context = context_provider()
+            group = _operation_group_snapshot(group_id)
+            if not group or group.get("workspace_root") != str(Path(context.workspace_root).resolve()):
+                raise HTTPException(status_code=404, detail=f"Launcher operation group not found: {group_id}")
+            return JSONResponse(group)
+
+        @router.get("/v1/launcher/models/{model_id}/operations/{operation_id}", response_class=JSONResponse)
+        def launcher_model_operation(
+            model_id: str,
+            operation_id: str,
+            project_id: str | None = Query(None, description="Optional project id/name"),
+        ) -> JSONResponse:
+            context = context_provider()
+            operation = _operation_for_model(
+                operation_id,
+                workspace_root=context.workspace_root,
+                project_id=project_id,
+                model_id=model_id,
+            )
+            if operation is None:
+                raise HTTPException(status_code=404, detail=f"Launcher model operation not found: {operation_id}")
+            return JSONResponse(operation)
+
+        def _launcher_models_start(
+            request: LauncherModelLaunchRequest,
+            *,
+            route_action: str,
+        ) -> JSONResponse:
+            context = context_provider()
+            project_path = _resolve_project_path(context.workspace_root, request.project_name)
+            provisional_model_ids = _provisional_launch_model_ids(
+                context.workspace_root,
+                request.project_name,
+                request,
+            )
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action=route_action,
+                project_id=request.project_name,
+                model_ids=provisional_model_ids,
+                creator=request.creator,
+                target_policy=_request_target_policy(request),
+            )
+            operation_id = str(operation_group.get("id") or _new_operation_request_id(route_action))
+            if not request.wait:
+                operation_payload = _operation_response_payload(operation_id)
+                runtime_payload = _launcher_runtime_projection(context.workspace_root, project_id=request.project_name)
+                _launch_request_after_resolve_async(
+                    context.workspace_root,
+                    request,
+                    project_path,
+                    operation_id,
+                )
+                return JSONResponse(
+                    {
+                        "resource_type": f"robotick_launcher_model_{route_action}_result",
+                        "project_id": request.project_name,
+                        "launched_models": [],
+                        "pending_models": provisional_model_ids,
+                        "skipped_models": [],
+                        "groups": [],
+                        "sessions": [],
+                        **operation_payload,
+                        "runtime": runtime_payload,
+                    }
+                )
+            _set_group_operations_phase(operation_id, "resolving")
+            project_path, _intent, resolved = _resolve_launch_request(
+                context.workspace_root,
+                request,
+                project_path=project_path,
+            )
+            _set_group_operations_phase(operation_id, "queued")
+            result = _launch_resolved_models(
+                context.workspace_root,
+                request.project_name,
+                project_path,
+                resolved,
+                clear_logs=request.clear_logs,
+                wait=request.wait,
+                operation_id=operation_id,
+            )
+            result["resource_type"] = f"robotick_launcher_model_{route_action}_result"
+            result.update(_operation_response_payload(operation_id))
+            return JSONResponse(result)
+
+        @router.post("/v1/launcher/models/start", response_class=JSONResponse)
+        def launcher_models_start(request: LauncherModelLaunchRequest) -> JSONResponse:
+            return _launcher_models_start(request, route_action="start")
+
         @router.post("/v1/launcher/models/launch", response_class=JSONResponse)
         def launcher_models_launch(request: LauncherModelLaunchRequest) -> JSONResponse:
-            context = context_provider()
-            project_path, _intent, resolved = _resolve_launch_request(context.workspace_root, request)
-            return JSONResponse(
-                _launch_resolved_models(
-                    context.workspace_root,
-                    request.project_name,
-                    project_path,
-                    resolved,
-                    clear_logs=request.clear_logs,
-                )
-            )
+            return _launcher_models_start(request, route_action="launch")
 
         @router.get("/v1/launcher/models/logs", response_class=JSONResponse)
         def launcher_models_logs(
@@ -2128,13 +3597,51 @@ class LauncherAbility:
                 project_name=request.project_name,
                 model_ids=request.model_ids,
             )
-            result = _stop_model_sessions(context.workspace_root, sessions, action="stop")
+            target_model_ids = request.model_ids or sorted(
+                {
+                    *[session.model_id for session in sessions],
+                    *_all_runtime_model_ids(context.workspace_root, request.project_name),
+                    *_active_operation_model_ids(context.workspace_root, request.project_name),
+                }
+            )
+            cancelled_operations = _cancel_operations_for_models(
+                workspace_root=context.workspace_root,
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                reason="stop_requested",
+            )
+            cleared_runtime_operations = _clear_queued_runtime_operations(
+                context.workspace_root,
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                reason="stop_requested",
+            )
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action="stop",
+                project_id=request.project_name,
+                model_ids=target_model_ids,
+                creator=request.creator,
+            )
+            operation_id = str(operation_group.get("id") or "")
+            result = _stop_model_sessions(
+                context.workspace_root,
+                sessions,
+                action="stop",
+                wait=request.wait,
+                operation_id=operation_id,
+            )
+            if request.wait:
+                _set_group_operations_phase(operation_id, "failed" if result["failed"] else "succeeded")
+            else:
+                _set_group_operations_phase(operation_id, "stopping")
             return JSONResponse(
                 {
                     "resource_type": "robotick_launcher_model_stop_result",
                     "project_id": request.project_name,
                     "stopped_models": [session.model_id for session in result["stopped"]],
                     "failed_models": [session.model_id for session in result["failed"]],
+                    "pending_models": [session.model_id for session in result.get("pending", [])],
                     "skipped_models": result["skipped"],
                     "stopped_sessions": [
                         _enrich_session_payload(session.model_dump(mode="json")) for session in result["stopped"]
@@ -2142,6 +3649,12 @@ class LauncherAbility:
                     "failed_sessions": [
                         _enrich_session_payload(session.model_dump(mode="json")) for session in result["failed"]
                     ],
+                    "pending_sessions": [
+                        _enrich_session_payload(session.model_dump(mode="json")) for session in result.get("pending", [])
+                    ],
+                    "cancelled_operations": cancelled_operations,
+                    "cleared_runtime_operations": cleared_runtime_operations,
+                    **_operation_response_payload(operation_id),
                     "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
                 }
             )
@@ -2149,37 +3662,124 @@ class LauncherAbility:
         @router.post("/v1/launcher/models/restart", response_class=JSONResponse)
         def launcher_models_restart(request: LauncherModelControlRequest) -> JSONResponse:
             context = context_provider()
-            project_path, _intent, resolved = _resolve_launch_request(
+            project_path = _resolve_project_path(context.workspace_root, request.project_name)
+            launch_request = _launch_request_from_control(request)
+            provisional_model_ids = _provisional_launch_model_ids(
                 context.workspace_root,
-                LauncherModelLaunchRequest(
-                    project_name=request.project_name,
-                    profile=request.profile,
-                    intent=request.intent
-                    or {
-                        "project": request.project_name,
-                        "scope": (
-                            {"kind": "ALL", "value": "ALL"}
-                            if not request.model_ids
-                            else {"kind": "models", "value": request.model_ids}
-                        ),
-                        "target_policy": "native",
-                    },
-                    creator=request.creator,
-                ),
+                request.project_name,
+                request,
             )
-            selected_model_ids = list(resolved.selected_model_ids)
+            operation_group = _create_operation_group(
+                workspace_root=context.workspace_root,
+                action="restart",
+                project_id=request.project_name,
+                model_ids=provisional_model_ids,
+                creator=request.creator,
+                target_policy=_request_target_policy(request),
+            )
+            operation_id = str(operation_group.get("id") or _new_operation_request_id("restart"))
+            _publish_provisional_runtime_operations(
+                context.workspace_root,
+                project_id=request.project_name,
+                project_path=project_path,
+                model_ids=provisional_model_ids,
+                action="restarting",
+                request_id=operation_id,
+                overwrite_active=True,
+                clear_session_id=False,
+            )
+            if request.wait:
+                project_path, _intent, resolved = _resolve_launch_request(
+                    context.workspace_root,
+                    launch_request,
+                    project_path=project_path,
+                )
+                selected_model_ids = list(resolved.selected_model_ids)
+            else:
+                resolved = None
+                selected_model_ids = provisional_model_ids
             sessions = _latest_runtime_sessions_for_models(
                 context.workspace_root,
                 project_name=request.project_name,
                 model_ids=selected_model_ids,
             )
-            stop_result = _stop_model_sessions(context.workspace_root, sessions, action="restart")
+            if not request.wait:
+                stop_workers = _begin_stop_model_sessions(
+                    context.workspace_root,
+                    sessions,
+                    action="restart",
+                    operation_id=operation_id,
+                )
+                if not stop_workers:
+                    _launch_request_after_resolve_async(
+                        context.workspace_root,
+                        launch_request,
+                        project_path,
+                        operation_id,
+                    )
+                    return JSONResponse(
+                        {
+                            "resource_type": "robotick_launcher_model_restart_result",
+                            "project_id": request.project_name,
+                            "stopped_models": [],
+                            "failed_models": [],
+                            "pending_models": provisional_model_ids,
+                            "launched_models": [],
+                            "skipped_models": [],
+                            "stopped_sessions": [],
+                            "failed_sessions": [],
+                            "pending_sessions": [],
+                            "sessions": [],
+                            "groups": [],
+                            **_operation_response_payload(operation_id),
+                            "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
+                        }
+                    )
+                _restart_request_after_resolve_async(
+                    context.workspace_root,
+                    request,
+                    project_path,
+                    stop_workers,
+                    operation_id=operation_id,
+                )
+                pending_sessions = [
+                    session for session, _child, _log_path, _command in stop_workers
+                ]
+                return JSONResponse(
+                    {
+                        "resource_type": "robotick_launcher_model_restart_result",
+                        "project_id": request.project_name,
+                        "stopped_models": [],
+                        "failed_models": [],
+                        "pending_models": [session.model_id for session in pending_sessions],
+                        "launched_models": [],
+                        "skipped_models": [],
+                        "stopped_sessions": [],
+                        "failed_sessions": [],
+                        "pending_sessions": [
+                            _enrich_session_payload(session.model_dump(mode="json")) for session in pending_sessions
+                        ],
+                        "sessions": [],
+                        "groups": [],
+                        **_operation_response_payload(operation_id),
+                        "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
+                    }
+                )
+
+            stop_result = _stop_model_sessions(
+                context.workspace_root,
+                sessions,
+                action="restart",
+                operation_id=operation_id,
+            )
             launch_result = _launch_resolved_models(
                 context.workspace_root,
                 request.project_name,
                 project_path,
                 resolved,
                 clear_logs=request.clear_logs,
+                wait=True,
+                operation_id=operation_id,
             )
             return JSONResponse(
                 {
@@ -2200,589 +3800,8 @@ class LauncherAbility:
                     ],
                     "sessions": launch_result["sessions"],
                     "groups": launch_result["groups"],
+                    **_operation_response_payload(operation_id),
                     "runtime": _launcher_runtime_projection(context.workspace_root, project_id=request.project_name),
-                }
-            )
-
-        @router.post("/v1/launcher/groups", response_class=JSONResponse)
-        def launcher_group_create(request: LauncherGroupCreateRequest) -> JSONResponse:
-            context = context_provider()
-            domain = _launcher_domain()
-            project_path = _resolve_project_path(context.workspace_root, request.project_name)
-            if request.profile:
-                intent = domain.launch_intent_from_profile(request.project_name, project_path, request.profile)
-            else:
-                intent = domain.LaunchIntent.model_validate(request.intent or {})
-            if request.creator:
-                intent = intent.model_copy(update={"created_by": domain.CreatorMetadata.model_validate(request.creator)})
-            resolved = domain.expand_launch_intent(project_path, intent)
-            store = _json_store(context.workspace_root)
-            existing_groups = store.list_groups(project_id=request.project_name)
-            existing_sessions = store.list_sessions(project_id=request.project_name)
-
-            duplicate_all_group = _find_duplicate_active_all_group(
-                existing_groups,
-                existing_sessions,
-                project_id=request.project_name,
-                intent=intent,
-                requested_model_ids=resolved.requested_model_ids,
-            )
-            if duplicate_all_group is not None:
-                duplicate_group_sessions = store.list_sessions(group_id=duplicate_all_group.id)
-                duplicate_group = _refresh_group_record(store, domain, duplicate_all_group)
-                group_payload = duplicate_group.model_dump(mode="json")
-                session_payloads = [
-                    session.model_dump(mode="json") for session in duplicate_group_sessions
-                ]
-                enriched_groups, enriched_sessions = _enrich_groups_and_sessions([group_payload], session_payloads)
-                return JSONResponse(
-                    {
-                        "group": enriched_groups[0],
-                        "sessions": enriched_sessions,
-                        "coalesced": True,
-                    }
-                )
-
-            active_by_model = _matching_active_session_by_model(
-                existing_sessions,
-                model_ids=resolved.requested_model_ids,
-            )
-            runtime_projection = _launcher_runtime_projection(
-                context.workspace_root,
-                project_id=request.project_name,
-            )
-            runtime_active_model_ids = {
-                str(model.get("model_id") or "").strip()
-                for model in runtime_projection.get("models") or []
-                if isinstance(model, dict) and _runtime_model_blocks_launch(model)
-            }
-            blocking_active_by_model = {
-                model_id: session
-                for model_id, session in active_by_model.items()
-                if model_id not in runtime_active_model_ids
-            }
-            if blocking_active_by_model:
-                conflicts = [
-                    {
-                        "model_id": model_id,
-                        "session_id": session.id,
-                        "group_id": session.group_id,
-                        "lifecycle": session.lifecycle,
-                        "readiness": session.readiness,
-                    }
-                    for model_id, session in sorted(blocking_active_by_model.items())
-                ]
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "active_model_session_conflict",
-                        "message": "One or more requested models already have an active session.",
-                        "conflicts": conflicts,
-                    },
-                )
-
-            group = domain.ModelSessionGroupRecord(
-                workspace_id=_workspace_id(context.workspace_root),
-                project_id=request.project_name,
-                project_path=str(project_path),
-                intent=intent,
-                resolved_model_ids=resolved.requested_model_ids,
-                created_by=intent.created_by,
-            )
-            sessions = []
-            for model in resolved.models:
-                selected = model.selected and model.model_id not in runtime_active_model_ids
-                diagnostics = []
-                lifecycle = domain.SessionLifecycle.STARTING if selected else domain.SessionLifecycle.STOPPED
-                if model.selected and model.model_id in runtime_active_model_ids:
-                    diagnostics = [
-                        domain.Diagnostics(
-                            code="active_model_already_running",
-                            message="Model already has live runtime authority and was not launched again.",
-                            details={"model_id": model.model_id},
-                        )
-                    ]
-                elif not selected:
-                    diagnostics = [
-                        domain.Diagnostics(
-                            code="auto_launch_disabled",
-                            message="Model resolved into the group but was not auto-launched.",
-                            details={"model_id": model.model_id},
-                        )
-                    ]
-                session = domain.ModelSessionRecord(
-                    group_id=group.id,
-                    project_id=request.project_name,
-                    model_id=model.model_id,
-                    target=domain.TargetOverride(
-                        platform=model.target_platform,
-                        variant=model.target_variant,
-                        host=model.preferred_host,
-                        stages=model.stages,
-                    ),
-                    lifecycle=lifecycle,
-                    created_by=intent.created_by,
-                    diagnostics=diagnostics,
-                )
-                pid, log_path, command = _spawn_session_worker(
-                    context.workspace_root,
-                    request.project_name,
-                    project_path.parent.resolve(),
-                    session,
-                    selected=selected,
-                )
-                runtime_metadata = _session_probe_metadata(
-                    context.workspace_root,
-                    request.project_name,
-                    project_path.parent.resolve(),
-                    session,
-                )
-                if selected:
-                    session = session.model_copy(
-                        update={
-                            "runtime": {
-                                **runtime_metadata,
-                                "authority": "launcher-worker",
-                                "worker": {
-                                    "pid": pid,
-                                    "command": command,
-                                    "log_path": log_path,
-                                    "started_at": _utc_now().isoformat(),
-                                },
-                            }
-                        }
-                    )
-                    _set_runtime_operation(
-                        context.workspace_root,
-                        session,
-                        project_path=str(project_path),
-                        action="launching",
-                        pid=pid,
-                        command=command,
-                        log_path=log_path,
-                    )
-                elif runtime_metadata:
-                    session = session.model_copy(update={"runtime": runtime_metadata})
-                store.create_session(session)
-                sessions.append(session)
-                if pid:
-                    _watch_session(context.workspace_root, group.id, session.id, pid)
-
-            group_status, readiness = _reduce_group_state(domain, sessions)
-            group = group.model_copy(
-                update={
-                    "session_ids": [session.id for session in sessions],
-                    "status": group_status,
-                    "readiness": readiness,
-                }
-            )
-            store.create_group(group)
-            group_payload = group.model_dump(mode="json")
-            session_payloads = [session.model_dump(mode="json") for session in sessions]
-            enriched_groups, enriched_sessions = _enrich_groups_and_sessions([group_payload], session_payloads)
-            return JSONResponse({"group": enriched_groups[0], "sessions": enriched_sessions})
-
-        @router.get("/v1/launcher/groups", response_class=JSONResponse)
-        def launcher_group_list(project_id: str | None = None) -> JSONResponse:
-            context = context_provider()
-            _refresh_state(context.workspace_root)
-            groups = list_model_session_groups(context.workspace_root, project_id=project_id)
-            group_ids = [str(group.get("id") or "") for group in groups]
-            sessions = [
-                session
-                for session in list_model_sessions(context.workspace_root, project_id=project_id)
-                if str(session.get("group_id") or "") in set(group_ids)
-            ]
-            enriched_groups, _ = _enrich_groups_and_sessions(groups, sessions)
-            return JSONResponse({"groups": enriched_groups})
-
-        @router.get("/v1/launcher/groups/{group_id}", response_class=JSONResponse)
-        def launcher_group_get(group_id: str) -> JSONResponse:
-            context = context_provider()
-            _refresh_state(context.workspace_root)
-            payload = get_model_session_group(context.workspace_root, group_id)
-            if payload is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session group: {group_id}")
-            sessions = list_model_sessions(context.workspace_root, group_id=group_id)
-            return JSONResponse(_enrich_group_payload(payload, related_sessions=sessions))
-
-        @router.get("/v1/launcher/groups/{group_id}/sessions", response_class=JSONResponse)
-        def launcher_group_sessions(group_id: str) -> JSONResponse:
-            context = context_provider()
-            _refresh_state(context.workspace_root)
-            group_payload = get_model_session_group(context.workspace_root, group_id)
-            if group_payload is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session group: {group_id}")
-            sessions = list_model_sessions(context.workspace_root, group_id=group_id)
-            enriched_sessions = [
-                _enrich_session_payload(session, group_payload=group_payload) for session in sessions
-            ]
-            return JSONResponse({"sessions": enriched_sessions})
-
-        @router.get("/v1/launcher/sessions/{session_id}", response_class=JSONResponse)
-        def launcher_session_get(session_id: str) -> JSONResponse:
-            context = context_provider()
-            _refresh_state(context.workspace_root)
-            payload = get_model_session(context.workspace_root, session_id)
-            if payload is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session: {session_id}")
-            group_payload = get_model_session_group(context.workspace_root, str(payload.get("group_id") or ""))
-            return JSONResponse(_enrich_session_payload(payload, group_payload=group_payload))
-
-        @router.get("/v1/launcher/groups/{group_id}/logs", response_class=JSONResponse)
-        def launcher_group_logs(
-            group_id: str,
-            model_ids: str | None = Query(None, description="Comma-separated model ids"),
-            session_ids: str | None = Query(None, description="Comma-separated session ids"),
-        ) -> JSONResponse:
-            context = context_provider()
-            domain = _launcher_domain()
-            store = _json_store(context.workspace_root)
-            group = store.get_group(group_id)
-            if group is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session group: {group_id}")
-            sessions = store.list_sessions(group_id=group_id)
-            selected = _select_control_sessions(
-                domain,
-                sessions,
-                LauncherSelectionRequest(
-                    model_ids=_split_csv_values(model_ids),
-                    session_ids=_split_csv_values(session_ids),
-                ),
-            )
-            if not selected:
-                raise HTTPException(status_code=400, detail="No sessions matched the requested log selection.")
-            return JSONResponse(
-                {
-                    "resource_type": "robotick_launcher_logs",
-                    "group_id": group.id,
-                    "project_id": group.project_id,
-                    "session_logs": [
-                        _session_log_record(session, group_payload=group.model_dump(mode="json"))
-                        for session in selected
-                    ],
-                }
-            )
-
-        @router.get("/v1/launcher/sessions/{session_id}/logs", response_class=JSONResponse)
-        def launcher_session_logs(session_id: str) -> JSONResponse:
-            context = context_provider()
-            domain = _launcher_domain()
-            store = _json_store(context.workspace_root)
-            session = store.get_session(session_id)
-            if session is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session: {session_id}")
-            return JSONResponse(
-                {
-                    "resource_type": "robotick_launcher_logs",
-                    "group_id": session.group_id,
-                    "project_id": session.project_id,
-                    "session_logs": [
-                        _session_log_record(
-                            session,
-                            group_payload=get_model_session_group(context.workspace_root, session.group_id),
-                        )
-                    ],
-                }
-            )
-
-        @router.post("/v1/launcher/groups/{group_id}/stop", response_class=JSONResponse)
-        def launcher_group_stop(group_id: str, request: LauncherSelectionRequest | None = None) -> JSONResponse:
-            context = context_provider()
-            domain = _launcher_domain()
-            store = _json_store(context.workspace_root)
-            group = store.get_group(group_id)
-            if group is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session group: {group_id}")
-            sessions = store.list_sessions(group_id=group_id)
-            request = request or LauncherSelectionRequest()
-            selected = _select_control_sessions(domain, sessions, request)
-            if not selected:
-                raise HTTPException(status_code=400, detail="No sessions matched the requested group selection.")
-            stopped = []
-            failed = []
-            stop_workers: list[tuple[Any, Any, str, list[str]]] = []
-            for session in selected:
-                child, log_path, command = _spawn_stop_session_worker(context.workspace_root, session.id)
-                _set_runtime_operation(
-                    context.workspace_root,
-                    session,
-                    project_path=group.project_path,
-                    action="stopping",
-                    pid=child.pid,
-                    command=command,
-                    log_path=log_path,
-                )
-                runtime = dict(session.runtime or {})
-                runtime["control"] = {
-                    "action": "stop",
-                    "pid": child.pid,
-                    "command": command,
-                    "log_path": log_path,
-                    "started_at": _utc_now().isoformat(),
-                }
-                store.update_session(
-                    session.model_copy(
-                        update={
-                            "lifecycle": domain.SessionLifecycle.STOPPING,
-                            "updated_at": _utc_now(),
-                            "runtime": runtime,
-                        }
-                    )
-                )
-                stop_workers.append((session, child, log_path, command))
-            for session, child, log_path, command in stop_workers:
-                returncode = child.wait()
-                final_runtime = dict(session.runtime or {})
-                final_runtime["control"] = {
-                    "action": "stop",
-                    "pid": child.pid,
-                    "command": command,
-                    "log_path": log_path,
-                    "returncode": returncode,
-                    "finished_at": _utc_now().isoformat(),
-                }
-                if returncode == 0:
-                    updated = session.model_copy(
-                        update={
-                            "lifecycle": domain.SessionLifecycle.STOPPED,
-                            "readiness": "pending",
-                            "updated_at": _utc_now(),
-                            "diagnostics": _without_diagnostics(
-                                session.diagnostics,
-                                STOP_SUCCESS_CLEARED_DIAGNOSTIC_CODES,
-                            ),
-                            "runtime": {
-                                **final_runtime,
-                                "stopped_at": _utc_now().isoformat(),
-                            },
-                        }
-                    )
-                    stopped.append(updated)
-                else:
-                    updated = session.model_copy(
-                        update={
-                            "lifecycle": domain.SessionLifecycle.FAILED,
-                            "readiness": "failed",
-                            "updated_at": _utc_now(),
-                            "runtime": final_runtime,
-                            "diagnostics": [
-                                *session.diagnostics,
-                                domain.Diagnostics(
-                                    code="stop_worker_failed",
-                                    message="Launcher stop worker exited with a non-zero status.",
-                                    details={"returncode": returncode, "session_id": session.id},
-                                ),
-                            ],
-                        }
-                    )
-                    failed.append(updated)
-                store.update_session(updated)
-                _clear_runtime_operation(
-                    context.workspace_root,
-                    updated,
-                    project_path=group.project_path,
-                    result={
-                        "action": "stop",
-                        "returncode": returncode,
-                        "finished_at": _utc_now().isoformat(),
-                    },
-                )
-            refreshed_group = _refresh_group_record(store, domain, group)
-            group_payload = refreshed_group.model_dump(mode="json")
-            return JSONResponse(
-                {
-                    "group": _enrich_group_payload(group_payload, related_sessions=store.list_sessions(group_id=group_id)),
-                    "stopped_sessions": [
-                        _enrich_session_payload(session.model_dump(mode="json"), group_payload=group_payload)
-                        for session in stopped
-                    ],
-                    "failed_sessions": [
-                        _enrich_session_payload(session.model_dump(mode="json"), group_payload=group_payload)
-                        for session in failed
-                    ],
-                }
-            )
-
-        @router.post("/v1/launcher/groups/{group_id}/restart", response_class=JSONResponse)
-        def launcher_group_restart(group_id: str, request: LauncherSelectionRequest | None = None) -> JSONResponse:
-            context = context_provider()
-            domain = _launcher_domain()
-            store = _json_store(context.workspace_root)
-            group = store.get_group(group_id)
-            if group is None:
-                raise HTTPException(status_code=404, detail=f"Unknown model session group: {group_id}")
-            sessions = store.list_sessions(group_id=group_id)
-            request = request or LauncherSelectionRequest()
-            selected = _select_control_sessions(domain, sessions, request)
-            if not selected:
-                raise HTTPException(status_code=400, detail="No sessions matched the requested group selection.")
-
-            project_path = Path(group.project_path).resolve()
-            stopped = []
-            restarted = []
-            failed = []
-            stop_workers: list[tuple[Any, Any, str, list[str]]] = []
-            for session in selected:
-                child, log_path, command = _spawn_stop_session_worker(context.workspace_root, session.id)
-                _set_runtime_operation(
-                    context.workspace_root,
-                    session,
-                    project_path=group.project_path,
-                    action="restarting",
-                    pid=child.pid,
-                    command=command,
-                    log_path=log_path,
-                )
-                runtime = dict(session.runtime or {})
-                runtime["control"] = {
-                    "action": "restart-stop",
-                    "pid": child.pid,
-                    "command": command,
-                    "log_path": log_path,
-                    "started_at": _utc_now().isoformat(),
-                }
-                store.update_session(
-                    session.model_copy(
-                        update={
-                            "lifecycle": domain.SessionLifecycle.STOPPING,
-                            "updated_at": _utc_now(),
-                            "runtime": runtime,
-                        }
-                    )
-                )
-                stop_workers.append((session, child, log_path, command))
-            restart_candidates: list[tuple[Any, Any]] = []
-            for session, child, log_path, command in stop_workers:
-                returncode = child.wait()
-                final_runtime = dict(session.runtime or {})
-                final_runtime["control"] = {
-                    "action": "restart-stop",
-                    "pid": child.pid,
-                    "command": command,
-                    "log_path": log_path,
-                    "returncode": returncode,
-                    "finished_at": _utc_now().isoformat(),
-                }
-                if returncode != 0:
-                    failed_session = session.model_copy(
-                        update={
-                            "lifecycle": domain.SessionLifecycle.FAILED,
-                            "readiness": "failed",
-                            "updated_at": _utc_now(),
-                            "runtime": final_runtime,
-                            "diagnostics": [
-                                *session.diagnostics,
-                                domain.Diagnostics(
-                                    code="restart_stop_worker_failed",
-                                    message="Launcher restart stop worker exited with a non-zero status.",
-                                    details={"returncode": returncode, "session_id": session.id},
-                                ),
-                            ],
-                        }
-                    )
-                    store.update_session(failed_session)
-                    _clear_runtime_operation(
-                        context.workspace_root,
-                        failed_session,
-                        project_path=group.project_path,
-                        result={
-                            "action": "restart-stop",
-                            "returncode": returncode,
-                            "finished_at": _utc_now().isoformat(),
-                        },
-                    )
-                    failed.append(failed_session)
-                    continue
-
-                stopped_session = session.model_copy(
-                    update={
-                        "lifecycle": domain.SessionLifecycle.STOPPED,
-                        "readiness": "pending",
-                        "updated_at": _utc_now(),
-                        "diagnostics": _without_diagnostics(
-                            session.diagnostics,
-                            STOP_SUCCESS_CLEARED_DIAGNOSTIC_CODES,
-                        ),
-                        "runtime": {
-                            **final_runtime,
-                            "stopped_at": _utc_now().isoformat(),
-                        },
-                    }
-                )
-                store.update_session(stopped_session)
-                stopped.append(stopped_session)
-                restart_candidates.append((session, stopped_session))
-
-            for session, _stopped_session in restart_candidates:
-                restarted_session = domain.ModelSessionRecord(
-                    group_id=group.id,
-                    project_id=group.project_id,
-                    model_id=session.model_id,
-                    generation=session.generation + 1,
-                    target=session.target,
-                    lifecycle=domain.SessionLifecycle.STARTING,
-                    created_by=group.created_by,
-                )
-                pid, worker_log_path, worker_command = _spawn_session_worker(
-                    context.workspace_root,
-                    group.project_id,
-                    project_path.parent,
-                    restarted_session,
-                    selected=True,
-                )
-                runtime_metadata = _session_probe_metadata(
-                    context.workspace_root,
-                    group.project_id,
-                    project_path.parent,
-                    restarted_session,
-                )
-                restarted_session = restarted_session.model_copy(
-                    update={
-                        "runtime": {
-                            **runtime_metadata,
-                            "authority": "launcher-worker",
-                            "worker": {
-                                "pid": pid,
-                                "command": worker_command,
-                                "log_path": worker_log_path,
-                                "started_at": _utc_now().isoformat(),
-                                "restarted_from_session_id": session.id,
-                            },
-                        }
-                    }
-                )
-                _set_runtime_operation(
-                    context.workspace_root,
-                    restarted_session,
-                    project_path=group.project_path,
-                    action="launching",
-                    pid=pid,
-                    command=worker_command,
-                    log_path=worker_log_path,
-                )
-                store.create_session(restarted_session)
-                restarted.append(restarted_session)
-                if pid:
-                    _watch_session(context.workspace_root, group.id, restarted_session.id, pid)
-
-            refreshed_group = _refresh_group_record(store, domain, group)
-            group_payload = refreshed_group.model_dump(mode="json")
-            return JSONResponse(
-                {
-                    "group": _enrich_group_payload(group_payload, related_sessions=store.list_sessions(group_id=group_id)),
-                    "stopped_sessions": [
-                        _enrich_session_payload(session.model_dump(mode="json"), group_payload=group_payload)
-                        for session in stopped
-                    ],
-                    "restarted_sessions": [
-                        _enrich_session_payload(session.model_dump(mode="json"), group_payload=group_payload)
-                        for session in restarted
-                    ],
-                    "failed_sessions": [
-                        _enrich_session_payload(session.model_dump(mode="json"), group_payload=group_payload)
-                        for session in failed
-                    ],
                 }
             )
 

@@ -128,6 +128,8 @@ export function createMockLauncherService(
     async requestLauncherRunModel() {},
     async requestLauncherStop() {},
     async requestLauncherStopModel() {},
+    async requestLauncherRestart() {},
+    async requestLauncherRestartModel() {},
     async fetchLauncherStatus() {
       return { status: "stopped", phase: null, models: {} };
     },

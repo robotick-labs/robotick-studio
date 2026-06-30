@@ -15,6 +15,7 @@ from robotick_cli.hub import get_hub_workspace_projects
 from robotick_cli.hub_client import (
     discover_hub,
     ensure_hub,
+    fetch_hub_bytes,
     fetch_hub_json,
     is_hub_healthy,
     is_pid_alive,
@@ -252,7 +253,8 @@ def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
     }
     studio_projection = launcher_cli.format_launcher_status_payload(status_payload)
     raw_state = str(hub_runtime.get("state") or hub_runtime.get("status") or "")
-    projected_state = str((studio_projection.get("service") or {}).get("state") or "")
+    projected_raw_state = str(((studio_projection.get("runtime") or {}).get("state")) or "")
+    projected_display_state = str((studio_projection.get("service") or {}).get("state") or "")
     write_json(
         {
             "resource_type": "robotick_studio_launcher_status",
@@ -263,9 +265,10 @@ def handle_launcher_status_command(ctx: AppContext, args: list[str]) -> None:
                 "runtime": studio_projection.get("runtime"),
             },
             "comparison": {
-                "state_agrees": raw_state == projected_state,
+                "state_agrees": raw_state == projected_raw_state,
                 "hub_state": raw_state,
-                "studio_state": projected_state,
+                "studio_raw_state": projected_raw_state,
+                "studio_display_state": projected_display_state,
             },
         }
     )
@@ -381,6 +384,78 @@ def handle_instance_diagnostics(
     add_diagnostics_cli_hints(payload)
     write_json(payload)
     return CommandResult(exit_code=0)
+
+
+def handle_instance_telemetry(
+    ctx: AppContext,
+    instance: InstanceRecord,
+    args: list[str],
+) -> CommandResult:
+    if any(is_help_flag(arg) for arg in args):
+        raise CliError(
+            f"Usage: robotick studio {instance.name} telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
+            code="invalid_arguments",
+        )
+    if not instance.control_endpoint:
+        raise CliError(
+            f"Studio instance {instance.name} does not expose the Studio control service.",
+            code="studio_control_unavailable",
+            recovery=(
+                "This instance was likely opened before the control service was added. "
+                f"Run `robotick studio {instance.name} quit`, then `robotick studio open [project]`."
+            ),
+        )
+    if args == ["models"]:
+        payload = fetch_studio_hub_json(
+            ctx.workspace_root,
+            f"/v1/studio/instances/{instance.name}/telemetry/models",
+        )
+        write_json(payload)
+        return CommandResult(exit_code=0)
+
+    if len(args) >= 3 and args[0] == "model":
+        model_id = args[1]
+        action = args[2]
+        encoded_model_id = quote(model_id, safe="")
+        if action in {"layout", "snapshot"} and len(args) == 3:
+            payload = fetch_studio_hub_json(
+                ctx.workspace_root,
+                f"/v1/studio/instances/{instance.name}/telemetry/models/{encoded_model_id}/{action}",
+            )
+            write_json(payload)
+            return CommandResult(exit_code=0)
+        if action == "raw-buffer":
+            output_path = parse_raw_buffer_output_path(args[3:])
+            raw = fetch_studio_hub_bytes(
+                ctx.workspace_root,
+                f"/v1/studio/instances/{instance.name}/telemetry/models/{encoded_model_id}/raw-buffer",
+            )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(raw)
+            write_json(
+                {
+                    "resource_type": "robotick_studio_telemetry_raw_buffer_file",
+                    "model_id": model_id,
+                    "output_path": str(output_path),
+                    "byte_length": len(raw),
+                }
+            )
+            return CommandResult(exit_code=0)
+
+    raise CliError(
+        f"Usage: robotick studio {instance.name} telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
+        code="invalid_arguments",
+    )
+
+
+def parse_raw_buffer_output_path(args: list[str]) -> Path:
+    if len(args) != 2 or args[0] not in {"--output", "-o"} or not args[1].strip():
+        raise CliError(
+            "Usage: raw-buffer --output <path>",
+            code="invalid_arguments",
+            recovery="Raw telemetry buffers are binary; choose an output file instead of writing them to stdout.",
+        )
+    return Path(args[1]).expanduser()
 
 
 def add_diagnostics_cli_hints(payload: dict[str, object]) -> None:
@@ -597,6 +672,8 @@ def run_studio_instance_command(
         return handle_instance_quit(ctx, instance.name, args[1:])
     if args and args[0] == "diagnostics":
         return handle_instance_diagnostics(ctx, instance, args[1:])
+    if args and args[0] == "telemetry":
+        return handle_instance_telemetry(ctx, instance, args[1:])
     if action == "select-project":
         return handle_instance_select_project(ctx, instance, args[1:])
     if action == "activate":
@@ -992,6 +1069,17 @@ def fetch_studio_hub_json(workspace_root: str | Path, path: str) -> dict[str, ob
             raise
         refreshed = restart_hub(workspace_root)
         return fetch_hub_json(refreshed, path)
+
+
+def fetch_studio_hub_bytes(workspace_root: str | Path, path: str) -> bytes:
+    record = ensure_hub(workspace_root)
+    try:
+        return fetch_hub_bytes(record, path)
+    except HubRequestError as error:
+        if error.status_code != 404:
+            raise
+        refreshed = restart_hub(workspace_root)
+        return fetch_hub_bytes(refreshed, path)
 
 
 def post_studio_hub_json(

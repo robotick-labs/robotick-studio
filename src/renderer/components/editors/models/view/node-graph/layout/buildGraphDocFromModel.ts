@@ -19,7 +19,7 @@ const CONTENT_GAP_Y = 20;
 const CONTENT_GAP_X = 24;
 const LANE_PADDING_X = 20;
 const LANE_PADDING_Y = 18;
-const LANE_LABEL_HEIGHT = 32;
+const LANE_LABEL_HEIGHT = 56;
 const HORIZONTAL_SECTION_GAP = 28;
 const VERTICAL_SECTION_GAP = 36;
 const PLUS_SLOT_SIZE = { width: 140, height: 40 } as const;
@@ -184,8 +184,9 @@ export async function buildGraphDocFromModel(
       const laneLayouts = buildLaneLayouts(
         workloadNodes,
         laneWorkloadIds,
+        laneRoots,
+        model.workloads,
         root.type ?? "Workload",
-        hasSequencedGroup,
       );
       const addSlots = buildAddSlotLayouts(workloadNodes, laneLayouts);
       const localFrame = unionFrames([
@@ -627,18 +628,33 @@ function positionLaneColumns(
 function buildLaneLayouts(
   nodes: Node[],
   laneWorkloadIds: string[][],
+  laneRootIds: string[],
+  workloads: Workload[],
   rootType: string,
-  hasSequencedGroup: boolean,
 ): LaneLayout[] {
   const layouts: LaneLayout[] = [];
+  const workloadsById = new Map(
+    workloads.map((workload) => [workload.id, workload]),
+  );
   laneWorkloadIds.forEach((laneIds, laneIndex) => {
     const laneNodes = nodes.filter((node) => node.lane === laneIndex);
+    const headerWorkload = workloadsById.get(laneRootIds[laneIndex] ?? "");
+    const isSequencedLane =
+      headerWorkload?.type === "SequencedGroupWorkload" ||
+      (laneIndex === 0 && rootType === "SequencedGroupWorkload");
+    const isSoloLane =
+      !isSequencedLane &&
+      rootType === "SyncedGroupWorkload" &&
+      headerWorkload != null;
+    const label = buildLaneLabel(
+      laneIndex,
+      isSequencedLane ? "sequence" : isSoloLane ? "solo" : "thread",
+      headerWorkload?.name,
+    );
     if (laneNodes.length === 0) {
       layouts.push({
         laneIndex,
-        label: hasSequencedGroup
-          ? `Thread ${laneIndex + 1} · Sequenced Group`
-          : `Thread ${laneIndex + 1}`,
+        label,
         frame: {
           x: laneIndex * (NODE_SIZE.width + CONTENT_GAP_X),
           y: 0,
@@ -660,15 +676,27 @@ function buildLaneLayouts(
     };
     layouts.push({
       laneIndex,
-      label:
-        hasSequencedGroup || rootType === "SequencedGroupWorkload"
-          ? `Thread ${laneIndex + 1} · Sequenced Group`
-          : `Thread ${laneIndex + 1}`,
+      label,
       frame,
     });
   });
 
   return layouts.sort((left, right) => left.frame.x - right.frame.x);
+}
+
+function buildLaneLabel(
+  laneIndex: number,
+  mode: "sequence" | "solo" | "thread",
+  headerWorkloadName?: string,
+): string {
+  if (mode === "thread") {
+    return `Thread ${laneIndex + 1}`;
+  }
+  const trimmedName = headerWorkloadName?.trim();
+  const laneKind = mode === "sequence" ? "Sequence" : "Solo";
+  return trimmedName
+    ? `Thread ${laneIndex + 1} · ${laneKind} - ${trimmedName}`
+    : `Thread ${laneIndex + 1} · ${laneKind}`;
 }
 
 function buildAddSlotLayouts(

@@ -1,4 +1,5 @@
 import fs from "fs";
+import crypto from "crypto";
 import path from "path";
 import { parse, stringify } from "yaml";
 import type { BrowserWindowConstructor } from "./bootstrap";
@@ -83,6 +84,7 @@ const STUDIO_TEMPLATE_PATH = path.resolve(
   __dirname,
   "../../../studio.template.yaml"
 );
+const studioDocumentMutationQueues = new Map<string, Promise<void>>();
 
 function looksLikeProjectFilePath(value: string): boolean {
   return /\.(ya?ml|json|toml)$/i.test(value.trim());
@@ -110,6 +112,25 @@ function getStudioDocumentId(projectPath: string): string {
 
 export function getStudioDocumentPath(projectPath: string): string {
   return path.join(resolveProjectDirectory(projectPath), "studio", "studio.yaml");
+}
+
+function enqueueStudioDocumentMutation<T>(
+  projectPath: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const queueKey = getStudioDocumentPath(projectPath);
+  const previous = studioDocumentMutationQueues.get(queueKey) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(operation);
+  const cleanup = current.then(
+    () => undefined,
+    () => undefined
+  ).then(() => {
+    if (studioDocumentMutationQueues.get(queueKey) === cleanup) {
+      studioDocumentMutationQueues.delete(queueKey);
+    }
+  });
+  studioDocumentMutationQueues.set(queueKey, cleanup);
+  return current;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -667,7 +688,7 @@ function createSeedChildWindow(windowId: string): StudioWindow {
 
 async function writeFileAtomic(filePath: string, content: string): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
   await fs.promises.writeFile(tempPath, content, "utf-8");
   await fs.promises.rename(tempPath, filePath);
 }
@@ -687,7 +708,10 @@ async function readStudioDocumentFromDisk(
   try {
     const raw = await fs.promises.readFile(filePath, "utf-8");
     const parsed = parse(raw);
-    return isRawStudioDocument(parsed) ? expandStudioDocument(parsed) : null;
+    if (!isRawStudioDocument(parsed)) {
+      throw new Error(`Invalid Studio document structure: ${filePath}`);
+    }
+    return expandStudioDocument(parsed);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
@@ -706,7 +730,7 @@ async function writeStudioDocumentToDisk(
   );
 }
 
-export async function ensureStudioDocument(projectPath: string) {
+async function ensureStudioDocumentUnqueued(projectPath: string) {
   const existing = await readStudioDocumentFromDisk(projectPath);
   if (existing) {
     return existing;
@@ -714,6 +738,12 @@ export async function ensureStudioDocument(projectPath: string) {
   const seeded = createSeedStudioDocument(projectPath);
   await writeStudioDocumentToDisk(projectPath, seeded);
   return seeded;
+}
+
+export async function ensureStudioDocument(projectPath: string) {
+  return enqueueStudioDocumentMutation(projectPath, () =>
+    ensureStudioDocumentUnqueued(projectPath)
+  );
 }
 
 function findIncomingWindow(
@@ -754,14 +784,16 @@ export async function ensureChildWindowInDocument(
   projectPath: string,
   windowId: string
 ) {
-  const current = await ensureStudioDocument(projectPath);
-  if (current.windows.some((window) => window.id === windowId)) {
-    return current;
-  }
-  const next = cloneDocument(current);
-  next.windows.push(createSeedChildWindow(windowId));
-  await writeStudioDocumentToDisk(projectPath, next);
-  return next;
+  return enqueueStudioDocumentMutation(projectPath, async () => {
+    const current = await ensureStudioDocumentUnqueued(projectPath);
+    if (current.windows.some((window) => window.id === windowId)) {
+      return current;
+    }
+    const next = cloneDocument(current);
+    next.windows.push(createSeedChildWindow(windowId));
+    await writeStudioDocumentToDisk(projectPath, next);
+    return next;
+  });
 }
 
 export async function listChildWindowIdsInDocument(
@@ -777,23 +809,25 @@ export async function deleteChildWindowFromDocument(
   projectPath: string,
   windowId: string
 ): Promise<boolean> {
-  const normalizedWindowId = windowId.trim();
-  if (!normalizedWindowId) {
-    return false;
-  }
-  const current = await ensureStudioDocument(projectPath);
-  const nextWindows = current.windows.filter(
-    (window) =>
-      !(window.id === normalizedWindowId && window.windowRole === "child")
-  );
-  if (nextWindows.length === current.windows.length) {
-    return false;
-  }
-  await writeStudioDocumentToDisk(projectPath, {
-    ...current,
-    windows: nextWindows,
+  return enqueueStudioDocumentMutation(projectPath, async () => {
+    const normalizedWindowId = windowId.trim();
+    if (!normalizedWindowId) {
+      return false;
+    }
+    const current = await ensureStudioDocumentUnqueued(projectPath);
+    const nextWindows = current.windows.filter(
+      (window) =>
+        !(window.id === normalizedWindowId && window.windowRole === "child")
+    );
+    if (nextWindows.length === current.windows.length) {
+      return false;
+    }
+    await writeStudioDocumentToDisk(projectPath, {
+      ...current,
+      windows: nextWindows,
+    });
+    return true;
   });
-  return true;
 }
 
 function notifyDocumentChanged(
@@ -838,17 +872,19 @@ export function registerStudioPersistence(
   ipcMain.handle(
     "robotick-studio-persistence:write",
     async (_event, payload: WritePayload) => {
-      const current = await ensureStudioDocument(payload.projectPath);
-      const parsed = parse(payload.content);
-      if (!isRawStudioDocument(parsed)) {
-        throw new Error("Attempted to write invalid Studio document");
-      }
-      const merged = mergeWindowIntoDocument(
-        current,
-        expandStudioDocument(parsed),
-        payload.windowScope
-      );
-      await writeStudioDocumentToDisk(payload.projectPath, merged);
+      await enqueueStudioDocumentMutation(payload.projectPath, async () => {
+        const current = await ensureStudioDocumentUnqueued(payload.projectPath);
+        const parsed = parse(payload.content);
+        if (!isRawStudioDocument(parsed)) {
+          throw new Error("Attempted to write invalid Studio document");
+        }
+        const merged = mergeWindowIntoDocument(
+          current,
+          expandStudioDocument(parsed),
+          payload.windowScope
+        );
+        await writeStudioDocumentToDisk(payload.projectPath, merged);
+      });
       notifyDocumentChanged(BrowserWindow, payload.projectPath);
     }
   );

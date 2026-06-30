@@ -57,7 +57,6 @@ HUB_FEATURES = [
     "studio_focused",
     "launcher_status",
     "launcher_ensure",
-    "launcher_groups",
 ]
 
 
@@ -234,6 +233,8 @@ def create_app() -> FastAPI:
             return list_project_model_paths(_resolve_registered_project_path(project_path))
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/query/get-model", response_class=JSONResponse)
     def query_get_model(

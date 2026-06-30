@@ -995,6 +995,50 @@ def fetch_studio_control_diagnostics(
     return loaded
 
 
+def fetch_studio_control_json_path(
+    instance: StudioInstanceRecord,
+    control_path: str,
+) -> tuple[int, dict[str, object]] | None:
+    if not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    try:
+        with urlopen(f"{instance.control_endpoint}/{control_path.lstrip('/')}", timeout=1.5) as response:
+            loaded = yaml.safe_load(response.read().decode("utf-8"))
+            if isinstance(loaded, dict):
+                return int(response.status), loaded
+            return int(response.status), {"error": "invalid_control_response"}
+    except HTTPError as error:
+        try:
+            loaded = yaml.safe_load(error.read().decode("utf-8"))
+        except Exception:
+            loaded = None
+        return (
+            int(error.code),
+            loaded if isinstance(loaded, dict) else {"error": "studio_control_request_failed"},
+        )
+    except URLError:
+        return None
+
+
+def fetch_studio_control_bytes_path(
+    instance: StudioInstanceRecord,
+    control_path: str,
+) -> tuple[int, bytes, str] | None:
+    if not instance.control_endpoint:
+        return None
+    validate_studio_control_endpoint(instance.control_endpoint)
+    try:
+        with urlopen(f"{instance.control_endpoint}/{control_path.lstrip('/')}", timeout=1.5) as response:
+            content_type = response.headers.get("Content-Type") or "application/octet-stream"
+            return int(response.status), response.read(), content_type
+    except HTTPError as error:
+        content_type = error.headers.get("Content-Type") or "application/json"
+        return int(error.code), error.read(), content_type
+    except URLError:
+        return None
+
+
 def get_studio_focused(
     workspace_root: str | Path,
     instance_name: str,
@@ -1015,6 +1059,78 @@ def get_studio_focused(
         instance,
         "focused",
         recovery="Reopen the Studio instance so it registers the current control-service focused route.",
+    )
+
+
+def get_studio_telemetry(
+    workspace_root: str | Path,
+    instance_name: str,
+    telemetry_path: str,
+) -> tuple[int, dict[str, object]] | None:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
+        return None
+    if not instance.control_endpoint:
+        return (
+            503,
+            build_provider_unavailable_error(
+                instance,
+                f"telemetry:{telemetry_path}",
+                recovery="Reopen the Studio instance so it registers the current control-service telemetry routes.",
+            ),
+        )
+    payload = fetch_studio_control_json_path(
+        instance,
+        f"/v1/telemetry/{quote(telemetry_path, safe='/?=&%:,')}",
+    )
+    if payload is not None:
+        return payload
+    return (
+        503,
+        build_provider_unavailable_error(
+            instance,
+            f"telemetry:{telemetry_path}",
+            recovery="Reopen the Studio instance so it registers the current control-service telemetry routes.",
+        ),
+    )
+
+
+def get_studio_telemetry_raw_buffer(
+    workspace_root: str | Path,
+    instance_name: str,
+    telemetry_path: str,
+) -> tuple[int, bytes, str] | None:
+    instance = get_live_instance_record(workspace_root, instance_name)
+    if instance is None:
+        return None
+    if not instance.control_endpoint:
+        return (
+            503,
+            json.dumps(
+                build_provider_unavailable_error(
+                    instance,
+                    f"telemetry:{telemetry_path}",
+                    recovery="Reopen the Studio instance so it registers the current control-service telemetry routes.",
+                )
+            ).encode("utf-8"),
+            "application/json",
+        )
+    payload = fetch_studio_control_bytes_path(
+        instance,
+        f"/v1/telemetry/{quote(telemetry_path, safe='/?=&%:,')}",
+    )
+    if payload is not None:
+        return payload
+    return (
+        503,
+        json.dumps(
+            build_provider_unavailable_error(
+                instance,
+                f"telemetry:{telemetry_path}",
+                recovery="Reopen the Studio instance so it registers the current control-service telemetry routes.",
+            )
+        ).encode("utf-8"),
+        "application/json",
     )
 
 

@@ -203,6 +203,14 @@ function buildTelemetryHealthUrl(baseUrl: string): string {
   return url.toString();
 }
 
+function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function deriveProjectId(projectPath: string | null | undefined): string {
   const value = trimOrNull(projectPath);
   if (!value) {
@@ -278,7 +286,7 @@ async function performFetchDiagnostic(
   target: StudioDiagnosticsFetchTarget
 ): Promise<StudioControlDiagnosticsFetchCheckResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1200);
+  const timeout = setTimeout(() => controller.abort(), 3000);
   try {
     const response = await fetch(target.url, {
       method: target.method,
@@ -583,6 +591,23 @@ function synthesizeWebSocketFetchChecks(
   );
   const origin = deriveRendererOrigin(activeWindowUrl);
   const failures = websocketFailures ?? [];
+  const latestGoodFrameByUrl = new Map<string, number>();
+  for (const { snapshot } of rendererSnapshots) {
+    for (const model of snapshot.telemetry?.models ?? []) {
+      const lastFrameAt = parseTimestampMs(model.last_frame_at);
+      if (lastFrameAt === null) {
+        continue;
+      }
+      const telemetryWsUrl = buildDiagnosticsWebSocketUrl(
+        model.telemetry_base_url,
+        "/api/telemetry/ws"
+      );
+      const previous = latestGoodFrameByUrl.get(telemetryWsUrl) ?? 0;
+      if (lastFrameAt > previous) {
+        latestGoodFrameByUrl.set(telemetryWsUrl, lastFrameAt);
+      }
+    }
+  }
   const checks: StudioControlDiagnosticsFetchCheckResult[] = [];
   const seen = new Set<string>();
   const addWebSocketCheck = (targetId: string, url: string) => {
@@ -591,7 +616,18 @@ function synthesizeWebSocketFetchChecks(
       return;
     }
     seen.add(normalizedUrl);
-    const failure = failures.find((record) => record.url === normalizedUrl);
+    const latestGoodFrameAt = latestGoodFrameByUrl.get(normalizedUrl) ?? null;
+    const failure = failures.find((record) => {
+      if (record.url !== normalizedUrl) {
+        return false;
+      }
+      const failureAt = parseTimestampMs(record.recorded_at);
+      return (
+        latestGoodFrameAt === null ||
+        failureAt === null ||
+        failureAt >= latestGoodFrameAt
+      );
+    });
     checks.push({
       target_id: targetId,
       effective_url: normalizedUrl,
@@ -643,6 +679,23 @@ async function buildTelemetryModelHealth(
     StudioControlDiagnosticsTelemetryModelHealth & { _health_url?: string }
   >();
   const failures = websocketFailures ?? [];
+  const latestGoodFrameByWsUrl = new Map<string, number>();
+  for (const { snapshot } of rendererSnapshots) {
+    for (const model of snapshot.telemetry?.models ?? []) {
+      const lastFrameAt = parseTimestampMs(model.last_frame_at);
+      if (lastFrameAt === null) {
+        continue;
+      }
+      const telemetryWsUrl = buildDiagnosticsWebSocketUrl(
+        model.telemetry_base_url,
+        "/api/telemetry/ws"
+      );
+      const previous = latestGoodFrameByWsUrl.get(telemetryWsUrl) ?? 0;
+      if (lastFrameAt > previous) {
+        latestGoodFrameByWsUrl.set(telemetryWsUrl, lastFrameAt);
+      }
+    }
+  }
 
   for (const { snapshot } of rendererSnapshots) {
     for (const model of snapshot.telemetry?.models ?? []) {
@@ -651,7 +704,18 @@ async function buildTelemetryModelHealth(
         model.telemetry_base_url,
         "/api/telemetry/ws"
       );
-      const websocketFailure = failures.find((record) => record.url === telemetryWsUrl);
+      const latestGoodFrameAt = latestGoodFrameByWsUrl.get(telemetryWsUrl) ?? null;
+      const websocketFailure = failures.find((record) => {
+        if (record.url !== telemetryWsUrl) {
+          return false;
+        }
+        const failureAt = parseTimestampMs(record.recorded_at);
+        return (
+          latestGoodFrameAt === null ||
+          failureAt === null ||
+          failureAt >= latestGoodFrameAt
+        );
+      });
       const rendererHealthy =
         !model.last_error &&
         model.layout_loaded &&

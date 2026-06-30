@@ -4,6 +4,13 @@ name: "Test Project"
 schema_version: 1
 description: "Test Project for use in Launcher Unit Tests."
 
+models:
+  - models/test-project-brain.model.yaml
+  - models/test-project-spine.model.yaml
+  - models/test-project-spine-linux.model.yaml
+  - models/test-project-spine-arm64.model.yaml
+  - models/test-project-spine-arm32.model.yaml
+
 tooling:
   tooling_sources:
     - id: test-tooling

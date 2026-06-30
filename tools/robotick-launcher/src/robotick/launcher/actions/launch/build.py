@@ -6,6 +6,10 @@ import typer
 from robotick.launcher.actions.launch.target_plan import (
     resolve_target_plan,
 )
+from robotick.launcher.actions.launch.custom_stages import (
+    has_custom_stage_script,
+)
+from robotick.launcher.actions.launch.stages import LaunchStage
 from robotick.launcher.utils import get_launcher_paths, run_subprocess
 
 
@@ -49,9 +53,16 @@ def build(
             print("[yellow]⚠️ Dry run only — commands not executed.[/]")
             return
         expected_binary = plan.build.local_binary_path
-        if expected_binary is not None and not expected_binary.exists():
+        if (
+            expected_binary is not None
+            and not expected_binary.exists()
+            and not has_custom_stage_script(launcher_dir, LaunchStage.BUILD)
+        ):
             print(f"[bold red]❌ Expected binary not found:[/] {expected_binary}")
             raise typer.Exit(code=1)
+        if expected_binary is not None and not expected_binary.exists():
+            print("[bold green]✅ Build complete! Custom build stage owns its output.[/]")
+            return
         built_binary = plan.build.display_binary_path or str(binary_path)
         print(f"[bold green]✅ Build complete! Binary:[/] {built_binary}")
         return
@@ -68,8 +79,15 @@ def build(
         print(f"[bold red]❌ Build process failed during: {e.cmd}[/]")
         raise typer.Exit(code=e.returncode)
 
-    if not binary_path.exists():
+    if not binary_path.exists() and not has_custom_stage_script(
+        launcher_dir,
+        LaunchStage.BUILD,
+    ):
         print(f"[bold red]❌ Expected binary not found:[/] {binary_path}")
         raise typer.Exit(code=1)
+
+    if not binary_path.exists():
+        print("[bold green]✅ Building complete! Custom build stage owns its output.[/]")
+        return
 
     print(f"[bold green]✅ Building complete! Binary:[/] {binary_path}")

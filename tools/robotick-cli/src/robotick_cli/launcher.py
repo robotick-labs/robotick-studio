@@ -36,11 +36,17 @@ def run_launcher_command(ctx: AppContext, args: list[str]) -> CommandResult:
     if command == "status":
         handle_status_command(ctx, rest)
         return CommandResult(exit_code=0)
+    if command == "metrics":
+        handle_metrics_command(ctx, rest)
+        return CommandResult(exit_code=0)
     if command == "ensure":
         handle_ensure_command(ctx, rest)
         return CommandResult(exit_code=0)
+    if command == "start":
+        handle_start_command(ctx, rest, command_name="start")
+        return CommandResult(exit_code=0)
     if command == "launch":
-        handle_launch_command(ctx, rest)
+        handle_start_command(ctx, rest, command_name="launch")
         return CommandResult(exit_code=0)
     if command == "logs":
         handle_logs_command(ctx, rest)
@@ -85,6 +91,68 @@ def handle_status_command(ctx: AppContext, args: list[str]) -> None:
     write_json(format_launcher_status_payload({"resource_type": "robotick_launcher_status", "runtime": payload}))
 
 
+def handle_metrics_command(ctx: AppContext, args: list[str]) -> None:
+    if any(is_help_flag(arg) for arg in args):
+        writeln(
+            "Usage:\n"
+            "  robotick launcher metrics [--project <project>] [--model <id> | --models <id,...>]\n"
+        )
+        return
+    parsed = parse_launcher_args(
+        args,
+        value_flags={"--project", "--model", "--models"},
+        repeatable_flags={"--model"},
+        boolean_flags={"--json"},
+    )
+    ensure_no_positionals(parsed, "launcher metrics")
+    selection = build_selection_options(parsed)
+
+    record = discover_hub(ctx.workspace_root)
+    if record is None or not is_pid_alive(record.pid):
+        write_json(
+            {
+                "resource_type": "robotick_launcher_runtime_metrics_collection",
+                "state": "unavailable",
+                "models": [],
+            }
+        )
+        return
+    try:
+        runtime = fetch_launcher_runtime_through_hub(
+            record,
+            project_id=selection["project_id"],
+            model_ids=selection["model_ids"],
+        )
+    except HubRequestError:
+        write_json(
+            {
+                "resource_type": "robotick_launcher_runtime_metrics_collection",
+                "state": "unavailable",
+                "models": [],
+            }
+        )
+        return
+
+    models = [
+        {
+            "project_id": model.get("project_id"),
+            "model_id": model.get("model_id"),
+            "lifecycle": model.get("lifecycle"),
+            "freshness": model.get("freshness"),
+            "metrics": model.get("metrics"),
+        }
+        for model in runtime.get("models") or []
+        if isinstance(model, dict)
+    ]
+    write_json(
+        {
+            "resource_type": "robotick_launcher_runtime_metrics_collection",
+            "state": runtime.get("state"),
+            "models": models,
+        }
+    )
+
+
 def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln("Usage:\n  robotick launcher ensure\n")
@@ -118,27 +186,27 @@ def handle_ensure_command(ctx: AppContext, args: list[str]) -> None:
     )
 
 
-def handle_launch_command(ctx: AppContext, args: list[str]) -> None:
+def handle_start_command(ctx: AppContext, args: list[str], *, command_name: str = "start") -> None:
     if any(is_help_flag(arg) for arg in args):
         writeln(
             "Usage:\n"
-            "  robotick launcher launch <project> [profile]\n"
-            "  robotick launcher launch <project> [--profile <selector>]\n"
-            "  robotick launcher launch <project> [--all | --model <id> | --models <id,...>] [--local | --native]\n"
+            f"  robotick launcher {command_name} <project> [profile]\n"
+            f"  robotick launcher {command_name} <project> [--profile <selector>]\n"
+            f"  robotick launcher {command_name} <project> [--all | --model <id> | --models <id,...>] [--local | --native] [--wait]\n"
         )
         return
     parsed = parse_launcher_args(
         args,
         value_flags={"--profile", "--model", "--models"},
         repeatable_flags={"--model"},
-        boolean_flags={"--json", "--all", "--local", "--native"},
+        boolean_flags={"--json", "--all", "--local", "--native", "--wait"},
     )
     if not parsed["positionals"]:
-        raise CliError("Usage: robotick launcher launch <project> [profile]")
+        raise CliError(f"Usage: robotick launcher {command_name} <project> [profile]")
     project_name = parsed["positionals"][0]
     positional_profile = parsed["positionals"][1] if len(parsed["positionals"]) > 1 else None
     if len(parsed["positionals"]) > 2:
-        raise CliError(f"Unknown argument for 'launcher launch': {parsed['positionals'][2]}")
+        raise CliError(f"Unknown argument for 'launcher {command_name}': {parsed['positionals'][2]}")
 
     profile_flag = single_flag_value(parsed, "--profile")
     model_ids = collect_repeated_values(parsed, "--model")
@@ -146,6 +214,7 @@ def handle_launch_command(ctx: AppContext, args: list[str]) -> None:
     use_all = has_flag(parsed, "--all")
     local = has_flag(parsed, "--local")
     native = has_flag(parsed, "--native")
+    wait = has_flag(parsed, "--wait")
 
     if local and native:
         raise CliError("Choose only one target policy flag: --local or --native.")
@@ -162,11 +231,15 @@ def handle_launch_command(ctx: AppContext, args: list[str]) -> None:
         if enabled
     )
     if scope_modes > 1:
-        raise CliError("Choose only one launch scope source: profile, --all, or --model/--models.")
+        raise CliError(f"Choose only one {command_name} scope source: profile, --all, or --model/--models.")
 
     record = ensure_hub(ctx.workspace_root)
     creator = {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"}
-    request_payload: dict[str, Any] = {"project_name": project_name, "creator": creator}
+    request_payload: dict[str, Any] = {
+        "project_name": project_name,
+        "creator": creator,
+        "wait": wait,
+    }
     profile = positional_profile or profile_flag
     if profile:
         if local or native:
@@ -186,15 +259,19 @@ def handle_launch_command(ctx: AppContext, args: list[str]) -> None:
             "target_policy": target_policy,
         }
     else:
-        request_payload["profile"] = "native:ALL"
+        request_payload["intent"] = {
+            "project": project_name,
+            "scope": {"kind": "ALL", "value": "ALL"},
+            "target_policy": "native",
+        }
 
     payload = post_hub_json(
         record,
-        "/v1/launcher/models/launch",
+        "/v1/launcher/models/start" if command_name == "start" else "/v1/launcher/models/launch",
         request_payload,
-        timeout_seconds=120,
+        timeout_seconds=120 if wait else 15,
     )
-    write_json({"resource_type": "robotick_launcher_launch_result", **payload})
+    write_json({"resource_type": f"robotick_launcher_{command_name}_result", **payload})
 
 
 def handle_logs_command(ctx: AppContext, args: list[str]) -> None:
@@ -303,29 +380,23 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
             model_ids=selection["model_ids"],
         )
         models = runtime_model_payloads({"runtime": last_payload})
-        if not selection["model_ids"]:
-            models = [
-                model
-                for model in models
-                if str(model.get("lifecycle") or "") in {"starting", "running", "stopping"}
-                or str(model.get("freshness") or "") in {"live", "failed"}
-            ]
-        readiness_values = {str(model.get("readiness") or "pending") for model in models}
-        lifecycle_values = {str(model.get("lifecycle") or "pending") for model in models}
-        if models and readiness_values == {"ready"}:
+        status, blockers = evaluate_wait_ready_models(models)
+        if status == "ready":
             write_json(
                 {
                     "resource_type": "robotick_launcher_wait_ready_result",
                     "status": "ready",
+                    "blockers": [],
                     "target": last_payload,
                 }
             )
             return CommandResult(exit_code=0)
-        if "failed" in readiness_values or "failed" in lifecycle_values or "stale" in readiness_values:
+        if status in {"failed", "stale", "degraded", "cancelled"}:
             write_json(
                 {
                     "resource_type": "robotick_launcher_wait_ready_result",
-                    "status": "failed" if "failed" in readiness_values or "failed" in lifecycle_values else "stale",
+                    "status": status,
+                    "blockers": blockers,
                     "target": last_payload,
                 }
             )
@@ -336,6 +407,9 @@ def handle_wait_ready_command(ctx: AppContext, args: list[str]) -> CommandResult
         {
             "resource_type": "robotick_launcher_wait_ready_result",
             "status": "timeout",
+            "blockers": evaluate_wait_ready_models(
+                runtime_model_payloads({"runtime": last_payload or {}})
+            )[1],
             "target": last_payload,
             "selection": {
                 "project_id": selection["project_id"],
@@ -368,6 +442,7 @@ def run_model_action(ctx: AppContext, parsed: dict[str, Any], *, action: str) ->
         "project_name": project_id,
         "model_ids": selection["model_ids"],
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": True,
     }
     if action == "restart":
         if selection["model_ids"]:
@@ -474,6 +549,59 @@ def runtime_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
 def runtime_model_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
     runtime = runtime_payload(payload) or {}
     return [model for model in runtime.get("models") or [] if isinstance(model, dict)]
+
+
+def evaluate_wait_ready_models(models: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    if not models:
+        return "pending", [
+            {
+                "reason": "no_models",
+                "message": "No launcher runtime model records matched the wait-ready selection.",
+            }
+        ]
+
+    blockers: list[dict[str, Any]] = []
+    terminal_status: str | None = None
+    ready_count = 0
+    for model in models:
+        lifecycle = str(model.get("lifecycle") or "pending")
+        readiness = str(model.get("readiness") or "pending")
+        freshness = str(model.get("freshness") or "pending")
+        model_id = str(model.get("model_id") or "")
+        if lifecycle == "running" and readiness == "ready" and freshness == "live":
+            ready_count += 1
+            continue
+
+        if "failed" in {lifecycle, readiness, freshness}:
+            reason = "failed"
+            terminal_status = "failed"
+        elif "stale" in {readiness, freshness}:
+            reason = "stale"
+            terminal_status = terminal_status or "stale"
+        elif lifecycle == "stopped" or freshness == "stopped":
+            reason = "stopped"
+            terminal_status = terminal_status or "degraded"
+        elif lifecycle in {"cancelled", "cancelled_by_stop"}:
+            reason = "cancelled"
+            terminal_status = terminal_status or "cancelled"
+        else:
+            reason = "pending"
+
+        blockers.append(
+            {
+                "model_id": model_id,
+                "reason": reason,
+                "lifecycle": lifecycle,
+                "readiness": readiness,
+                "freshness": freshness,
+            }
+        )
+
+    if ready_count == len(models):
+        return "ready", []
+    if terminal_status is not None:
+        return terminal_status, blockers
+    return "pending", blockers
 
 
 def fetch_read_only_launcher_status(ctx: AppContext) -> dict[str, Any]:

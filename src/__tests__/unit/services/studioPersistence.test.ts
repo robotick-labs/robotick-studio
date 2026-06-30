@@ -186,6 +186,28 @@ describe("studioPersistence", () => {
     );
   });
 
+  it("rejects invalid canonical documents instead of falling back to seed", async () => {
+    const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
+    const store = new MemoryStudioPersistenceStore();
+    store.files.set(
+      getStudioDocumentRelativePath(),
+      [
+        "resourceType: studio_document",
+        "schemaVersion: 1",
+        "id: barr-e-studio",
+        "windows:",
+        "  - id: main",
+        "    label: Main Window",
+        "    windowRole: invalid-role",
+        "    workbenches: []",
+      ].join("\n")
+    );
+
+    await expect(loadStudioPersistence(projectPath, store)).rejects.toThrow(
+      "Invalid Studio document structure"
+    );
+  });
+
   it("writes only the diff for default single-panel layouts", async () => {
     const projectPath = "/repo/robots/barr-e/barr-e.project.yaml";
     const store = new MemoryStudioPersistenceStore();

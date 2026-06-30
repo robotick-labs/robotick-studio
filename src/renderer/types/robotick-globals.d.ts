@@ -1,3 +1,6 @@
+import type { RobotickLauncherBridge } from "../../electron/common/launcher-bridge-contract";
+import type { RobotickTelemetryBridge } from "../../electron/common/telemetry-bridge-contract";
+
 export interface RobotickEnvironment {
   readonly isStandaloneApp: boolean;
   readonly appTitle: string;
@@ -172,6 +175,8 @@ export interface RobotickGlobals {
   readonly storage?: RobotickStorage;
   readonly studioPersistence?: RobotickStudioPersistence;
   readonly projectSelection?: RobotickProjectSelection;
+  readonly launcher?: RobotickLauncherBridge;
+  readonly telemetry?: RobotickTelemetryBridge;
   [key: string]: unknown;
 }
 

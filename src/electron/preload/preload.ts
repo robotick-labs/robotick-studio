@@ -1,4 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { RobotickLauncherBridge } from "../common/launcher-bridge-contract";
+import type {
+  ElectronTelemetryBridgeEvent,
+  ElectronTelemetryIpcEvent,
+  RobotickTelemetryBridge,
+} from "../common/telemetry-bridge-contract";
 
 const WINDOW_SCOPE_ARG_PREFIX = "--robotick-window-scope=";
 const WINDOW_PRIMARY_ARG_PREFIX = "--robotick-window-primary=";
@@ -488,6 +494,201 @@ const expose = () => {
     },
   };
 
+  let telemetrySubscriptionSeq = 0;
+  const telemetryBridge = {
+    ensureLayout(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:ensure-layout", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    refreshLayout(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:refresh-layout", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getDiagnostics(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:diagnostics", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getSharedDiagnostics() {
+      return ipcRenderer.invoke(
+        "robotick-telemetry:shared-diagnostics",
+      ) as ReturnType<RobotickTelemetryBridge["getSharedDiagnostics"]>;
+    },
+    getHealth(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:health", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    getPushStats(baseUrl: string) {
+      return ipcRenderer.invoke("robotick-telemetry:push-stats", {
+        baseUrl,
+      }) as Promise<unknown>;
+    },
+    setWorkloadInputFieldsData(baseUrl: string, request: unknown) {
+      return ipcRenderer.invoke(
+        "robotick-telemetry:set-workload-input-fields-data",
+        {
+          baseUrl,
+          request,
+        },
+      ) as Promise<unknown>;
+    },
+    setWorkloadInputConnectionState(baseUrl: string, request: unknown) {
+      return ipcRenderer.invoke(
+        "robotick-telemetry:set-workload-input-connection-state",
+        {
+          baseUrl,
+          request,
+        },
+      ) as Promise<unknown>;
+    },
+    subscribe(
+      baseUrl: string,
+      callback: (event: ElectronTelemetryBridgeEvent) => void
+    ) {
+      const subscriptionId = `renderer-${process.pid}-${Date.now()}-${++telemetrySubscriptionSeq}`;
+      const listener = (_event: unknown, payload: ElectronTelemetryIpcEvent | undefined) => {
+        if (!payload || payload.subscriptionId !== subscriptionId) {
+          return;
+        }
+        if (payload.type === "error") {
+          callback({ type: "error", message: payload.message });
+          return;
+        }
+        callback({ type: payload.type, payload: payload.payload });
+      };
+      ipcRenderer.on("robotick-telemetry:event", listener);
+      void ipcRenderer.invoke("robotick-telemetry:subscribe", {
+        subscriptionId,
+        baseUrl,
+      });
+      return () => {
+        ipcRenderer.off("robotick-telemetry:event", listener);
+        void ipcRenderer.invoke("robotick-telemetry:unsubscribe", {
+          subscriptionId,
+        });
+      };
+    },
+  } satisfies RobotickTelemetryBridge;
+
+  const launcherBridge = {
+    listProjectPaths() {
+      return ipcRenderer.invoke("robotick-launcher:list-project-paths") as Promise<unknown>;
+    },
+    getProjectSettings(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:get-project-settings", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    getProjectRemoteControlSettings(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:get-project-rc-settings", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    listProjectModelPaths(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:list-project-model-paths", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    getWorkloadsRegistry(projectPath: string, target?: string) {
+      return ipcRenderer.invoke("robotick-launcher:get-workloads-registry", {
+        projectPath,
+        target,
+      }) as Promise<unknown>;
+    },
+    getCoreModelSchema(projectPath: string, target?: string) {
+      return ipcRenderer.invoke("robotick-launcher:get-core-model-schema", {
+        projectPath,
+        target,
+      }) as Promise<unknown>;
+    },
+    getProjectModels(
+      projectPath: string,
+      launcherProfile: string,
+      options?: { force?: boolean }
+    ) {
+      return ipcRenderer.invoke("robotick-launcher:get-project-models", {
+        projectPath,
+        launcherProfile,
+        force: options?.force === true,
+      }) as Promise<unknown>;
+    },
+    clearProjectModelCache(projectPath?: string, launcherProfile?: string) {
+      return ipcRenderer.invoke("robotick-launcher:clear-project-model-cache", {
+        projectPath,
+        launcherProfile,
+      }) as Promise<unknown>;
+    },
+    run(projectPath: string, launcherProfile: string) {
+      return ipcRenderer.invoke("robotick-launcher:run", {
+        projectPath,
+        launcherProfile,
+      }) as Promise<unknown>;
+    },
+    runModel(projectPath: string, platform: "local" | "native", modelId: string) {
+      return ipcRenderer.invoke("robotick-launcher:run-model", {
+        projectPath,
+        platform,
+        modelId,
+      }) as Promise<unknown>;
+    },
+    stop(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:stop", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    stopModel(projectPath: string, platform: "local" | "native", modelId: string) {
+      return ipcRenderer.invoke("robotick-launcher:stop-model", {
+        projectPath,
+        platform,
+        modelId,
+      }) as Promise<unknown>;
+    },
+    restart(projectPath: string, launcherProfile: string) {
+      return ipcRenderer.invoke("robotick-launcher:restart", {
+        projectPath,
+        launcherProfile,
+      }) as Promise<unknown>;
+    },
+    restartModel(projectPath: string, platform: "local" | "native", modelId: string) {
+      return ipcRenderer.invoke("robotick-launcher:restart-model", {
+        projectPath,
+        platform,
+        modelId,
+      }) as Promise<unknown>;
+    },
+    getStatus(projectPath: string, launcherProfile: string) {
+      return ipcRenderer.invoke("robotick-launcher:status", {
+        projectPath,
+        launcherProfile,
+      }) as Promise<unknown>;
+    },
+    getLogStreamUrl(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:log-stream-url", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    getLogSnapshot(projectPath: string, tail?: number) {
+      return ipcRenderer.invoke("robotick-launcher:log-snapshot", {
+        projectPath,
+        tail,
+      }) as Promise<unknown>;
+    },
+    clearLogs(projectPath: string) {
+      return ipcRenderer.invoke("robotick-launcher:log-clear", {
+        projectPath,
+      }) as Promise<unknown>;
+    },
+    getDiagnostics(projectPath: string, launcherProfile: string) {
+      return ipcRenderer.invoke("robotick-launcher:diagnostics", {
+        projectPath,
+        launcherProfile,
+      }) as Promise<unknown>;
+    },
+  } satisfies RobotickLauncherBridge;
+
   const robotickGlobals = {
     environment: {
       isStandaloneApp: true,
@@ -513,6 +714,8 @@ const expose = () => {
     storage: storageBridge,
     studioPersistence: studioPersistenceBridge,
     projectSelection: projectSelectionBridge,
+    launcher: launcherBridge,
+    telemetry: telemetryBridge,
   };
 
   contextBridge.exposeInMainWorld("robotick", robotickGlobals);

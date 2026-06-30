@@ -128,12 +128,13 @@ def get_launcher_help_text() -> str:
             "",
             "Output:",
             "  status returns JSON and never starts the launcher service.",
-            "  launch, stop, and restart target project/model runtime resources through robotick-hub.",
+            "  start, stop, and restart target project/model runtime resources through robotick-hub.",
+            "  launch remains a compatibility alias for start.",
             "  status, logs, and wait-ready use live per-model runtime truth.",
             "  ensure makes the hub-backed launcher control plane available, then returns current runtime status as JSON.",
             "",
             "Examples:",
-            "  robotick launcher launch barr-e native:ALL",
+            "  robotick launcher start barr-e native:ALL",
             "  robotick launcher status",
             "  robotick launcher wait-ready --project barr-e",
             "  robotick launcher logs --project barr-e",
@@ -254,12 +255,15 @@ def format_shell_help(state: ShellState, *, color: bool = False) -> str:
                 "",
                 _section("Output:", color=color),
                 "  status returns launcher service state and per-model runtime status as JSON.",
-                "  launch, stop, and restart operate on project/model selections.",
+                "  metrics returns latest per-model runtime CPU and memory snapshots as JSON.",
+                "  start, stop, and restart operate on project/model selections.",
+                "  launch remains a compatibility alias for start.",
                 "  ensure returns the action taken, then reports current runtime status from launcher resources.",
                 "",
                 _section("Examples:", color=color),
-                "  robotick launcher launch barr-e native:ALL",
+                "  robotick launcher start barr-e native:ALL",
                 "  robotick launcher status",
+                "  robotick launcher metrics --project barr-e",
                 "  robotick launcher stop --project barr-e",
                 "  robotick launcher restart --project barr-e",
                 "  robotick launcher ensure",
@@ -655,6 +659,7 @@ def open_help_text() -> str:
 def instance_help_text(instance_name: str) -> str:
     status_spec = get_studio_command_spec("status")
     diagnostics_spec = get_studio_command_spec("diagnostics")
+    telemetry_spec = get_studio_command_spec("telemetry")
     select_project_spec = get_studio_command_spec("select-project")
     activate_spec = get_studio_command_spec("activate")
     quit_spec = get_studio_command_spec("quit")
@@ -663,6 +668,7 @@ def instance_help_text(instance_name: str) -> str:
             "Usage:",
             f"  robotick studio {instance_name} status",
             f"  robotick studio {instance_name} diagnostics <status|endpoints|renderer|console|fetch-check|telemetry|dom|css|screenshot|snapshot>",
+            f"  robotick studio {instance_name} telemetry <models|model <model-id> <layout|snapshot|raw-buffer --output <path>>>",
             f"  robotick studio {instance_name} <path...> activate",
             f"  robotick studio {instance_name} select-project <project>",
             f"  robotick studio {instance_name} quit",
@@ -671,6 +677,7 @@ def instance_help_text(instance_name: str) -> str:
             "Commands:",
             f"  {status_spec.name:<14} {status_spec.summary}",
             f"  {diagnostics_spec.name:<14} {diagnostics_spec.summary}",
+            f"  {telemetry_spec.name:<14} {telemetry_spec.summary}",
             f"  {activate_spec.name:<14} {activate_spec.summary}",
             f"  {select_project_spec.name:<14} {select_project_spec.summary}",
             f"  {quit_spec.name:<14} {quit_spec.summary}",

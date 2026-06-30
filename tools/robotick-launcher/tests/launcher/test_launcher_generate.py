@@ -17,6 +17,7 @@ from robotick.launcher.actions.launch.generate import resolve_codegen_flags
 from robotick.launcher.actions.launch.generate_workloads_registry import (
     emit_cmake_fragment,
 )
+from robotick.launcher.utils import render_template
 
 runner = CliRunner()
 app = create_app()
@@ -266,6 +267,42 @@ def test_prepare_codegen_model_data_flattens_nested_field_entries():
     assert telemetry_peers == []
 
 
+def test_prepare_codegen_model_data_propagates_workload_display_name():
+    cfg = SimpleNamespace(
+        model={
+            "id": "auditory_model_1234ABCD",
+            "workloads": [
+                {
+                    "id": "sequenced_group_workload_AD49E158",
+                    "name": "auditory_sequence",
+                    "type": "SequencedGroupWorkload",
+                    "tick_rate_hz": 86.1,
+                }
+            ],
+        }
+    )
+
+    workloads, connections, remote_models, telemetry, telemetry_peers = prepare_codegen_model_data(cfg)
+
+    assert len(workloads) == 1
+    assert workloads[0]["display_name_normalized"] == "auditory_sequence"
+
+    rendered = render_template(
+        "template_model.cpp",
+        {
+            "config": SimpleNamespace(model_name_safe="auditory_model", model={"root_var_name": ""}),
+            "workloads": workloads,
+            "connections": connections,
+            "remote_models": remote_models,
+            "telemetry": telemetry,
+            "telemetry_peers": telemetry_peers,
+        },
+    )
+
+    assert 'StringView("sequenced_group_workload_AD49E158")' in rendered
+    assert 'StringView("auditory_sequence")' in rendered
+
+
 def test_resolve_codegen_flags_defaults_to_full_standalone_generation():
     cfg = SimpleNamespace(model={})
 
@@ -371,7 +408,9 @@ def test_workload_deps_cmake_allows_plain_link_signature_for_embedded_targets():
 
 def test_prepare_codegen_model_data_supports_from_remote_in_other_model(tmp_path):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - auditory.model.yaml\n  - mind.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "auditory.model.yaml").write_text("id: auditory_model_A1\nworkloads: []\n")
     (tmp_path / "mind.model.yaml").write_text(
@@ -418,7 +457,9 @@ remote_models:
 
 def test_prepare_codegen_model_data_propagates_receiver_side_remote_mode(tmp_path):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - spine.model.yaml\n  - simulator.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "spine.model.yaml").write_text("id: spine_model_A1\nworkloads: []\n")
     (tmp_path / "simulator.model.yaml").write_text(
@@ -485,7 +526,9 @@ def test_prepare_codegen_model_data_raises_on_duplicate_remote_connection_declar
     tmp_path,
 ):
     project_file = tmp_path / "test.project.yaml"
-    project_file.write_text("runtime: { engine: { local_path: runtime } }\n")
+    project_file.write_text(
+        "models:\n  - auditory.model.yaml\n  - mind.model.yaml\nruntime: { engine: { local_path: runtime } }\n"
+    )
 
     (tmp_path / "auditory.model.yaml").write_text(
         """

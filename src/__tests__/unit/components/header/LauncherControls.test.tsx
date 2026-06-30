@@ -88,6 +88,89 @@ describe("LauncherControls", () => {
     unmount();
   });
 
+  it.each([
+    {
+      state: "stopped",
+      status: "stopped" as LauncherStatus,
+      isBusy: false,
+      isAwaitingStatus: false,
+      toggleLabel: "Start launcher",
+      toggleDisabled: false,
+      restartDisabled: true,
+    },
+    {
+      state: "launching",
+      status: "launching" as LauncherStatus,
+      isBusy: true,
+      isAwaitingStatus: true,
+      toggleLabel: "Stop launcher",
+      toggleDisabled: false,
+      restartDisabled: true,
+    },
+    {
+      state: "running",
+      status: "running" as LauncherStatus,
+      isBusy: false,
+      isAwaitingStatus: false,
+      toggleLabel: "Stop launcher",
+      toggleDisabled: false,
+      restartDisabled: false,
+    },
+    {
+      state: "stop requested before launcher reports stopping",
+      status: "running" as LauncherStatus,
+      isBusy: false,
+      isAwaitingStatus: true,
+      toggleLabel: "Stop launcher",
+      toggleDisabled: true,
+      restartDisabled: true,
+    },
+    {
+      state: "stopping",
+      status: "stopping" as LauncherStatus,
+      isBusy: true,
+      isAwaitingStatus: true,
+      toggleLabel: "Stop launcher",
+      toggleDisabled: true,
+      restartDisabled: true,
+    },
+  ])(
+    "documents aggregate launcher controls for $state",
+    ({
+      status,
+      isBusy,
+      isAwaitingStatus,
+      toggleLabel,
+      toggleDisabled,
+      restartDisabled,
+    }) => {
+      useProjectDataMock.mockReturnValue({
+        projectModels: { data: [], loading: false, error: null },
+      });
+      useLauncherContextMock.mockReturnValue({
+        ...baseContextValue,
+        status,
+        reportedStatus: status,
+        isBusy,
+        isAwaitingStatus,
+      });
+
+      const { container, unmount } = renderControl();
+      const toggle = container.querySelector(
+        `button[aria-label="${toggleLabel}"]`
+      ) as HTMLButtonElement | null;
+      const restart = container.querySelector(
+        'button[aria-label="Restart launcher"]'
+      ) as HTMLButtonElement | null;
+
+      expect(toggle).not.toBeNull();
+      expect(toggle?.disabled).toBe(toggleDisabled);
+      expect(restart).not.toBeNull();
+      expect(restart?.disabled).toBe(restartDisabled);
+      unmount();
+    }
+  );
+
   it("keeps the stop button available while a run request is in-flight", () => {
     useProjectDataMock.mockReturnValue({
       projectModels: { data: [], loading: false, error: null },
@@ -215,6 +298,165 @@ describe("LauncherControls", () => {
     expect(container.textContent).not.toContain("Stopped");
     unmount();
   });
+
+  it.each([
+    {
+      state: "unreported model",
+      launcherStatus: "stopped" as LauncherStatus,
+      launcherModels: {},
+      modelHealth: {},
+      section: "Stopped",
+      stateLabel: "stopped",
+      toggleLabel: "Start demo-model",
+      toggleDisabled: false,
+      restartDisabled: true,
+    },
+    {
+      state: "model launch pending",
+      launcherStatus: "launching" as LauncherStatus,
+      launcherModels: {
+        "demo-model": {
+          stage: "run",
+          status: "starting",
+          lifecycle: "starting",
+          readiness: "pending",
+          freshness: "pending",
+        },
+      },
+      modelHealth: {},
+      section: "Pending",
+      stateLabel: "launching",
+      toggleLabel: "Stop demo-model",
+      toggleDisabled: true,
+      restartDisabled: true,
+    },
+    {
+      state: "model running healthy",
+      launcherStatus: "running" as LauncherStatus,
+      launcherModels: {
+        "demo-model": {
+          stage: "run",
+          status: "running",
+          lifecycle: "running",
+          readiness: "ready",
+          freshness: "live",
+        },
+      },
+      modelHealth: {
+        "demo-model": { alive: true, loading: false, error: null },
+      },
+      section: "Running",
+      stateLabel: "running",
+      toggleLabel: "Stop demo-model",
+      toggleDisabled: false,
+      restartDisabled: false,
+    },
+    {
+      state: "model running unhealthy",
+      launcherStatus: "running" as LauncherStatus,
+      launcherModels: {
+        "demo-model": {
+          stage: "run",
+          status: "running",
+          lifecycle: "running",
+          readiness: "ready",
+          freshness: "live",
+        },
+      },
+      modelHealth: {
+        "demo-model": { alive: false, loading: false, error: "down" },
+      },
+      section: "Unhealthy",
+      stateLabel: "unhealthy",
+      toggleLabel: "Stop demo-model",
+      toggleDisabled: false,
+      restartDisabled: false,
+    },
+    {
+      state: "model stop or restart pending",
+      launcherStatus: "running" as LauncherStatus,
+      launcherModels: {
+        "demo-model": {
+          stage: "stop",
+          status: "stopping",
+          lifecycle: "stopping",
+          readiness: "pending",
+          freshness: "pending",
+        },
+      },
+      modelHealth: {},
+      section: "Pending",
+      stateLabel: "stopping",
+      toggleLabel: "Stop demo-model",
+      toggleDisabled: true,
+      restartDisabled: true,
+    },
+    {
+      state: "model stale",
+      launcherStatus: "running" as LauncherStatus,
+      launcherModels: {
+        "demo-model": {
+          stage: "run",
+          status: "running",
+          lifecycle: "stale",
+          freshness: "stale",
+        },
+      },
+      modelHealth: {
+        "demo-model": { alive: false, loading: false, error: "stale" },
+      },
+      section: "Unhealthy",
+      stateLabel: "stale",
+      toggleLabel: "Start demo-model",
+      toggleDisabled: false,
+      restartDisabled: true,
+    },
+  ])(
+    "documents per-model launcher controls for $state",
+    ({
+      launcherStatus,
+      launcherModels,
+      modelHealth,
+      section,
+      stateLabel,
+      toggleLabel,
+      toggleDisabled,
+      restartDisabled,
+    }) => {
+      useProjectDataMock.mockReturnValue({
+        projectModels: {
+          data: [{ modelShortName: "demo-model" }],
+          loading: false,
+          error: null,
+        },
+      });
+      useLauncherContextMock.mockReturnValue({
+        ...baseContextValue,
+        status: launcherStatus,
+        reportedStatus: launcherStatus,
+        launcherModels,
+        modelHealth,
+      });
+
+      const { container, unmount } = renderControl();
+      const toggle = container.querySelector(
+        `button[aria-label="${toggleLabel}"]`
+      ) as HTMLButtonElement | null;
+      const restart = container.querySelector(
+        'button[aria-label="Restart demo-model"]'
+      ) as HTMLButtonElement | null;
+      const text = container.textContent ?? "";
+
+      expect(text).toContain(section);
+      expect(text).toContain("demo-model");
+      expect(text).toContain(stateLabel);
+      expect(toggle).not.toBeNull();
+      expect(toggle?.disabled).toBe(toggleDisabled);
+      expect(restart).not.toBeNull();
+      expect(restart?.disabled).toBe(restartDisabled);
+      unmount();
+    }
+  );
 
   it("treats stale models as degraded rather than running", () => {
     useProjectDataMock.mockReturnValue({

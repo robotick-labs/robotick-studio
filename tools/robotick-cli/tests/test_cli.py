@@ -446,6 +446,7 @@ def test_top_level_ls_presents_contexts_separately_from_actions() -> None:
 def test_launcher_ls_exposes_launcher_actions() -> None:
     text = format_shell_context(ShellState(namespace="launcher"), str(create_fake_workspace()))
     assert "Available in launcher:" in text
+    assert "- start [project]" in text
     assert "- launch [project]" in text
     assert "- status" in text
     assert "- wait-ready" in text
@@ -495,7 +496,8 @@ def test_launcher_help_describes_status_and_ensure_by_semantics() -> None:
     assert "Commands:" in text
     assert "Output:" in text
     assert "status returns launcher service state and per-model runtime status as JSON." in text
-    assert "launch, stop, and restart operate on project/model selections." in text
+    assert "start, stop, and restart operate on project/model selections." in text
+    assert "launch remains a compatibility alias for start." in text
 
 
 def test_bound_studio_help_describes_navigation_and_output() -> None:
@@ -713,7 +715,8 @@ def test_studio_launcher_status_compares_runtime_and_projection(
     assert output["comparison"] == {
         "state_agrees": True,
         "hub_state": "stopped",
-        "studio_state": "stopped",
+        "studio_raw_state": "stopped",
+        "studio_display_state": "stopped",
     }
     assert output["studio_projection"]["service"]["state"] == "stopped"
     assert output["studio_projection"]["runtime"]["models"] == [
@@ -836,7 +839,7 @@ def test_studio_focused_falls_back_to_most_recent_focus(
     assert captured["output"]["instance_name"] == "studio-2222"
 
 
-def test_launcher_launch_posts_profile_and_intent_payloads(
+def test_launcher_start_posts_profile_and_intent_payloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -859,36 +862,71 @@ def test_launcher_launch_posts_profile_and_intent_payloads(
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
-        ["launch", "barr-e", "native:ALL"],
+        ["start", "barr-e", "native:ALL"],
     )
     assert result.exit_code == 0
-    assert captured["path"] == "/v1/launcher/models/launch"
-    assert captured["timeout_seconds"] == 120
+    assert captured["path"] == "/v1/launcher/models/start"
+    assert captured["timeout_seconds"] == 15
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": False,
         "profile": "native:ALL",
     }
     assert captured["output"] == {
-        "resource_type": "robotick_launcher_launch_result",
+        "resource_type": "robotick_launcher_start_result",
         "group": {"id": "msg_demo"},
         "sessions": [],
     }
 
     result = robotick_cli.launcher.run_launcher_command(
         AppContext(workspace_root=workspace),
-        ["launch", "barr-e", "--model", "brain", "--local"],
+        ["start", "barr-e"],
     )
     assert result.exit_code == 0
     assert captured["payload"] == {
         "project_name": "barr-e",
         "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": False,
+        "intent": {
+            "project": "barr-e",
+            "scope": {"kind": "ALL", "value": "ALL"},
+            "target_policy": "native",
+        },
+    }
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["start", "barr-e", "--model", "brain", "--local"],
+    )
+    assert result.exit_code == 0
+    assert captured["payload"] == {
+        "project_name": "barr-e",
+        "creator": {"client": "robotick-cli", "instance_id": f"cli-{os.getpid()}"},
+        "wait": False,
         "intent": {
             "project": "barr-e",
             "scope": {"kind": "model", "value": "brain"},
             "target_policy": "local",
         },
     }
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["start", "barr-e", "native:ALL", "--wait"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/start"
+    assert captured["payload"]["wait"] is True
+    assert captured["timeout_seconds"] == 120
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["launch", "barr-e", "native:ALL"],
+    )
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/launcher/models/launch"
+    assert captured["output"]["resource_type"] == "robotick_launcher_launch_result"
 
 
 def test_launcher_status_filters_project_and_model_selection(
@@ -979,6 +1017,73 @@ def test_launcher_status_uses_runtime_projection_only(
     assert "sessions" not in captured["output"]
 
 
+def test_launcher_metrics_returns_filtered_model_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    record = HubRecord(endpoint="http://127.0.0.1:7099", pid=1234)
+    captured: dict[str, object] = {}
+    payload = {
+        "resource_type": "robotick_launcher_runtime_status",
+        "state": "running",
+        "models": [
+            {
+                "project_id": "barr-e",
+                "model_id": "brain",
+                "lifecycle": "running",
+                "freshness": "live",
+                "metrics": {
+                    "resource_type": "robotick_launcher_runtime_metrics",
+                    "cpu_percent": 12.5,
+                    "memory_bytes": 4096,
+                    "devices": [],
+                },
+            },
+        ],
+    }
+
+    monkeypatch.setattr("robotick_cli.launcher.discover_hub", lambda _workspace: record)
+    monkeypatch.setattr("robotick_cli.launcher.is_pid_alive", lambda _pid: True)
+
+    def fake_runtime(_record, *, project_id=None, model_ids=None):
+        captured["project_id"] = project_id
+        captured["model_ids"] = model_ids
+        return payload
+
+    monkeypatch.setattr("robotick_cli.launcher.fetch_launcher_runtime_through_hub", fake_runtime)
+    monkeypatch.setattr(
+        "robotick_cli.launcher.write_json",
+        lambda result: captured.__setitem__("output", result),
+    )
+
+    result = robotick_cli.launcher.run_launcher_command(
+        AppContext(workspace_root=workspace),
+        ["metrics", "--project", "barr-e", "--model", "brain"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["project_id"] == "barr-e"
+    assert captured["model_ids"] == ["brain"]
+    assert captured["output"] == {
+        "resource_type": "robotick_launcher_runtime_metrics_collection",
+        "state": "running",
+        "models": [
+            {
+                "project_id": "barr-e",
+                "model_id": "brain",
+                "lifecycle": "running",
+                "freshness": "live",
+                "metrics": {
+                    "resource_type": "robotick_launcher_runtime_metrics",
+                    "cpu_percent": 12.5,
+                    "memory_bytes": 4096,
+                    "devices": [],
+                },
+            },
+        ],
+    }
+
+
 def test_launcher_stop_and_restart_use_model_control_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1008,6 +1113,7 @@ def test_launcher_stop_and_restart_use_model_control_endpoints(
     assert captured["path"] == "/v1/launcher/models/stop"
     assert captured["payload"]["project_name"] == "barr-e"
     assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["payload"]["wait"] is True
     assert captured["timeout_seconds"] == 120
 
     result = robotick_cli.launcher.run_launcher_command(
@@ -1018,6 +1124,7 @@ def test_launcher_stop_and_restart_use_model_control_endpoints(
     assert captured["path"] == "/v1/launcher/models/restart"
     assert captured["payload"]["project_name"] == "barr-e"
     assert captured["payload"]["model_ids"] == ["brain"]
+    assert captured["payload"]["wait"] is True
     assert captured["payload"]["intent"] == {
         "project": "barr-e",
         "scope": {"kind": "model", "value": "brain"},
@@ -1136,7 +1243,7 @@ def test_launcher_wait_ready_polls_until_runtime_is_ready(
     assert captured["output"]["status"] == "ready"
 
 
-def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
+def test_launcher_wait_ready_reports_degraded_for_stopped_project_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = create_fake_workspace()
@@ -1178,8 +1285,17 @@ def test_launcher_wait_ready_ignores_stopped_history_for_project_wait(
         ["wait-ready", "--project", "barr-e", "--timeout-seconds", "1", "--poll-ms", "1"],
     )
 
-    assert result.exit_code == 0
-    assert captured["output"]["status"] == "ready"
+    assert result.exit_code == 1
+    assert captured["output"]["status"] == "degraded"
+    assert captured["output"]["blockers"] == [
+        {
+            "model_id": "old-face",
+            "reason": "stopped",
+            "lifecycle": "stopped",
+            "readiness": "pending",
+            "freshness": "stopped",
+        }
+    ]
 
 
 def test_studio_projects_uses_same_hub_backed_project_truth() -> None:
@@ -1514,6 +1630,185 @@ def test_instance_diagnostics_telemetry_queries_hub_endpoint(
         "resource_type": "studio_diagnostics_telemetry",
         "instance_id": "studio-1234",
     }
+
+
+def test_instance_telemetry_models_queries_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": "robotick_studio_telemetry_models",
+            "models": [{"model_id": "barr-e-face"}],
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "telemetry", "models"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["path"] == "/v1/studio/instances/studio-1234/telemetry/models"
+    assert captured["output"] == {
+        "resource_type": "robotick_studio_telemetry_models",
+        "models": [{"model_id": "barr-e-face"}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "resource_type"),
+    [
+        ("layout", "robotick_studio_telemetry_model_layout"),
+        ("snapshot", "robotick_studio_telemetry_model_snapshot"),
+    ],
+)
+def test_instance_telemetry_model_json_commands_query_hub_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    resource_type: str,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return {
+            "resource_type": resource_type,
+            "model": {"model_id": "barr-e-face"},
+        }
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_json", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        ["studio-1234", "telemetry", "model", "barr-e-face", action],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        captured["path"]
+        == f"/v1/studio/instances/studio-1234/telemetry/models/barr-e-face/{action}"
+    )
+    assert captured["output"] == {
+        "resource_type": resource_type,
+        "model": {"model_id": "barr-e-face"},
+    }
+
+
+def test_instance_telemetry_raw_buffer_writes_output_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = create_fake_workspace()
+    captured: dict[str, object] = {}
+    output_path = tmp_path / "face.raw"
+
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    def fake_fetch(_workspace, path):
+        captured["path"] = path
+        return b"\x01\x02\x03"
+
+    monkeypatch.setattr("robotick_cli.studio.fetch_studio_hub_bytes", fake_fetch)
+    monkeypatch.setattr(
+        "robotick_cli.studio.write_json",
+        lambda payload: captured.__setitem__("output", payload),
+    )
+
+    result = robotick_cli.studio.run_studio_command(
+        AppContext(workspace_root=workspace),
+        [
+            "studio-1234",
+            "telemetry",
+            "model",
+            "barr-e-face",
+            "raw-buffer",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        captured["path"]
+        == "/v1/studio/instances/studio-1234/telemetry/models/barr-e-face/raw-buffer"
+    )
+    assert output_path.read_bytes() == b"\x01\x02\x03"
+    assert captured["output"] == {
+        "resource_type": "robotick_studio_telemetry_raw_buffer_file",
+        "model_id": "barr-e-face",
+        "output_path": str(output_path),
+        "byte_length": 3,
+    }
+
+
+def test_instance_telemetry_raw_buffer_requires_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = create_fake_workspace()
+    monkeypatch.setattr(
+        "robotick_cli.studio.get_live_instance",
+        lambda _workspace, name: InstanceRecord(
+            name=name,
+            pid=os.getpid(),
+            mode="dev",
+            started_at="2026-06-06T12:00:00+00:00",
+            control_endpoint="http://127.0.0.1:7123",
+        ),
+    )
+
+    with pytest.raises(CliError) as exc:
+        robotick_cli.studio.run_studio_command(
+            AppContext(workspace_root=workspace),
+            ["studio-1234", "telemetry", "model", "barr-e-face", "raw-buffer"],
+        )
+
+    assert exc.value.code == "invalid_arguments"
+    assert "raw-buffer --output <path>" in str(exc.value)
 
 
 @pytest.mark.parametrize(

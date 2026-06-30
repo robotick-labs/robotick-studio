@@ -253,6 +253,20 @@ def fetch_hub_json(record: HubRecord, path: str) -> dict[str, Any]:
         raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
 
 
+def fetch_hub_bytes(record: HubRecord, path: str) -> bytes:
+    url = f"{record.endpoint}{path}"
+    try:
+        with urlopen(url, timeout=2) as response:
+            return response.read()
+    except HTTPError as error:
+        raise HubRequestError(
+            f"robotick-hub request failed: {error.code} {error.reason}",
+            status_code=error.code,
+        ) from error
+    except (URLError, TimeoutError, socket.timeout) as error:
+        raise HubRequestError(f"Unable to reach robotick-hub at {record.endpoint}") from error
+
+
 def post_hub_json(
     record: HubRecord,
     path: str,

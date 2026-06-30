@@ -37,6 +37,31 @@ type MutableFieldConnectionHint = {
   remoteOutgoingTo: Set<string>;
 };
 
+type LocalConnectionHintInput = {
+  rawFrom: string;
+  rawTo: string;
+  displayFrom: string;
+  displayTo: string;
+};
+
+type RemoteOutgoingConnectionHintInput = {
+  rawFrom: string;
+  rawToRemote: string;
+  displayFrom: string;
+  displayToRemote: string;
+  remoteModelLabel: string;
+  sourceModelLabel: string;
+};
+
+type RemoteIncomingConnectionHintInput = {
+  rawFromRemote: string;
+  rawTo: string;
+  displayFromRemote: string;
+  displayTo: string;
+  remoteModelLabel: string;
+  sourceModelLabel: string;
+};
+
 export type ConnectionHintModelDescriptor = {
   modelPath: string;
   modelShortName: string;
@@ -62,6 +87,20 @@ function replaceEndpointOwner(path: string, owner: string): string {
   return parts.join(".");
 }
 
+function uniquePaths(paths: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(paths.filter((path): path is string => Boolean(path))));
+}
+
+function pathWithDisplayOwner(
+  path: string,
+  workloadNames: ReadonlyMap<string, string>
+): string {
+  const owner = endpointOwner(path);
+  return workloadNames.has(owner)
+    ? replaceEndpointOwner(path, workloadNames.get(owner) ?? owner)
+    : path;
+}
+
 function makeEmptyHint(): MutableFieldConnectionHint {
   return {
     localIncomingFrom: new Set<string>(),
@@ -80,6 +119,69 @@ function ensureHint(
   const created = makeEmptyHint();
   map.set(path, created);
   return created;
+}
+
+function addLocalConnectionHint(
+  map: Map<string, MutableFieldConnectionHint>,
+  input: LocalConnectionHintInput
+): void {
+  const { rawFrom, rawTo, displayFrom, displayTo } = input;
+  for (const fromPath of uniquePaths([rawFrom, displayFrom])) {
+    ensureHint(map, fromPath).localOutgoingTo.add(displayTo);
+  }
+  for (const toPath of uniquePaths([rawTo, displayTo])) {
+    ensureHint(map, toPath).localIncomingFrom.add(displayFrom);
+  }
+}
+
+function addRemoteOutgoingConnectionHint(
+  sourceHints: Map<string, MutableFieldConnectionHint>,
+  targetHints: Map<string, MutableFieldConnectionHint>,
+  input: RemoteOutgoingConnectionHintInput
+): void {
+  const {
+    rawFrom,
+    rawToRemote,
+    displayFrom,
+    displayToRemote,
+    remoteModelLabel,
+    sourceModelLabel,
+  } = input;
+  for (const fromPath of uniquePaths([rawFrom, displayFrom])) {
+    ensureHint(sourceHints, fromPath).remoteOutgoingTo.add(
+      `${remoteModelLabel}.${displayToRemote}`
+    );
+  }
+  for (const toRemotePath of uniquePaths([rawToRemote, displayToRemote])) {
+    ensureHint(targetHints, toRemotePath).remoteIncomingFrom.add(
+      `${sourceModelLabel}.${displayFrom}`
+    );
+  }
+}
+
+function addRemoteIncomingConnectionHint(
+  sourceHints: Map<string, MutableFieldConnectionHint>,
+  targetHints: Map<string, MutableFieldConnectionHint>,
+  input: RemoteIncomingConnectionHintInput
+): void {
+  const {
+    rawFromRemote,
+    rawTo,
+    displayFromRemote,
+    displayTo,
+    remoteModelLabel,
+    sourceModelLabel,
+  } = input;
+  for (const toPath of uniquePaths([rawTo, displayTo])) {
+    ensureHint(sourceHints, toPath).remoteIncomingFrom.add(
+      `${remoteModelLabel}.${displayFromRemote}`
+    );
+  }
+  for (const fromRemotePath of uniquePaths([rawFromRemote, displayFromRemote])) {
+    ensureHint(targetHints, fromRemotePath).remoteOutgoingTo.add(
+      `${sourceModelLabel}.${displayTo}`
+    );
+  }
 }
 
 function toSerializableHints(
@@ -145,17 +247,12 @@ export function buildFieldConnectionHintsByModelPath(
       if (!rawFrom || !rawTo) continue;
       const localWorkloads =
         workloadNamesByModelPath.get(model.modelPath) ?? new Map();
-      const fromOwner = endpointOwner(rawFrom);
-      const toOwner = endpointOwner(rawTo);
-      const from = localWorkloads.has(fromOwner)
-        ? replaceEndpointOwner(rawFrom, localWorkloads.get(fromOwner) ?? fromOwner)
-        : rawFrom;
-      const to = localWorkloads.has(toOwner)
-        ? replaceEndpointOwner(rawTo, localWorkloads.get(toOwner) ?? toOwner)
-        : rawTo;
-      if (!from || !to) continue;
-      ensureHint(modelHints, from).localOutgoingTo.add(to);
-      ensureHint(modelHints, to).localIncomingFrom.add(from);
+      addLocalConnectionHint(modelHints, {
+        rawFrom,
+        rawTo,
+        displayFrom: pathWithDisplayOwner(rawFrom, localWorkloads),
+        displayTo: pathWithDisplayOwner(rawTo, localWorkloads),
+      });
     }
   }
 
@@ -199,35 +296,15 @@ export function buildFieldConnectionHintsByModelPath(
           connection?.from_local ?? connection?.from
         );
         const rawToRemote = normalizeTelemetryFieldPath(connection?.to_remote);
-        const from = rawFrom
-          ? (() => {
-              const owner = endpointOwner(rawFrom);
-              return sourceWorkloads.has(owner)
-                ? replaceEndpointOwner(
-                    rawFrom,
-                    sourceWorkloads.get(owner) ?? owner
-                  )
-                : rawFrom;
-            })()
-          : null;
-        const toRemote = rawToRemote
-          ? (() => {
-              const owner = endpointOwner(rawToRemote);
-              return targetWorkloads.has(owner)
-                ? replaceEndpointOwner(
-                    rawToRemote,
-                    targetWorkloads.get(owner) ?? owner
-                  )
-                : rawToRemote;
-            })()
-          : null;
-        if (from && toRemote) {
-          ensureHint(sourceHints, from).remoteOutgoingTo.add(
-            `${remoteModelLabel}.${toRemote}`
-          );
-          ensureHint(targetHints, toRemote).remoteIncomingFrom.add(
-            `${sourceModel.modelShortName}.${from}`
-          );
+        if (rawFrom && rawToRemote) {
+          addRemoteOutgoingConnectionHint(sourceHints, targetHints, {
+            rawFrom,
+            rawToRemote,
+            displayFrom: pathWithDisplayOwner(rawFrom, sourceWorkloads),
+            displayToRemote: pathWithDisplayOwner(rawToRemote, targetWorkloads),
+            remoteModelLabel,
+            sourceModelLabel: sourceModel.modelShortName,
+          });
           continue;
         }
 
@@ -235,22 +312,16 @@ export function buildFieldConnectionHintsByModelPath(
         const rawTo = normalizeTelemetryFieldPath(
           connection?.to_local ?? connection?.to
         );
-        const to = rawTo
-          ? (() => {
-              const owner = endpointOwner(rawTo);
-              return sourceWorkloads.has(owner)
-                ? replaceEndpointOwner(rawTo, sourceWorkloads.get(owner) ?? owner)
-                : rawTo;
-            })()
-          : null;
-        if (!fromRemote || !to) continue;
+        if (!fromRemote || !rawTo) continue;
 
-        ensureHint(sourceHints, to).remoteIncomingFrom.add(
-          `${remoteModelLabel}.${fromRemote}`
-        );
-        ensureHint(targetHints, fromRemote).remoteOutgoingTo.add(
-          `${sourceModel.modelShortName}.${to}`
-        );
+        addRemoteIncomingConnectionHint(sourceHints, targetHints, {
+          rawFromRemote: fromRemote,
+          rawTo,
+          displayFromRemote: pathWithDisplayOwner(fromRemote, targetWorkloads),
+          displayTo: pathWithDisplayOwner(rawTo, sourceWorkloads),
+          remoteModelLabel,
+          sourceModelLabel: sourceModel.modelShortName,
+        });
       }
     }
   }

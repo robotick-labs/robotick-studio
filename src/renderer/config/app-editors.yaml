@@ -21,6 +21,9 @@ editors:
   - id: telemetry-scope
     label: Telemetry Scope
     module: ./components/editors/telemetry-scope/TelemetryScopePage.tsx
+  - id: tick-scope
+    label: Tick Scope
+    module: ./components/editors/tick-scope/TickScopePanel.tsx
   - id: terminal
     label: Terminal
     module: ./components/editors/terminal/TerminalPage.tsx

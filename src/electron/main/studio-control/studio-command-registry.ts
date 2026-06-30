@@ -19,11 +19,19 @@ import {
   getStudioRuntimeFocused,
   getStudioRuntimeStatus,
 } from "./studio-runtime-snapshot";
+import { ElectronTelemetryServiceError } from "../data-sources/telemetry/electron-telemetry-service";
 
-type StudioControlCommandResult = {
-  statusCode: number;
-  payload: unknown;
-};
+type StudioControlCommandResult =
+  | {
+      statusCode: number;
+      payload: unknown;
+    }
+  | {
+      statusCode: number;
+      body: Buffer | Uint8Array;
+      contentType: string;
+      headers?: Record<string, string>;
+    };
 
 type StudioControlCommandMatch = {
   commandId: string;
@@ -108,6 +116,15 @@ function activationPathSegments(pathname: string): string[] | null {
     return null;
   }
   return decodePathSegments(pathname.slice(prefix.length, -suffix.length));
+}
+
+function telemetryPathSegments(pathname: string): string[] | null {
+  const prefixes = ["/v1/telemetry/", "/v1/studio/telemetry/"];
+  const prefix = prefixes.find((candidate) => pathname.startsWith(candidate));
+  if (!prefix) {
+    return null;
+  }
+  return decodePathSegments(pathname.slice(prefix.length));
 }
 
 function diagnosticsKind(
@@ -198,11 +215,34 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function telemetryErrorResult(error: unknown): StudioControlCommandResult {
+  if (error instanceof ElectronTelemetryServiceError) {
+    return {
+      statusCode: error.statusCode,
+      payload: {
+        error: error.code,
+        message: error.message,
+      },
+    };
+  }
+  return {
+    statusCode: 500,
+    payload: {
+      error: "telemetry_error",
+      message: error instanceof Error ? error.message : String(error),
+    },
+  };
+}
+
 function buildCommandRegistry(): StudioControlRegisteredCommand[] {
   const focusedCommandId = "studio.focused";
   const resourceStatusCommandId = "studio.resource.status";
   const resourceActivateCommandId = "studio.resource.activate";
   const projectSelectCommandId = "studio.project.select";
+  const telemetryModelsCommandId = "studio.telemetry.models";
+  const telemetryModelLayoutCommandId = "studio.telemetry.model.layout";
+  const telemetryModelSnapshotCommandId = "studio.telemetry.model.snapshot";
+  const telemetryModelRawBufferCommandId = "studio.telemetry.model.raw-buffer";
   return [
     {
       id: focusedCommandId,
@@ -396,6 +436,205 @@ function buildCommandRegistry(): StudioControlRegisteredCommand[] {
           statusCode: result.accepted ? 200 : 409,
           payload: result,
         };
+      },
+    },
+    {
+      id: telemetryModelsCommandId,
+      title: "Studio Telemetry Models",
+      description: "List telemetry models resolved from the selected Studio project.",
+      provider: "electron_main",
+      input_schema: { type: "object", properties: {} },
+      output_schema: {
+        type: "object",
+        properties: { resource_type: { const: "robotick_studio_telemetry_models" } },
+      },
+      availability: {
+        requires_live_instance: true,
+        requires_renderer: false,
+        resource_scope: "telemetry",
+      },
+      read_only: true,
+      destructive: false,
+      match(method, pathname) {
+        if (method !== "GET") {
+          return null;
+        }
+        const segments = telemetryPathSegments(pathname);
+        return segments?.length === 1 && segments[0] === "models"
+          ? { commandId: telemetryModelsCommandId, params: {} }
+          : null;
+      },
+      async execute(_params, dependencies) {
+        if (!dependencies.telemetryService) {
+          return {
+            statusCode: 503,
+            payload: { error: "telemetry_unavailable" },
+          };
+        }
+        try {
+          return {
+            statusCode: 200,
+            payload: await dependencies.telemetryService.listModels(),
+          };
+        } catch (error) {
+          return telemetryErrorResult(error);
+        }
+      },
+    },
+    {
+      id: telemetryModelLayoutCommandId,
+      title: "Studio Telemetry Model Layout",
+      description: "Return the current workloads-buffer layout for one telemetry model.",
+      provider: "electron_main",
+      input_schema: {
+        type: "object",
+        properties: { model_id: { type: "string" } },
+      },
+      output_schema: {
+        type: "object",
+        properties: { resource_type: { const: "robotick_studio_telemetry_model_layout" } },
+      },
+      availability: {
+        requires_live_instance: true,
+        requires_renderer: false,
+        resource_scope: "telemetry",
+      },
+      read_only: true,
+      destructive: false,
+      match(method, pathname) {
+        if (method !== "GET") {
+          return null;
+        }
+        const segments = telemetryPathSegments(pathname);
+        return segments?.length === 3 &&
+          segments[0] === "models" &&
+          segments[2] === "layout"
+          ? {
+              commandId: telemetryModelLayoutCommandId,
+              params: { model_id: segments[1] },
+            }
+          : null;
+      },
+      async execute(params, dependencies) {
+        if (!dependencies.telemetryService) {
+          return {
+            statusCode: 503,
+            payload: { error: "telemetry_unavailable" },
+          };
+        }
+        try {
+          return {
+            statusCode: 200,
+            payload: await dependencies.telemetryService.getLayout(String(params.model_id)),
+          };
+        } catch (error) {
+          return telemetryErrorResult(error);
+        }
+      },
+    },
+    {
+      id: telemetryModelSnapshotCommandId,
+      title: "Studio Telemetry Model Snapshot",
+      description: "Return a decoded current telemetry snapshot for one model.",
+      provider: "electron_main",
+      input_schema: {
+        type: "object",
+        properties: { model_id: { type: "string" } },
+      },
+      output_schema: {
+        type: "object",
+        properties: { resource_type: { const: "robotick_studio_telemetry_model_snapshot" } },
+      },
+      availability: {
+        requires_live_instance: true,
+        requires_renderer: false,
+        resource_scope: "telemetry",
+      },
+      read_only: true,
+      destructive: false,
+      match(method, pathname) {
+        if (method !== "GET") {
+          return null;
+        }
+        const segments = telemetryPathSegments(pathname);
+        return segments?.length === 3 &&
+          segments[0] === "models" &&
+          segments[2] === "snapshot"
+          ? {
+              commandId: telemetryModelSnapshotCommandId,
+              params: { model_id: segments[1] },
+            }
+          : null;
+      },
+      async execute(params, dependencies) {
+        if (!dependencies.telemetryService) {
+          return {
+            statusCode: 503,
+            payload: { error: "telemetry_unavailable" },
+          };
+        }
+        try {
+          return {
+            statusCode: 200,
+            payload: await dependencies.telemetryService.getSnapshot(String(params.model_id)),
+          };
+        } catch (error) {
+          return telemetryErrorResult(error);
+        }
+      },
+    },
+    {
+      id: telemetryModelRawBufferCommandId,
+      title: "Studio Telemetry Model Raw Buffer",
+      description: "Return the latest raw workloads-buffer bytes for one telemetry model.",
+      provider: "electron_main",
+      input_schema: {
+        type: "object",
+        properties: { model_id: { type: "string" } },
+      },
+      output_schema: { type: "string", contentEncoding: "binary" },
+      availability: {
+        requires_live_instance: true,
+        requires_renderer: false,
+        resource_scope: "telemetry",
+      },
+      read_only: true,
+      destructive: false,
+      match(method, pathname) {
+        if (method !== "GET") {
+          return null;
+        }
+        const segments = telemetryPathSegments(pathname);
+        return segments?.length === 3 &&
+          segments[0] === "models" &&
+          segments[2] === "raw-buffer"
+          ? {
+              commandId: telemetryModelRawBufferCommandId,
+              params: { model_id: segments[1] },
+            }
+          : null;
+      },
+      async execute(params, dependencies) {
+        if (!dependencies.telemetryService) {
+          return {
+            statusCode: 503,
+            payload: { error: "telemetry_unavailable" },
+          };
+        }
+        try {
+          const raw = await dependencies.telemetryService.getRawBuffer(String(params.model_id));
+          return {
+            statusCode: 200,
+            body: raw.body,
+            contentType: "application/octet-stream",
+            headers: {
+              "X-Robotick-Frame-Seq": String(raw.frame_seq ?? ""),
+              "X-Robotick-Engine-Session-Id": raw.engine_session_id ?? "",
+            },
+          };
+        } catch (error) {
+          return telemetryErrorResult(error);
+        }
       },
     },
     ...(["status", "endpoints", "renderer", "console", "fetch-check", "telemetry", "dom-summary", "dom-query", "css-query", "screenshot", "snapshot"] as const).map(

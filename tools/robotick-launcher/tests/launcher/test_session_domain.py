@@ -37,6 +37,9 @@ def write_project(tmp_path: Path) -> Path:
             [
                 "runtime:",
                 "  engine: ./engine",
+                "models:",
+                "  - face.model.yaml",
+                "  - spine.model.yaml",
                 "profiles:",
                 "  face-pack:",
                 "    models:",
@@ -169,6 +172,21 @@ def test_session_store_round_trips_groups_and_sessions(tmp_path: Path) -> None:
     assert store.list_sessions(group_id=group.id)[0].id == session.id
     assert group.id.startswith("msg_")
     assert session.id.startswith("ms_")
+
+
+def test_session_store_ignores_empty_or_invalid_records(tmp_path: Path) -> None:
+    store = LauncherSessionStore(tmp_path)
+    store.session_dir.mkdir(parents=True)
+    store.group_dir.mkdir(parents=True)
+    (store.session_dir / "ms_empty.json").write_text("", encoding="utf-8")
+    (store.session_dir / "ms_invalid.json").write_text("{", encoding="utf-8")
+    (store.group_dir / "msg_empty.json").write_text("", encoding="utf-8")
+    (store.group_dir / "msg_invalid.json").write_text("{", encoding="utf-8")
+
+    assert store.get_session("ms_empty") is None
+    assert store.get_group("msg_empty") is None
+    assert store.list_sessions() == []
+    assert store.list_groups() == []
 
 
 def test_status_reduction_and_freshness() -> None:

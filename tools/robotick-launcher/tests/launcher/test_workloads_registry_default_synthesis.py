@@ -8,7 +8,7 @@ def test_workloads_registry_reports_missing_primitive_defaults(
     tmp_path: Path, monkeypatch
 ):
     project_path = tmp_path / "demo.project.yaml"
-    project_path.write_text("name: Demo\nschema_version: 1\n", encoding="utf-8")
+    project_path.write_text("name: Demo\nschema_version: 1\nmodels: []\n", encoding="utf-8")
 
     monkeypatch.setattr(
         query_module,

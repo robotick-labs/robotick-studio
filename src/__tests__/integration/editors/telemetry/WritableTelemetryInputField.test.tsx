@@ -166,6 +166,7 @@ describe("WritableTelemetryInputField", () => {
             field_handle: 7,
             field_path: "workload.inputs.enabled",
             incoming_connection_handle: 11,
+            incoming_connection_path: "workload.inputs.enabled",
             incoming_connection_enabled: true,
           },
         ],
@@ -180,6 +181,7 @@ describe("WritableTelemetryInputField", () => {
       elementCount: 1,
       writable_input_handle: 7,
       incoming_connection_handle: 11,
+      incoming_connection_path: "workload.inputs.enabled",
       incoming_connection_enabled: true,
       model,
       getValue: () => currentValue,
@@ -218,6 +220,7 @@ describe("WritableTelemetryInputField", () => {
             <WritableTelemetryInputField
               field={field}
               telemetryBaseUrl="http://example"
+              incomingConnectionSourcePath="source.outputs.enabled"
             />
           </TelemetryServiceProvider>,
         );
@@ -227,6 +230,14 @@ describe("WritableTelemetryInputField", () => {
         "input[type='checkbox']",
       ) as HTMLInputElement | null;
       expect(checkbox).not.toBeNull();
+      const toggleButton = Array.from(container.querySelectorAll("button")).find(
+        (button) =>
+          button.getAttribute("aria-label") ===
+          "Suppress incoming connection for enabled",
+      ) as HTMLButtonElement | undefined;
+      expect(toggleButton?.getAttribute("title")).toBe(
+        "Incoming connection active. Click to suppress.\nSource: source.outputs.enabled",
+      );
 
       act(() => {
         checkbox?.click();
@@ -239,6 +250,77 @@ describe("WritableTelemetryInputField", () => {
         setWorkloadInputConnectionState.mock.invocationCallOrder[0],
       ).toBeLessThan(setWorkloadInputFieldsData.mock.invocationCallOrder[0]);
       expect(currentValue).toBe(false);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("keeps upstream source info on the suppress button when only row tooltip text is available", () => {
+    const model: ITelemetryModel = {
+      workloads: [],
+      raw: null,
+      schemaSessionId: "sid-1",
+      workloads_buffer_size_used: 0,
+      process_memory_used: 0,
+    };
+    const field: ITelemetryField = {
+      name: "enabled",
+      type: "bool",
+      path: "workload.inputs.enabled",
+      offset: 0,
+      elementCount: 1,
+      writable_input_handle: 7,
+      incoming_connection_handle: 11,
+      incoming_connection_path: "workload.inputs.enabled",
+      incoming_connection_enabled: true,
+      model,
+      getValue: () => true,
+    };
+    const telemetryService = {
+      subscribeTelemetry: vi.fn(() => () => undefined),
+      ensureLayout: vi.fn(async () => null),
+      refreshLayout: vi.fn(async () => null),
+      setWorkloadInputFieldsData: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      setWorkloadInputConnectionState: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {},
+      })),
+      getLatestModel: vi.fn(() => model),
+    };
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    try {
+      act(() => {
+        root.render(
+          <TelemetryServiceProvider service={telemetryService as any}>
+            <WritableTelemetryInputField
+              field={field}
+              telemetryBaseUrl="http://example"
+              tooltipText={"from (local):\n- source.outputs.enabled"}
+            />
+          </TelemetryServiceProvider>,
+        );
+      });
+
+      const toggleButton = Array.from(container.querySelectorAll("button")).find(
+        (button) =>
+          button.getAttribute("aria-label") ===
+          "Suppress incoming connection for enabled",
+      ) as HTMLButtonElement | undefined;
+      expect(toggleButton?.getAttribute("title")).toBe(
+        "Incoming connection active. Click to suppress.\nSource: source.outputs.enabled",
+      );
     } finally {
       act(() => {
         root.unmount();

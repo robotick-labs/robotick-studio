@@ -28,7 +28,10 @@ export function LauncherControls() {
   const controlActive = status !== "stopped";
   const canRestart = isRunning && !isBusy;
   const controlsDisabled = isBusy || isAwaitingStatus;
-  const toggleDisabled = status === "stopping" ? true : !controlActive && controlsDisabled;
+  const toggleDisabled =
+    status === "stopping" || (isRunning && isAwaitingStatus)
+      ? true
+      : !controlActive && controlsDisabled;
   const [isStatusOpen, setIsStatusOpen] = React.useState(false);
   const statusMenuRef = React.useRef<HTMLDivElement | null>(null);
   const tooltipSummary = buildTooltipSummary(
@@ -321,6 +324,7 @@ function buildTooltipSummary(
       lifecycle?: string;
       readiness?: string;
       freshness?: string;
+      operation?: LauncherModelOperation;
       diagnostics?: Array<{ code?: string; message?: string }>;
       logRefs?: Array<{ kind?: string; path?: string }>;
     }
@@ -411,6 +415,7 @@ function deriveTooltipPresentation(
     lifecycle?: string;
     readiness?: string;
     freshness?: string;
+    operation?: LauncherModelOperation;
     diagnostics?: Array<{ code?: string; message?: string }>;
     logRefs?: Array<{ kind?: string; path?: string }>;
   },
@@ -426,12 +431,34 @@ function deriveTooltipPresentation(
   const lifecycle = launcherModel?.lifecycle?.trim();
   const freshness = launcherModel?.freshness?.trim();
   const readiness = launcherModel?.readiness?.trim();
+  const operationAction = launcherModel?.operation?.action?.trim();
 
   if (freshness === "stale" || lifecycle === "stale") {
     return {
       group: "unhealthy" as TooltipGroup,
       modelStatus: "stopped" as LauncherStatus,
       stateLabel: "stale",
+    };
+  }
+  if (operationAction === "launching" || operationAction === "starting") {
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "launching" as LauncherStatus,
+      stateLabel: "launching",
+    };
+  }
+  if (operationAction === "stopping") {
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "stopping" as LauncherStatus,
+      stateLabel: "stopping",
+    };
+  }
+  if (operationAction === "restarting") {
+    return {
+      group: "pending" as TooltipGroup,
+      modelStatus: "stopping" as LauncherStatus,
+      stateLabel: "restarting",
     };
   }
   if (status === "starting") {
@@ -500,3 +527,8 @@ function deriveTooltipPresentation(
     stateLabel: "stopped",
   };
 }
+
+type LauncherModelOperation = {
+  action?: string;
+  phase?: string;
+} | null;

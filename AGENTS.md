@@ -39,6 +39,8 @@ robotick studio open barr-e
 Agent guidance:
 
 - CLI output is JSON-first by default for one-shot commands
+- `src/electron/main/data-sources/*` owns authoritative data-source behavior: external transport, caching, orchestration, subscription sharing, and cross-window state
+- `src/renderer/data-sources/*` remains the renderer-facing data access layer; in Electron-backed flows it should usually be a thin bridge client/facade over the main-process data-source, not a second owner of transport or polling
 - `status` is read-only; do not expect it to start hub, launcher, Studio, or project runtimes
 - use `hub ensure` and `launcher ensure` only when you explicitly want supporting services started or reused
 - prefer the documented `robotick` CLI control surface over source inspection when the needed runtime truth is available there

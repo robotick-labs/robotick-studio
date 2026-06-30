@@ -46,7 +46,7 @@ function isTelemetryModelSortKey(value: unknown): value is ModelSortKey {
 function isTelemetryWorkloadSortKey(value: unknown): value is WorkloadSortKey {
   return (
     value === "none" ||
-    value === "unique_name" ||
+    value === "unique_id" ||
     value === "workload_type" ||
     value === "memory_total" ||
     value === "memory_static" ||

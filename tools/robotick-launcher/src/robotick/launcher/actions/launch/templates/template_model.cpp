@@ -68,8 +68,9 @@ void populate_model_{{ config.model_name_safe }}(robotick::Model& model)
         {% if w.input_entries %}
         {{ w.var_name }}_initial_inputs,
         {% else %}
-        {}    // inputs
+        {},    // inputs
         {% endif %}
+        StringView("{{ w.display_name_normalized }}")
     };
 
     {% endfor %}

@@ -5,14 +5,27 @@ import {
   setWorkloadInputConnectionState,
   setWorkloadInputFieldsData,
 } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-client";
-import { sendTelemetryWriteWs } from "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client";
 
-vi.mock(
-  "../../../../../renderer/data-sources/telemetry/internal/telemetry-ws-client",
-  () => ({
-    sendTelemetryWriteWs: vi.fn(),
-  }),
-);
+function installTelemetryBridge(overrides: Partial<NonNullable<Window["robotick"]>["telemetry"]>) {
+  const telemetry = {
+    ensureLayout: vi.fn(),
+    refreshLayout: vi.fn(),
+    getDiagnostics: vi.fn(),
+    getSharedDiagnostics: vi.fn(async () => ({
+      activeBaseUrlCount: 0,
+      totalSubscriberCount: 0,
+      baseUrls: [],
+    })),
+    getHealth: vi.fn(),
+    getPushStats: vi.fn(),
+    setWorkloadInputFieldsData: vi.fn(),
+    setWorkloadInputConnectionState: vi.fn(),
+    subscribe: vi.fn(),
+    ...overrides,
+  };
+  (window as unknown as { robotick?: unknown }).robotick = { telemetry };
+  return telemetry;
+}
 
 describe("setWorkloadInputFieldsData", () => {
   beforeEach(() => {
@@ -21,13 +34,13 @@ describe("setWorkloadInputFieldsData", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
+    delete (window as unknown as { robotick?: unknown }).robotick;
     vi.clearAllMocks();
   });
 
   it("retries on retryable status and eventually succeeds", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData
       .mockResolvedValueOnce(
         {
           ok: false,
@@ -57,14 +70,14 @@ describe("setWorkloadInputFieldsData", () => {
     await vi.runAllTimersAsync();
     const result = await requestPromise;
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(2);
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(2);
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
   it("does not retry non-retryable status codes", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock.mockResolvedValue({
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData.mockResolvedValue({
       ok: false,
       status: 400,
       body: { error: "bad_request" },
@@ -75,14 +88,14 @@ describe("setWorkloadInputFieldsData", () => {
       writes: [{ field_handle: 7, value: 123 }],
     });
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(1);
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
     expect(result.status).toBe(400);
   });
 
   it("retries once with the corrected engine session id on session mismatch", async () => {
-    const sendWriteMock = vi.mocked(sendTelemetryWriteWs);
-    sendWriteMock
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputFieldsData
       .mockResolvedValueOnce({
         ok: false,
         status: 412,
@@ -102,8 +115,8 @@ describe("setWorkloadInputFieldsData", () => {
       writes: [{ field_handle: 7, value: 0.5 }],
     });
 
-    expect(sendWriteMock).toHaveBeenCalledTimes(2);
-    expect(sendWriteMock.mock.calls[1]?.[1]?.engine_session_id).toBe(
+    expect(telemetry.setWorkloadInputFieldsData).toHaveBeenCalledTimes(2);
+    expect(telemetry.setWorkloadInputFieldsData.mock.calls[1]?.[1]?.engine_session_id).toBe(
       "sid-corrected",
     );
     expect(result.ok).toBe(true);
@@ -114,82 +127,73 @@ describe("setWorkloadInputFieldsData", () => {
 
 describe("setWorkloadInputConnectionState", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    delete (window as unknown as { robotick?: unknown }).robotick;
     vi.clearAllMocks();
   });
 
-  it("posts connection suppression updates over REST", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          status: "processed",
-          updates: [
-            {
-              field_handle: 7,
-              incoming_connection_enabled: false,
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
+  it("sends connection suppression updates through the Electron telemetry bridge", async () => {
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputConnectionState.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        status: "processed",
+        updates: [
+          {
+            field_handle: 7,
+            incoming_connection_enabled: false,
           },
-        },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+        ],
+      },
+    });
 
     const result = await setWorkloadInputConnectionState("http://example", {
       engine_session_id: "sid",
       updates: [{ field_handle: 7, enabled: false }],
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://example/api/telemetry/set_workload_input_connection_state",
-      expect.objectContaining({
-        method: "POST",
-      }),
+    expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledWith(
+      "http://example",
+      {
+        engine_session_id: "sid",
+        updates: [{ field_handle: 7, enabled: false }],
+      },
     );
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
 
   it("retries connection suppression with the corrected engine session id", async () => {
-    const fetchMock = vi
-      .fn()
+    const telemetry = installTelemetryBridge({});
+    telemetry.setWorkloadInputConnectionState
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            error: "session_mismatch",
-            engine_session_id: "sid-corrected",
-          }),
-          {
-            status: 412,
-            headers: {
-              "Content-Type": "application/json",
-            },
+        {
+          ok: false,
+          status: 412,
+          body: {
+          error: "session_mismatch",
+          engine_session_id: "sid-corrected",
           },
-        ),
+        },
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: "processed" }), {
+        {
+          ok: true,
           status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }),
+          body: { status: "processed" },
+        },
       );
-    vi.stubGlobal("fetch", fetchMock);
 
     const result = await setWorkloadInputConnectionState("http://example", {
       engine_session_id: "sid-stale",
       updates: [{ field_handle: 7, enabled: false }],
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const retryBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
-    expect(retryBody.engine_session_id).toBe("sid-corrected");
+    expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledTimes(2);
+    expect(
+      telemetry.setWorkloadInputConnectionState.mock.calls[1]?.[1]
+        ?.engine_session_id,
+    ).toBe("sid-corrected");
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
   });
@@ -197,25 +201,22 @@ describe("setWorkloadInputConnectionState", () => {
   it("retries connection suppression on retryable REST failures", async () => {
     vi.useFakeTimers();
     try {
-      const fetchMock = vi
-        .fn()
+      const telemetry = installTelemetryBridge({});
+      telemetry.setWorkloadInputConnectionState
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ error: "busy", retry_after_ms: 1 }), {
+          {
+            ok: false,
             status: 503,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }),
+            body: { error: "busy", retry_after_ms: 1 },
+          },
         )
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ status: "processed" }), {
+          {
+            ok: true,
             status: 200,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }),
+            body: { status: "processed" },
+          },
         );
-      vi.stubGlobal("fetch", fetchMock);
 
       const requestPromise = setWorkloadInputConnectionState(
         "http://example",
@@ -233,7 +234,7 @@ describe("setWorkloadInputConnectionState", () => {
       await vi.runAllTimersAsync();
       const result = await requestPromise;
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(telemetry.setWorkloadInputConnectionState).toHaveBeenCalledTimes(2);
       expect(result.ok).toBe(true);
       expect(result.status).toBe(200);
     } finally {
@@ -243,11 +244,144 @@ describe("setWorkloadInputConnectionState", () => {
 });
 
 describe("createTelemetryModel", () => {
+  it("ignores legacy layout process thread samples", () => {
+    const layout = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 0,
+      process_threads: [
+        {
+          thread_id: 13,
+          name: "runtime-worker",
+          display_name: "Runtime worker",
+          role: "runtime",
+          cpu_time_ns: 50000000,
+          cpu_time_delta_ns: 2000000,
+          cpu_sample_window_ns: 50000000,
+          logical_cpu_id: 3,
+        },
+      ],
+      workloads: [],
+      types: [],
+    } as unknown as LayoutModel;
+
+    const model = createTelemetryModel(layout);
+
+    expect(model.process_threads).toEqual([]);
+  });
+
+  it("decodes process thread CPU samples from the current engine raw buffer", () => {
+    const threadSize = 104;
+    const processIdOffset = 0;
+    const processMemoryOffset = 8;
+    const processThreadsOffset = 16;
+    const vectorCountOffset = threadSize * 64;
+    const rawCountOffset = processThreadsOffset + vectorCountOffset;
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: rawCountOffset + 4,
+      engine: {
+        type: "EngineInfo",
+        offset_within_container: 0,
+      },
+      workloads: [],
+      types: [
+        { name: "uint32_t", size: 4 },
+        { name: "uint64_t", size: 8 },
+        { name: "int32_t", size: 4 },
+        { name: "FixedString64", size: 64, mime_type: "text/plain" },
+        {
+          name: "EngineProcessThreadStats",
+          size: threadSize,
+          fields: [
+            { name: "thread_id", type: "uint64_t", offset_within_container: 0, element_count: 1 },
+            { name: "name", type: "FixedString64", offset_within_container: 8, element_count: 1 },
+            { name: "cpu_time_ns", type: "uint64_t", offset_within_container: 72, element_count: 1 },
+            { name: "cpu_time_delta_ns", type: "uint64_t", offset_within_container: 80, element_count: 1 },
+            { name: "cpu_sample_window_ns", type: "uint64_t", offset_within_container: 88, element_count: 1 },
+            { name: "logical_cpu_id", type: "int32_t", offset_within_container: 96, element_count: 1 },
+          ],
+        },
+        {
+          name: "EngineProcessThreadStatsVector",
+          size: vectorCountOffset + 4,
+          fields: [
+            {
+              name: "data_buffer",
+              type: "EngineProcessThreadStats",
+              offset_within_container: 0,
+              element_count: 64,
+            },
+            { name: "count", type: "uint32_t", offset_within_container: vectorCountOffset, element_count: 1 },
+          ],
+        },
+        {
+          name: "EngineInfo",
+          size: rawCountOffset + 4,
+          fields: [
+            {
+              name: "process_id",
+              type: "uint64_t",
+              offset_within_container: processIdOffset,
+              element_count: 1,
+            },
+            {
+              name: "process_memory_used",
+              type: "uint64_t",
+              offset_within_container: processMemoryOffset,
+              element_count: 1,
+            },
+            {
+              name: "process_threads",
+              type: "EngineProcessThreadStatsVector",
+              offset_within_container: processThreadsOffset,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+
+    const writeSample = (deltaNs: bigint, processMemoryUsed: bigint) => {
+      const raw = new ArrayBuffer(rawCountOffset + 4);
+      const view = new DataView(raw);
+      view.setBigUint64(processIdOffset, 12345n, true);
+      view.setBigUint64(processMemoryOffset, processMemoryUsed, true);
+      view.setBigUint64(processThreadsOffset, 42n, true);
+      new Uint8Array(raw, processThreadsOffset + 8, 64).set(new TextEncoder().encode("rtk-tel-ws-bcst"));
+      view.setBigUint64(processThreadsOffset + 72, 100000000n + deltaNs, true);
+      view.setBigUint64(processThreadsOffset + 80, deltaNs, true);
+      view.setBigUint64(processThreadsOffset + 88, 50000000n, true);
+      view.setInt32(processThreadsOffset + 96, 7, true);
+      view.setUint32(rawCountOffset, 1, true);
+      return raw;
+    };
+
+    const model = createTelemetryModel(layout);
+    model.raw = writeSample(1000000n, 64000000n);
+    expect(model.process_id).toBe(12345);
+    expect(model.process_memory_used).toBe(64000000);
+    expect(model.process_threads).toEqual([
+      {
+        threadId: 42,
+        name: "rtk-tel-ws-bcst",
+        displayName: "Telemetry websocket broadcast",
+        role: "telemetry",
+        cpuTimeNs: 101000000,
+        cpuTimeDeltaNs: 1000000,
+        cpuSampleWindowNs: 50000000,
+        logicalCpuId: 7,
+      },
+    ]);
+
+    model.raw = writeSample(3000000n, 65000000n);
+    expect(model.process_memory_used).toBe(65000000);
+    expect(model.process_threads[0]?.cpuTimeDeltaNs).toBe(3000000);
+  });
+
   it("decodes int32_t primitive fields", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 128,
-      process_memory_used: 0,
       workloads: [
         {
           name: "detector",
@@ -286,11 +420,116 @@ describe("createTelemetryModel", () => {
     expect(model.getField?.("detector.outputs.class_id")?.getValue()).toBe(-7);
   });
 
+  it("decodes 64-bit workload span stats", () => {
+    const layout: LayoutModel = {
+      engine_session_id: "sid",
+      workloads_buffer_size_used: 320,
+      workloads: [
+        {
+          name: "sequenced",
+          type: "SequencedGroupWorkload",
+          offset_within_container: 16,
+          stats_offset_within_container: 96,
+        },
+      ],
+      types: [
+        { name: "bool", size: 1 },
+        { name: "int32_t", size: 4 },
+        { name: "uint64_t", size: 8 },
+        {
+          name: "WorkloadLatestSpanStats",
+          size: 72,
+          fields: [
+            {
+              name: "tick_seq",
+              type: "uint64_t",
+              offset_within_container: 0,
+              element_count: 1,
+            },
+            {
+              name: "kernel_thread_id",
+              type: "uint64_t",
+              offset_within_container: 16,
+              element_count: 1,
+            },
+            {
+              name: "logical_cpu_start_id",
+              type: "int32_t",
+              offset_within_container: 24,
+              element_count: 1,
+            },
+            {
+              name: "scheduled_start_time_ns",
+              type: "uint64_t",
+              offset_within_container: 32,
+              element_count: 1,
+            },
+            {
+              name: "is_running",
+              type: "bool",
+              offset_within_container: 64,
+              element_count: 1,
+            },
+          ],
+        },
+        {
+          name: "WorkloadInstanceStats",
+          size: 168,
+          fields: [
+            {
+              name: "latest_span",
+              type: "WorkloadLatestSpanStats",
+              offset_within_container: 96,
+              element_count: 1,
+            },
+          ],
+        },
+      ],
+    };
+    const raw = new ArrayBuffer(320);
+    const view = new DataView(raw);
+    const latestSpanOffset = 96 + 96;
+    view.setBigUint64(latestSpanOffset, 1234n, true);
+    view.setBigUint64(latestSpanOffset + 16, 42n, true);
+    view.setInt32(latestSpanOffset + 24, 7, true);
+    view.setBigUint64(latestSpanOffset + 32, 1_000_000_000n, true);
+    view.setUint8(latestSpanOffset + 64, 1);
+
+    const model = createTelemetryModel(layout);
+    model.raw = raw;
+    const latestSpan = model.workloads[0]?.stats?.fields.find(
+      (field) => field.name === "latest_span",
+    );
+
+    expect(
+      latestSpan?.fields?.find((field) => field.name === "tick_seq")?.getValue(),
+    ).toBe(1234);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "kernel_thread_id")
+        ?.getValue(),
+    ).toBe(42);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "logical_cpu_start_id")
+        ?.getValue(),
+    ).toBe(7);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "scheduled_start_time_ns")
+        ?.getValue(),
+    ).toBe(1_000_000_000);
+    expect(
+      latestSpan?.fields
+        ?.find((field) => field.name === "is_running")
+        ?.getValue(),
+    ).toBe(true);
+  });
+
   it("computes per-workload static and dynamic workloads-buffer memory", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "jpeg",
@@ -409,7 +648,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "mic",
@@ -532,7 +770,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 4096,
-      process_memory_used: 0,
       workloads: [
         {
           name: "first",
@@ -664,7 +901,6 @@ describe("createTelemetryModel", () => {
     const layout: LayoutModel = {
       engine_session_id: "sid",
       workloads_buffer_size_used: 0,
-      process_memory_used: 0,
       workloads: [
         {
           name: "plain",

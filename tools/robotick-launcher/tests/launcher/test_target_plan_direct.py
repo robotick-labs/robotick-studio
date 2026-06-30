@@ -10,6 +10,8 @@ def _write_project(tmp_path: Path, *, model_name: str = "proj-face", model_yaml:
     project_path.write_text(
         "\n".join(
             [
+                "models:",
+                f"  - {model_name}.model.yaml",
                 "runtime:",
                 "  engine: ./engine",
             ]
