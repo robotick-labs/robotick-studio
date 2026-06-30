@@ -17,18 +17,26 @@ fi
 source "$VENV/bin/activate"
 
 LAUNCHER_PATH="$ROOT/tools/robotick-launcher"
+HUB_PATH="$ROOT/tools/robotick-hub"
 LAUNCHER_URI="$("$PYTHON" - <<'PY' "$LAUNCHER_PATH"
 import pathlib, sys
 print(pathlib.Path(sys.argv[1]).resolve().as_uri())
 PY
 )"
+HUB_URI="$("$PYTHON" - <<'PY' "$HUB_PATH"
+import pathlib, sys
+print(pathlib.Path(sys.argv[1]).resolve().as_uri())
+PY
+)"
 LAUNCHER_SPEC="robotick-launcher[dev] @ ${LAUNCHER_URI}"
+HUB_SPEC="robotick-hub[dev] @ ${HUB_URI}"
 
 if [ "${ROBOTICK_SKIP_LAUNCHER_FIXTURE_SYNC:-0}" != "1" ]; then
   "$ROOT/tools/robotick-launcher/tests/sync-fixtures.sh"
 fi
 
 pip install --upgrade pip >/dev/null
+pip install -e "$HUB_SPEC" >/dev/null
 pip install -e "$LAUNCHER_SPEC" >/dev/null
 
 cd "$ROOT/tools/robotick-launcher"

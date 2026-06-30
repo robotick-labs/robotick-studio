@@ -58,6 +58,11 @@ describe("TelemetryModel", () => {
       getIngressRateHz: vi.fn(() => 0),
     });
     vi.stubGlobal("fetch", vi.fn());
+    vi.stubGlobal("robotick", {
+      telemetry: {
+        getPushStats: vi.fn(async () => ({ ok: false, body: {} })),
+      },
+    });
   });
 
   afterEach(() => {
@@ -187,7 +192,7 @@ describe("TelemetryModel", () => {
     expect(sortSelect?.value).toBe("none");
     expect(Array.from(sortSelect?.options ?? []).map((option) => option.text)).toEqual([
       "-",
-      "Unique Name",
+      "Unique ID",
       "Workload Type",
       "Memory - Total",
       "Memory - Static",
@@ -229,14 +234,18 @@ describe("TelemetryModel", () => {
       revision: 0,
     });
 
-    let resolveFetch: ((value: Response) => void) | null = null;
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockImplementation(
+    let resolvePushStats: ((value: { ok: boolean; body: Record<string, unknown> }) => void) | null = null;
+    const getPushStatsMock = vi.fn(
       () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = resolve;
+        new Promise<{ ok: boolean; body: Record<string, unknown> }>((resolve) => {
+          resolvePushStats = resolve;
         })
     );
+    vi.stubGlobal("robotick", {
+      telemetry: {
+        getPushStats: getPushStatsMock,
+      },
+    });
 
     const tree = render(
       <TelemetryModel
@@ -251,43 +260,37 @@ describe("TelemetryModel", () => {
       />
     );
 
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://launcher.test/api/telemetry-gateway/models/face/push_stats",
-      { cache: "no-store" }
+    await vi.waitFor(() => expect(getPushStatsMock).toHaveBeenCalledTimes(1));
+    expect(getPushStatsMock).toHaveBeenCalledWith(
+      "http://launcher.test/api/telemetry-gateway/models/face"
     );
 
     await act(async () => {
       vi.advanceTimersByTime(1200);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getPushStatsMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveFetch?.(
-        new Response(
-          JSON.stringify({
-            configured_push_rate_hz: 20,
-            goal_push_rate_hz: 20,
-            source_tick_rate_hz: 60,
-            push_every_n_ticks: 3,
-            actual_push_rate_hz: 20,
-            last_push_duration_ms: 1,
-            last_push_period_ms: 50,
-            last_push_cost_pct_of_period: 2,
-          }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }
-        )
-      );
+      resolvePushStats?.({
+        ok: true,
+        body: {
+          configured_push_rate_hz: 20,
+          goal_push_rate_hz: 20,
+          source_tick_rate_hz: 60,
+          push_every_n_ticks: 3,
+          actual_push_rate_hz: 20,
+          last_push_duration_ms: 1,
+          last_push_period_ms: 50,
+          last_push_cost_pct_of_period: 2,
+        },
+      });
       await Promise.resolve();
     });
 
     await act(async () => {
       vi.advanceTimersByTime(400);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getPushStatsMock).toHaveBeenCalledTimes(2);
 
     tree.unmount();
   });

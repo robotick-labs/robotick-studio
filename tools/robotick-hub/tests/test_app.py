@@ -826,7 +826,7 @@ def test_launcher_model_controls_remain_independent_across_projects(
     barr_sessions = store.list_sessions(project_id="barr-e")
     pip_sessions = store.list_sessions(project_id="pip-e")
     assert [session.lifecycle for session in barr_sessions] == ["stopped"]
-    assert [session.lifecycle for session in pip_sessions] == ["starting"]
+    assert [session.lifecycle for session in pip_sessions] == ["running"]
 
 
 def test_launcher_all_launch_skips_models_with_live_runtime_authority(

@@ -42,6 +42,10 @@ def test_run_profile_native_all_uses_per_model_targets(monkeypatch, tmp_path):
     (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
+                "models": [
+                    "sample-robot-face.model.yaml",
+                    "sample-robot-spine.model.yaml",
+                ],
                 "runtime": {
                     "engine": {
                         "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
@@ -146,6 +150,7 @@ def test_run_profile_normalizes_model_yaml_path(monkeypatch, tmp_path):
     (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
+                "models": ["sample-robot-face.model.yaml"],
                 "runtime": {
                     "engine": {
                         "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
@@ -202,6 +207,10 @@ def test_run_profile_skips_auto_launch_false_for_all_profiles(monkeypatch, tmp_p
     (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
+                "models": [
+                    "sample-robot-face.model.yaml",
+                    "sample-robot-simulator.model.yaml",
+                ],
                 "runtime": {
                     "engine": {
                         "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
@@ -280,6 +289,7 @@ def test_run_profile_explicit_model_ignores_auto_launch_false(monkeypatch, tmp_p
     (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
+                "models": ["sample-robot-simulator.model.yaml"],
                 "runtime": {
                     "engine": {
                         "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine"
@@ -551,6 +561,10 @@ def test_run_profile_dedupes_shared_remote_deploy(monkeypatch, tmp_path):
     (project_dir / "sample-robot.project.yaml").write_text(
         yaml.safe_dump(
             {
+                "models": [
+                    "sample-robot-face.model.yaml",
+                    "sample-robot-sensing-visual.model.yaml",
+                ],
                 "runtime": {
                     "engine": {
                         "local_path": "${PROJECT_DIR}/../../robotick/robotick-engine",
