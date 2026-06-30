@@ -50,7 +50,7 @@ export type TelemetryStore = {
   subscribeTelemetry: (
     baseUrl: string,
     samplingRateHz: number,
-    subscriber: SubscriberCallbacks
+    subscriber: SubscriberCallbacks,
   ) => () => void;
   ensureLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
   refreshLayout: (baseUrl: string) => Promise<ITelemetryModel | null>;
@@ -73,7 +73,7 @@ const SUBSCRIBER_CADENCE_TOLERANCE_MS = 8;
  * and delivery of telemetry models to subscribers.
  */
 export function createTelemetryStore(
-  deps: TelemetryStoreDeps = {}
+  deps: TelemetryStoreDeps = {},
 ): TelemetryStore {
   const createTelemetryModelImpl =
     deps.createTelemetryModel ?? createTelemetryModel;
@@ -152,7 +152,9 @@ export function createTelemetryStore(
     return Boolean(detail?.modelId || detail?.telemetryBaseUrl);
   }
 
-  function clearRuntimeStateForLauncherEvent(event: Event): "scoped" | "global" {
+  function clearRuntimeStateForLauncherEvent(
+    event: Event,
+  ): "scoped" | "global" {
     if (!isModelScopedLauncherEvent(event)) {
       clearRuntimeStateForAllEntries();
       return "global";
@@ -177,7 +179,7 @@ export function createTelemetryStore(
   function deliverToSubscriber(
     subscriber: SubscriberEntry,
     model: ITelemetryModel,
-    force = false
+    force = false,
   ) {
     const now = Date.now();
     const toleranceMs = Math.min(
@@ -213,7 +215,7 @@ export function createTelemetryStore(
     entry.ingressTimestampsMs.push(nowMs);
     const keepAfterMs = nowMs - 30_000;
     entry.ingressTimestampsMs = entry.ingressTimestampsMs.filter(
-      (ts) => ts >= keepAfterMs
+      (ts) => ts >= keepAfterMs,
     );
 
     if (typeof frame.frameSeq === "number" && (frame.frameSeq & 1) === 1) {
@@ -271,7 +273,12 @@ export function createTelemetryStore(
 
   function normalizeRawFramePayload(
     payload: unknown,
-  ): { raw: ArrayBuffer; sid: string; frameSeq: number | null; timestamp: number } | null {
+  ): {
+    raw: ArrayBuffer;
+    sid: string;
+    frameSeq: number | null;
+    timestamp: number;
+  } | null {
     if (!payload || typeof payload !== "object") {
       return null;
     }
@@ -298,11 +305,13 @@ export function createTelemetryStore(
       raw,
       sid: typeof candidate.sid === "string" ? candidate.sid : "",
       frameSeq:
-        typeof candidate.frameSeq === "number" && Number.isFinite(candidate.frameSeq)
+        typeof candidate.frameSeq === "number" &&
+        Number.isFinite(candidate.frameSeq)
           ? candidate.frameSeq
           : null,
       timestamp:
-        typeof candidate.timestamp === "number" && Number.isFinite(candidate.timestamp)
+        typeof candidate.timestamp === "number" &&
+        Number.isFinite(candidate.timestamp)
           ? candidate.timestamp
           : Date.now(),
     };
@@ -310,13 +319,20 @@ export function createTelemetryStore(
 
   function normalizeLayoutFramePayload(
     payload: unknown,
-  ): { layout: LayoutModel; latestRaw: ReturnType<typeof normalizeRawFramePayload> } | null {
+  ): {
+    layout: LayoutModel;
+    latestRaw: ReturnType<typeof normalizeRawFramePayload>;
+  } | null {
     if (!payload || typeof payload !== "object") {
       return null;
     }
     const candidate = payload as { layout?: unknown; latestRaw?: unknown };
     const layout = candidate.layout as LayoutModel | undefined;
-    if (!layout || !Array.isArray(layout.types) || !Array.isArray(layout.workloads)) {
+    if (
+      !layout ||
+      !Array.isArray(layout.types) ||
+      !Array.isArray(layout.workloads)
+    ) {
       return null;
     }
     return {
@@ -357,19 +373,24 @@ export function createTelemetryStore(
       return;
     }
 
-    entry.wsUnsubscribe = electronTelemetryBridge.subscribe(entry.baseUrl, (event) => {
-      if (event.type === "layout") {
-        applyElectronLayoutFrame(entry, event.payload);
-        return;
-      }
-      if (event.type === "frame") {
-        applyElectronRawFrame(entry, event.payload);
-        return;
-      }
-      entry.lastErrorAt = new Date().toISOString();
-      entry.lastErrorMessage = event.message;
-      entry.subscribers.forEach((sub) => sub.error?.(new Error(event.message)));
-    });
+    entry.wsUnsubscribe = electronTelemetryBridge.subscribe(
+      entry.baseUrl,
+      (event) => {
+        if (event.type === "layout") {
+          applyElectronLayoutFrame(entry, event.payload);
+          return;
+        }
+        if (event.type === "frame") {
+          applyElectronRawFrame(entry, event.payload);
+          return;
+        }
+        entry.lastErrorAt = new Date().toISOString();
+        entry.lastErrorMessage = event.message;
+        entry.subscribers.forEach((sub) =>
+          sub.error?.(new Error(event.message)),
+        );
+      },
+    );
   }
 
   function teardownWsSubscription(entry: StoreEntry) {
@@ -474,25 +495,28 @@ export function createTelemetryStore(
       statusChangeListener = statusEventHandler;
       launcherEventTarget.addEventListener(
         "status-changed",
-        statusChangeListener
+        statusChangeListener,
       );
     }
     if (!runRequestedListener) {
       runRequestedListener = runEventHandler;
-      launcherEventTarget.addEventListener("run-requested", runRequestedListener);
+      launcherEventTarget.addEventListener(
+        "run-requested",
+        runRequestedListener,
+      );
     }
     if (!restartRequestedListener) {
       restartRequestedListener = restartEventHandler;
       launcherEventTarget.addEventListener(
         "restart-requested",
-        restartRequestedListener
+        restartRequestedListener,
       );
     }
     if (!stopRequestedListener) {
       stopRequestedListener = stopEventHandler;
       launcherEventTarget.addEventListener(
         "stop-requested",
-        stopRequestedListener
+        stopRequestedListener,
       );
     }
   }
@@ -502,28 +526,28 @@ export function createTelemetryStore(
     if (statusChangeListener) {
       launcherEventTarget.removeEventListener(
         "status-changed",
-        statusChangeListener
+        statusChangeListener,
       );
       statusChangeListener = null;
     }
     if (runRequestedListener) {
       launcherEventTarget.removeEventListener(
         "run-requested",
-        runRequestedListener
+        runRequestedListener,
       );
       runRequestedListener = null;
     }
     if (restartRequestedListener) {
       launcherEventTarget.removeEventListener(
         "restart-requested",
-        restartRequestedListener
+        restartRequestedListener,
       );
       restartRequestedListener = null;
     }
     if (stopRequestedListener) {
       launcherEventTarget.removeEventListener(
         "stop-requested",
-        stopRequestedListener
+        stopRequestedListener,
       );
       stopRequestedListener = null;
     }
@@ -534,7 +558,7 @@ export function createTelemetryStore(
   function subscribeTelemetry(
     baseUrl: string,
     samplingRateHz = 20,
-    subscriber: SubscriberCallbacks
+    subscriber: SubscriberCallbacks,
   ): () => void {
     const entry = getOrCreateEntry(baseUrl);
     const safeRate = Math.max(1, samplingRateHz);
@@ -578,7 +602,9 @@ export function createTelemetryStore(
     };
   }
 
-  async function ensureLayout(baseUrl: string): Promise<ITelemetryModel | null> {
+  async function ensureLayout(
+    baseUrl: string,
+  ): Promise<ITelemetryModel | null> {
     if (!baseUrl) {
       return null;
     }
@@ -603,12 +629,15 @@ export function createTelemetryStore(
       return getOrCreateModel(entry);
     } catch (error) {
       entry.lastErrorAt = new Date().toISOString();
-      entry.lastErrorMessage = error instanceof Error ? error.message : String(error);
+      entry.lastErrorMessage =
+        error instanceof Error ? error.message : String(error);
       return null;
     }
   }
 
-  async function refreshLayout(baseUrl: string): Promise<ITelemetryModel | null> {
+  async function refreshLayout(
+    baseUrl: string,
+  ): Promise<ITelemetryModel | null> {
     if (!baseUrl) {
       return null;
     }
@@ -701,25 +730,34 @@ function getDefaultTelemetryStore(): TelemetryStore {
 export const subscribeTelemetry: TelemetryStore["subscribeTelemetry"] = (
   baseUrl,
   samplingRateHz,
-  subscriber
-) => getDefaultTelemetryStore().subscribeTelemetry(baseUrl, samplingRateHz, subscriber);
+  subscriber,
+) =>
+  getDefaultTelemetryStore().subscribeTelemetry(
+    baseUrl,
+    samplingRateHz,
+    subscriber,
+  );
 
-export const ensureTelemetryLayout: TelemetryStore["ensureLayout"] = (baseUrl) =>
-  getDefaultTelemetryStore().ensureLayout(baseUrl);
+export const ensureTelemetryLayout: TelemetryStore["ensureLayout"] = (
+  baseUrl,
+) => getDefaultTelemetryStore().ensureLayout(baseUrl);
 
-export const refreshTelemetryLayout: TelemetryStore["refreshLayout"] = (baseUrl) =>
-  getDefaultTelemetryStore().refreshLayout(baseUrl);
+export const refreshTelemetryLayout: TelemetryStore["refreshLayout"] = (
+  baseUrl,
+) => getDefaultTelemetryStore().refreshLayout(baseUrl);
 
-export const getLatestTelemetryModel: TelemetryStore["getLatestModel"] = (baseUrl) =>
-  getDefaultTelemetryStore().getLatestModel(baseUrl);
+export const getLatestTelemetryModel: TelemetryStore["getLatestModel"] = (
+  baseUrl,
+) => getDefaultTelemetryStore().getLatestModel(baseUrl);
 
 export const getTelemetryIngressRateHz: TelemetryStore["getIngressRateHz"] = (
   baseUrl,
-  windowMs
+  windowMs,
 ) => getDefaultTelemetryStore().getIngressRateHz(baseUrl, windowMs);
 
-export const getTelemetryDiagnostics: TelemetryStore["getDiagnostics"] = (baseUrl) =>
-  getDefaultTelemetryStore().getDiagnostics(baseUrl);
+export const getTelemetryDiagnostics: TelemetryStore["getDiagnostics"] = (
+  baseUrl,
+) => getDefaultTelemetryStore().getDiagnostics(baseUrl);
 
 export const resetTelemetryStore = () => {
   defaultTelemetryStore?.reset();

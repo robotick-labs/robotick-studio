@@ -51,6 +51,7 @@ describe("electron-launcher-data-source", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -69,7 +70,10 @@ describe("electron-launcher-data-source", () => {
           "models/sample-robot-spine.model.yaml",
         ]);
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-face.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Face", 7103, "192.168.5.16", {
             modelId: "sample-robot-face",
@@ -77,7 +81,10 @@ describe("electron-launcher-data-source", () => {
           }),
         );
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-spine.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Spine", 7104, "10.42.0.2", {
             modelId: "sample-robot-spine",
@@ -107,8 +114,13 @@ describe("electron-launcher-data-source", () => {
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
 
-    const models = await dataSource.refreshProjectModels("/tmp/sample-robot", "native:ALL");
-    const byName = new Map(models.map((model) => [model.modelShortName, model]));
+    const models = await dataSource.refreshProjectModels(
+      "/tmp/sample-robot",
+      "native:ALL",
+    );
+    const byName = new Map(
+      models.map((model) => [model.modelShortName, model]),
+    );
 
     expect(byName.get("sample-robot-face")?.telemetryBaseUrl).toBe(
       "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
@@ -130,7 +142,10 @@ describe("electron-launcher-data-source", () => {
           "models/sample-robot-spine.model.yaml",
         ]);
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-face.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Face", 7103, "192.168.5.16", {
             modelId: "sample-robot-face",
@@ -138,7 +153,10 @@ describe("electron-launcher-data-source", () => {
           }),
         );
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-spine.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Spine", 7104, "10.42.0.2", {
             modelId: "sample-robot-spine",
@@ -160,8 +178,13 @@ describe("electron-launcher-data-source", () => {
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
 
-    const models = await dataSource.refreshProjectModels("/tmp/sample-robot", "native:ALL");
-    const byName = new Map(models.map((model) => [model.modelShortName, model]));
+    const models = await dataSource.refreshProjectModels(
+      "/tmp/sample-robot",
+      "native:ALL",
+    );
+    const byName = new Map(
+      models.map((model) => [model.modelShortName, model]),
+    );
 
     expect(byName.get("sample-robot-face")?.telemetryBaseUrl).toBe(
       "http://192.168.5.16:7103/api/telemetry-gateway/sample-robot-face",
@@ -183,7 +206,10 @@ describe("electron-launcher-data-source", () => {
           "models/sample-robot-spine.model.yaml",
         ]);
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-face.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Face", 7103, "192.168.5.16", {
             modelId: "sample-robot-face",
@@ -191,7 +217,10 @@ describe("electron-launcher-data-source", () => {
           }),
         );
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-spine.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Spine", 7104, "10.42.0.2", {
             modelId: "sample-robot-spine",
@@ -202,8 +231,14 @@ describe("electron-launcher-data-source", () => {
         expect(url.origin).toBe("http://localhost:7103");
         return createJsonResponse({
           models: [
-            { model_id: "sample-robot-face", telemetry_path: "/api/telemetry-gateway/sample-robot-face" },
-            { model_id: "sample-robot-spine", telemetry_path: "/api/telemetry-gateway/sample-robot-spine" },
+            {
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
+            },
+            {
+              model_id: "sample-robot-spine",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-spine",
+            },
           ],
         });
       }
@@ -212,11 +247,15 @@ describe("electron-launcher-data-source", () => {
 
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
-    const models = await dataSource.refreshProjectModels("/tmp/sample-robot", "local:ALL");
-
-    expect(models.find((m) => m.modelShortName === "sample-robot-spine")?.telemetryBaseUrl).toBe(
-      "http://localhost:7103/api/telemetry-gateway/sample-robot-spine",
+    const models = await dataSource.refreshProjectModels(
+      "/tmp/sample-robot",
+      "local:ALL",
     );
+
+    expect(
+      models.find((m) => m.modelShortName === "sample-robot-spine")
+        ?.telemetryBaseUrl,
+    ).toBe("http://localhost:7103/api/telemetry-gateway/sample-robot-spine");
   });
 
   it("rejects gateway telemetry routing when a model is missing a stable id", async () => {
@@ -231,7 +270,10 @@ describe("electron-launcher-data-source", () => {
           "models/sample-robot-spine.model.yaml",
         ]);
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-face.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Face", 7103, "192.168.5.16", {
             modelId: "sample-robot-face",
@@ -239,13 +281,21 @@ describe("electron-launcher-data-source", () => {
           }),
         );
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-spine.model.yaml") {
-        return createJsonResponse(createModel("SampleBot Spine", 7104, "10.42.0.2"));
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
+        return createJsonResponse(
+          createModel("SampleBot Spine", 7104, "10.42.0.2"),
+        );
       }
       if (path === "/api/telemetry-gateway/models") {
         return createJsonResponse({
           models: [
-            { model_id: "sample-robot-face", telemetry_path: "/api/telemetry-gateway/sample-robot-face" },
+            {
+              model_id: "sample-robot-face",
+              telemetry_path: "/api/telemetry-gateway/sample-robot-face",
+            },
           ],
         });
       }
@@ -261,30 +311,37 @@ describe("electron-launcher-data-source", () => {
   });
 
   it("resolves stored project basenames to absolute project paths before run requests", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
 
-      if (url.pathname === "/query/list-projects") {
-        return createJsonResponse(["robots/sample-robot/sample-robot.project.yaml"]);
-      }
-      if (url.pathname === "/v1/launcher/models/start") {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({
-          project_name: "sample-robot",
-          profile: "native:ALL",
-          creator: {
-            client: "studio",
-          },
-        });
-        return createJsonResponse({ sessions: [] });
-      }
-      throw new Error(`Unexpected fetch: ${url.toString()}`);
-    });
+        if (url.pathname === "/query/list-projects") {
+          return createJsonResponse([
+            "robots/sample-robot/sample-robot.project.yaml",
+          ]);
+        }
+        if (url.pathname === "/v1/launcher/models/start") {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_name: "sample-robot",
+            profile: "native:ALL",
+            creator: {
+              client: "studio",
+            },
+          });
+          return createJsonResponse({ sessions: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
 
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
 
-    await dataSource.requestLauncherRun("sample-robot.project.yaml", "native:ALL");
+    await dataSource.requestLauncherRun(
+      "sample-robot.project.yaml",
+      "native:ALL",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -300,14 +357,20 @@ describe("electron-launcher-data-source", () => {
           "models/sample-robot-face.model.yaml",
         ]);
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-spine.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-spine.model.yaml"
+      ) {
         return createJsonResponse(
           createModel("SampleBot Spine", 7104, "10.42.0.2", {
             telemetryPushRateHz: 7.5,
           }),
         );
       }
-      if (path === "/query/get-model" && modelPath === "models/sample-robot-face.model.yaml") {
+      if (
+        path === "/query/get-model" &&
+        modelPath === "models/sample-robot-face.model.yaml"
+      ) {
         return createJsonResponse({
           ...createModel("SampleBot Face", 7103, "10.42.0.3"),
           telemetry: {
@@ -321,11 +384,18 @@ describe("electron-launcher-data-source", () => {
 
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
-    const models = await dataSource.refreshProjectModels("/tmp/sample-robot", "native:ALL");
+    const models = await dataSource.refreshProjectModels(
+      "/tmp/sample-robot",
+      "native:ALL",
+    );
     const byPath = new Map(models.map((model) => [model.modelPath, model]));
 
-    expect(byPath.get("models/sample-robot-spine.model.yaml")?.telemetryPushRateHz).toBe(7.5);
-    expect(byPath.get("models/sample-robot-face.model.yaml")?.telemetryPushRateHz).toBe(20);
+    expect(
+      byPath.get("models/sample-robot-spine.model.yaml")?.telemetryPushRateHz,
+    ).toBe(7.5);
+    expect(
+      byPath.get("models/sample-robot-face.model.yaml")?.telemetryPushRateHz,
+    ).toBe(20);
   });
 
   it("loads workloads registry metadata for a project and target", async () => {
@@ -349,51 +419,61 @@ describe("electron-launcher-data-source", () => {
 
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
-    const result = await dataSource.fetchProjectWorkloadsRegistry("/tmp/sample-robot", "linux");
+    const result = await dataSource.fetchProjectWorkloadsRegistry(
+      "/tmp/sample-robot",
+      "linux",
+    );
 
     expect(result.registry).toHaveLength(1);
   });
 
   it("builds runtime status, log urls, log snapshots, and diagnostics from launcher responses", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      if (url.pathname === "/v1/launcher/runtime") {
-        return createJsonResponse({
-          resource_type: "robotick_launcher_runtime_status",
-          state: "running",
-          models: [
-            {
-              project_id: "barr-e",
-              model_id: "barr-e-face",
-              lifecycle: "running",
-              readiness: "ready",
-              freshness: "live",
-            },
-          ],
-        });
-      }
-      if (url.pathname === "/v1/launcher/models/logs") {
-        expect(url.searchParams.get("project_id")).toBe("barr-e");
-        expect(url.searchParams.get("tail")).toBe("50");
-        return createJsonResponse({
-          resource_type: "robotick_launcher_model_logs_batch",
-          project_id: "barr-e",
-          models: [],
-        });
-      }
-      if (url.pathname === "/v1/launcher/models/logs/clear") {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ project_id: "barr-e" });
-        return createJsonResponse({ cleared_models: [] });
-      }
-      throw new Error(`Unexpected fetch: ${url.toString()}`);
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/v1/launcher/runtime") {
+          return createJsonResponse({
+            resource_type: "robotick_launcher_runtime_status",
+            state: "running",
+            models: [
+              {
+                project_id: "barr-e",
+                model_id: "barr-e-face",
+                lifecycle: "running",
+                readiness: "ready",
+                freshness: "live",
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/v1/launcher/models/logs") {
+          expect(url.searchParams.get("project_id")).toBe("barr-e");
+          expect(url.searchParams.get("tail")).toBe("50");
+          return createJsonResponse({
+            resource_type: "robotick_launcher_model_logs_batch",
+            project_id: "barr-e",
+            models: [],
+          });
+        }
+        if (url.pathname === "/v1/launcher/models/logs/clear") {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            project_id: "barr-e",
+          });
+          return createJsonResponse({ cleared_models: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url.toString()}`);
+      },
+    );
 
     vi.stubGlobal("fetch", fetchMock);
     const dataSource = createDataSource();
 
     await expect(
-      dataSource.fetchLauncherStatus("/workspace/robots/barr-e/barr-e.project.yaml", "native:ALL"),
+      dataSource.fetchLauncherStatus(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
     ).resolves.toMatchObject({
       status: "running",
       models: {
@@ -405,24 +485,34 @@ describe("electron-launcher-data-source", () => {
     });
 
     await expect(
-      dataSource.getLauncherLogStreamUrl("/workspace/robots/barr-e/barr-e.project.yaml"),
+      dataSource.getLauncherLogStreamUrl(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+      ),
     ).resolves.toBe(
       "ws://127.0.0.1:53401/v1/launcher/models/logs/stream?project_id=barr-e",
     );
     await expect(
-      dataSource.fetchLauncherLogSnapshot("/workspace/robots/barr-e/barr-e.project.yaml", 50),
+      dataSource.fetchLauncherLogSnapshot(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        50,
+      ),
     ).resolves.toMatchObject({
       project_id: "barr-e",
       models: [],
     });
     await expect(
-      dataSource.getDiagnostics("/workspace/robots/barr-e/barr-e.project.yaml", "native:ALL"),
+      dataSource.getDiagnostics(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
     ).resolves.toMatchObject({
       launcher_api_base: "http://127.0.0.1:53401",
       terminal_log_stream_url:
         "ws://127.0.0.1:53401/v1/launcher/models/logs/stream?project_id=barr-e",
     });
-    await dataSource.requestLauncherLogClear("/workspace/robots/barr-e/barr-e.project.yaml");
+    await dataSource.requestLauncherLogClear(
+      "/workspace/robots/barr-e/barr-e.project.yaml",
+    );
   });
 
   it("keeps aggregate launcher status running when one model restarts while another remains live", async () => {
@@ -520,7 +610,10 @@ describe("electron-launcher-data-source", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await expect(
-      dataSource.getDiagnostics("/workspace/robots/barr-e/barr-e.project.yaml", "native:ALL"),
+      dataSource.getDiagnostics(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
     ).resolves.toMatchObject({
       status_cache: {
         project_path: "/workspace/robots/barr-e/barr-e.project.yaml",
@@ -529,5 +622,116 @@ describe("electron-launcher-data-source", () => {
         miss_count: 1,
       },
     });
+  });
+
+  it("coalesces concurrent runtime status reads", async () => {
+    let resolveFetch:
+      ((value: ReturnType<typeof createJsonResponse>) => void) | null = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/runtime") {
+        return new Promise<ReturnType<typeof createJsonResponse>>((resolve) => {
+          resolveFetch = resolve;
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const dataSource = createDataSource();
+
+    const first = dataSource.fetchLauncherStatus(
+      "/workspace/robots/barr-e/barr-e.project.yaml",
+      "native:ALL",
+    );
+    const second = dataSource.fetchLauncherStatus(
+      "/workspace/robots/barr-e/barr-e.project.yaml",
+      "native:ALL",
+    );
+
+    for (
+      let index = 0;
+      index < 10 && fetchMock.mock.calls.length === 0;
+      index += 1
+    ) {
+      await Promise.resolve();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch?.(
+      createJsonResponse({
+        resource_type: "robotick_launcher_runtime_status",
+        state: "running",
+        models: [
+          {
+            project_id: "barr-e",
+            model_id: "barr-e-face",
+            lifecycle: "running",
+            readiness: "ready",
+            freshness: "live",
+          },
+        ],
+      }),
+    );
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ status: "running" }),
+      expect.objectContaining({ status: "running" }),
+    ]);
+  });
+
+  it("keeps the last launcher status snapshot when a later runtime read fails", async () => {
+    vi.useFakeTimers();
+    let failNextFetch = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/launcher/runtime") {
+        if (failNextFetch) {
+          throw new Error("hub unavailable");
+        }
+        return createJsonResponse({
+          resource_type: "robotick_launcher_runtime_status",
+          state: "running",
+          models: [
+            {
+              project_id: "barr-e",
+              model_id: "barr-e-face",
+              lifecycle: "running",
+              readiness: "ready",
+              freshness: "live",
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const dataSource = createDataSource();
+
+    await expect(
+      dataSource.fetchLauncherStatus(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
+    ).resolves.toMatchObject({ status: "running" });
+
+    failNextFetch = true;
+    vi.advanceTimersByTime(1100);
+
+    await expect(
+      dataSource.fetchLauncherStatus(
+        "/workspace/robots/barr-e/barr-e.project.yaml",
+        "native:ALL",
+      ),
+    ).resolves.toMatchObject({
+      status: "running",
+      models: {
+        "barr-e-face": {
+          status: "running",
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

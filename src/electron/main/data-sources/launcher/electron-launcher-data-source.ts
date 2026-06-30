@@ -40,6 +40,11 @@ type LauncherStatusCacheEntry = {
   value: LegacyLauncherStatus | null;
 };
 
+type LauncherStatusPromiseEntry = {
+  cacheKey: string;
+  promise: Promise<LegacyLauncherStatus | null>;
+};
+
 type LauncherDataSourceOptions = {
   getWorkspaceRoot: () => string;
   getStaticHubEndpoint: () => string;
@@ -49,7 +54,7 @@ type LauncherDataSourceOptions = {
 const DEFAULT_MODEL_HOST = "localhost";
 const DEFAULT_TELEMETRY_PORT = 7090;
 const LAUNCHER_LOCAL_API_BASE = "http://localhost:7081";
-const LAUNCHER_STATUS_CACHE_TTL_MS = 500;
+const LAUNCHER_STATUS_CACHE_TTL_MS = 1000;
 
 function ensureTrailingSlash(url: string) {
   return url.endsWith("/") ? url : `${url}/`;
@@ -72,13 +77,15 @@ function tryBuildRoutedTelemetryUrl(baseUrl: string, path: string): URL | null {
     return null;
   }
 
-  return new URL(`${base.origin}${basePath}${path.slice(telemetryPrefix.length)}`);
+  return new URL(
+    `${base.origin}${basePath}${path.slice(telemetryPrefix.length)}`,
+  );
 }
 
 function buildUrl(
   baseUrl: string,
   path: string,
-  params?: Record<string, string | number | undefined>
+  params?: Record<string, string | number | undefined>,
 ): string {
   const url =
     tryBuildRoutedTelemetryUrl(baseUrl, path) ??
@@ -97,7 +104,7 @@ function buildUrl(
 function buildWebSocketUrl(
   baseUrl: string,
   path: string,
-  params?: Record<string, string | number | undefined>
+  params?: Record<string, string | number | undefined>,
 ): string {
   const url =
     tryBuildRoutedTelemetryUrl(baseUrl, path) ??
@@ -118,12 +125,17 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Request failed ${response.status} ${response.statusText}: ${text}`);
+    throw new Error(
+      `Request failed ${response.status} ${response.statusText}: ${text}`,
+    );
   }
   return (await response.json()) as T;
 }
 
-async function tryFetchJSON<T>(url: string, init?: RequestInit): Promise<T | null> {
+async function tryFetchJSON<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<T | null> {
   try {
     return await fetchJSON<T>(url, init);
   } catch {
@@ -152,14 +164,14 @@ function buildTelemetryBaseUrl(port: number) {
 }
 
 function getPreferredHost(data: unknown): string {
-  const preferredHost = (data as { runtime?: { preferred_host?: string } })?.runtime
-    ?.preferred_host;
+  const preferredHost = (data as { runtime?: { preferred_host?: string } })
+    ?.runtime?.preferred_host;
   return preferredHost?.trim() || DEFAULT_MODEL_HOST;
 }
 
 function isTelemetryGatewayModel(data: unknown): boolean {
   return Boolean(
-    (data as { telemetry?: { is_gateway?: boolean } })?.telemetry?.is_gateway
+    (data as { telemetry?: { is_gateway?: boolean } })?.telemetry?.is_gateway,
   );
 }
 
@@ -232,7 +244,7 @@ function deriveProjectName(projectPath: string): string {
 }
 
 function mapRuntimeModelToLegacyModelStatus(
-  model: LauncherRuntimeModelRecord
+  model: LauncherRuntimeModelRecord,
 ): LegacyLauncherModelStatus | null {
   const modelId = model.model_id?.trim();
   if (!modelId) {
@@ -265,7 +277,7 @@ function mapRuntimeModelToLegacyModelStatus(
 }
 
 function buildRuntimeModelStatusMap(
-  models: LauncherRuntimeModelRecord[]
+  models: LauncherRuntimeModelRecord[],
 ): Record<string, LegacyLauncherModelStatus> {
   const byModel: Record<string, LegacyLauncherModelStatus> = {};
   for (const model of models) {
@@ -282,11 +294,11 @@ function buildRuntimeModelStatusMap(
 }
 
 function reduceRuntimeLauncherStatus(
-  models: LauncherRuntimeModelRecord[]
+  models: LauncherRuntimeModelRecord[],
 ): "stopped" | "launching" | "running" | "stopping" {
   if (
     models.some(
-      (model) => model.lifecycle === "running" || model.freshness === "live"
+      (model) => model.lifecycle === "running" || model.freshness === "live",
     )
   ) {
     return "running";
@@ -300,40 +312,56 @@ function reduceRuntimeLauncherStatus(
   return "stopped";
 }
 
-function reduceRuntimeLauncherPhase(models: LauncherRuntimeModelRecord[]): string | null {
-  if (models.some((model) => model.lifecycle === "running" || model.freshness === "live")) {
+function reduceRuntimeLauncherPhase(
+  models: LauncherRuntimeModelRecord[],
+): string | null {
+  if (
+    models.some(
+      (model) => model.lifecycle === "running" || model.freshness === "live",
+    )
+  ) {
     return "run";
   }
   if (models.some((model) => model.lifecycle === "stopping")) {
     return "stop";
   }
-  if (models.some((model) => ["starting", "running"].includes(model.lifecycle ?? ""))) {
+  if (
+    models.some((model) =>
+      ["starting", "running"].includes(model.lifecycle ?? ""),
+    )
+  ) {
     return "run";
   }
   return null;
 }
 
-export function createElectronLauncherDataSource(options: LauncherDataSourceOptions) {
+export function createElectronLauncherDataSource(
+  options: LauncherDataSourceOptions,
+) {
   let cachedHubEndpoint = "";
   let knownProjectPaths: string[] = [];
   let cachedModels: ModelCacheEntry | null = null;
   let modelsPromise: ModelPromiseEntry | null = null;
   let cachedLauncherStatus: LauncherStatusCacheEntry | null = null;
+  let launcherStatusPromise: LauncherStatusPromiseEntry | null = null;
   let statusCacheHitCount = 0;
   let statusCacheMissCount = 0;
   let lastLauncherRuntimeFetchAt: string | null = null;
   let lastLauncherRuntimeFetchError: string | null = null;
-  const timings: NonNullable<ElectronLauncherDiagnosticsSnapshot["timings"]> = {};
+  const timings: NonNullable<ElectronLauncherDiagnosticsSnapshot["timings"]> =
+    {};
 
   function roundMs(value: number): number {
     return Math.round(value * 1000) / 1000;
   }
 
   async function measure<T>(
-    key: NonNullable<ElectronLauncherDiagnosticsSnapshot["timings"]> extends infer M
+    key: NonNullable<
+      ElectronLauncherDiagnosticsSnapshot["timings"]
+    > extends infer M
       ? keyof M
       : never,
-    action: () => Promise<T>
+    action: () => Promise<T>,
   ): Promise<T> {
     const startedAt = performance.now();
     try {
@@ -351,12 +379,16 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     return options.getStaticHubEndpoint().trim();
   }
 
-  function launcherStatusCacheKey(projectPath: string, launcherProfile: string): string {
+  function launcherStatusCacheKey(
+    projectPath: string,
+    launcherProfile: string,
+  ): string {
     return `${projectPath}::${launcherProfile}`;
   }
 
   function clearLauncherStatusCache() {
     cachedLauncherStatus = null;
+    launcherStatusPromise = null;
   }
 
   async function resolveHubEndpoint(): Promise<string> {
@@ -383,7 +415,9 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   }
 
   function getLauncherApiBaseSync(): string {
-    return cachedHubEndpoint || getStaticHubEndpoint() || LAUNCHER_LOCAL_API_BASE;
+    return (
+      cachedHubEndpoint || getStaticHubEndpoint() || LAUNCHER_LOCAL_API_BASE
+    );
   }
 
   function cacheProjectPaths(paths: string[]) {
@@ -401,15 +435,21 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     if (!trimmedPath) {
       return trimmedPath;
     }
-    if (looksAbsolutePath(trimmedPath) && !looksLikeProjectFilePath(trimmedPath)) {
-      const normalizedInput = normalizePathForMatch(trimmedPath).replace(/\/+$/, "");
+    if (
+      looksAbsolutePath(trimmedPath) &&
+      !looksLikeProjectFilePath(trimmedPath)
+    ) {
+      const normalizedInput = normalizePathForMatch(trimmedPath).replace(
+        /\/+$/,
+        "",
+      );
       const directoryMatches = knownProjectPaths
         .map((candidate) => absolutizeKnownProjectPath(candidate))
         .filter((candidate) => {
           const normalizedCandidate = normalizePathForMatch(candidate);
           const candidateDirectory = normalizedCandidate.slice(
             0,
-            normalizedCandidate.lastIndexOf("/")
+            normalizedCandidate.lastIndexOf("/"),
           );
           return candidateDirectory === normalizedInput;
         });
@@ -423,14 +463,14 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
     const normalizedInput = normalizePathForMatch(trimmedPath);
     const exactMatch = knownProjectPaths.find(
-      (candidate) => normalizePathForMatch(candidate) === normalizedInput
+      (candidate) => normalizePathForMatch(candidate) === normalizedInput,
     );
     if (exactMatch) {
       return exactMatch;
     }
 
     const basenameMatches = knownProjectPaths.filter(
-      (candidate) => getPathBasename(candidate) === normalizedInput
+      (candidate) => getPathBasename(candidate) === normalizedInput,
     );
     if (basenameMatches.length === 1) {
       return basenameMatches[0];
@@ -475,7 +515,9 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       : resolvedPath;
   }
 
-  async function resolveProjectSettingsPath(projectPath: string): Promise<string> {
+  async function resolveProjectSettingsPath(
+    projectPath: string,
+  ): Promise<string> {
     const trimmedPath = projectPath.trim();
     if (!trimmedPath) {
       return trimmedPath;
@@ -495,31 +537,45 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   }
 
   async function fetchProjectSettingsData<T = Record<string, unknown>>(
-    projectPath: string
+    projectPath: string,
   ): Promise<T> {
     return await measure("project_settings_ms", async () => {
-      const normalizedProjectPath = await resolveProjectSettingsPath(projectPath);
-      const url = buildUrl(await getLauncherApiBase(), "/query/get-project-settings", {
-        project_path: normalizedProjectPath,
-      });
+      const normalizedProjectPath =
+        await resolveProjectSettingsPath(projectPath);
+      const url = buildUrl(
+        await getLauncherApiBase(),
+        "/query/get-project-settings",
+        {
+          project_path: normalizedProjectPath,
+        },
+      );
       return await fetchJSON<T>(url);
     });
   }
 
   async function fetchProjectRemoteControlSettings<T = Record<string, unknown>>(
-    projectPath: string
+    projectPath: string,
   ): Promise<T> {
     return await measure("project_remote_control_settings_ms", async () => {
       const normalizedProjectPath = await resolveProjectPath(projectPath);
-      const url = buildUrl(await getLauncherApiBase(), "/query/get-project-rc-settings", {
-        project_path: normalizedProjectPath,
-      });
+      const url = buildUrl(
+        await getLauncherApiBase(),
+        "/query/get-project-rc-settings",
+        {
+          project_path: normalizedProjectPath,
+        },
+      );
       return await fetchJSON<T>(url);
     });
   }
 
-  async function createLauncherGroupRequest(payload: Record<string, unknown>): Promise<void> {
-    const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/start");
+  async function createLauncherGroupRequest(
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const url = buildUrl(
+      await getLauncherApiBase(),
+      "/v1/launcher/models/start",
+    );
     await fetchJSON(url, {
       method: "POST",
       headers: {
@@ -531,9 +587,12 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function createLauncherControlRequest(
     action: "stop" | "restart",
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
   ): Promise<void> {
-    const url = buildUrl(await getLauncherApiBase(), `/v1/launcher/models/${action}`);
+    const url = buildUrl(
+      await getLauncherApiBase(),
+      `/v1/launcher/models/${action}`,
+    );
     await fetchJSON(url, {
       method: "POST",
       headers: {
@@ -545,7 +604,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function requestLauncherRun(
     projectPath: string,
-    launcherProfile: string
+    launcherProfile: string,
   ): Promise<void> {
     clearLauncherStatusCache();
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -562,7 +621,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   async function requestLauncherRunModel(
     projectPath: string,
     platform: "local" | "native",
-    modelId: string
+    modelId: string,
   ): Promise<void> {
     clearLauncherStatusCache();
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -601,7 +660,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   async function requestLauncherStopModel(
     projectPath: string,
     platform: "local" | "native",
-    modelId: string
+    modelId: string,
   ): Promise<void> {
     clearLauncherStatusCache();
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -618,7 +677,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function requestLauncherRestart(
     projectPath: string,
-    launcherProfile: string
+    launcherProfile: string,
   ): Promise<void> {
     clearLauncherStatusCache();
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -638,7 +697,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   async function requestLauncherRestartModel(
     projectPath: string,
     platform: "local" | "native",
-    modelId: string
+    modelId: string,
   ): Promise<void> {
     clearLauncherStatusCache();
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -663,7 +722,9 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     });
   }
 
-  async function fetchLauncherSnapshot(projectPath: string): Promise<LauncherStatusResponse | null> {
+  async function fetchLauncherSnapshot(
+    projectPath: string,
+  ): Promise<LauncherStatusResponse | null> {
     const projectName = deriveProjectName(projectPath);
     if (!projectName) {
       return null;
@@ -685,11 +746,14 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function fetchLauncherStatus(
     projectPath: string,
-    launcherProfile: string
+    launcherProfile: string,
   ): Promise<LegacyLauncherStatus | null> {
     return await measure("launcher_status_ms", async () => {
       const normalizedProjectPath = await resolveProjectPath(projectPath);
-      const cacheKey = launcherStatusCacheKey(normalizedProjectPath, launcherProfile);
+      const cacheKey = launcherStatusCacheKey(
+        normalizedProjectPath,
+        launcherProfile,
+      );
       const nowMs = performance.now();
       if (
         cachedLauncherStatus?.cacheKey === cacheKey &&
@@ -697,6 +761,10 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       ) {
         statusCacheHitCount += 1;
         return cachedLauncherStatus.value;
+      }
+      if (launcherStatusPromise?.cacheKey === cacheKey) {
+        statusCacheHitCount += 1;
+        return await launcherStatusPromise.promise;
       }
       statusCacheMissCount += 1;
       const projectName = deriveProjectName(normalizedProjectPath);
@@ -717,44 +785,65 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
         return stoppedStatus;
       }
 
-      const snapshot = await fetchLauncherSnapshot(normalizedProjectPath);
-      if (!snapshot) {
+      const promise = (async () => {
+        const snapshot = await fetchLauncherSnapshot(normalizedProjectPath);
+        if (!snapshot) {
+          if (cachedLauncherStatus?.cacheKey === cacheKey) {
+            cachedLauncherStatus = {
+              ...cachedLauncherStatus,
+              loadedAtMs: performance.now(),
+            };
+            return cachedLauncherStatus.value;
+          }
+          cachedLauncherStatus = {
+            cacheKey,
+            projectPath: normalizedProjectPath,
+            launcherProfile,
+            loadedAtMs: performance.now(),
+            value: null,
+          };
+          return null;
+        }
+
+        const runtimeModels = (snapshot.runtime?.models ?? []).filter(
+          (model) => model.project_id?.trim() === projectName,
+        );
+        const status = {
+          status: reduceRuntimeLauncherStatus(runtimeModels),
+          phase: reduceRuntimeLauncherPhase(runtimeModels),
+          profile: launcherProfile.trim() || null,
+          models: buildRuntimeModelStatusMap(runtimeModels),
+        };
         cachedLauncherStatus = {
           cacheKey,
           projectPath: normalizedProjectPath,
           launcherProfile,
-          loadedAtMs: nowMs,
-          value: null,
+          loadedAtMs: performance.now(),
+          value: status,
         };
-        return null;
+        return status;
+      })();
+      launcherStatusPromise = { cacheKey, promise };
+      try {
+        return await promise;
+      } finally {
+        if (launcherStatusPromise?.promise === promise) {
+          launcherStatusPromise = null;
+        }
       }
-
-      const runtimeModels = (snapshot.runtime?.models ?? []).filter(
-        (model) => model.project_id?.trim() === projectName
-      );
-      const status = {
-        status: reduceRuntimeLauncherStatus(runtimeModels),
-        phase: reduceRuntimeLauncherPhase(runtimeModels),
-        profile: launcherProfile.trim() || null,
-        models: buildRuntimeModelStatusMap(runtimeModels),
-      };
-      cachedLauncherStatus = {
-        cacheKey,
-        projectPath: normalizedProjectPath,
-        launcherProfile,
-        loadedAtMs: nowMs,
-        value: status,
-      };
-      return status;
     });
   }
 
   async function fetchProjectModelPaths(projectPath: string) {
     return await measure("project_model_paths_ms", async () => {
       const normalizedProjectPath = await resolveProjectPath(projectPath);
-      const url = buildUrl(await getLauncherApiBase(), "/query/list-project-models", {
-        project_path: normalizedProjectPath,
-      });
+      const url = buildUrl(
+        await getLauncherApiBase(),
+        "/query/list-project-models",
+        {
+          project_path: normalizedProjectPath,
+        },
+      );
       const models = await fetchJSON<string[]>(url);
       return models.sort();
     });
@@ -762,30 +851,38 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function fetchProjectWorkloadsRegistry(
     projectPath: string,
-    target = "linux"
+    target = "linux",
   ): Promise<WorkloadsRegistryResponse> {
     const normalizedProjectPath = await resolveProjectPath(projectPath);
-    const url = buildUrl(await getLauncherApiBase(), "/query/get-workloads-registry", {
-      project_path: normalizedProjectPath,
-      target,
-    });
+    const url = buildUrl(
+      await getLauncherApiBase(),
+      "/query/get-workloads-registry",
+      {
+        project_path: normalizedProjectPath,
+        target,
+      },
+    );
     return await fetchJSON<WorkloadsRegistryResponse>(url);
   }
 
   async function fetchProjectCoreModelSchema(
     projectPath: string,
-    target = "linux"
+    target = "linux",
   ): Promise<Record<string, unknown>> {
     const normalizedProjectPath = await resolveProjectPath(projectPath);
-    const url = buildUrl(await getLauncherApiBase(), "/query/get-core-model-schema", {
-      project_path: normalizedProjectPath,
-      target,
-    });
+    const url = buildUrl(
+      await getLauncherApiBase(),
+      "/query/get-core-model-schema",
+      {
+        project_path: normalizedProjectPath,
+        target,
+      },
+    );
     return await fetchJSON<Record<string, unknown>>(url);
   }
 
   async function tryFetchGatewayRegistry(
-    gatewayBaseUrl: string
+    gatewayBaseUrl: string,
   ): Promise<Map<string, GatewayRegistryEntry> | null> {
     const url = buildUrl(gatewayBaseUrl, "/api/telemetry-gateway/models");
     const response = await tryFetchJSON<GatewayRegistryResponse>(url);
@@ -806,7 +903,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function buildModelDescriptors(
     projectPath: string,
-    launcherProfile: string
+    launcherProfile: string,
   ): Promise<ProjectModelDescriptor[]> {
     const useLocalModelHosts = isLocalLauncherProfile(launcherProfile);
     const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -814,7 +911,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     const modelPaths = await fetchJSON<string[]>(
       buildUrl(launcherApiBase, "/query/list-project-models", {
         project_path: normalizedProjectPath,
-      })
+      }),
     );
     modelPaths.sort();
 
@@ -824,7 +921,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
           buildUrl(launcherApiBase, "/query/get-model", {
             project_path: normalizedProjectPath,
             model_path: modelPath,
-          })
+          }),
         );
         if (!data) {
           return null;
@@ -832,18 +929,21 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
         const modelName =
           (data as { name?: string })?.name?.trim() ||
-          modelPath.split("/").pop()?.replace(/\.model\.yaml$/, "") ||
+          modelPath
+            .split("/")
+            .pop()
+            ?.replace(/\.model\.yaml$/, "") ||
           modelPath;
 
         const telemetryPort = normalizePort(
-          (data as { telemetry?: { port?: number } })?.telemetry?.port
+          (data as { telemetry?: { port?: number } })?.telemetry?.port,
         );
         const telemetryPushRateHz = normalizeTelemetryPushRateHz(
           (
             data as {
               telemetry?: { telemetry_push_rate_hz?: number };
             }
-          )?.telemetry?.telemetry_push_rate_hz
+          )?.telemetry?.telemetry_push_rate_hz,
         );
 
         return {
@@ -860,7 +960,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       } catch (error) {
         console.warn(
           `[electron-launcher-data-source] Failed to load model definition ${modelPath}`,
-          error
+          error,
         );
         return null;
       }
@@ -868,10 +968,10 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
     const descriptors = await Promise.all(descriptorPromises);
     const filteredDescriptors = descriptors.filter(
-      (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null
+      (descriptor): descriptor is ProjectModelDescriptor => descriptor !== null,
     );
     const gatewayDescriptor = filteredDescriptors.find((descriptor) =>
-      isTelemetryGatewayModel(descriptor.data)
+      isTelemetryGatewayModel(descriptor.data),
     );
     if (!gatewayDescriptor) {
       return filteredDescriptors;
@@ -888,7 +988,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       const modelIdFromData = String(descriptorData?.id ?? "").trim();
       if (!modelIdFromData) {
         throw new Error(
-          `Model '${descriptor.modelPath}' is missing required 'id' for telemetry gateway routing`
+          `Model '${descriptor.modelPath}' is missing required 'id' for telemetry gateway routing`,
         );
       }
       const registryEntry = gatewayRegistry?.get(modelIdFromData);
@@ -910,7 +1010,7 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
   async function resolveProjectModels(
     projectPath: string,
     launcherProfile: string,
-    force = false
+    force = false,
   ): Promise<ProjectModelDescriptor[]> {
     const normalizedProjectPath = await resolveProjectPath(projectPath);
     if (!normalizedProjectPath) {
@@ -925,8 +1025,10 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       return await modelsPromise.promise;
     }
 
-    const promise = measure("project_models_ms", async () =>
-      await buildModelDescriptors(normalizedProjectPath, launcherProfile)
+    const promise = measure(
+      "project_models_ms",
+      async () =>
+        await buildModelDescriptors(normalizedProjectPath, launcherProfile),
     );
     modelsPromise = { cacheKey, promise };
 
@@ -941,7 +1043,10 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     }
   }
 
-  function clearProjectModelCache(projectPath?: string, launcherProfile?: string) {
+  function clearProjectModelCache(
+    projectPath?: string,
+    launcherProfile?: string,
+  ) {
     if (!cachedModels) {
       return;
     }
@@ -955,11 +1060,17 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     }
   }
 
-  async function getProjectModels(projectPath: string, launcherProfile: string) {
+  async function getProjectModels(
+    projectPath: string,
+    launcherProfile: string,
+  ) {
     return await resolveProjectModels(projectPath, launcherProfile, false);
   }
 
-  async function refreshProjectModels(projectPath: string, launcherProfile: string) {
+  async function refreshProjectModels(
+    projectPath: string,
+    launcherProfile: string,
+  ) {
     return await resolveProjectModels(projectPath, launcherProfile, true);
   }
 
@@ -974,13 +1085,13 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       "/v1/launcher/models/logs/stream",
       {
         project_id: projectName,
-      }
+      },
     );
   }
 
   async function fetchLauncherLogSnapshot(
     projectPath: string,
-    tail = 300
+    tail = 300,
   ): Promise<LauncherModelLogsBatch | null> {
     return await measure("launcher_log_snapshot_ms", async () => {
       const normalizedProjectPath = await resolveProjectPath(projectPath);
@@ -988,10 +1099,14 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
       if (!projectName) {
         return null;
       }
-      const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs", {
-        project_id: projectName,
-        tail,
-      });
+      const url = buildUrl(
+        await getLauncherApiBase(),
+        "/v1/launcher/models/logs",
+        {
+          project_id: projectName,
+          tail,
+        },
+      );
       return await tryFetchJSON<LauncherModelLogsBatch>(url);
     });
   }
@@ -1003,7 +1118,10 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
     if (!projectName) {
       return;
     }
-    const url = buildUrl(await getLauncherApiBase(), "/v1/launcher/models/logs/clear");
+    const url = buildUrl(
+      await getLauncherApiBase(),
+      "/v1/launcher/models/logs/clear",
+    );
     await fetchJSON(url, {
       method: "POST",
       headers: {
@@ -1015,9 +1133,11 @@ export function createElectronLauncherDataSource(options: LauncherDataSourceOpti
 
   async function getDiagnostics(
     projectPath: string,
-    launcherProfile: string
+    launcherProfile: string,
   ): Promise<ElectronLauncherDiagnosticsSnapshot> {
-    const normalizedProjectPath = projectPath ? await resolveProjectPath(projectPath) : "";
+    const normalizedProjectPath = projectPath
+      ? await resolveProjectPath(projectPath)
+      : "";
     return {
       current_project_path: normalizedProjectPath,
       launcher_profile: launcherProfile,

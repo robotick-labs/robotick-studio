@@ -286,7 +286,8 @@ function applyRuntimeState(state: StreamingImageRuntimeState): void {
   surfaceCreatedAtMs = state.surfaceCreatedAtMs;
   transformScratchCanvas = state.transformScratchCanvas;
   transformScratchContext = state.transformScratchContext;
-  createImageBitmapUnavailableReported = state.createImageBitmapUnavailableReported;
+  createImageBitmapUnavailableReported =
+    state.createImageBitmapUnavailableReported;
   activeCompositeStreamMode = state.activeCompositeStreamMode;
   layeredFrameSequenceByLayerId = state.layeredFrameSequenceByLayerId;
   workloadAliasCache = state.workloadAliasCache;
@@ -320,7 +321,9 @@ async function runWithRuntimeState<T>(
   const previousState = captureRuntimeState();
   const state = runtimeStates.get(instanceId);
   if (!state) {
-    throw new Error(`Streaming image viewer instance ${instanceId} is not active`);
+    throw new Error(
+      `Streaming image viewer instance ${instanceId} is not active`,
+    );
   }
 
   activeRuntimeInstanceId = instanceId;
@@ -359,10 +362,7 @@ async function withRuntimeStateIfActive<T>(
 
 type StreamingImageTransform = "none" | "depth-preview" | "mask-preview";
 type StreamingImageBlendMode =
-  | "normal"
-  | "screen"
-  | "multiply"
-  | "plus-lighter";
+  "normal" | "screen" | "multiply" | "plus-lighter";
 
 export type ObjectDetectionOverlay = {
   className: string;
@@ -835,7 +835,9 @@ function cleanupStreamSelector() {
 
 function cleanupCanvasSurface() {
   if (activeCanvasStackElement?.parentElement) {
-    activeCanvasStackElement.parentElement.removeChild(activeCanvasStackElement);
+    activeCanvasStackElement.parentElement.removeChild(
+      activeCanvasStackElement,
+    );
   } else if (activeCanvas?.parentElement) {
     activeCanvas.parentElement.removeChild(activeCanvas);
   }
@@ -3081,13 +3083,13 @@ function handleTelemetryFrame(
     detections,
     fieldOfViewRect,
   };
-  lastFrameReceivedAtMs = frame.receivedAtMs;
-  stallStateActive = false;
-  if (metricsWindow) {
-    metricsWindow.receivedFrames += 1;
-  }
 
   if (activeCompositeStreamMode) {
+    lastFrameReceivedAtMs = frame.receivedAtMs;
+    stallStateActive = false;
+    if (metricsWindow) {
+      metricsWindow.receivedFrames += 1;
+    }
     const targetCanvas = getLayerCanvas(source.index);
     const targetContext = getLayerCanvasContext(source.index);
     if (!targetCanvas || !targetContext) {
@@ -3224,10 +3226,8 @@ function buildDeclaredWorkloadAliasMap(
       continue;
     }
     const workload = entry as Record<string, unknown>;
-    const id =
-      typeof workload.id === "string" ? workload.id.trim() : "";
-    const name =
-      typeof workload.name === "string" ? workload.name.trim() : "";
+    const id = typeof workload.id === "string" ? workload.id.trim() : "";
+    const name = typeof workload.name === "string" ? workload.name.trim() : "";
     if (!id && !name) {
       continue;
     }

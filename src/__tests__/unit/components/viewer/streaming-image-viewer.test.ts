@@ -73,10 +73,9 @@ vi.mock("../../../../renderer/data-sources/launcher", () => ({
           : modelName === "demo-robot-simulator"
             ? "http://example.test:7096"
             : `http://example.test/${modelName}`,
-      data:
-        projectModelsState.data.find(
-          (descriptor) => descriptor.modelName === modelName,
-        )?.data ?? { workloads: [] },
+      data: projectModelsState.data.find(
+        (descriptor) => descriptor.modelName === modelName,
+      )?.data ?? { workloads: [] },
     })),
   },
 }));
@@ -109,14 +108,12 @@ describe("viewer-streaming-image frame rate config", () => {
     refreshTelemetryLayout.mockClear();
     refreshTelemetryLayout.mockResolvedValue(null);
     subscribeTelemetry.mockClear();
-    vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValue({
-        fillStyle: "#000",
-        fillRect: vi.fn(),
-        clearRect: vi.fn(),
-        drawImage: vi.fn(),
-      } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillStyle: "#000",
+      fillRect: vi.fn(),
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
   });
 
   afterEach(async () => {
@@ -130,8 +127,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       streams: {
-        Default:
-          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+        Default: "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
       },
       frameRateHz: 33,
     });
@@ -142,7 +138,7 @@ describe("viewer-streaming-image frame rate config", () => {
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
-      })
+      }),
     );
   });
 
@@ -151,8 +147,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       streams: {
-        Default:
-          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+        Default: "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
       },
       samplingRateHz: 24,
     });
@@ -163,7 +158,7 @@ describe("viewer-streaming-image frame rate config", () => {
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
-      })
+      }),
     );
   });
 
@@ -172,8 +167,7 @@ describe("viewer-streaming-image frame rate config", () => {
       camera: { fov: 60, near: 0.1, far: 100 },
       models: [],
       streams: {
-        Default:
-          "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
+        Default: "sample-robot-sensing-visual.camera.outputs.image.data_buffer",
       },
     });
 
@@ -183,8 +177,72 @@ describe("viewer-streaming-image frame rate config", () => {
       expect.objectContaining({
         callback: expect.any(Function),
         error: expect.any(Function),
-      })
+      }),
     );
+  });
+
+  it("counts one received frame per single-layer telemetry callback", async () => {
+    const drawImage = vi.fn();
+    const close = vi.fn();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(
+        async () => ({ width: 2, height: 2, close }) as unknown as ImageBitmap,
+      ),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillStyle: "#000",
+      fillRect: vi.fn(),
+      clearRect: vi.fn(),
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    (
+      globalThis as typeof globalThis & {
+        __robotickTelemetryMetrics?: unknown[];
+      }
+    ).__robotickTelemetryMetrics = [];
+
+    await init({
+      camera: { fov: 60, near: 0.1, far: 100 },
+      models: [],
+      streams: {
+        Default: "sample-robot-sensing-visual.camera.outputs.image",
+      },
+      frameRateHz: 30,
+      telemetryMetricsEnabled: true,
+    });
+
+    const callback = subscribeTelemetry.mock.calls[0][2].callback;
+    callback({
+      getField: vi.fn((path: string) =>
+        path === "camera.outputs.image"
+          ? {
+              mime_type: "image/jpeg",
+              getValue: () =>
+                new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+            }
+          : undefined,
+      ),
+    });
+    await vi.waitFor(() => {
+      expect(drawImage).toHaveBeenCalledTimes(1);
+    });
+
+    await uninit();
+
+    expect(
+      (
+        globalThis as typeof globalThis & {
+          __robotickTelemetryMetrics?: Array<{
+            receivedFrames: number;
+            presentedFrames: number;
+          }>;
+        }
+      ).__robotickTelemetryMetrics?.slice(-1)[0],
+    ).toMatchObject({
+      receivedFrames: 1,
+      presentedFrames: 1,
+    });
   });
 });
 
@@ -196,14 +254,12 @@ describe("viewer-streaming-image stream selection", () => {
     refreshTelemetryLayout.mockResolvedValue(null);
     subscribeTelemetry.mockClear();
     subscribeTelemetry.mockImplementation(() => vi.fn());
-    vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValue({
-        fillStyle: "#000",
-        fillRect: vi.fn(),
-        clearRect: vi.fn(),
-        drawImage: vi.fn(),
-      } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillStyle: "#000",
+      fillRect: vi.fn(),
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
   });
 
   afterEach(async () => {
@@ -306,7 +362,8 @@ describe("viewer-streaming-image stream selection", () => {
           layers: [
             "demo-robot-simulator.head_rgb_png.outputs.image",
             {
-              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              source:
+                "demo-robot-perception-visual.head_segmented_png.outputs.image",
               transform: "mask-preview",
               blendMode: "screen",
               opacity: 0.65,
@@ -384,7 +441,7 @@ describe("viewer-streaming-image stream selection", () => {
       expect.arrayContaining([
         "http://example.test:7096",
         "http://example.test/demo-robot-perception-visual",
-      ])
+      ]),
     );
   });
 
@@ -418,7 +475,7 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     const selector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(selector?.value).toBe("Head-RGB");
     expect(subscribeTelemetry).toHaveBeenCalledTimes(1);
@@ -433,14 +490,7 @@ describe("viewer-streaming-image stream selection", () => {
     const callback = subscribeTelemetry.mock.calls[1][2].callback;
     const getValue = vi.fn(() => ({
       data_buffer: new Uint8Array([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
       ]),
       count: 8,
     }));
@@ -497,8 +547,7 @@ describe("viewer-streaming-image stream selection", () => {
     callback({
       getField: vi.fn(() => ({
         mime_type: "image/jpeg",
-        getValue: () =>
-          new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+        getValue: () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
       })),
     });
 
@@ -510,8 +559,7 @@ describe("viewer-streaming-image stream selection", () => {
     refreshTelemetryLayout.mockResolvedValueOnce({
       getField: vi.fn(() => ({
         mime_type: "image/jpeg",
-        getValue: () =>
-          new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
+        getValue: () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) as Uint8Array,
       })),
     });
 
@@ -609,7 +657,8 @@ describe("viewer-streaming-image stream selection", () => {
                 "demo-robot-perception-visual.visual_field_of_view_filter.outputs.field_of_view_rect",
             },
             {
-              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              source:
+                "demo-robot-perception-visual.head_segmented_png.outputs.image",
               transform: "mask-preview",
               blendMode: "screen",
               opacity: 0.65,
@@ -708,7 +757,8 @@ describe("viewer-streaming-image stream selection", () => {
           layers: [
             "demo-robot-simulator.head_rgb_png.outputs.image",
             {
-              source: "demo-robot-perception-visual.head_segmented_png.outputs.image",
+              source:
+                "demo-robot-perception-visual.head_segmented_png.outputs.image",
               transform: "mask-preview",
               blendMode: "screen",
               opacity: 0.65,
@@ -720,9 +770,13 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     expect(subscribeTelemetry).toHaveBeenCalledTimes(2);
-    expect(document.querySelectorAll('canvas[data-role="streaming-image-base"], canvas[data-role="streaming-image-overlay"]')).toHaveLength(2);
     expect(
-      document.querySelector('[data-role="streaming-image-layer-stack"]')
+      document.querySelectorAll(
+        'canvas[data-role="streaming-image-base"], canvas[data-role="streaming-image-overlay"]',
+      ),
+    ).toHaveLength(2);
+    expect(
+      document.querySelector('[data-role="streaming-image-layer-stack"]'),
     ).not.toBeNull();
   });
 
@@ -775,7 +829,7 @@ describe("viewer-streaming-image stream selection", () => {
     await init({ ...config, selectedStream: persistedSelectedStream });
 
     const selector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(selector?.value).toBe("Head-RGB");
 
@@ -792,21 +846,14 @@ describe("viewer-streaming-image stream selection", () => {
     await init({ ...config, selectedStream: persistedSelectedStream });
 
     const restoredSelector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(restoredSelector?.value).toBe("Head-Depth");
 
     const callback = subscribeTelemetry.mock.calls[0][2].callback;
     const getValue = vi.fn(() => ({
       data_buffer: new Uint8Array([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
       ]),
       count: 8,
     }));
@@ -837,7 +884,7 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     const firstSelector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(firstSelector?.value).toBe("Head-RGB");
 
@@ -860,7 +907,7 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     const secondSelector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(secondSelector?.value).toBe("Head-RGB");
 
@@ -876,7 +923,7 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     const restoredSelector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     expect(restoredSelector?.value).toBe("Head-Depth");
   });
@@ -894,7 +941,7 @@ describe("viewer-streaming-image stream selection", () => {
     });
 
     const selector = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Image stream"]'
+      'select[aria-label="Image stream"]',
     );
     const control = selector?.closest("label");
 
@@ -1080,14 +1127,11 @@ describe("viewer-streaming-image transforms", () => {
       4,
       1,
       1,
-      new Uint16Array([0, 1000, 3000, 5000])
+      new Uint16Array([0, 1000, 3000, 5000]),
     );
 
     expect(Array.from(preview?.data ?? [])).toEqual([
-      0, 0, 0, 255,
-      255, 255, 255, 255,
-      128, 128, 128, 255,
-      0, 0, 0, 255,
+      0, 0, 0, 255, 255, 255, 255, 255, 128, 128, 128, 255, 0, 0, 0, 255,
     ]);
   });
 
@@ -1101,32 +1145,25 @@ describe("viewer-streaming-image transforms", () => {
     });
 
     const preview = createDepthPreviewImageDataFromPngBytes(
-      pngBytes as Uint8Array<ArrayBuffer>
+      pngBytes as Uint8Array<ArrayBuffer>,
     );
 
     expect(Array.from(preview?.data ?? [])).toEqual([
-      0, 0, 0, 255,
-      255, 255, 255, 255,
-      128, 128, 128, 255,
-      0, 0, 0, 255,
+      0, 0, 0, 255, 255, 255, 255, 255, 128, 128, 128, 255, 0, 0, 0, 255,
     ]);
   });
 
   it("maps depth previews so near non-zero pixels become bright", () => {
     const imageData = {
       data: new Uint8ClampedArray([
-        0, 0, 0, 255,
-        10, 10, 10, 255,
-        200, 200, 200, 255,
+        0, 0, 0, 255, 10, 10, 10, 255, 200, 200, 200, 255,
       ]),
     } as ImageData;
 
     applyDepthPreviewTransformToImageData(imageData);
 
     expect(Array.from(imageData.data)).toEqual([
-      0, 0, 0, 255,
-      255, 255, 255, 255,
-      0, 0, 0, 255,
+      0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255,
     ]);
   });
 
@@ -1135,14 +1172,11 @@ describe("viewer-streaming-image transforms", () => {
       4,
       1,
       1,
-      new Uint8Array([0, 1, 2, 13])
+      new Uint8Array([0, 1, 2, 13]),
     );
 
     expect(Array.from(preview?.data ?? [])).toEqual([
-      0, 0, 0, 255,
-      255, 82, 82, 255,
-      77, 208, 225, 255,
-      255, 82, 82, 255,
+      0, 0, 0, 255, 255, 82, 82, 255, 77, 208, 225, 255, 255, 82, 82, 255,
     ]);
   });
 
@@ -1156,32 +1190,23 @@ describe("viewer-streaming-image transforms", () => {
     });
 
     const preview = createMaskPreviewImageDataFromPngBytes(
-      pngBytes as Uint8Array<ArrayBuffer>
+      pngBytes as Uint8Array<ArrayBuffer>,
     );
 
     expect(Array.from(preview?.data ?? [])).toEqual([
-      0, 0, 0, 255,
-      255, 82, 82, 255,
-      77, 208, 225, 255,
-      255, 213, 79, 255,
+      0, 0, 0, 255, 255, 82, 82, 255, 77, 208, 225, 255, 255, 213, 79, 255,
     ]);
   });
 
   it("maps decoded grayscale mask image data to visible instance colours", () => {
     const imageData = {
-      data: new Uint8ClampedArray([
-        0, 0, 0, 255,
-        1, 1, 1, 255,
-        2, 2, 2, 255,
-      ]),
+      data: new Uint8ClampedArray([0, 0, 0, 255, 1, 1, 1, 255, 2, 2, 2, 255]),
     } as ImageData;
 
     applyMaskPreviewTransformToImageData(imageData);
 
     expect(Array.from(imageData.data)).toEqual([
-      0, 0, 0, 255,
-      255, 82, 82, 255,
-      77, 208, 225, 255,
+      0, 0, 0, 255, 255, 82, 82, 255, 77, 208, 225, 255,
     ]);
   });
 });
@@ -1254,10 +1279,10 @@ describe("viewer-streaming-image detection overlays", () => {
     ]);
 
     const box = overlay.querySelector<HTMLElement>(
-      '[data-role="object-detection-box"]'
+      '[data-role="object-detection-box"]',
     );
     const label = overlay.querySelector<HTMLElement>(
-      '[data-role="object-detection-label"]'
+      '[data-role="object-detection-label"]',
     );
 
     expect(box?.style.left).toBe("10%");
@@ -1271,25 +1296,21 @@ describe("viewer-streaming-image detection overlays", () => {
   it("renders a greyed-out surround outside the visible field of view", () => {
     const overlay = document.createElement("div");
 
-    renderObjectDetectionsOverlay(
-      overlay,
-      [],
-      {
-        minXNorm: 0.2,
-        minYNorm: 0.15,
-        maxXNorm: 0.8,
-        maxYNorm: 0.85,
-      }
-    );
+    renderObjectDetectionsOverlay(overlay, [], {
+      minXNorm: 0.2,
+      minYNorm: 0.15,
+      maxXNorm: 0.8,
+      maxYNorm: 0.85,
+    });
 
     const topMask = overlay.querySelector<HTMLElement>(
-      '[data-role="field-of-view-mask-top"]'
+      '[data-role="field-of-view-mask-top"]',
     );
     const leftMask = overlay.querySelector<HTMLElement>(
-      '[data-role="field-of-view-mask-left"]'
+      '[data-role="field-of-view-mask-left"]',
     );
     const window = overlay.querySelector<HTMLElement>(
-      '[data-role="field-of-view-window"]'
+      '[data-role="field-of-view-window"]',
     );
 
     expect(topMask?.style.height).toBe("15%");
@@ -1312,8 +1333,8 @@ describe("viewer-streaming-image detection overlays", () => {
           minYNorm: 0.1504,
           maxXNorm: 0.8004,
           maxYNorm: 0.8504,
-        }
-      )
+        },
+      ),
     ).toBe(true);
   });
 
@@ -1341,8 +1362,8 @@ describe("viewer-streaming-image detection overlays", () => {
             boxY2Norm: 0.6,
             trackId: 7,
           },
-        ]
-      )
+        ],
+      ),
     ).toBe(false);
   });
 
@@ -1351,7 +1372,7 @@ describe("viewer-streaming-image detection overlays", () => {
       640,
       480,
       { left: 10, top: 20, width: 800, height: 480 },
-      { left: 10, top: 20 }
+      { left: 10, top: 20 },
     );
 
     expect(rect).toEqual({
@@ -1390,14 +1411,7 @@ describe("viewer-streaming-image byte extraction", () => {
 describe("viewer-streaming-image mime resolution", () => {
   it("infers PNG when dynamic parent fields have no mime_type", () => {
     const pngBytes = new Uint8Array([
-      0x89,
-      0x50,
-      0x4e,
-      0x47,
-      0x0d,
-      0x0a,
-      0x1a,
-      0x0a,
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]);
 
     expect(resolveStreamingImageMime(undefined, pngBytes)).toBe("image/png");
@@ -1405,18 +1419,11 @@ describe("viewer-streaming-image mime resolution", () => {
 
   it("keeps explicit field mime_type when present", () => {
     const pngBytes = new Uint8Array([
-      0x89,
-      0x50,
-      0x4e,
-      0x47,
-      0x0d,
-      0x0a,
-      0x1a,
-      0x0a,
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]);
 
     expect(resolveStreamingImageMime("image/custom", pngBytes)).toBe(
-      "image/custom"
+      "image/custom",
     );
   });
 });

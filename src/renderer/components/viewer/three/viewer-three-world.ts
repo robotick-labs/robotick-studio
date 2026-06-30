@@ -127,6 +127,41 @@ function extractBinaryFieldBytes(
   return countedBytes;
 }
 
+function inferTextureMime(
+  explicitMime: string | undefined,
+  bytes: Uint8Array,
+): "image/png" | "image/jpeg" | null {
+  const normalized = explicitMime?.trim().toLowerCase();
+  if (normalized === "image/png" || normalized === "image/jpeg") {
+    return normalized;
+  }
+
+  if (
+    bytes.byteLength >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (
+    bytes.byteLength >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+
+  return null;
+}
+
 export class ViewerWorld {
   // temp scratch
   private __TMP = {
@@ -939,13 +974,6 @@ export class ViewerWorld {
             continue;
           }
 
-          if (field.mime_type !== "image/png") {
-            console.warn(
-              `Texture field mime_type [${field.mime_type}] is not 'image/png': ${fieldPath}`,
-            );
-            continue;
-          }
-
           const fieldValue = field.getValue();
           const fieldBytes = extractBinaryFieldBytes(
             telemetryModel,
@@ -961,6 +989,14 @@ export class ViewerWorld {
             continue;
           }
 
+          const textureMime = inferTextureMime(field.mime_type, fieldBytes);
+          if (!textureMime) {
+            console.warn(
+              `Texture field mime_type [${field.mime_type}] is not a supported image type: ${fieldPath}`,
+            );
+            continue;
+          }
+
           const textureKey = `${animator.id}:${fieldPath}:${t.node}:${t.prop}`;
           const frameSignature = `${fieldBytes.byteLength}:${hashBytes(fieldBytes)}`;
           if (this.textureFrameSignatures.get(textureKey) === frameSignature) {
@@ -971,7 +1007,7 @@ export class ViewerWorld {
             fieldBytes.byteOffset,
             fieldBytes.byteOffset + fieldBytes.byteLength,
           ) as ArrayBuffer;
-          const blob = new Blob([buffer], { type: field.mime_type });
+          const blob = new Blob([buffer], { type: textureMime });
           const bitmap = await createImageBitmap(blob);
 
           const node = this.findNodeAnyModel(t.node);

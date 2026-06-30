@@ -78,7 +78,10 @@ function createFetchMock() {
         },
       });
     }
-    if (url === "http://localhost:9030/api/telemetry/set_workload_input_fields_data") {
+    if (
+      url ===
+      "http://localhost:9030/api/telemetry/set_workload_input_fields_data"
+    ) {
       return new Response(
         JSON.stringify({ status: "processed", accepted_count: 1 }),
         {
@@ -87,7 +90,10 @@ function createFetchMock() {
         },
       );
     }
-    if (url === "http://localhost:9030/api/telemetry/set_workload_input_connection_state") {
+    if (
+      url ===
+      "http://localhost:9030/api/telemetry/set_workload_input_connection_state"
+    ) {
       return new Response(JSON.stringify({ status: "processed" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -118,7 +124,9 @@ function createFetchMock() {
   });
 }
 
-function createService(overrides?: Partial<ElectronTelemetryServiceDependencies>) {
+function createService(
+  overrides?: Partial<ElectronTelemetryServiceDependencies>,
+) {
   const fetchMock = createFetchMock();
   const service = createElectronTelemetryService({
     getSelectedProjectPath: () => "/tmp/barr-e/barr-e.project.yaml",
@@ -187,6 +195,99 @@ describe("createElectronTelemetryService", () => {
     expect(response.body.readUInt32LE(0)).toBe(42);
   });
 
+  it("accepts the runtime session header used by telemetry raw endpoints", async () => {
+    const fetchMock = createFetchMock();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "http://localhost:9030/api/telemetry/workloads_buffer/raw") {
+        return new Response(makeRawBuffer(), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Robotick-Frame-Seq": "18",
+            "X-Robotick-Session-Id": "session-from-runtime",
+          },
+        });
+      }
+      return createFetchMock()(input);
+    });
+    const { service } = createService({
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await expect(service.getRawBuffer("barr-e-face")).resolves.toMatchObject({
+      frame_seq: 18,
+      engine_session_id: "session-from-runtime",
+    });
+  });
+
+  it("refetches cached layout when raw telemetry comes from a new engine session", async () => {
+    const raw = makeRawBuffer();
+    let layoutFetchCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/query/list-project-models")) {
+        return new Response(JSON.stringify(["models/barr-e-face.model.yaml"]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/query/get-model")) {
+        return new Response(
+          JSON.stringify({
+            id: "barr_e_face",
+            name: "Barr.e Face",
+            telemetry: { port: 9030, telemetry_push_rate_hz: 30 },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (
+        url === "http://localhost:9030/api/telemetry/workloads_buffer/layout"
+      ) {
+        layoutFetchCount += 1;
+        return new Response(
+          JSON.stringify({
+            ...layout,
+            engine_session_id:
+              layoutFetchCount === 1 ? "session-a" : "session-b",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (url === "http://localhost:9030/api/telemetry/workloads_buffer/raw") {
+        return new Response(raw, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Robotick-Frame-Seq": "20",
+            "X-Robotick-Session-Id": "session-b",
+          },
+        });
+      }
+      return new Response(JSON.stringify({ error: "not_found", url }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const { service } = createService({
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    await service.getLayout("barr-e-face");
+    const snapshot = await service.getSnapshot("barr-e-face");
+
+    expect(snapshot.source.engine_session_id).toBe("session-b");
+    expect(snapshot.layout.engine_session_id).toBe("session-b");
+    expect(layoutFetchCount).toBe(2);
+  });
+
   it("produces decoded snapshot JSON from layout plus raw buffer", async () => {
     const { service } = createService();
 
@@ -237,19 +338,20 @@ describe("createElectronTelemetryService", () => {
       body: { status: "processed" },
     });
     await expect(
-      service.setWorkloadInputConnectionStateForBaseUrl("http://localhost:9030", {
-        engine_session_id: "session-a",
-        updates: [{ field_handle: 7, enabled: false }],
-      }),
+      service.setWorkloadInputConnectionStateForBaseUrl(
+        "http://localhost:9030",
+        {
+          engine_session_id: "session-a",
+          updates: [{ field_handle: 7, enabled: false }],
+        },
+      ),
     ).resolves.toMatchObject({
       ok: true,
       status: 200,
       body: { status: "processed" },
     });
 
-    expect(
-      fetchMock.mock.calls.map(([url]) => String(url)),
-    ).toEqual(
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
       expect.arrayContaining([
         "http://localhost:9030/api/telemetry/set_workload_input_fields_data",
         "http://localhost:9030/api/telemetry/set_workload_input_connection_state",
@@ -315,12 +417,18 @@ describe("createElectronTelemetryService", () => {
     const firstEvents: unknown[] = [];
     const secondEvents: unknown[] = [];
 
-    const unsubscribeFirst = service.subscribeBaseUrl("http://localhost:9030", (event) => {
-      firstEvents.push(event);
-    });
-    const unsubscribeSecond = service.subscribeBaseUrl("http://localhost:9030", (event) => {
-      secondEvents.push(event);
-    });
+    const unsubscribeFirst = service.subscribeBaseUrl(
+      "http://localhost:9030",
+      (event) => {
+        firstEvents.push(event);
+      },
+    );
+    const unsubscribeSecond = service.subscribeBaseUrl(
+      "http://localhost:9030",
+      (event) => {
+        secondEvents.push(event);
+      },
+    );
 
     expect(sockets).toHaveLength(1);
     sockets[0]?.onmessage?.({
@@ -364,7 +472,10 @@ describe("createElectronTelemetryService", () => {
       })),
     });
 
-    const unsubscribe = service.subscribeBaseUrl("http://localhost:9030", () => {});
+    const unsubscribe = service.subscribeBaseUrl(
+      "http://localhost:9030",
+      () => {},
+    );
     await service.ensureLayoutForBaseUrl("http://localhost:9030");
 
     expect(service.getSharedDiagnostics()).toMatchObject({
@@ -380,6 +491,45 @@ describe("createElectronTelemetryService", () => {
       ],
     });
 
+    unsubscribe();
+  });
+
+  it("reconnects a disconnected active base-url subscription during diagnostics", async () => {
+    const sockets: Array<{
+      binaryType: string;
+      readyState: number;
+      onopen: ((event: unknown) => void) | null;
+      onmessage: ((event: { data: unknown }) => void) | null;
+      onerror: ((event: unknown) => void) | null;
+      onclose: ((event: unknown) => void) | null;
+      close: ReturnType<typeof vi.fn>;
+    }> = [];
+    const { service } = createService({
+      webSocketFactory: vi.fn(() => {
+        const socket = {
+          binaryType: "",
+          readyState: 1,
+          onopen: null,
+          onmessage: null,
+          onerror: null,
+          onclose: null,
+          close: vi.fn(),
+        };
+        sockets.push(socket);
+        return socket;
+      }),
+    });
+
+    const unsubscribe = service.subscribeBaseUrl(
+      "http://localhost:9030",
+      () => {},
+    );
+    expect(sockets).toHaveLength(1);
+
+    sockets[0].readyState = 3;
+    service.getSharedDiagnostics();
+
+    expect(sockets).toHaveLength(2);
     unsubscribe();
   });
 

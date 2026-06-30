@@ -77,8 +77,12 @@ export type ElectronTelemetryService = {
   getLayout(modelId: string): Promise<ElectronTelemetryLayoutResponse>;
   getRawBuffer(modelId: string): Promise<ElectronTelemetryRawBufferResponse>;
   getSnapshot(modelId: string): Promise<ElectronTelemetrySnapshotResponse>;
-  ensureLayoutForBaseUrl(baseUrl: string): Promise<ElectronTelemetryLayoutFrame | null>;
-  refreshLayoutForBaseUrl(baseUrl: string): Promise<ElectronTelemetryLayoutFrame | null>;
+  ensureLayoutForBaseUrl(
+    baseUrl: string,
+  ): Promise<ElectronTelemetryLayoutFrame | null>;
+  refreshLayoutForBaseUrl(
+    baseUrl: string,
+  ): Promise<ElectronTelemetryLayoutFrame | null>;
   subscribeBaseUrl(
     baseUrl: string,
     listener: ElectronTelemetryStreamListener,
@@ -86,7 +90,9 @@ export type ElectronTelemetryService = {
   getBaseUrlDiagnostics(baseUrl: string): ElectronTelemetryBaseUrlDiagnostics;
   getSharedDiagnostics(): ElectronTelemetrySharedDiagnostics;
   getHealthForBaseUrl(baseUrl: string): Promise<ElectronTelemetryHealthResult>;
-  getPushStatsForBaseUrl(baseUrl: string): Promise<ElectronTelemetryPushStatsResult>;
+  getPushStatsForBaseUrl(
+    baseUrl: string,
+  ): Promise<ElectronTelemetryPushStatsResult>;
   setWorkloadInputFieldsDataForBaseUrl(
     baseUrl: string,
     request: ElectronTelemetryWriteRequest,
@@ -267,7 +273,10 @@ function buildUrl(
   pathname: string,
   params?: Record<string, string>,
 ): string {
-  const url = new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  const url = new URL(
+    pathname,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+  );
   for (const [key, value] of Object.entries(params ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -275,7 +284,10 @@ function buildUrl(
 }
 
 function buildWebSocketUrl(baseUrl: string, pathname: string): string {
-  const url = new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  const url = new URL(
+    pathname,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+  );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
@@ -325,7 +337,8 @@ function modelDisplayName(modelPath: string, data: unknown): string {
 }
 
 function buildTelemetryBaseUrl(data: unknown, telemetryPort: number): string {
-  const runtime = (data as { runtime?: { preferred_host?: unknown } } | null)?.runtime;
+  const runtime = (data as { runtime?: { preferred_host?: unknown } } | null)
+    ?.runtime;
   const preferredHost =
     typeof runtime?.preferred_host === "string" && runtime.preferred_host.trim()
       ? runtime.preferred_host.trim()
@@ -374,7 +387,8 @@ function normalizeArrayBuffer(data: unknown): Promise<ArrayBuffer | null> {
   }
   if (ArrayBuffer.isView(data)) {
     return Promise.resolve(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice().buffer,
+      new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice()
+        .buffer,
     );
   }
   if (typeof Blob !== "undefined" && data instanceof Blob) {
@@ -443,7 +457,9 @@ function serializeStruct(
   };
 }
 
-function serializeWorkload(workload: ITelemetryWorkload): SerializedTelemetryWorkload {
+function serializeWorkload(
+  workload: ITelemetryWorkload,
+): SerializedTelemetryWorkload {
   return {
     name: workload.name,
     display_name: workload.displayName,
@@ -477,7 +493,8 @@ function toPublicModelInfo(
     health: latestError ? "error" : layout || raw ? "ready" : "unknown",
     stale: false,
     latest_frame_seq: raw?.frameSeq ?? null,
-    latest_engine_session_id: raw?.engineSessionId ?? layout?.layout.engine_session_id ?? null,
+    latest_engine_session_id:
+      raw?.engineSessionId ?? layout?.layout.engine_session_id ?? null,
     latest_raw_at: raw?.loadedAt ?? null,
     latest_error: latestError,
   };
@@ -492,7 +509,9 @@ class ElectronTelemetryWsClient {
 
   constructor(
     private readonly baseUrl: string,
-    private readonly webSocketFactory: (url: string) => ElectronTelemetryWebSocket,
+    private readonly webSocketFactory: (
+      url: string,
+    ) => ElectronTelemetryWebSocket,
     private readonly onLayout: (layout: LayoutModel) => void,
     private readonly onFrame: (frame: ElectronTelemetryRawFrame) => void,
     private readonly onError: (error: unknown) => void,
@@ -609,7 +628,10 @@ class ElectronTelemetryWsClient {
 
     this.onFrame({
       raw: binary,
-      sid: typeof meta.engine_session_id === "string" ? meta.engine_session_id : "",
+      sid:
+        typeof meta.engine_session_id === "string"
+          ? meta.engine_session_id
+          : "",
       frameSeq: Number.isFinite(meta.frame_seq) ? Number(meta.frame_seq) : null,
       timestamp: this.now().getTime(),
     });
@@ -640,7 +662,9 @@ class ElectronTelemetryWsClient {
     if (obj.type === "frame") {
       this.pendingFrameMetaQueue.push({
         engine_session_id:
-          typeof obj.engine_session_id === "string" ? obj.engine_session_id : undefined,
+          typeof obj.engine_session_id === "string"
+            ? obj.engine_session_id
+            : undefined,
         frame_seq:
           typeof obj.frame_seq === "number" && Number.isFinite(obj.frame_seq)
             ? obj.frame_seq
@@ -683,7 +707,9 @@ export function createElectronTelemetryService(
           503,
         );
       }
-      return new globalThis.WebSocket(url) as unknown as ElectronTelemetryWebSocket;
+      return new globalThis.WebSocket(
+        url,
+      ) as unknown as ElectronTelemetryWebSocket;
     });
   let descriptorProjectPath: string | null = null;
   let descriptorCache: ModelDescriptor[] | null = null;
@@ -711,38 +737,39 @@ export function createElectronTelemetryService(
           project_path: projectPath,
         }),
       )
-    ).slice().sort();
+    )
+      .slice()
+      .sort();
 
-    const descriptors = (
-      await Promise.all(
-        modelPaths.map(async (modelPath) => {
-          const data = await fetchJson<unknown>(
-            fetchImpl,
-            buildUrl(hubEndpoint, "/query/get-model", {
-              project_path: projectPath,
-              model_path: modelPath,
-            }),
-          );
-          const telemetry = (data as { telemetry?: Record<string, unknown> } | null)
-            ?.telemetry;
-          const telemetryPort = normalizePort(telemetry?.port);
-          return {
-            model_id: buildModelShortName(modelPath),
-            display_name: modelDisplayName(modelPath, data),
+    const descriptors = await Promise.all(
+      modelPaths.map(async (modelPath) => {
+        const data = await fetchJson<unknown>(
+          fetchImpl,
+          buildUrl(hubEndpoint, "/query/get-model", {
+            project_path: projectPath,
             model_path: modelPath,
-            engine_model_id:
-              typeof (data as { id?: unknown } | null)?.id === "string"
-                ? ((data as { id: string }).id.trim() || null)
-                : null,
-            telemetry_base_url: buildTelemetryBaseUrl(data, telemetryPort),
-            telemetry_port: telemetryPort,
-            telemetry_push_rate_hz: normalizeTelemetryPushRateHz(
-              telemetry?.telemetry_push_rate_hz,
-            ),
-            data,
-          } satisfies ModelDescriptor;
-        }),
-      )
+          }),
+        );
+        const telemetry = (
+          data as { telemetry?: Record<string, unknown> } | null
+        )?.telemetry;
+        const telemetryPort = normalizePort(telemetry?.port);
+        return {
+          model_id: buildModelShortName(modelPath),
+          display_name: modelDisplayName(modelPath, data),
+          model_path: modelPath,
+          engine_model_id:
+            typeof (data as { id?: unknown } | null)?.id === "string"
+              ? (data as { id: string }).id.trim() || null
+              : null,
+          telemetry_base_url: buildTelemetryBaseUrl(data, telemetryPort),
+          telemetry_port: telemetryPort,
+          telemetry_push_rate_hz: normalizeTelemetryPushRateHz(
+            telemetry?.telemetry_push_rate_hz,
+          ),
+          data,
+        } satisfies ModelDescriptor;
+      }),
     );
 
     descriptorProjectPath = projectPath;
@@ -752,7 +779,9 @@ export function createElectronTelemetryService(
 
   async function resolveDescriptor(modelId: string): Promise<ModelDescriptor> {
     const descriptors = await resolveDescriptors();
-    const descriptor = descriptors.find((candidate) => candidate.model_id === modelId);
+    const descriptor = descriptors.find(
+      (candidate) => candidate.model_id === modelId,
+    );
     if (!descriptor) {
       throw new ElectronTelemetryServiceError(
         "unknown_model",
@@ -763,7 +792,9 @@ export function createElectronTelemetryService(
     return descriptor;
   }
 
-  async function fetchLayout(descriptor: ModelDescriptor): Promise<LayoutCacheEntry> {
+  async function fetchLayout(
+    descriptor: ModelDescriptor,
+  ): Promise<LayoutCacheEntry> {
     const cached = layoutCache.get(descriptor.model_id);
     if (cached) {
       return cached;
@@ -772,7 +803,10 @@ export function createElectronTelemetryService(
     try {
       const layout = await fetchJson<LayoutModel>(
         fetchImpl,
-        buildUrl(descriptor.telemetry_base_url, "/api/telemetry/workloads_buffer/layout"),
+        buildUrl(
+          descriptor.telemetry_base_url,
+          "/api/telemetry/workloads_buffer/layout",
+        ),
       );
       const entry = { layout, loadedAt: now().toISOString() };
       layoutCache.set(descriptor.model_id, entry);
@@ -792,13 +826,27 @@ export function createElectronTelemetryService(
     }
   }
 
+  function rawSessionHeader(response: Response): string | null {
+    return (
+      stringHeader(response, "X-Robotick-Session-Id") ??
+      stringHeader(response, "x-robotick-session-id") ??
+      stringHeader(response, "X-Robotick-Engine-Session-Id") ??
+      stringHeader(response, "x-robotick-engine-session-id")
+    );
+  }
+
   async function fetchRaw(descriptor: ModelDescriptor): Promise<RawCacheEntry> {
     const response = await fetchImpl(
-      buildUrl(descriptor.telemetry_base_url, "/api/telemetry/workloads_buffer/raw"),
+      buildUrl(
+        descriptor.telemetry_base_url,
+        "/api/telemetry/workloads_buffer/raw",
+      ),
     );
     if (!response.ok) {
       throw new ElectronTelemetryServiceError(
-        response.status === 404 ? "raw_buffer_unavailable" : "telemetry_network_failure",
+        response.status === 404
+          ? "raw_buffer_unavailable"
+          : "telemetry_network_failure",
         `Raw telemetry fetch failed for ${descriptor.model_id}: HTTP ${response.status}`,
         response.status === 404 ? 404 : 502,
       );
@@ -809,14 +857,37 @@ export function createElectronTelemetryService(
       frameSeq:
         numberHeader(response, "X-Robotick-Frame-Seq") ??
         numberHeader(response, "x-robotick-frame-seq"),
-      engineSessionId:
-        stringHeader(response, "X-Robotick-Engine-Session-Id") ??
-        stringHeader(response, "x-robotick-engine-session-id"),
+      engineSessionId: rawSessionHeader(response),
       loadedAt: now().toISOString(),
     };
     rawCache.set(descriptor.model_id, entry);
+    const cachedLayout = layoutCache.get(descriptor.model_id);
+    const layoutSessionId = cachedLayout?.layout.engine_session_id ?? "";
+    if (
+      entry.engineSessionId &&
+      layoutSessionId &&
+      entry.engineSessionId !== layoutSessionId
+    ) {
+      layoutCache.delete(descriptor.model_id);
+    }
     latestErrors.delete(descriptor.model_id);
     return entry;
+  }
+
+  async function fetchLayoutForRaw(
+    descriptor: ModelDescriptor,
+    raw: RawCacheEntry,
+  ): Promise<LayoutCacheEntry> {
+    const cached = layoutCache.get(descriptor.model_id);
+    const layoutSessionId = cached?.layout.engine_session_id ?? "";
+    if (
+      raw.engineSessionId &&
+      layoutSessionId &&
+      raw.engineSessionId !== layoutSessionId
+    ) {
+      layoutCache.delete(descriptor.model_id);
+    }
+    return await fetchLayout(descriptor);
   }
 
   function getOrCreateBaseUrlEntry(baseUrl: string): BaseUrlTelemetryEntry {
@@ -838,7 +909,9 @@ export function createElectronTelemetryService(
     return entry;
   }
 
-  function layoutFrame(entry: BaseUrlTelemetryEntry): ElectronTelemetryLayoutFrame | null {
+  function layoutFrame(
+    entry: BaseUrlTelemetryEntry,
+  ): ElectronTelemetryLayoutFrame | null {
     if (!entry.layout) {
       return null;
     }
@@ -861,6 +934,11 @@ export function createElectronTelemetryService(
     entry: BaseUrlTelemetryEntry,
     layout: LayoutModel,
   ) {
+    const layoutSessionId = layout.engine_session_id ?? "";
+    const rawSessionId = entry.raw?.sid ?? "";
+    if (layoutSessionId && rawSessionId && layoutSessionId !== rawSessionId) {
+      entry.raw = null;
+    }
     entry.layout = {
       layout,
       loadedAt: now().toISOString(),
@@ -883,6 +961,9 @@ export function createElectronTelemetryService(
     const layoutSid = entry.layout?.layout.engine_session_id ?? "";
     if (frame.sid && layoutSid && frame.sid !== layoutSid) {
       entry.layout = null;
+      void fetchBaseUrlLayout(entry, true).catch(() => {
+        // fetchBaseUrlLayout records the error on the entry.
+      });
     }
     emitBaseUrlEvent(entry, { type: "frame", payload: frame });
   }
@@ -908,6 +989,17 @@ export function createElectronTelemetryService(
       now,
     );
     entry.client.connect();
+  }
+
+  function ensureActiveBaseUrlClient(entry: BaseUrlTelemetryEntry) {
+    if (entry.listeners.size === 0) {
+      return;
+    }
+    const readyState = entry.client?.readyState ?? null;
+    if (readyState === WS_OPEN || readyState === WS_CONNECTING) {
+      return;
+    }
+    ensureBaseUrlClient(entry);
   }
 
   async function fetchBaseUrlLayout(
@@ -946,9 +1038,10 @@ export function createElectronTelemetryService(
       let body: Record<string, unknown> | null = null;
       try {
         const parsed = await response.json();
-        body = parsed && typeof parsed === "object"
-          ? (parsed as Record<string, unknown>)
-          : null;
+        body =
+          parsed && typeof parsed === "object"
+            ? (parsed as Record<string, unknown>)
+            : null;
       } catch {
         body = null;
       }
@@ -979,9 +1072,10 @@ export function createElectronTelemetryService(
       let body: Record<string, unknown> | null = null;
       try {
         const parsed = await response.json();
-        body = parsed && typeof parsed === "object"
-          ? (parsed as Record<string, unknown>)
-          : null;
+        body =
+          parsed && typeof parsed === "object"
+            ? (parsed as Record<string, unknown>)
+            : null;
       } catch {
         body = null;
       }
@@ -1057,10 +1151,8 @@ export function createElectronTelemetryService(
 
     async getSnapshot(modelId: string) {
       const descriptor = await resolveDescriptor(modelId);
-      const [layout, raw] = await Promise.all([
-        fetchLayout(descriptor),
-        fetchRaw(descriptor),
-      ]);
+      const raw = await fetchRaw(descriptor);
+      const layout = await fetchLayoutForRaw(descriptor, raw);
       const decoded = createTelemetryModel(layout.layout);
       decoded.raw = arrayBufferFromBuffer(raw.body);
       return {
@@ -1074,7 +1166,8 @@ export function createElectronTelemetryService(
         ),
         source: {
           frame_seq: raw.frameSeq,
-          engine_session_id: raw.engineSessionId ?? layout.layout.engine_session_id ?? null,
+          engine_session_id:
+            raw.engineSessionId ?? layout.layout.engine_session_id ?? null,
           raw_byte_length: raw.body.byteLength,
           layout_loaded_at: layout.loadedAt,
           raw_loaded_at: raw.loadedAt,
@@ -1106,7 +1199,10 @@ export function createElectronTelemetryService(
       return await fetchBaseUrlLayout(entry, true);
     },
 
-    subscribeBaseUrl(baseUrl: string, listener: ElectronTelemetryStreamListener) {
+    subscribeBaseUrl(
+      baseUrl: string,
+      listener: ElectronTelemetryStreamListener,
+    ) {
       const trimmed = baseUrl.trim();
       if (!trimmed) {
         return () => {};
@@ -1139,16 +1235,24 @@ export function createElectronTelemetryService(
 
     getBaseUrlDiagnostics(baseUrl: string) {
       const entry = baseUrlEntries.get(baseUrl.trim());
+      if (entry) {
+        ensureActiveBaseUrlClient(entry);
+      }
       return {
         subscriberCount: entry?.listeners.size ?? 0,
         layoutLoaded: Boolean(entry?.layout),
-        lastFrameAt: entry?.raw ? new Date(entry.raw.timestamp).toISOString() : null,
+        lastFrameAt: entry?.raw
+          ? new Date(entry.raw.timestamp).toISOString()
+          : null,
         lastErrorAt: entry?.lastErrorAt ?? null,
         lastErrorMessage: entry?.lastErrorMessage ?? null,
       };
     },
 
     getSharedDiagnostics() {
+      for (const entry of baseUrlEntries.values()) {
+        ensureActiveBaseUrlClient(entry);
+      }
       const baseUrls = Array.from(baseUrlEntries.values())
         .sort((left, right) => left.baseUrl.localeCompare(right.baseUrl))
         .map((entry) => ({
@@ -1159,7 +1263,9 @@ export function createElectronTelemetryService(
           latestFrameSeq: entry.raw?.frameSeq ?? null,
           latestEngineSessionId: entry.raw?.sid ?? null,
           websocketConnected: entry.client?.readyState === WS_OPEN,
-          lastFrameAt: entry.raw ? new Date(entry.raw.timestamp).toISOString() : null,
+          lastFrameAt: entry.raw
+            ? new Date(entry.raw.timestamp).toISOString()
+            : null,
           lastErrorAt: entry.lastErrorAt,
           lastErrorMessage: entry.lastErrorMessage,
         }));
@@ -1174,7 +1280,10 @@ export function createElectronTelemetryService(
     },
 
     async getHealthForBaseUrl(baseUrl) {
-      const result = await getTelemetryJson(baseUrl.trim(), "/api/telemetry/health");
+      const result = await getTelemetryJson(
+        baseUrl.trim(),
+        "/api/telemetry/health",
+      );
       return {
         ok: result.ok,
         status: result.status,
@@ -1184,7 +1293,10 @@ export function createElectronTelemetryService(
     },
 
     async getPushStatsForBaseUrl(baseUrl) {
-      return await getTelemetryJson(baseUrl.trim(), "/api/telemetry/push_stats");
+      return await getTelemetryJson(
+        baseUrl.trim(),
+        "/api/telemetry/push_stats",
+      );
     },
 
     async setWorkloadInputFieldsDataForBaseUrl(baseUrl, request) {
